@@ -1,0 +1,66 @@
+# Guarantee: 1795010335-terminal-pane
+
+## Claims re-run
+
+The audit ran in a clone at `8a11760` under the sealer's scratch directory, with the worktree's installed `node_modules` copied in; the tree under audit was not changed. The base `main` resolves to `1fa85cc` through `main@{upstream}` and holds no code under `apps/`.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run stands at HEAD | `trail/gate.md` `run: bd37866 against 1fa85cc` | `git merge-base --is-ancestor bd37866 HEAD`; `git log --no-merges --name-only bd37866..HEAD ^1fa85cc` | holds (executed): `bd37866` is an ancestor of HEAD, and the one commit after it, `8a11760`, touches only `seal/threads/1795010335-terminal-pane/trail/gate.md` |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file `seal pr-body` wrote at `8a11760` | `seal pr-body seal/threads/1795010335-terminal-pane --body <file> --check` | holds (executed): exit 0, `matches` |
+| The session-marker case was seen red before the fix | the orchestrator's spawn prompt (executed: 1 failed, then 9 passed); no phase record, as `routing.md` names the session as implementer | in the clone, `node scripts/test-in-electron.mjs test/pty.test.ts -t "markers"` at HEAD, then again with the `"CLAUDE_CODE_CHILD_"` entry alone removed from `INHERITED_PREFIXES` in `apps/desktop/src/main/pty.ts:28` | holds (executed): passes at HEAD; with that guard removed it fails at `test/pty.test.ts` *drops the markers of a Claude Code session the app was started from*, the received list being `CLAUDE_CODE_CHILD_SESSION` and `CLAUDE_CODE_CHILD_NOTES_DIR`, which is the guard the case names |
+| The locale case fails without the `LANG` default and passes with it | the orchestrator's spawn prompt (executed) | in the clone, `node scripts/test-in-electron.mjs test/pty.test.ts -t "locale"` with `if (!env.LANG) env.LANG = "en_US.UTF-8";` alone removed from `apps/desktop/src/main/pty.ts:47`, then restored | holds (executed): fails at *sets a UTF-8 locale when the app was started without one* with `expected undefined to be 'en_US.UTF-8'`; *keeps the locale the user already has* passes; with the line restored both pass |
+| Korean output and typed Korean reach the process through the pseudo-terminal | `apps/desktop/test/pty.test.ts:19` and `:25` | in the clone, `-t "Korean\|types\|markers\|UTF-8 locale\|own Claude"` at HEAD; then the same Korean cases with `apps/desktop/src` moved aside, as the base holds it | holds (executed): 5 passed, 4 skipped at HEAD; without the code the file fails with `Cannot find module '../src/main/pty'` |
+| The `xxd` bytes the owner saw are the UTF-8 of `한글 조합 테스트` | `gaps.md` *Not verified*, row 3 | `printf '%s' "한글 조합 테스트" \| xxd \| head -2` | holds (executed): `ed95 9cea b880 20ec a1b0 ed95 a920 ed85 8cec 8aa4 ed8a b8`, the bytes the row quotes |
+| A person typed Korean into the running pane, in the shell and at Claude Code's prompt, on 2026-11-18, and the prompt icons drew | `gaps.md` *Not verified*, row 3; `changelog.md` bullets 1 and 2; `docs/architecture.md:303` | none: the result is the owner's screenshots, which the orchestrator read | unverified: the owner answers it; no session can type into the pane |
+| `codex` is not installed here, so Codex in the pane is not verified | `gaps.md` *Not verified*, row 1; `pr.md` | `which codex` | holds (executed): `codex not found`, exit 1; Codex in the pane stays unverified, and the owner answers it on a machine with Codex CLI |
+| A `claude` in the pane no longer reports transcript saving turned off | `changelog.md` bullet 3 | none: seen on screen by the owner | unverified: the owner answers it; what the tree holds is the marker case above |
+| CI does not run the desktop tests | `gaps.md` *Not done*, bullet 4 | read `.github/workflows/hygiene.yml` | holds (read): its `run:` steps clone the plugin and run `chain_check.py` and `seal.py mode --check`; no step runs `pnpm` or Electron |
+| The broad gate runs the desktop app's typecheck and tests before the documents check | `changelog.md` bullet 4 | read `git diff 1fa85cc...HEAD -- seal/config.json package.json apps/desktop/package.json` | holds (read): the key now begins `pnpm -r run check && `; `apps/desktop/package.json` `check` is `pnpm run typecheck && pnpm run test`. That the owner chose this is the orchestrator's account and unverified, answered by the owner |
+| Nothing a removal names stands in the tree | `frame/design.md` *Removes*; `changelog.md` | read | holds (read): the work item has no `frame/design.md`, and `changelog.md` names no removal |
+
+## The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | No frame was written; `routing.md` *Why this way* names issue #3, `docs/roadmap.md` milestone 1 and `docs/architecture.md` as the design the work builds to | the build, for the window, the one pane and the login shell | none of the parties; the issue body's sentence on the open row is taken up under the orchestrator's part |
+| the build | The diff adds `apps/desktop` (one window, one xterm.js pane over node-pty running the login shell with a filtered environment and a UTF-8 locale default), the pnpm workspace, the broad gate's `pnpm -r run check`, and the dated Korean input result in `docs/architecture.md:303` and `docs/architecture.ko.md:303`. `routing.md` names the session as implementer, so no phase record is owed | issue #3's two *Done when* lines, with Codex disclosed as unverified; the changelog; `gaps.md` *Not done* (terminals in the main process, the home folder as cwd, no font setting, CI without desktop tests) | none |
+| the last round | No round ran: `routing.md` answers Review `straight to the PR` | not applicable | not applicable |
+| the changelog | One window and one pane running the login shell; Korean input works on macOS; a `claude` in the pane behaves as a fresh session; the broad gate runs the app's checks | the build and `gaps.md` | none |
+| the orchestrator's part of the pull request body | `pr.md`: `Closes #3`, with the routing paragraph and the Codex row of `gaps.md` quoted, each with its coordinate | the routing record and `gaps.md` *Not verified* row 1 | issue #3, *Checked at the start*: "The result decides the open row "Tauri for macOS only" in docs/architecture.md *Open decisions*." The tree leaves that row as it stood (`docs/architecture.md:332`, `docs/architecture.ko.md:332`) and keeps the sentence that says the row waits on the test's result (`docs/architecture.md:307`, `docs/architecture.ko.md:307`). `gaps.md` *Not done* does not name the row, so `Closes #3` closes the issue while that sentence of it is neither done nor disclosed |
+
+```seal
+target: 8a11760 against 1fa85cc
+Verdict: withheld reason: the orchestrator's `Closes #3` in `pr.md`, with `gaps.md` silent, leaves undone the issue #3 sentence "The result decides the open row "Tauri for macOS only" in docs/architecture.md Open decisions": the row at docs/architecture.md:332 and docs/architecture.ko.md:332 and the waiting sentence at :307 of both stand unchanged; settle the row with the owner in both documents, or name it in `gaps.md` Not done with who decides it
+```
+
+## Re-audit at de9e0f7
+
+The commits since `8a11760` are `ebd44e4` (this file), `557c89a` (`docs/architecture.md`, `docs/architecture.ko.md`), `f52bf9f` (`trail/gate.md`) and `de9e0f7` (`changelog.md`). None touches `apps/`, the workspace files or `seal/config.json` (executed: `git diff --stat 8a11760 HEAD -- apps package.json pnpm-lock.yaml pnpm-workspace.yaml seal/config.json` prints nothing), so the code claims re-run at `8a11760` stand unchanged and are not re-run. The claims and parties below are the ones those commits touched.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run stands at HEAD | `trail/gate.md`, newest block `run: 557c89a against 1fa85cc` | `git merge-base --is-ancestor 557c89a HEAD`; `git log --no-merges --name-only 557c89a..HEAD ^1fa85cc` | holds (executed): `557c89a` is an ancestor of HEAD; `f52bf9f` and `de9e0f7` follow it and touch only `seal/threads/1795010335-terminal-pane/trail/gate.md` and `seal/threads/1795010335-terminal-pane/changelog.md` |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file `seal pr-body` rewrote at `de9e0f7` | `seal pr-body seal/threads/1795010335-terminal-pane --body <file> --check` | holds (executed): exit 0, `matches` |
+| The row "Tauri for macOS only" is settled in both editions | `557c89a`; the orchestrator's message | `git diff 8a11760 HEAD -- docs`; `git grep -n -i tauri -- docs README.md README.ko.md` | holds (executed): the row is gone from *Open decisions* in both editions; `docs/architecture.md:307` and `docs/architecture.ko.md:307` now say Electron stays on macOS (decided 2026-11-18), with Korean input in the Electron pane and the measured gap of up to about 10% at `:300` as the grounds on the row's two criteria; the *Measure before building* item for a Tauri test app is gone from both; the grep prints nothing, exit 1 |
+| The two editions still agree in table rows | the broad gate's documents check | `grep -c '^\|' docs/architecture.md docs/architecture.ko.md` | holds (executed): 107 and 107 |
+| The owner chose to keep Electron on macOS | the orchestrator's message, relaying the owner's answer in the session on 2026-11-18 | none: the answer was given to the orchestrator | unverified: the owner answers it, and reads the decision at `docs/architecture.md:307` in the pull request |
+| The dated Korean input result is still recorded | `docs/architecture.md:303`, `docs/architecture.ko.md:303` | `sed -n 303p docs/architecture.md` | holds (executed): the line stands as audited at `8a11760` |
+| The earlier verdict block stands as written | this file at `ebd44e4` | `git show ebd44e4:<this file> \| diff - <this file>` before this block was appended | holds (executed): no difference |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | No frame; unchanged since `8a11760` | the build | none |
+| the build | The code is unchanged since `8a11760`; `557c89a` settles the row the issue says the Korean input result decides, in both editions | issue #3 *Checked at the start* and its two *Done when* lines, with Codex disclosed as unverified in `gaps.md` | none |
+| the last round | No round ran: `routing.md` answers Review `straight to the PR` | not applicable | not applicable |
+| the changelog | Adds that Electron stays on macOS: the open row is gone, Korean input works in the Electron pane, and the measured memory gap does not decide | `docs/architecture.md:307` and the removed row | none |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged: `Closes #3`, with the routing paragraph and the Codex row of `gaps.md` quoted | issue #3, now that the row its *Checked at the start* sentence names is decided in the tree; `gaps.md` | none |
+
+```seal
+target: de9e0f7 against 1fa85cc
+Verdict: sealed
+```
