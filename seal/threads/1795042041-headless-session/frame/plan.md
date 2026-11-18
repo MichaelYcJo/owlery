@@ -24,7 +24,7 @@ A case cannot import `main.ts`, because importing it starts the daemon; the adap
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 4 and 7, and the protocol of *Data & interfaces* | Scenarios 2 to 7 as cases, each seen red before its code; one real run of the Claude adapter from a probe outside the suite, whose output lines become the fixture of scenario 5 | `86cb04d` |
-| 2 | *Scope* items 5 and 6 | Scenario 1 in the built app, driven once through the debugging port against the real Claude adapter; scenario 8 executed | |
+| 2 | *Scope* items 5 and 6 | Scenario 1 in the built app, driven once through the debugging port against the real Claude adapter; scenario 8 executed |`18cfe3c` |
 
 ## Overlap with the release
 
