@@ -24,7 +24,7 @@ The tree as read at `fce9aea`.
 5. A folder that is not inside a git repository is refused with an error the window shows; nothing is created.
 6. The daemon keeps the list of work items in `work-items.json` in its run directory, mode 0600, and reads it at start, so the list outlives the daemon. Sessions do not outlive the daemon, as today.
 7. A pane can open in a work item: the `start` message names the work item, and the pane's process runs in its worktree. A pane started without one opens where it does today.
-8. The window has a "+ Work item" control that asks for the repository folder and a title and which kind of pane to open (Claude Code or Shell), creates the work item, and opens that pane in it. A tab of a work item's pane is labelled with the work item's title. The window lists the work items `ready` carries.
+8. The window has a "+ Work item" control that asks for the repository folder and a title and which kind of pane to open (Claude Code or Shell), creates the work item, and opens that pane in it. A tab of a work item's pane is labelled with the work item's title, then the pane's kind and number (`<title> · <kind> <id>`), because two work items may share a title and one work item may hold several panes. The window lists the work items `ready` carries.
 9. Out of scope: deleting or archiving a work item and its worktree (milestone 4), setup scripts and ports (milestone 4), the inbox's states (issue #7), choosing the base branch (the repository's `HEAD` is used).
 
 ## User scenarios & acceptance *(mandatory)*
