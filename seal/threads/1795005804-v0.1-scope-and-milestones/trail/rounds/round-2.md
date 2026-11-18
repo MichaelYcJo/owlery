@@ -33,6 +33,11 @@ The fact itself holds at the target. This round rendered `docs/architecture.md` 
 
 No other present-state record says that round 1's rendering covered the README pair. Round 1's own sentence at `round-1.md:164`, "This answers `gaps.md:8`", is part of a round record and is history. It needs no edit.
 
+```seal
+verdict: fixed e4907fc
+answer: The finding holds. The fix pass of round 1 closed the row on round 1's count of 96 links without reading which files the count covered, and `trail/rounds/round-1.md` *Confirmations* names the four `docs/` files only. Row 8 of `gaps.md` *Not verified* now holds the snippet's row word for word: round 1 for the four `docs/` files, round 2 for the README pair's two links. The same commit marks row 10 `closed`, on what this round's *Confirmations* and *Probes* say it read and rendered. `changelog.md` needed no change.
+```
+
 ## Confirmations
 
 ```seal
