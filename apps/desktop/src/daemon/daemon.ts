@@ -313,7 +313,7 @@ export class Daemon {
         changed = true;
       }),
     );
-    if (changed && !this.closed) this.broadcastInbox();
+    if (changed) this.broadcastInbox();
   }
 
   private send(socket: WebSocket, message: ServerMessage): void {
