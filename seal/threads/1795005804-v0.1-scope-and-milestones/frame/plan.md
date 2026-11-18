@@ -31,7 +31,7 @@ Constraints the build works under are C1 to C5 of `frame/design.md` *Scope*. The
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1, 3, 4, 5, 6, 7 and 17: `docs/roadmap.md` whole | `frame/design.md` scenarios 1, 3, 8 and 10, read. Scenario 6's two commands and scenario 7's command, run over the tree after the commit, each printing nothing | |
+| 1 | `frame/design.md` *Scope* items 1, 3, 4, 5, 6, 7 and 17: `docs/roadmap.md` whole | `frame/design.md` scenarios 1, 3, 8 and 10, read. Scenario 6's two commands and scenario 7's command, run over the tree after the commit, each printing nothing | `cf88643` |
 | 2 | *Scope* items 8, 9, 10, 13, 14 and 15, and item 12 for `README.md`: the English edits to `docs/architecture.md` | Scenario 4, read, with each link's target opened. `git grep -n -e 'check with Anthropic' -e "Anthropic's answer" -- docs README.md` prints nothing, and the three rewritten places are read against items 13 to 15. `git grep -n -e 'port stage' -e 'extension stage' -- docs README.md` prints nothing. `git grep -n 'Build order' -- docs` still prints the heading at `docs/architecture.md` and the citation at `docs/product.md` line 27 | |
 | 3 | *Scope* items 2, 11 and 16, and item 12 for `README.md`'s Korean edition: `docs/roadmap.ko.md`, `docs/architecture.ko.md` and `README.ko.md` | Scenarios 2, 5, 7, 9 and 11 as written. Scenario 6's second command again over the whole tree. `grep -c '^#' docs/architecture.md docs/architecture.ko.md` and `grep -c '^|' docs/architecture.md docs/architecture.ko.md` each print two equal counts | |
 
