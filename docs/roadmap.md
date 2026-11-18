@@ -43,6 +43,7 @@ The rejected order builds milestone 4 before the process. The staging, the hand 
 
 Each milestone ships in a release of its own. One GitHub milestone titled `release: <version>` holds the issues of that release, and it answers when the release ships.
 
+- **Each milestone is built on a release branch of its own.** The branch `release/v<version>` is cut from `main` when the milestone's `release:` milestone opens, and every pull request of the milestone merges into it. The first of those pull requests moves the version. When the milestone is done, one pull request merges the branch into `main` and closes the milestone's issues, and that merge is tagged `v<version>`. So `main` always holds the last release.
 - **The release that closes milestone 5 is 0.1.0.** The releases that close milestones 1 to 4 take versions below 0.1.0, and so does a fix release between two of them. A version number is assigned when its `release:` milestone is opened, and this document fixes only 0.1.0.
 - **Each milestone has to be in effect before the next one's work starts.** The owner works in the build of milestone 1 while building milestone 2, and Owlery seals its own PRs from milestone 2 on.
 - **A single `release: 0.1.0` would hold every issue of v0.1.** No event in the tracker would then mark a milestone as done.
