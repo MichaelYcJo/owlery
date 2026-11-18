@@ -39,7 +39,8 @@ interface Session {
  */
 export class Daemon {
   private readonly sessions = new Map<number, Session>();
-  private readonly clients = new Set<WebSocket>();
+  // Each client, with the sessions whose output it receives: the ones it opened or attached.
+  private readonly clients = new Map<WebSocket, Set<number>>();
   private server: WebSocketServer | undefined;
   private nextId = 1;
   private idleTimer: NodeJS.Timeout | undefined;
@@ -74,7 +75,7 @@ export class Daemon {
   async close(): Promise<void> {
     clearTimeout(this.idleTimer);
     for (const session of this.sessions.values()) if (session.info.alive) session.terminal.kill();
-    for (const client of this.clients) client.terminate();
+    for (const client of this.clients.keys()) client.terminate();
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
   }
 
@@ -96,7 +97,7 @@ export class Daemon {
           return;
         }
         authorized = true;
-        this.clients.add(socket);
+        this.clients.set(socket, new Set());
         this.checkIdle();
         this.send(socket, { type: "ready", sessions: [...this.sessions.values()].map((s) => s.info) });
         return;
@@ -128,20 +129,25 @@ export class Daemon {
         this.sessions.set(id, session);
         terminal.onData((data) => {
           session.output.append(data);
-          this.broadcast({ type: "output", id, data });
+          this.sendOutput(id, data);
         });
         terminal.onExit((exitCode) => {
           session.info.alive = false;
           this.broadcast({ type: "exit", id, exitCode });
           this.checkIdle();
         });
+        this.clients.get(socket)?.add(id);
         this.checkIdle();
         this.send(socket, { type: "started", requestId: message.requestId, session: session.info });
         return;
       }
       case "attach": {
         const session = this.sessions.get(message.id);
-        if (session) this.send(socket, { type: "replay", id: message.id, data: session.output.text() });
+        if (!session) return;
+        // The replay holds everything printed before this point and live output follows it,
+        // so the client draws each line once.
+        this.send(socket, { type: "replay", id: message.id, data: session.output.text() });
+        this.clients.get(socket)?.add(message.id);
         return;
       }
       case "input":
@@ -168,7 +174,12 @@ export class Daemon {
 
   private broadcast(message: ServerMessage): void {
     const text = JSON.stringify(message);
-    for (const client of this.clients) client.send(text);
+    for (const client of this.clients.keys()) client.send(text);
+  }
+
+  private sendOutput(id: number, data: string): void {
+    const text = JSON.stringify({ type: "output", id, data } satisfies ServerMessage);
+    for (const [client, sessions] of this.clients) if (sessions.has(id)) client.send(text);
   }
 
   private checkIdle(): void {

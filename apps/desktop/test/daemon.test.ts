@@ -123,6 +123,37 @@ describe("sessions", () => {
     expect(replay.data).toContain("second");
   });
 
+  it("sends a reconnecting client each line once: what it missed in the replay, the rest live", async () => {
+    // Prints a numbered line every 20 ms, so lines are printed between the client's ready and its attach.
+    const { url } = await daemon({
+      commandFor: () => ({ command: "/bin/sh", args: ["-c", "i=0; while [ $i -lt 40 ]; do echo line-$i; i=$((i+1)); sleep 0.02; done; sleep 30"], env: {} }),
+    });
+    const first = await client(url);
+    await first.message("ready");
+    first.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await first.message("started");
+    first.socket.close();
+
+    const second = await client(url);
+    await second.message("ready");
+    await new Promise((r) => setTimeout(r, 150));
+    second.send({ type: "attach", id: session.id });
+    await second.until(() => (second.messages.some((m) => m.type === "output" && m.data.includes("line-39")) || second.messages.some((m) => m.type === "replay" && m.data.includes("line-39")) ? true : undefined));
+    const drawn = second.messages.flatMap((m) => (m.type === "replay" || m.type === "output") && m.id === session.id ? [m.data] : []).join("");
+    for (let i = 0; i < 40; i++) expect(drawn.split(`line-${i}\r`).length - 1).toBe(1);
+  });
+
+  it("sends a session's output only to the clients that opened or attached it", async () => {
+    const { url } = await daemon();
+    const opener = await client(url);
+    await opener.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    await opener.until(() => (opener.messages.some((m) => m.type === "output" && m.data.includes("first")) ? true : undefined));
+    expect(bystander.messages.filter((m) => m.type === "output")).toEqual([]);
+  });
+
   it("tells every client when a session ends, and lists it as ended", async () => {
     const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
     const c = await client(url);
