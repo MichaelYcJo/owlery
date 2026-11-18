@@ -1,10 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
+import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { type ClientMessage, type PaneKind, type ServerMessage, type SessionInfo, UNAUTHORIZED } from "../shared/protocol";
 import { agentEventFor } from "./agent-events";
 import { OutputBuffer } from "./buffer";
+import { WorkItemList } from "./work-items";
+import { createWorktree, worktreesRoot } from "./worktrees";
 
 export interface PaneCommand {
   command: string;
@@ -16,7 +19,14 @@ export interface DaemonOptions {
   token: string;
   /** The command of a new pane of that kind, given the pane's id. */
   commandFor: (kind: PaneKind, id: number) => PaneCommand;
+  /** Where a pane opened without a work item runs. */
   cwd?: string;
+  /** Where the list of work items is kept, in `work-items.json`; without it the list is in memory alone. */
+  runDir?: string;
+  /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
+  worktreesRoot?: string;
+  /** The clock a work item's `createdAt` is read from. */
+  now?: () => number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -44,8 +54,13 @@ export class Daemon {
   private server: WebSocketServer | undefined;
   private nextId = 1;
   private idleTimer: NodeJS.Timeout | undefined;
+  private readonly workItems: WorkItemList;
+  // Creations run one after another, so two of one title never pick the same branch and folder.
+  private creating: Promise<void> = Promise.resolve();
 
-  constructor(private readonly options: DaemonOptions) {}
+  constructor(private readonly options: DaemonOptions) {
+    this.workItems = new WorkItemList(options.runDir, options.now);
+  }
 
   listen(port: number): Promise<number> {
     const server = new WebSocketServer({ host: "127.0.0.1", port });
@@ -99,7 +114,7 @@ export class Daemon {
         authorized = true;
         this.clients.set(socket, new Set());
         this.checkIdle();
-        this.send(socket, { type: "ready", sessions: [...this.sessions.values()].map((s) => s.info) });
+        this.send(socket, { type: "ready", sessions: [...this.sessions.values()].map((s) => s.info), workItems: this.workItems.all() });
         return;
       }
       this.handle(socket, message);
@@ -115,30 +130,37 @@ export class Daemon {
   private handle(socket: WebSocket, message: ClientMessage): void {
     switch (message.type) {
       case "start": {
-        const id = this.nextId++;
-        const { command, args, env } = this.options.commandFor(message.kind, id);
-        const terminal = TerminalSession.spawn({
-          command,
-          args,
-          cwd: this.options.cwd ?? process.cwd(),
-          cols: message.cols,
-          rows: message.rows,
-          env: { ...process.env, ...env },
-        });
-        const session: Session = { info: { id, kind: message.kind, alive: true }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
-        this.sessions.set(id, session);
-        terminal.onData((data) => {
-          session.output.append(data);
-          this.sendOutput(id, data);
-        });
-        terminal.onExit((exitCode) => {
-          session.info.alive = false;
-          this.broadcast({ type: "exit", id, exitCode });
-          this.checkIdle();
-        });
-        this.clients.get(socket)?.add(id);
-        this.checkIdle();
-        this.send(socket, { type: "started", requestId: message.requestId, session: session.info });
+        let cwd = this.options.cwd ?? process.cwd();
+        if (message.workItemId !== undefined) {
+          const workItem = this.workItems.get(message.workItemId);
+          if (!workItem) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: `no work item ${String(message.workItemId)}` });
+            return;
+          }
+          // A person can remove a worktree's folder by hand, and a process cannot start in it.
+          if (!existsSync(workItem.worktree)) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
+            return;
+          }
+          cwd = workItem.worktree;
+        }
+        const info = this.startSession(socket, message, cwd, message.workItemId ?? null);
+        this.send(socket, { type: "started", requestId: message.requestId, session: info });
+        return;
+      }
+      case "createWorkItem": {
+        const create = async (): Promise<void> => {
+          try {
+            if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
+            const place = await createWorktree({ folder: message.repo, title: message.title, root: this.options.worktreesRoot ?? worktreesRoot(process.env) });
+            const workItem = this.workItems.add({ title: message.title, ...place });
+            const session = this.startSession(socket, message, workItem.worktree, workItem.id);
+            this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        this.creating = this.creating.then(create);
         return;
       }
       case "attach": {
@@ -159,6 +181,34 @@ export class Daemon {
       default:
         return;
     }
+  }
+
+  /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. */
+  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number | null): SessionInfo {
+    const id = this.nextId++;
+    const { command, args, env } = this.options.commandFor(pane.kind, id);
+    const terminal = TerminalSession.spawn({
+      command,
+      args,
+      cwd,
+      cols: pane.cols,
+      rows: pane.rows,
+      env: { ...process.env, ...env },
+    });
+    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
+    this.sessions.set(id, session);
+    terminal.onData((data) => {
+      session.output.append(data);
+      this.sendOutput(id, data);
+    });
+    terminal.onExit((exitCode) => {
+      session.info.alive = false;
+      this.broadcast({ type: "exit", id, exitCode });
+      this.checkIdle();
+    });
+    this.clients.get(socket)?.add(id);
+    this.checkIdle();
+    return session.info;
   }
 
   private tokenMatches(token: unknown): boolean {

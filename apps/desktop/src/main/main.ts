@@ -1,11 +1,13 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Channel, type DaemonConnection } from "../shared/ipc";
 import { ensureDaemon } from "./daemon-client";
+import { pickFolder } from "./pick-folder";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
-// over WebSocket. The main process only finds or starts it.
+// over WebSocket. The main process finds or starts it, and opens the folder
+// dialog the window asks for.
 const runDir = join(app.getPath("userData"), "run");
 
 function createWindow(): BrowserWindow {
@@ -30,6 +32,11 @@ app.whenReady().then(() => {
   ipcMain.handle(Channel.daemon, async (): Promise<DaemonConnection> => {
     const { port, token } = await ensureDaemon(runDir, join(__dirname, "daemon.js"));
     return { url: `ws://127.0.0.1:${port}`, token };
+  });
+  ipcMain.handle(Channel.pickFolder, (event): Promise<string | null> => {
+    // The dialog is a sheet of the window that asked, where that window is still there.
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return pickFolder((options) => (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)));
   });
   createWindow();
   app.on("activate", () => {
