@@ -145,11 +145,6 @@ export class Daemon {
     socket.on("close", () => {
       clearTimeout(helloTimer);
       this.clients.delete(socket);
-      // Nobody reads the counts while no client is connected.
-      if (this.clients.size === 0) {
-        clearTimeout(this.commitTimer);
-        this.commitTimer = undefined;
-      }
       this.checkIdle();
     });
     socket.on("error", () => socket.terminate());
@@ -211,7 +206,6 @@ export class Daemon {
         if (!session) return;
         // Off the lists first, so the process's end is told to nobody as a session's.
         this.sessions.delete(message.id);
-        for (const attached of this.clients.values()) attached.delete(message.id);
         if (session.info.alive) session.terminal.kill();
         this.broadcastInbox();
         this.checkIdle();
@@ -285,16 +279,18 @@ export class Daemon {
   }
 
   /**
-   * Arranges the next read of the work items' new commits: at once where the
-   * last one is an interval old, and never while no client is connected or a
-   * read is arranged or running.
+   * Arranges the next read of the work items' new commits, at once where the
+   * last one is an interval old. The reads follow one another while a client
+   * is connected, and the next client to connect starts them again.
    */
   private scheduleCommitRead(): void {
-    if (this.closed || this.commitTimer !== undefined || this.readingCommits || this.clients.size === 0) return;
+    if (this.closed || this.commitTimer !== undefined || this.readingCommits) return;
     const interval = this.options.commitPollMs ?? 3000;
     const wait = Math.max(0, this.commitsReadAt + interval - Date.now());
     this.commitTimer = setTimeout(() => {
       this.commitTimer = undefined;
+      // Nobody reads the counts while no client is connected.
+      if (this.clients.size === 0) return;
       this.commitsReadAt = Date.now();
       this.readingCommits = true;
       void this.readCommits().finally(() => {
