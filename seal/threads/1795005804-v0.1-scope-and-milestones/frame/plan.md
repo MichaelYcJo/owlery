@@ -53,4 +53,5 @@ None for a deployer: no code, no dependency and no setting changes. The pull req
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-18 | The framer runs on Fable 5.2, the crafter of every phase on Fable 5.2, and the proofer and the sealer on Opus 5.5 | The owner's choices in the session: Fable for the framer, because this work is the first base of the project, and Fable for the crafter alone among the later roles. The judging parties then run on a model other than the builder's, which lowers the chance that both miss the same defect | `docs/product.md` *The seal belongs to the product and looks the same everywhere*: a party is a session, and judging by another model increases independence |
+| 2026-11-18 | The orchestrator's reading of the frame at `55d5c97` sent four proposals; the framer agreed with all four, two of them with a change, and folded them at `4981216` | The proposals: no path or heading of the private notes in a committed file (#1 replaced them for the same reason); done criterion 1 limited to PRs from the project's own work items, since outside contributors' PRs carry no `Seal-Routing` trailer and are not judged; the document named for what it keeps being; the acceptance scenarios in order | `skills/implement/orchestration.md` *The frame is read against the issue at the spawn* |
