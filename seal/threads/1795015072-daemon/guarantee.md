@@ -38,3 +38,37 @@ Observations, which block nothing and are the owner's to take up (read, not run)
 target: 7cbae94 against eafbead
 Verdict: sealed
 ```
+
+## Re-audit at `b7655c0`
+
+Since `7cbae94`: `569870e` adds this file; `27d4903` changes `apps/desktop/src/daemon/daemon.ts` and `apps/desktop/test/daemon.test.ts`; `007a71c` changes `changelog.md` and `gaps.md`; `b7655c0` adds the second run to `trail/gate.md`. The claims re-run are the ones on `daemon.ts` and its cases, in the same clone, checked out at `b7655c0`.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run passed at a commit that only this work item's records follow | `trail/gate.md:8` (`run: 007a71c against eafbead`) | `git merge-base --is-ancestor 007a71c HEAD`; `git log --no-merges --name-only 007a71c..HEAD ^eafbead` | holds: an ancestor, and `b7655c0` touches only `seal/threads/1795015072-daemon/trail/gate.md` |
+| The rewritten pull request body is `pr.md` above the records' copy, and the copy is the records' text | the body file `seal pr-body` rewrote at `b7655c0` | `seal pr-body seal/threads/1795015072-daemon --body <the body file> --check` | holds: exit 0; `pr.md` is unchanged since `7cbae94` |
+| All cases pass at HEAD | the coordinator's message (34 passed) | `node scripts/test-in-electron.mjs test/daemon.test.ts test/hooks.test.ts test/pty.test.ts` | holds: exit 0, `Tests 34 passed (34)` |
+| The two new cases were red before the fix | the coordinator's message (2 failed, 32 passed) | `daemon.ts` restored from `7cbae94` under HEAD's cases, then `node scripts/test-in-electron.mjs test/daemon.test.ts` | holds: exit 1, 2 failed and 15 passed; `test/daemon.test.ts:143`: `expected 2 to be 1` (a line drawn twice), and the bystander case: `expected [ { type: 'output', id: 1, … } ] to deeply equal []` |
+| The bystander case pins the per-client filter, its one guard | `test/daemon.test.ts:146`; `daemon.ts:182` | HEAD with `if (sessions.has(id))` alone removed from `daemon.ts:182`, the same run | holds: exit 1, the bystander case fails on its `toEqual([])` line, and the each-line-once case on `:143` with `expected 2 to be 1` |
+| The each-line-once case needs the session added to the client on `attach` | `test/daemon.test.ts:126`; `daemon.ts:149-150` | HEAD with `daemon.ts:150` alone removed, the same run | holds: exit 1, the case at `:126` times out with no live line after the replay; the other 16 pass |
+| The four guards of the first audit still each fail a case | the first audit's rows; `daemon.ts:51`, `:95`, `:131`, `:187` at HEAD | each removed alone, as in the first audit, the same run | holds: the token check fails `refuses a client whose first message has the wrong token`; the host fails `listens on the loopback address only`; the alive clause fails `stays while a session is alive, though no client is connected`; the buffer append fails the replay case and the each-line-once case. The clone's `git diff` was empty afterwards |
+| The window still gets its own sessions' output: it is added on `start` and on `attach` | `daemon.ts:139`, `:150`; `renderer.ts:99-108` | not re-run in the app (read) | read: the window adopts a pane on `started`, after `daemon.ts:139` has added it, and attaches every alive session on `ready`; the probe of the first audit was not re-run at `b7655c0`, and `streams its output` and the replay cases cover the path in the suite |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | Unchanged: no frame, `routing.md` as at `7cbae94` | the build: `27d4903` touches `daemon.ts` and its cases alone | none |
+| the build | `27d4903`: each client holds the sessions it opened or attached (`daemon.ts:43`, `:100`, `:139`, `:150`); output goes only to those (`:182`); `attach` sends the replay and then adds the session in one synchronous step (`:149-150`) | the first audit's observation 1, which it closes; issue #5 *Done when* line 1; the two cases above | none |
+| the last round | No round ran: `routing.md` answers Review `straight to the PR` | not applicable | not applicable |
+| the changelog | `changelog.md:6` adds "each line once" | `test/daemon.test.ts:126`, red before and green after | none |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged: `Part of #5`, `gaps.md` *Not verified* row 1 quoted | `gaps.md:7`, quoted as it stands | none |
+
+`gaps.md:18-19` now carry the first audit's observations 2 and 3 under *Not done*, each with where it goes (issue #7 for the tab's label and the feature list; the disk log for a replay cut at a line). Read: they say what this file observed.
+
+```seal
+target: b7655c0 against eafbead
+Verdict: sealed
+```
