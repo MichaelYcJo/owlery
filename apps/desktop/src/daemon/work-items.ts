@@ -4,8 +4,12 @@ import type { WorkItem } from "../shared/protocol";
 
 const FILE = "work-items.json";
 
-function isWorkItem(value: unknown): value is WorkItem {
-  const item = value as Partial<WorkItem> | null;
+/** A work item as the list keeps it: without the count of new commits, which the daemon reads from git. */
+export type StoredWorkItem = Omit<WorkItem, "newCommits">;
+
+/** An entry of the file. One written before the base commit was recorded has no `baseCommit`. */
+function isStored(value: unknown): value is Omit<StoredWorkItem, "baseCommit"> & { baseCommit?: string | null } {
+  const item = value as Partial<StoredWorkItem> | null;
   return (
     typeof item === "object" &&
     item !== null &&
@@ -14,7 +18,8 @@ function isWorkItem(value: unknown): value is WorkItem {
     typeof item.repo === "string" &&
     typeof item.branch === "string" &&
     typeof item.worktree === "string" &&
-    typeof item.createdAt === "number"
+    typeof item.createdAt === "number" &&
+    (item.baseCommit === undefined || item.baseCommit === null || typeof item.baseCommit === "string")
   );
 }
 
@@ -25,7 +30,7 @@ function isWorkItem(value: unknown): value is WorkItem {
  * Given no run directory, the list is kept in memory alone.
  */
 export class WorkItemList {
-  private readonly items: WorkItem[] = [];
+  private readonly items: StoredWorkItem[] = [];
   private readonly file: string | undefined;
 
   constructor(
@@ -36,26 +41,26 @@ export class WorkItemList {
     if (this.file === undefined) return;
     try {
       const value: unknown = JSON.parse(readFileSync(this.file, "utf8"));
-      if (Array.isArray(value) && value.every(isWorkItem)) {
+      if (Array.isArray(value) && value.every(isStored)) {
         // Only the fields of a work item, whatever else the file's entries carry.
-        for (const { id, title, repo, branch, worktree, createdAt } of value) this.items.push({ id, title, repo, branch, worktree, createdAt });
+        for (const { id, title, repo, branch, worktree, createdAt, baseCommit } of value) this.items.push({ id, title, repo, branch, worktree, createdAt, baseCommit: baseCommit ?? null });
       }
     } catch {
       // No daemon has written here, or the file is not ours.
     }
   }
 
-  all(): WorkItem[] {
+  all(): StoredWorkItem[] {
     return [...this.items];
   }
 
-  get(id: number): WorkItem | undefined {
+  get(id: number): StoredWorkItem | undefined {
     return this.items.find((item) => item.id === id);
   }
 
-  add(place: Pick<WorkItem, "title" | "repo" | "branch" | "worktree">): WorkItem {
+  add(place: Pick<StoredWorkItem, "title" | "repo" | "branch" | "worktree" | "baseCommit">): StoredWorkItem {
     const id = this.items.reduce((highest, item) => Math.max(highest, item.id), 0) + 1;
-    const item: WorkItem = { id, title: place.title, repo: place.repo, branch: place.branch, worktree: place.worktree, createdAt: this.now() };
+    const item: StoredWorkItem = { id, title: place.title, repo: place.repo, branch: place.branch, worktree: place.worktree, createdAt: this.now(), baseCommit: place.baseCommit };
     this.items.push(item);
     this.write();
     return item;

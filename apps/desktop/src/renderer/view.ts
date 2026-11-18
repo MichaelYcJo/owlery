@@ -1,20 +1,84 @@
 // What the window says and sends, apart from the page that shows it, so the
-// cases can read it without a browser.
-import type { SessionInfo, WorkItem } from "../shared/protocol";
+// cases can read it without a browser. The kinds of pane, with their labels,
+// are the daemon's list from `ready`: nothing here names one.
+import type { AgentState, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
 
 /**
- * A tab's label: the pane's kind and id, after the title of the work item the
- * pane runs in where the window holds that work item.
+ * A tab's label: the pane's kind, as the daemon labels it, and id, after the
+ * title of the work item the pane runs in where the window holds that work item.
  */
-export function tabLabel(session: SessionInfo, workItems: readonly WorkItem[]): string {
-  const pane = `${session.kind === "claude" ? "Claude Code" : "Shell"} ${session.id}`;
+export function tabLabel(session: SessionInfo, workItems: readonly WorkItem[], paneKinds: readonly PaneKindInfo[]): string {
+  const kind = paneKinds.find((offered) => offered.kind === session.kind);
+  const pane = `${kind ? kind.label : session.kind} ${session.id}`;
   const workItem = workItems.find((item) => item.id === session.workItemId);
   return workItem ? `${workItem.title} · ${pane}` : pane;
 }
 
-/** One line of the window's list of work items. */
-export function workItemLine(workItem: WorkItem): string {
-  return `${workItem.title} · ${workItem.branch}`;
+/** The first kind of pane that reports its agent's state: the one a new work item and an inbox line open. */
+export function agentKind(paneKinds: readonly PaneKindInfo[]): PaneKind | undefined {
+  return paneKinds.find((offered) => offered.reportsState)?.kind;
+}
+
+/** The work item's panes whose process runs, the most recent first. */
+function livePanes(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
+  return sessions.filter((session) => session.workItemId === workItem.id && session.alive).sort((a, b) => b.id - a.id);
+}
+
+export interface InboxLine {
+  title: string;
+  branch: string;
+  /** What the work item's agent is doing, or null where no live pane of it says. */
+  state: AgentState | null;
+  /** How many commits the branch gained, or empty where it gained none or none were read. */
+  commits: string;
+}
+
+/**
+ * One line of the inbox: the work item, the state of its most recent live pane
+ * of a kind that reports state, and its new commits. An exited pane keeps its
+ * last state and is passed over, because nothing will change that state again.
+ */
+export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
+  const reporting = livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
+  const count = workItem.newCommits ?? 0;
+  return {
+    title: workItem.title,
+    branch: workItem.branch,
+    state: reporting ? reporting.state : null,
+    commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
+  };
+}
+
+/**
+ * What a click on a work item's line does: shows its most recent live pane,
+ * or starts a pane of the first kind that reports state where it has none.
+ */
+export function paneToOpen(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): { show: number } | { start: PaneKind } | undefined {
+  const live = livePanes(workItem, sessions)[0];
+  if (live) return { show: live.id };
+  const kind = agentKind(paneKinds);
+  return kind ? { start: kind } : undefined;
+}
+
+/**
+ * The notification for a session whose state was `previous`, or null where
+ * none is shown: one is shown when the state becomes waiting or finished, and
+ * never for the pane in front of a focused window, which the person is looking at.
+ */
+export function notificationFor(
+  previous: AgentState | null,
+  session: SessionInfo,
+  inFront: boolean,
+  workItems: readonly WorkItem[],
+  paneKinds: readonly PaneKindInfo[],
+): { title: string; body: string } | null {
+  if (session.state === previous || inFront) return null;
+  if (session.state !== "waiting" && session.state !== "finished") return null;
+  const workItem = workItems.find((item) => item.id === session.workItemId);
+  return {
+    title: workItem ? workItem.title : tabLabel(session, workItems, paneKinds),
+    body: session.state === "waiting" ? "Waiting for you" : "Finished",
+  };
 }
 
 /**

@@ -15,7 +15,7 @@ function runDir(): string {
   return dir;
 }
 
-const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug" };
+const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40) };
 
 describe("WorkItemList", () => {
   it("gives each work item the next id and the time it was made", () => {
@@ -45,11 +45,20 @@ describe("WorkItemList", () => {
     expect(JSON.parse(readFileSync(join(dir, "work-items.json"), "utf8"))).toEqual(later.all());
   });
 
+  it("reads a work item written before the base commit was recorded with none", () => {
+    const dir = runDir();
+    const { baseCommit: _none, ...before } = { id: 1, ...PLACE, createdAt: 1 };
+    writeFileSync(join(dir, "work-items.json"), JSON.stringify([before]));
+    expect(new WorkItemList(dir).all()).toEqual([{ ...before, baseCommit: null }]);
+  });
+
   it("starts empty where the file is not a list of work items", () => {
     const dir = runDir();
     writeFileSync(join(dir, "work-items.json"), "{ not json");
     expect(new WorkItemList(dir).all()).toEqual([]);
     writeFileSync(join(dir, "work-items.json"), JSON.stringify([{ id: "1", title: 3 }]));
+    expect(new WorkItemList(dir).all()).toEqual([]);
+    writeFileSync(join(dir, "work-items.json"), JSON.stringify([{ id: 1, ...PLACE, createdAt: 1, baseCommit: 7 }]));
     expect(new WorkItemList(dir).all()).toEqual([]);
   });
 

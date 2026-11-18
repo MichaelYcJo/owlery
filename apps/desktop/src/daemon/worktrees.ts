@@ -48,6 +48,8 @@ export interface Worktree {
   branch: string;
   /** The worktree's folder, `<root>/<repo name>/<slug>`. */
   worktree: string;
+  /** The commit the branch was cut at. */
+  baseCommit: string;
 }
 
 /**
@@ -73,6 +75,21 @@ export async function createWorktree(options: { folder: string; title: string; r
     if (existsSync(worktree) || (await branchExists(repo, branch))) continue;
     mkdirSync(dirname(worktree), { recursive: true });
     await git(repo, ["worktree", "add", "--quiet", "-b", branch, worktree, "HEAD"]);
-    return { repo, branch, worktree };
+    const baseCommit = (await git(repo, ["rev-parse", "--verify", `refs/heads/${branch}`])).trim();
+    return { repo, branch, worktree, baseCommit };
+  }
+}
+
+/**
+ * How many commits the branch holds after `baseCommit`, read in the
+ * repository. Null where git gives no count: the repository, the branch or the
+ * commit is gone.
+ */
+export async function newCommits(repo: string, branch: string, baseCommit: string): Promise<number | null> {
+  try {
+    const count = Number.parseInt(await git(repo, ["rev-list", "--count", `${baseCommit}..refs/heads/${branch}`, "--"]), 10);
+    return Number.isInteger(count) ? count : null;
+  } catch {
+    return null;
   }
 }

@@ -9,6 +9,7 @@ import { claudePaneCommand, HookServer, writeHookSettings } from "./hooks";
 import { loginShell } from "./pty";
 import { Daemon } from "./daemon";
 import { readDiscovery, writeDiscovery } from "./discovery";
+import { PANE_KINDS } from "./pane-kinds";
 
 async function main(): Promise<void> {
   const runDir = process.env.OWLERY_RUN_DIR;
@@ -41,6 +42,8 @@ async function main(): Promise<void> {
     cwd: process.env.OWLERY_CWD || homedir(),
     // The list of work items sits beside the discovery file, and outlives this process.
     runDir,
+    // The kinds a client may open; `commandFor` gives each its command.
+    paneKinds: PANE_KINDS,
     commandFor: (kind, id) => ({
       ...(kind === "claude" ? claudePaneCommand(process.env, hookSettingsFile) : loginShell(process.env)),
       env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: hooks.socketPath },

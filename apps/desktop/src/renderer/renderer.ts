@@ -2,8 +2,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { OwleryApi } from "../shared/ipc";
-import type { ClientMessage, PaneKind, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
-import { tabLabel, workItemFields, workItemLine } from "./view";
+import type { AgentState, ClientMessage, PaneKind, PaneKindInfo, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import { agentKind, inboxLine, notificationFor, paneToOpen, tabLabel, workItemFields } from "./view";
 
 declare global {
   interface Window {
@@ -16,7 +16,7 @@ interface Pane {
   term: Terminal;
   fit: FitAddon;
   element: HTMLElement;
-  tab: HTMLButtonElement;
+  tab: HTMLElement;
 }
 
 type Parts = Pick<Pane, "term" | "fit" | "element">;
@@ -24,7 +24,10 @@ type Parts = Pick<Pane, "term" | "fit" | "element">;
 const panes = new Map<number, Pane>();
 // The terminal prepared for each request the daemon has not answered yet.
 const pending = new Map<number, Parts>();
-// The work items the daemon listed at `ready`, and each one this window created since.
+// The kinds of pane the daemon offers, as `ready` listed them: the buttons, the form's choice and the tab labels come from here.
+let paneKinds: PaneKindInfo[] = [];
+// The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`, and a work item this window created since.
+let sessions: SessionInfo[] = [];
 let workItems: WorkItem[] = [];
 let active: Pane | undefined;
 let nextRequest = 1;
@@ -36,7 +39,8 @@ const tabs = document.getElementById("tabs") as HTMLElement;
 const stage = document.getElementById("stage") as HTMLElement;
 const events = document.getElementById("events") as HTMLOListElement;
 const status = document.getElementById("status") as HTMLElement;
-const workItemList = document.getElementById("work-items") as HTMLUListElement;
+const kindButtons = document.getElementById("pane-kinds") as HTMLElement;
+const inbox = document.getElementById("inbox") as HTMLUListElement;
 const workItemDialog = document.getElementById("work-item-dialog") as HTMLDialogElement;
 const workItemForm = document.getElementById("work-item-form") as HTMLFormElement;
 const repoField = document.getElementById("work-item-repo") as HTMLInputElement;
@@ -90,13 +94,22 @@ function show(pane: Pane): void {
 }
 
 function adopt(info: SessionInfo, parts: Parts): Pane {
-  const tab = document.createElement("button");
+  const tab = document.createElement("span");
   tab.className = "tab";
-  tab.textContent = tabLabel(info, workItems);
+  const label = document.createElement("button");
+  label.className = "label";
+  label.textContent = tabLabel(info, workItems, paneKinds);
   // A long title is cut in the tab, and whole here.
-  tab.title = tab.textContent;
+  label.title = label.textContent;
+  const close = document.createElement("button");
+  close.className = "close";
+  close.textContent = "×";
+  close.title = `Close ${label.textContent}`;
+  tab.append(label, close);
   const pane: Pane = { id: info.id, ...parts, tab };
-  tab.addEventListener("click", () => show(pane));
+  label.addEventListener("click", () => show(pane));
+  // The daemon ends the process and takes the session off its lists; the tab goes at the `inbox` that follows.
+  close.addEventListener("click", () => send({ type: "close", id: info.id }));
   tabs.appendChild(tab);
   panes.set(info.id, pane);
   parts.term.onData((data) => send({ type: "input", id: info.id, data }));
@@ -105,22 +118,106 @@ function adopt(info: SessionInfo, parts: Parts): Pane {
   return pane;
 }
 
-function start(kind: PaneKind): void {
+/** Takes a live session the window holds no terminal for, with the output it printed so far. */
+function attach(info: SessionInfo): Pane {
+  const pane = adopt(info, newTerminal());
+  send({ type: "resize", id: info.id, cols: pane.term.cols, rows: pane.term.rows });
+  send({ type: "attach", id: info.id });
+  return pane;
+}
+
+/** Drops the tab and the terminal of a session the daemon no longer lists. */
+function remove(pane: Pane): void {
+  panes.delete(pane.id);
+  pane.term.dispose();
+  pane.element.remove();
+  pane.tab.remove();
+  if (active !== pane) return;
+  active = undefined;
+  const next = [...panes.values()].pop();
+  if (next) show(next);
+}
+
+function start(kind: PaneKind, workItemId?: number): void {
   const parts = newTerminal();
   const requestId = nextRequest++;
   pending.set(requestId, parts);
-  send({ type: "start", kind, cols: parts.term.cols, rows: parts.term.rows, requestId });
+  send({ type: "start", kind, cols: parts.term.cols, rows: parts.term.rows, requestId, ...(workItemId === undefined ? {} : { workItemId }) });
 }
 
-function showWorkItems(): void {
-  workItemList.replaceChildren(
+/** Builds, once per connection, the "+" button of each kind the daemon offers and the form's choice among them. */
+function showPaneKinds(): void {
+  kindButtons.replaceChildren(
+    ...paneKinds.map(({ kind, label }) => {
+      const button = document.createElement("button");
+      button.textContent = `+ ${label}`;
+      button.addEventListener("click", () => start(kind));
+      return button;
+    }),
+  );
+  // The form starts on the kind an inbox line opens.
+  const preferred = agentKind(paneKinds);
+  kindField.replaceChildren(...paneKinds.map(({ kind, label }) => new Option(label, kind, kind === preferred, kind === preferred)));
+}
+
+function part(className: string, text: string): HTMLElement {
+  const element = document.createElement("span");
+  element.className = className;
+  element.textContent = text;
+  return element;
+}
+
+function row(...parts: HTMLElement[]): HTMLElement {
+  const element = document.createElement("span");
+  element.className = "row";
+  element.append(...parts);
+  return element;
+}
+
+function openWorkItem(workItem: WorkItem): void {
+  const open = paneToOpen(workItem, sessions, paneKinds);
+  if (!open) return;
+  if ("start" in open) {
+    start(open.start, workItem.id);
+    return;
+  }
+  // A pane another client opened has no terminal here until its line is clicked.
+  const info = sessions.find((session) => session.id === open.show);
+  const pane = panes.get(open.show) ?? (info && attach(info));
+  if (pane) show(pane);
+}
+
+function showInbox(): void {
+  inbox.replaceChildren(
     ...workItems.map((workItem) => {
+      const line = inboxLine(workItem, sessions, paneKinds);
+      const button = document.createElement("button");
+      button.title = workItem.worktree;
+      button.append(
+        row(part("title", line.title), part(`state ${line.state ?? ""}`, line.state ?? "")),
+        row(part("branch", line.branch), part("commits", line.commits)),
+      );
+      button.addEventListener("click", () => openWorkItem(workItem));
       const item = document.createElement("li");
-      item.textContent = workItemLine(workItem);
-      item.title = workItem.worktree;
+      item.append(button);
       return item;
     }),
   );
+}
+
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, drops the closed panes, and redraws the lines. */
+function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): void {
+  const before = new Map<number, AgentState | null>(sessions.map((session) => [session.id, session.state]));
+  sessions = next.sessions;
+  workItems = next.workItems;
+  for (const session of sessions) {
+    const inFront = active?.id === session.id && document.hasFocus();
+    const notification = notificationFor(before.get(session.id) ?? null, session, inFront, workItems, paneKinds);
+    if (notification) new Notification(notification.title, { body: notification.body });
+  }
+  const listed = new Set(sessions.map((session) => session.id));
+  for (const pane of [...panes.values()]) if (!listed.has(pane.id)) remove(pane);
+  showInbox();
 }
 
 function openWorkItemForm(): void {
@@ -138,6 +235,8 @@ function createWorkItem(): void {
     formError.textContent = fields.error;
     return;
   }
+  const kind = paneKinds.find((offered) => offered.kind === kindField.value);
+  if (!kind) return;
   const parts = newTerminal();
   const requestId = nextRequest++;
   pending.set(requestId, parts);
@@ -149,7 +248,7 @@ function createWorkItem(): void {
     type: "createWorkItem",
     requestId,
     ...fields,
-    kind: kindField.value === "shell" ? "shell" : "claude",
+    kind: kind.kind,
     cols: parts.term.cols,
     rows: parts.term.rows,
   });
@@ -158,19 +257,23 @@ function createWorkItem(): void {
 function onMessage(message: ServerMessage): void {
   switch (message.type) {
     case "ready": {
-      // Before the tabs, which are labelled from the list.
+      // Before the tabs, which are labelled from the lists. No notification: these are the states as the window finds them.
+      paneKinds = message.paneKinds;
+      sessions = message.sessions;
       workItems = message.workItems;
-      showWorkItems();
+      showPaneKinds();
+      showInbox();
       // Sessions that outlived the last window come back with the output they printed meanwhile.
-      const alive = message.sessions.filter((s) => s.alive);
-      for (const info of alive) {
-        const pane = adopt(info, newTerminal());
-        send({ type: "resize", id: info.id, cols: pane.term.cols, rows: pane.term.rows });
-        send({ type: "attach", id: info.id });
-      }
-      if (alive.length === 0) start("shell");
+      const alive = sessions.filter((s) => s.alive);
+      for (const info of alive) attach(info);
+      // A window with no pane opens one of the first kind the daemon offers.
+      const first = paneKinds[0];
+      if (alive.length === 0 && first) start(first.kind);
       return;
     }
+    case "inbox":
+      takeLists(message);
+      return;
     case "started": {
       const parts = pending.get(message.requestId);
       pending.delete(message.requestId);
@@ -179,9 +282,8 @@ function onMessage(message: ServerMessage): void {
       return;
     }
     case "workItemCreated": {
-      // No other message carries the list after `ready`, so the window adds to its own.
-      workItems.push(message.workItem);
-      showWorkItems();
+      // The tab is labelled from the list, and the `inbox` that carries the new work item comes after this answer.
+      workItems = [...workItems, message.workItem];
       const parts = pending.get(message.requestId);
       pending.delete(message.requestId);
       status.textContent = "";
@@ -242,8 +344,6 @@ async function connect(): Promise<void> {
   });
 }
 
-document.getElementById("new-shell")?.addEventListener("click", () => start("shell"));
-document.getElementById("new-claude")?.addEventListener("click", () => start("claude"));
 document.getElementById("new-work-item")?.addEventListener("click", openWorkItemForm);
 document.getElementById("work-item-cancel")?.addEventListener("click", () => workItemDialog.close());
 document.getElementById("work-item-browse")?.addEventListener("click", () => {
