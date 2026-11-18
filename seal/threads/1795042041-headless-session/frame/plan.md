@@ -8,13 +8,13 @@ The tree as read at `c796df1`.
 
 A case cannot import `main.ts`, because importing it starts the daemon; the adapter goes to `Daemon` through `DaemonOptions`, as `paneKinds` does.
 
-**The failure scenario of the chosen approach.** The answer lives in the daemon's memory, so a daemon that exits (the idle exit after the session ends and the window closes, or a crash) loses every answer, and a person who reopens the app later finds the list empty. And a Claude Code release that renames a line of the stream or the `result` fields shows as a session that ends `failed` with "exited without a result", not as a wrong answer; the recorded fixture pins the shape that was seen.
+**The failure scenario of the chosen approach.** The answer lives in the daemon's memory, so a daemon that exits (the idle exit after the session ends and the window closes, or a crash) loses every answer, and a person who reopens the app later finds the list empty. And a Claude Code release that renames a line of the stream or the `result` fields shows as a session that ends `failed` with "the session exited with code <N> and gave no result", not as a wrong answer; the recorded fixture pins the shape that was seen.
 
 ## Alternatives considered
 
 | Approach | Failure scenario | Verdict |
 |---|---|---|
-| Launch the headless `claude` through `$SHELL -l -i -c`, as a pane does | The interactive login shell runs the user's rc files on every run, and its environment is the user's whole one, which *Role sessions run detached from the user's environment* removes | Rejected: the login shell is asked once for `claude`'s path and `PATH`, and the child gets the five names alone |
+| Launch the headless `claude` through `$SHELL -l -i -c`, as a pane does | The interactive login shell runs the user's rc files on every run, and its environment is the user's whole one, which *Role sessions run detached from the user's environment* removes | Rejected: the interactive login shell is asked for `claude`'s path and `PATH` until it finds them once, and the child gets the five names alone |
 | A PTY for the headless session | stream-json is line-oriented on pipes; a PTY adds echo, line discipline and terminal escapes to parse | Rejected for pipes |
 | Send each text event as its own `output`-like message and let clients assemble the answer | A client that connects mid-run misses the beginning, as the panes needed a replay for | Rejected: each change sends the session whole, which is small |
 | Let `ask` run without a work item, in the daemon's folder | `--add-dir` with the user's home makes `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD` read the home folder's `CLAUDE.md`, a part of the user's environment the detachment removes | Rejected: `workItemId` is required |
@@ -36,7 +36,7 @@ Issues #9 (four visible terminals under about 500 MB) and #10 (the Korean input 
 
 ## Operational impact
 
-Each "Ask" launches the user's `claude` once, which draws on the user's own subscription limit or API billing. The daemon runs `$SHELL -l -c` once per process to find `claude`. No dependency is added. The version does not move: `0.0.1` was moved by the first pull request into `release/v0.0.1`.
+Each "Ask" launches the user's `claude` once, which draws on the user's own subscription limit or API billing. The daemon runs `$SHELL -l -i -c` to find `claude`, once per process where the first lookup finds it, and again at each `ask` while it does not. No dependency is added. The version does not move: `0.0.1` was moved by the first pull request into `release/v0.0.1`.
 
 ## Judgments of the run
 
