@@ -7,6 +7,6 @@ Closes #1
 - The framer runs on Fable 5.2, the crafter of every phase on Fable 5.2, and the proofer and the sealer on Opus 5.5
   `seal/threads/1795005804-v0.1-scope-and-milestones/frame/plan.md` *Judgments of the run*, row 1, Judgment
 - The pull request takes the prefix `docs:`
-  `seal/threads/1795005804-v0.1-scope-and-milestones/frame/plan.md` *Judgments of the run*, row 3, Judgment
+  `seal/threads/1795005804-v0.1-scope-and-milestones/frame/plan.md` *Judgments of the run*, row 5, Judgment
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
