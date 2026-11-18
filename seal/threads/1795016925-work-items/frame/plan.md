@@ -26,7 +26,7 @@ Git is run with `execFile` and arguments, never through a shell, because titles 
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 7 in the daemon and the protocol: `worktrees.ts`, `work-items.ts`, the new messages in `daemon.ts` and `protocol.ts` | Scenarios 1 to 7 as cases, each seen red before its code, in temporary repositories; `pnpm -r run check` | |
+| 1 | `frame/design.md` *Scope* items 1 to 7 in the daemon and the protocol: `worktrees.ts`, `work-items.ts`, the new messages in `daemon.ts` and `protocol.ts` | Scenarios 1 to 7 as cases, each seen red before its code, in temporary repositories; `pnpm -r run check` | `d027620` |
 | 2 | *Scope* item 8: the window's "+ Work item" control, the folder dialog through the preload, tab labels and the list | The built app driven once: a work item created on a temporary repository through the window (by the remote debugging port or by the folder dialog's text field), its tab label and its pane's `pwd` read; two work items created and checked for scenario 2 | |
 
 ## Overlap with the release
