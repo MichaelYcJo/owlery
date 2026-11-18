@@ -39,7 +39,7 @@ Phase 1 starts from `2a45d69`, where this branch holds `release/v0.0.1` with iss
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 12, 14 and 15, in the present palette held as the custom properties of item 13, and every row of `## Removes` | Scenarios 3, 5 and 9 as cases, each seen red before its code; scenarios 1, 2, 4 to 9 and 15 in the drive; scenarios 10 to 14 and 16 executed | |
+| 1 | `frame/design.md` *Scope* items 1 to 12, 14 and 15, in the present palette held as the custom properties of item 13, and every row of `## Removes` | Scenarios 3, 5 and 9 as cases, each seen red before its code; scenarios 1, 2, 4 to 9 and 15 in the drive; scenarios 10 to 14 and 16 executed |`88a8f93` |
 | 2 | *Scope* item 13, once `frame/questions.md` Q1 is answered and folded | Scenario 17; scenarios 13 and 14 executed again; the drive of scenarios 1, 4 and 7 again, since the layout moved | |
 
 ## Overlap with the release
