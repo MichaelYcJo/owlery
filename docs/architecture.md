@@ -265,13 +265,13 @@ The first version has no mobile app, and Android comes first ([Platforms and the
 
 The phone shows a session that runs in a terminal on the desk as a chat. The terminal stays the original, and the phone is a second way to see the same session. The phone does this for every agent CLI the person runs, and its traffic goes only over the connection above, through no agent company's server. Two rules hold from now on so the phone can attach: the daemon's WebSocket protocol is not fitted only to the desktop UI, and no state lives on the UI side.
 
-For Claude Code, each part of the chat comes from the places below. The hook names and fields were found in the Claude Code 2.1.327 executable (2026-11-18), and none of them has been run yet.
+For Claude Code, each part of the chat comes from the places below. Each hook was run on 2026-11-18, with Claude Code 2.1.327 in an interactive session that Owlery launched with its hook settings passed through `--settings`, which add to the user's and the project's settings and change neither. Every event carries `session_id`, `transcript_path`, `cwd` and `permission_mode`.
 
 | Part of the chat | Where it comes from |
 |---|---|
 | The person's messages | The `UserPromptSubmit` hook |
 | Tool calls and their results | The `PreToolUse`, `PostToolUse` and `PostToolUseFailure` hooks |
-| Permission requests | The `PermissionRequest` hook. The hook waits for the answer from the phone and returns allow or deny |
+| Permission requests | The `PermissionRequest` hook, which carries `tool_name`, `tool_input` and `permission_suggestions` but no `tool_use_id`. The hook waits for the answer from the phone and returns allow or deny |
 | The agent's last reply in a turn | `last_assistant_message` in the input of the `Stop` hook |
 | Text the agent writes between tool calls | Only in the session log Claude Code writes to disk (`~/.claude/projects/<project>/<session ID>.jsonl`). Its format is not public, so the phone reads it only as a supplement. When the daemon cannot parse it, the phone shows the hook events alone |
 

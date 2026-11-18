@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { Channel, type TerminalApi } from "../shared/ipc";
+import { Channel, type HookNotice, type TerminalApi } from "../shared/ipc";
 
 const api: TerminalApi = {
-  start: (cols, rows) => ipcRenderer.invoke(Channel.start, cols, rows),
+  start: (kind, cols, rows) => ipcRenderer.invoke(Channel.start, kind, cols, rows),
   input: (id, data) => ipcRenderer.send(Channel.input, id, data),
   resize: (id, cols, rows) => ipcRenderer.send(Channel.resize, id, cols, rows),
   onData: (listener) => {
@@ -10,6 +10,9 @@ const api: TerminalApi = {
   },
   onExit: (listener) => {
     ipcRenderer.on(Channel.exit, (_event, id: number, exitCode: number) => listener(id, exitCode));
+  },
+  onHook: (listener) => {
+    ipcRenderer.on(Channel.hook, (_event, notice: HookNotice) => listener(notice));
   },
 };
 
