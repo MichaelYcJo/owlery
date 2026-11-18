@@ -34,6 +34,12 @@ In `docs/roadmap.ko.md` line 33:
 
 The snippet leaves three statements of the same fact, and the fix pass owes them too. The first is `frame/design.md:123`, whose words "so the structure is not redone" become a citation of *Build order*. The second is the second bullet of `gaps.md` *Not done* (line 17), which stops being true once this lands. The third is the paragraph of `gaps.md` at line 20, which carries the same item for the Korean editions.
 
+```seal
+verdict: fixed d7f51be
+location: `seal/threads/1795005804-v0.1-scope-and-milestones/gaps.md`
+answer: The finding holds. Line 33 of `docs/roadmap.md` and of `docs/roadmap.ko.md` no longer states the reason: it cites *Build order* by a link, in the words the framer fixed at `02ccdbe` in `frame/design.md` ground 1, which hold this snippet's sentence and the sentence of finding 3 before it. `docs/architecture.md:229` and its Korean line stay as the reason's one home. The frame's ground 1 and *Scope* item 8 were rewritten by the framer at `02ccdbe`. The two statements in `gaps.md` *Not done* left the memo at `dd125f4`, which is why this block names that file.
+```
+
 ### 2. When the trial starts is settled prose, from a source C3 does not count as a decision
 
 ```seal
@@ -57,6 +63,11 @@ In `docs/roadmap.ko.md`, delete the last sentence at line 53 ("결과가 약하�
 ```
 
 The snippet leaves one statement, and the fix pass owes it too: the sentence "It starts before milestone 2 is done, because a weak result changes the direction" at `frame/design.md:132`, with the trial's row at `frame/design.md:154`. Another fix is possible. If the owner confirms the start as a decision, the prose may stay, and the fix pass records that answer and its date in the frame as the source C3 asks for. That fix is the owner's to choose, so it goes through the orchestrator.
+
+```seal
+verdict: fixed 02ccdbe
+answer: The finding held at its target, and it is closed by the other fix it names. The owner confirmed on 2026-11-18, after this round, that the trial starts before milestone 2 is done and that this is a decision. The fix pass did not hear the owner: it read the record of that answer, the third row of `frame/plan.md` *Judgments of the run*. At `02ccdbe` the framer made such a row the fourth source C3 names and wrote at `frame/design.md:132` that the start is that decision and that the trial's row of *Open decisions* does not hold it. So line 53 and line 92 of both roadmap editions stay as they are, and the fix pass changed no line for this finding.
+```
 
 ### 3. The Removes cell says the old opening paragraph of Build order landed in the roadmap, and one of its sentences landed nowhere
 
@@ -82,6 +93,12 @@ In `docs/roadmap.ko.md` line 33, at the same place:
 
 The fix pass owes three more statements. The first is `frame/design.md:123`, the frame's ground 1, which gets the same clause. The second is the first bullet of `gaps.md` *Not done* (line 16), with the paragraph at line 20. The third is the claim at line 31 of `docs/roadmap.md` that the order "stands on four grounds", which stays true only because the clause joins ground 1 and does not make a fifth. There is another fix. If the fix pass judges the sentence should go, then `frame/design.md:172` has to say the sentence is dropped and give the reason, and no roadmap line changes.
 
+```seal
+verdict: fixed d7f51be
+location: `seal/threads/1795005804-v0.1-scope-and-milestones/gaps.md`
+answer: The finding holds, and the sentence is kept. It stands in ground 1 at line 33 of `docs/roadmap.md` and of `docs/roadmap.ko.md`, after the bold sentence, in this snippet's words. The order still stands on four grounds. The framer rewrote the *Removes* cell and the frame's ground 1 at `02ccdbe`. The first bullet of `gaps.md` *Not done* and its Korean paragraph left the memo at `dd125f4`, which is why this block names that file.
+```
+
 ### 4. Authentication of the Claude adapter states the Agent SDK overview's rule twice, with two dates
 
 ```seal
@@ -106,6 +123,11 @@ Agent SDK overview에는 이 절 첫머리에 적은 claude.ai 로그인에 관�
 
 The first sentence of line 57 still says "Anthropic publishes two documents that bear on this", so the overview stays one of the two documents the judgment names, as *Scope* item 13 asks. The departure at `phase-2.md:13` needs no edit, because a phase record is history. `changelog.md:8` stays true.
 
+```seal
+verdict: fixed d7f51be
+answer: The finding holds, and the fix is applied as written, in both editions. Line 48 is the one statement of the rule and carries the date of the latest reading, 2026-11-18. Line 57 cites it and still names both documents by title with that date, as *Scope* item 13 of `frame/design.md` asks. `changelog.md` needed no change.
+```
+
 ### 5. The closing memo says the Status cell of Q2 still reads open, and it reads answered
 
 ```seal
@@ -121,6 +143,11 @@ Why it matters: `gaps.md:22` says "The Status cell of `frame/questions.md` Q2 st
 ```
 
 The paragraph at `gaps.md:20` ends with "Phase 3 left one more thing", and the fix pass rewrites it in the same edit, for example as "Phase 3 left one more thing, since folded".
+
+```seal
+verdict: fixed dd125f4
+answer: The finding holds. The fix is in the fix pass's own words and not the snippet's: the bullet and the sentence that led to it are removed from `gaps.md` *Not done*. The cell was folded at `e40f6fd`, so nothing about it is still not done, and a bullet that says it was once left would be history, which git and `trail/phases/phase-3.md` keep. The section now holds the one thing still within reach and not taken.
+```
 
 ## Confirmations
 
