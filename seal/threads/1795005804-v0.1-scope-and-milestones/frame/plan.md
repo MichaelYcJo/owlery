@@ -35,7 +35,7 @@ Constraints the build works under are C1 to C5 of `frame/design.md` *Scope*. The
 | 2 | *Scope* items 8, 9, 10, 13, 14 and 15, and item 12 for `README.md`: the English edits to `docs/architecture.md` | Scenario 4, read, with each link's target opened. `git grep -n -e 'check with Anthropic' -e "Anthropic's answer" -- docs README.md` prints nothing, and the three rewritten places are read against items 13 to 15. `git grep -n -e 'port stage' -e 'extension stage' -- docs README.md` prints nothing. `git grep -n 'Build order' -- docs` still prints the heading at `docs/architecture.md` and the citation at `docs/product.md` line 27 | |
 | 3 | *Scope* items 2, 11 and 16, and item 12 for `README.md`'s Korean edition: `docs/roadmap.ko.md`, `docs/architecture.ko.md` and `README.ko.md` | Scenarios 2, 5, 7, 9 and 11 as written. Scenario 6's second command again over the whole tree. `grep -c '^#' docs/architecture.md docs/architecture.ko.md` and `grep -c '^|' docs/architecture.md docs/architecture.ko.md` each print two equal counts | |
 
-The English is finished before it is translated, so a change in phase 2 does not have to be made twice. No phase has a test to run, because the repository has no code and no suite. The broad gate is the orchestrator's, and its command is not named yet (`frame/questions.md` Q1).
+The English is finished before it is translated, so a change in phase 2 does not have to be made twice. No phase has a test to run, because the repository has no code and no suite. The broad gate is the orchestrator's, and its command is the documents check the owner chose, written into `seal/config.json` at `7a45bfb` (`frame/questions.md` Q1).
 
 ## Overlap with the release
 

@@ -77,7 +77,7 @@ Out of scope:
 - Creating the GitHub milestones and placing #1 in one. The document states the mapping, and the tracker act is the owner's.
 - The design of the trial on other people's PRs. It is its own work (item 3 of the notes' list of work left). The document names where it meets the milestones.
 - A question to Anthropic about headless launches. The owner decided on 2026-11-18 not to send one (#1, item 8), so item 2 of the notes' list of work left is closed by this work and no later work holds it.
-- The `Broad gate` key of `seal/config.json`. The owner names its command during this work (`frame/questions.md` Q1).
+- The `Broad gate` key of `seal/config.json`. The owner named its command during this work, and the orchestrator wrote it at `7a45bfb` (`frame/questions.md` Q1).
 - An index `docs/README.md`. None exists, and the README pair's table does that job.
 
 ## User scenarios & acceptance *(mandatory)*
@@ -138,7 +138,7 @@ The process is split into milestones 2 and 3 because "Get a seal" is the smaller
 | Every PR opened from one of the project's own work items carries a seal | The merged PRs whose commits name a work item of the repository's records, each with the seal check passed at its merged head. A PR an outside contributor sends is not counted |
 | The ledger is public | The published ledger opens without the app and shows, per work item, the cost of each stage beside the defects caught |
 | The Korean input regression test passes | The test's result at the 0.1.0 release |
-| With four terminals visible, the app itself stays under about 500 MB | The published measurement, taken as `docs/architecture.md` *Memory design* states |
+| With four terminals visible, the app itself stays under about 500 MB | The published measurement of the app itself, with the agents' processes counted apart, against the target `docs/architecture.md` *Memory design* states. That section states the target and four rules, not a way to measure |
 | At least one result of the trial on other people's PRs is out | The published result, with its target repositories, the number of PRs and the count |
 
 **Not in v0.1.** Links only: `docs/product.md` *What we deliberately don't do* and *Voice input*.
