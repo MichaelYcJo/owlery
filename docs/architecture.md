@@ -300,7 +300,7 @@ The GPU terminal limit stays at Chromium's default of 16. This means one screen 
 The UI is built with Electron. Frameworks that use the system webview used somewhat less memory (up to about 10% across the same 8 scenarios, measured 2026-11-17), but the gap was not large enough to decide on. The four points below decided it.
 
 - **The same UI on three OSes:** Chromium ships with the app, so macOS, Windows and Linux draw with the same engine.
-- **Korean input on macOS:** The terminal component (xterm.js) has no known input problems.
+- **Korean input on macOS:** The terminal component (xterm.js) has no known input problems. A person typed Korean with the Dubeolsik layout into the Owlery terminal pane on 2026-11-18, in the shell and in Claude Code, and the shell received it as typed, in UTF-8.
 - **Linux:** There are fewer open issues with Wayland, Nvidia and WebGL.
 - **Updates:** Delta updates download only the changed parts. In exchange, the app is large (.app 253 MB).
 
