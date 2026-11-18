@@ -33,6 +33,19 @@
       #inbox .state.waiting { color: #e2c08d; }
       #inbox .state.finished { color: #89d185; }
       #inbox:empty::after { content: "None yet"; color: #666; }
+      #ask-form { display: flex; gap: 6px; margin: 0 0 6px; }
+      #ask-form input { flex: 1; min-width: 0; background: #1e1e1e; color: #d4d4d4; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; font: inherit; }
+      #ask-form button { background: #0e639c; color: inherit; border: 1px solid #0e639c; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+      #ask-form button:disabled { opacity: 0.5; cursor: default; }
+      #headless { list-style: none; margin: 0 0 12px; padding: 0; }
+      #headless li { padding: 4px 2px; border-bottom: 1px solid #2a2a2a; }
+      #headless .row { display: flex; gap: 6px; align-items: baseline; }
+      #headless .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      #headless .answer { display: block; margin-top: 2px; color: #aaa; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #headless .state.working { color: #75beff; }
+      #headless .state.finished { color: #89d185; }
+      #headless .state.failed { color: #f48771; }
+      #headless:empty::after { content: "Nothing asked yet"; color: #666; }
       #events { list-style: none; margin: 0; padding: 0; font-family: Menlo, monospace; font-size: 11px; }
       #events li { padding: 2px 0; border-bottom: 1px solid #2a2a2a; white-space: nowrap; }
       #work-item-dialog { background: #252526; color: inherit; border: 1px solid #444; border-radius: 6px; padding: 14px 16px; width: 420px; }
@@ -59,6 +72,12 @@
     <aside id="side">
       <h2>Inbox</h2>
       <ul id="inbox"></ul>
+      <h2>Ask</h2>
+      <form id="ask-form">
+        <input id="ask-prompt" autocomplete="off" aria-label="What to ask in the work item of the pane in front" />
+        <button type="submit" id="ask-submit">Ask</button>
+      </form>
+      <ul id="headless"></ul>
       <h2>Hook events</h2>
       <ol id="events"></ol>
     </aside>

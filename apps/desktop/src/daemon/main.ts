@@ -1,10 +1,11 @@
 // The daemon process. The app starts it detached, with Electron's Node, so it
-// outlives the app; it exits by itself once no session is alive and no window
-// is connected.
+// outlives the app; it exits by itself once no session is alive, no headless
+// session is working and no window is connected.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { claudeAdapter } from "./adapters/claude";
 import { claudePaneCommand, HookServer, writeHookSettings } from "./hooks";
 import { loginShell } from "./pty";
 import { Daemon } from "./daemon";
@@ -48,6 +49,8 @@ async function main(): Promise<void> {
       ...(kind === "claude" ? claudePaneCommand(process.env, hookSettingsFile) : loginShell(process.env)),
       env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: hooks.socketPath },
     }),
+    // Every headless session is the user's own CLI, found once through their login shell.
+    roleAdapter: claudeAdapter(process.env),
     onIdle: () => void stop(0),
   });
   hooks.onEvent(({ paneId, name, payload }) => {
