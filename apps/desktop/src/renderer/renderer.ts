@@ -2,7 +2,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { OwleryApi } from "../shared/ipc";
-import type { ClientMessage, PaneKind, ServerMessage, SessionInfo } from "../shared/protocol";
+import type { ClientMessage, PaneKind, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import { tabLabel, workItemFields, workItemLine } from "./view";
 
 declare global {
   interface Window {
@@ -18,22 +19,37 @@ interface Pane {
   tab: HTMLButtonElement;
 }
 
+type Parts = Pick<Pane, "term" | "fit" | "element">;
+
 const panes = new Map<number, Pane>();
-const pending = new Map<number, { term: Terminal; fit: FitAddon; element: HTMLElement }>();
+// The terminal prepared for each request the daemon has not answered yet.
+const pending = new Map<number, Parts>();
+// The work items the daemon listed at `ready`, and each one this window created since.
+let workItems: WorkItem[] = [];
 let active: Pane | undefined;
 let nextRequest = 1;
+// The request the "+ Work item" form is waiting on.
+let formRequest: number | undefined;
 let socket: WebSocket | undefined;
 
 const tabs = document.getElementById("tabs") as HTMLElement;
 const stage = document.getElementById("stage") as HTMLElement;
 const events = document.getElementById("events") as HTMLOListElement;
 const status = document.getElementById("status") as HTMLElement;
+const workItemList = document.getElementById("work-items") as HTMLUListElement;
+const workItemDialog = document.getElementById("work-item-dialog") as HTMLDialogElement;
+const workItemForm = document.getElementById("work-item-form") as HTMLFormElement;
+const repoField = document.getElementById("work-item-repo") as HTMLInputElement;
+const titleField = document.getElementById("work-item-title") as HTMLInputElement;
+const kindField = document.getElementById("work-item-kind") as HTMLSelectElement;
+const formError = document.getElementById("work-item-error") as HTMLElement;
+const createButton = document.getElementById("work-item-create") as HTMLButtonElement;
 
 function send(message: ClientMessage): void {
   socket?.send(JSON.stringify(message));
 }
 
-function newTerminal(): { term: Terminal; fit: FitAddon; element: HTMLElement } {
+function newTerminal(): Parts {
   const element = document.createElement("div");
   element.className = "pane";
   stage.appendChild(element);
@@ -73,10 +89,12 @@ function show(pane: Pane): void {
   pane.term.focus();
 }
 
-function adopt(info: SessionInfo, parts: { term: Terminal; fit: FitAddon; element: HTMLElement }): Pane {
+function adopt(info: SessionInfo, parts: Parts): Pane {
   const tab = document.createElement("button");
   tab.className = "tab";
-  tab.textContent = `${info.kind === "claude" ? "Claude Code" : "Shell"} ${info.id}`;
+  tab.textContent = tabLabel(info, workItems);
+  // A long title is cut in the tab, and whole here.
+  tab.title = tab.textContent;
   const pane: Pane = { id: info.id, ...parts, tab };
   tab.addEventListener("click", () => show(pane));
   tabs.appendChild(tab);
@@ -94,9 +112,55 @@ function start(kind: PaneKind): void {
   send({ type: "start", kind, cols: parts.term.cols, rows: parts.term.rows, requestId });
 }
 
+function showWorkItems(): void {
+  workItemList.replaceChildren(
+    ...workItems.map((workItem) => {
+      const item = document.createElement("li");
+      item.textContent = workItemLine(workItem);
+      item.title = workItem.worktree;
+      return item;
+    }),
+  );
+}
+
+function openWorkItemForm(): void {
+  // The folder stays from the last time, because the next work item is often of the same repository.
+  titleField.value = "";
+  formError.textContent = "";
+  createButton.disabled = false;
+  workItemDialog.showModal();
+  (repoField.value ? titleField : repoField).focus();
+}
+
+function createWorkItem(): void {
+  const fields = workItemFields(repoField.value, titleField.value);
+  if ("error" in fields) {
+    formError.textContent = fields.error;
+    return;
+  }
+  const parts = newTerminal();
+  const requestId = nextRequest++;
+  pending.set(requestId, parts);
+  formRequest = requestId;
+  formError.textContent = "";
+  // One creation per answer: the form opens again, or says why not, when the daemon answers.
+  createButton.disabled = true;
+  send({
+    type: "createWorkItem",
+    requestId,
+    ...fields,
+    kind: kindField.value === "shell" ? "shell" : "claude",
+    cols: parts.term.cols,
+    rows: parts.term.rows,
+  });
+}
+
 function onMessage(message: ServerMessage): void {
   switch (message.type) {
     case "ready": {
+      // Before the tabs, which are labelled from the list.
+      workItems = message.workItems;
+      showWorkItems();
       // Sessions that outlived the last window come back with the output they printed meanwhile.
       const alive = message.sessions.filter((s) => s.alive);
       for (const info of alive) {
@@ -110,7 +174,38 @@ function onMessage(message: ServerMessage): void {
     case "started": {
       const parts = pending.get(message.requestId);
       pending.delete(message.requestId);
+      status.textContent = "";
       if (parts) adopt(message.session, parts);
+      return;
+    }
+    case "workItemCreated": {
+      // No other message carries the list after `ready`, so the window adds to its own.
+      workItems.push(message.workItem);
+      showWorkItems();
+      const parts = pending.get(message.requestId);
+      pending.delete(message.requestId);
+      status.textContent = "";
+      if (message.requestId === formRequest) {
+        formRequest = undefined;
+        // Closed before the pane is shown, so the keyboard goes to the pane.
+        if (workItemDialog.open) workItemDialog.close();
+      }
+      if (parts) adopt(message.session, parts);
+      return;
+    }
+    case "error": {
+      // Nothing was created or started, so the terminal prepared for the request goes.
+      const parts = pending.get(message.requestId);
+      pending.delete(message.requestId);
+      parts?.term.dispose();
+      parts?.element.remove();
+      if (message.requestId === formRequest && workItemDialog.open) {
+        formRequest = undefined;
+        formError.textContent = message.message;
+        createButton.disabled = false;
+      } else {
+        status.textContent = message.message;
+      }
       return;
     }
     case "replay":
@@ -149,6 +244,17 @@ async function connect(): Promise<void> {
 
 document.getElementById("new-shell")?.addEventListener("click", () => start("shell"));
 document.getElementById("new-claude")?.addEventListener("click", () => start("claude"));
+document.getElementById("new-work-item")?.addEventListener("click", openWorkItemForm);
+document.getElementById("work-item-cancel")?.addEventListener("click", () => workItemDialog.close());
+document.getElementById("work-item-browse")?.addEventListener("click", () => {
+  void window.owlery.pickFolder().then((folder) => {
+    if (folder) repoField.value = folder;
+  });
+});
+workItemForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  createWorkItem();
+});
 new ResizeObserver(() => active?.fit.fit()).observe(stage);
 
 void connect();

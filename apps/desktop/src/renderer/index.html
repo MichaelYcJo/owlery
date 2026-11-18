@@ -11,28 +11,76 @@
       #bar { grid-column: 1 / 3; display: flex; gap: 4px; padding: 6px 8px; background: #252526; align-items: center; }
       #bar button { background: #333; color: inherit; border: 1px solid #444; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
       #bar button.active { background: #0e639c; border-color: #0e639c; }
-      #tabs { display: flex; gap: 4px; margin-left: 8px; }
+      #tabs { display: flex; gap: 4px; margin-left: 8px; min-width: 0; }
+      #tabs .tab { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #status { margin-left: auto; color: #e2c08d; }
       #stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
       .pane { position: absolute; inset: 8px; }
       #side { border-left: 1px solid #333; overflow: auto; padding: 6px 8px; min-height: 0; }
       #side h2 { font-size: 11px; text-transform: uppercase; color: #888; margin: 4px 0 6px; }
+      #work-items { list-style: none; margin: 0 0 12px; padding: 0; }
+      #work-items li { padding: 2px 0; border-bottom: 1px solid #2a2a2a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #work-items:empty::after { content: "None yet"; color: #666; }
       #events { list-style: none; margin: 0; padding: 0; font-family: Menlo, monospace; font-size: 11px; }
       #events li { padding: 2px 0; border-bottom: 1px solid #2a2a2a; white-space: nowrap; }
+      #work-item-dialog { background: #252526; color: inherit; border: 1px solid #444; border-radius: 6px; padding: 14px 16px; width: 420px; }
+      #work-item-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+      #work-item-dialog h2 { font-size: 13px; margin: 0 0 10px; }
+      #work-item-dialog label { display: block; margin-bottom: 10px; color: #aaa; }
+      #work-item-dialog .row { display: flex; gap: 6px; margin-top: 4px; }
+      #work-item-dialog .row.end { justify-content: flex-end; }
+      #work-item-dialog input, #work-item-dialog select { flex: 1; min-width: 0; background: #1e1e1e; color: #d4d4d4; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; font: inherit; }
+      #work-item-dialog button { background: #333; color: inherit; border: 1px solid #444; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+      #work-item-dialog button[type="submit"] { background: #0e639c; border-color: #0e639c; }
+      #work-item-dialog button:disabled { opacity: 0.5; cursor: default; }
+      #work-item-error { color: #f48771; min-height: 1.3em; margin: 0 0 8px; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
     <div id="bar">
       <button id="new-shell">+ Shell</button>
       <button id="new-claude">+ Claude Code</button>
+      <button id="new-work-item">+ Work item</button>
       <div id="tabs"></div>
       <span id="status"></span>
     </div>
     <div id="stage"></div>
     <aside id="side">
+      <h2>Work items</h2>
+      <ul id="work-items"></ul>
       <h2>Hook events</h2>
       <ol id="events"></ol>
     </aside>
+    <dialog id="work-item-dialog">
+      <form id="work-item-form">
+        <h2>New work item</h2>
+        <label>
+          Repository folder
+          <span class="row">
+            <input id="work-item-repo" spellcheck="false" autocomplete="off" />
+            <button type="button" id="work-item-browse">Browse…</button>
+          </span>
+        </label>
+        <label>
+          Title
+          <span class="row"><input id="work-item-title" autocomplete="off" /></span>
+        </label>
+        <label>
+          Open
+          <span class="row">
+            <select id="work-item-kind">
+              <option value="claude">Claude Code</option>
+              <option value="shell">Shell</option>
+            </select>
+          </span>
+        </label>
+        <p id="work-item-error" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="work-item-cancel">Cancel</button>
+          <button type="submit" id="work-item-create">Create</button>
+        </div>
+      </form>
+    </dialog>
     <script src="./renderer.js"></script>
   </body>
 </html>
