@@ -1,0 +1,17 @@
+# Closing memo: the v0.1 scope and its milestones
+
+## Not verified
+
+| Item | Who must answer |
+|---|---|
+| The `Broad gate` command of `seal/config.json` at the head of the branch. The fix pass of round 1 ran it once as a narrow check at `d7f51be`, where it prints nothing and exits 0. The commits after that one touch the work item's records alone | The orchestrator, in the broad run after the review rounds settle |
+| closed That each anchor in the two editions of `docs/roadmap` and `docs/architecture` and in the README pair resolves on GitHub's rendered page, the Korean anchors among them. The three phases compared the anchors with the target files' headings by a rule of their own | Round 1 rendered each target document through GitHub's Markdown API at `e40f6fd` and compared the 96 anchored links of the four `docs/` files with the ids it returned, none missing (`trail/rounds/round-1.md` *Confirmations* and *Probes*). Round 2 compared the README pair's two anchored links, at line 26 of each, with the ids of `docs/architecture.md` and `docs/architecture.ko.md` rendered the same way at `17c7b3a`, none missing (`trail/rounds/round-2.md` *Probes*) |
+| closed That `docs/roadmap.ko.md` and the changed parts of `docs/architecture.ko.md` say what the English editions say. Phase 3 wrote the translation and compared structure and links by command, and its own reading of its own translation is no check | Round 1 read `docs/roadmap.ko.md` against `docs/roadmap.md` cell by cell at `e40f6fd`, and the changed parts of `docs/architecture.ko.md` against the English (`trail/rounds/round-1.md` *Confirmations*) |
+| closed The lines the fix pass of round 1 changed at `d7f51be`: ground 1 at line 33 of each roadmap edition, and lines 48 and 57 of each architecture edition. That each Korean line says what its English line says, and that the link the pass added to ground 1 resolves on GitHub's rendered page. The link's target is the anchor lines 21 and 80 of each roadmap edition already use | Round 2 read each Korean line against its English line, sentence by sentence, at `17c7b3a`, and found the anchors `build-order` and `만드는-순서` among the ids GitHub's Markdown API returned for the two architecture editions (`trail/rounds/round-2.md` *Confirmations* and *Probes*) |
+| closed That Anthropic's two published documents say what `docs/roadmap.md` *Work that runs beside the milestones* and `docs/architecture.md` *Authentication of the Claude adapter* rest on | Phase 2 fetched both pages on 2026-11-18. The Agent SDK overview came back as the page's text, which holds the sentence on claude.ai login and rate limits and nothing on another product launching the user's logged-in CLI. The support article came back as a model's answer that quoted its title and its two dated updates, and said the article does not address that launch. The orchestrator's earlier fetch, in `frame/design.md` *Grounding*, read the same |
+
+## Not done
+
+One thing is within reach and not taken.
+
+- **`README.md` still lists "the build order" among what `docs/architecture.md` holds, and `README.ko.md` lists 만드는 순서 in the same row.** The section keeps its heading and now holds the skeleton rule and what follows v0.1. *Scope* item 12 of `frame/design.md` asks for one new row and no change to that one.
