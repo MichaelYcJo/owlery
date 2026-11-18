@@ -265,7 +265,7 @@ The first version has no mobile app, and Android comes first ([Platforms and the
 
 The phone shows a session that runs in a terminal on the desk as a chat. The terminal stays the original, and the phone is a second way to see the same session. The phone does this for every agent CLI the person runs, and its traffic goes only over the connection above, through no agent company's server. Two rules hold from now on so the phone can attach: the daemon's WebSocket protocol is not fitted only to the desktop UI, and no state lives on the UI side.
 
-For Claude Code, each part of the chat comes from the places below. Each hook was run on 2026-11-18, with Claude Code 2.1.327 in an interactive session that Owlery launched with its hook settings passed through `--settings`, which add to the user's and the project's settings and change neither. Every event carries `session_id`, `transcript_path`, `cwd` and `permission_mode`.
+For Claude Code, each part of the chat comes from the places below. Each hook was run on 2026-11-18, with Claude Code 2.1.327 in an interactive session that Owlery launched with its hook settings passed through `--settings`, which add to the user's and the project's settings and change neither. Every event carries `session_id`, `transcript_path` and `cwd`, and every event but `SessionStart` carries `permission_mode`.
 
 | Part of the chat | Where it comes from |
 |---|---|
