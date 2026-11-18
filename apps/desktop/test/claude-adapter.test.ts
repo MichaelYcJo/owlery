@@ -267,7 +267,7 @@ describe("the output stream, as one real run printed it", () => {
   });
 
   it("maps each text block of a message, and no block of another kind", () => {
-    const line = JSON.stringify({ type: "assistant", message: { content: [{ type: "thinking", thinking: "hm" }, { type: "text", text: "a" }, { type: "tool_use", name: "Bash" }, { type: "text", text: "b" }, { type: "text", text: "" }] } });
+    const line = JSON.stringify({ type: "assistant", message: { content: [{ type: "thinking", thinking: "hm" }, { type: "text", text: "a" }, { type: "tool_use", name: "Bash" }, { type: "other", text: "not the answer" }, { type: "text", text: "b" }, { type: "text", text: "" }] } });
     expect(eventsForLine(line)).toEqual([
       { type: "text", text: "a" },
       { type: "text", text: "b" },

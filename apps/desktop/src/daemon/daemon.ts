@@ -52,7 +52,7 @@ interface Session {
 
 interface HeadlessSession {
   info: HeadlessInfo;
-  /** The adapter's run, from its start until its process exits. */
+  /** The adapter's run, once it has started. */
   run: RoleRun | undefined;
 }
 
@@ -273,7 +273,6 @@ export class Daemon {
     };
     const onEvent = (event: RoleEvent): void => {
       if (event.type === "exit") {
-        session.run = undefined;
         if (info.state === "working") failed(`the session exited with code ${event.exitCode} and gave no result`);
         return;
       }

@@ -715,7 +715,7 @@ describe("headless sessions", () => {
     expect(seen.started).toEqual([{ prompt: "Where am I?", cwd: workItem.worktree }]);
   });
 
-  it("carries the cost the adapter reports, and takes the result's text as the whole answer", async () => {
+  it("carries the cost the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
     const roleAdapter: RoleAdapter = {
       name: "priced",
       features: [],
@@ -724,6 +724,7 @@ describe("headless sessions", () => {
           listener({ type: "text", text: "Let me look. " });
           listener({ type: "text", text: "An owl." });
           listener({ type: "result", text: "An owl.", isError: false, costUsd: 0.25 });
+          listener({ type: "text", text: " And more." });
           listener({ type: "exit", exitCode: 0 });
         }, 0);
         return Promise.resolve({ stop: () => {} });
@@ -733,6 +734,8 @@ describe("headless sessions", () => {
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
     const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
     expect(headless).toMatchObject({ answer: "An owl.", costUsd: 0.25, error: null });
+    // The result closes the answer: the text that arrives after it changes nothing.
+    await pause(100);
     expect(told(c).map((h) => h.answer)).toEqual(["", "Let me look. ", "Let me look. An owl.", "An owl."]);
   });
 
