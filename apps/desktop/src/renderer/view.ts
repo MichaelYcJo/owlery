@@ -3,18 +3,13 @@
 // are the daemon's list from `ready`: nothing here names one.
 import type { AgentState, HeadlessInfo, HeadlessState, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
 
-/**
- * A tab's label: the pane's kind, as the daemon labels it, and id, after the
- * title of the work item the pane runs in where the window holds that work item.
- */
-export function tabLabel(session: SessionInfo, workItems: readonly WorkItem[], paneKinds: readonly PaneKindInfo[]): string {
+/** A tab's label: the pane's kind, as the daemon labels it, and its id. The work item's title is the view's header's to say. */
+export function tabLabel(session: SessionInfo, paneKinds: readonly PaneKindInfo[]): string {
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
-  const pane = `${kind ? kind.label : session.kind} ${session.id}`;
-  const workItem = workItems.find((item) => item.id === session.workItemId);
-  return workItem ? `${workItem.title} · ${pane}` : pane;
+  return `${kind ? kind.label : session.kind} ${session.id}`;
 }
 
-/** The first kind of pane that reports its agent's state: the one a new work item and an inbox line open. */
+/** The first kind of pane that reports its agent's state: the one the "New work item" form starts on. */
 export function agentKind(paneKinds: readonly PaneKindInfo[]): PaneKind | undefined {
   return paneKinds.find((offered) => offered.reportsState)?.kind;
 }
@@ -49,15 +44,41 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   };
 }
 
+/** The agent states in the order a person must act on them, which is the order the summary says them in. */
+const STATES_BY_URGENCY: readonly AgentState[] = ["waiting", "working", "finished"];
+
 /**
- * What a click on a work item's line does: shows its most recent live pane,
- * or starts a pane of the first kind that reports state where it has none.
+ * The inbox's summary: how many work items are in each agent state, as in
+ * "1 waiting · 2 working". A state no line is in is left out, and the summary
+ * is empty where no line has a state.
  */
-export function paneToOpen(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): { show: number } | { start: PaneKind } | undefined {
-  const live = livePanes(workItem, sessions)[0];
-  if (live) return { show: live.id };
-  const kind = agentKind(paneKinds);
-  return kind ? { start: kind } : undefined;
+export function inboxSummary(lines: readonly InboxLine[]): string {
+  return STATES_BY_URGENCY.map((state) => ({ state, count: lines.filter((line) => line.state === state).length }))
+    .filter(({ count }) => count > 0)
+    .map(({ state, count }) => `${count} ${state}`)
+    .join(" · ");
+}
+
+/**
+ * The tabs of a work item's view, in the order of the panes' ids: its panes
+ * whose process runs, and those whose terminal this window holds, `held`
+ * being their ids. An exited pane the window holds keeps its tab and its last
+ * screen until it is closed; one it does not hold has nothing to show.
+ */
+export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[], held: ReadonlySet<number>): SessionInfo[] {
+  return sessions.filter((session) => session.workItemId === workItem.id && (session.alive || held.has(session.id))).sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The pane in front when a view shows `tabs`: the one that was `last` in
+ * front in that view where it is still a tab, and otherwise the most recent
+ * live pane, or the most recent tab where none is alive. Nothing where there
+ * is no tab.
+ */
+export function paneInFront(tabs: readonly SessionInfo[], last: number | undefined): number | undefined {
+  if (tabs.some((tab) => tab.id === last)) return last;
+  const recent = [...tabs].sort((a, b) => b.id - a.id);
+  return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
 }
 
 /**
@@ -76,7 +97,7 @@ export function notificationFor(
   if (session.state !== "waiting" && session.state !== "finished") return null;
   const workItem = workItems.find((item) => item.id === session.workItemId);
   return {
-    title: workItem ? workItem.title : tabLabel(session, workItems, paneKinds),
+    title: workItem ? workItem.title : tabLabel(session, paneKinds),
     body: session.state === "waiting" ? "Waiting for you" : "Finished",
   };
 }
@@ -94,22 +115,11 @@ export function workItemFields(repo: string, title: string): { repo: string; tit
 }
 
 /**
- * The work item the pane in front runs in, which is where "Ask" asks. Nothing
- * where no pane is in front, the pane was opened without a work item, or the
- * window does not hold the pane or its work item.
+ * Whether the "Ask" button of a work item's view can be pressed, and its
+ * title: where it asks, or why it cannot. The daemon refuses a prompt of
+ * white space.
  */
-export function workItemInFront(front: number | undefined, sessions: readonly SessionInfo[], workItems: readonly WorkItem[]): WorkItem | undefined {
-  const pane = sessions.find((session) => session.id === front);
-  return pane ? workItems.find((item) => item.id === pane.workItemId) : undefined;
-}
-
-/**
- * Whether the "Ask" button can be pressed, and its title: where it asks, or
- * why it cannot. A headless session runs in a work item's worktree alone, and
- * the daemon refuses a prompt of white space.
- */
-export function askButton(prompt: string, workItem: WorkItem | undefined): { enabled: boolean; title: string } {
-  if (!workItem) return { enabled: false, title: "Bring a work item's pane to the front to ask in it." };
+export function askButton(prompt: string, workItem: WorkItem): { enabled: boolean; title: string } {
   if (!prompt.trim()) return { enabled: false, title: "Type what to ask." };
   return { enabled: true, title: `Ask in ${workItem.title}` };
 }
@@ -127,9 +137,10 @@ export interface HeadlessLine {
   text: string;
 }
 
-/** The lines of the headless sessions, the most recent first, so the one just asked sits under the field. */
-export function headlessLines(held: readonly HeadlessInfo[]): HeadlessLine[] {
-  return [...held]
+/** The lines of one work item's headless sessions, the most recent first, so the one just asked sits under the field. */
+export function headlessLines(held: readonly HeadlessInfo[], workItemId: number): HeadlessLine[] {
+  return held
+    .filter((info) => info.workItemId === workItemId)
     .sort((a, b) => b.id - a.id)
     .map((info) => ({ id: info.id, prompt: info.prompt, state: info.state, text: info.state === "failed" ? (info.error ?? "") : info.answer }));
 }

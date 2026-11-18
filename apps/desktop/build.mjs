@@ -1,4 +1,4 @@
-// Bundles the main process, the preload and the renderer into dist/.
+// Bundles the main process, the preload and the renderer into dist/, and copies the page and what it loads.
 import { copyFile, mkdir } from "node:fs/promises";
 import * as esbuild from "esbuild";
 
@@ -43,3 +43,5 @@ await Promise.all([
 
 await copyFile("src/renderer/index.html", "dist/index.html");
 await copyFile("node_modules/@xterm/xterm/css/xterm.css", "dist/renderer.css");
+// The seal's emblem, which the page shows as an image. It is AgenticSeal's drawing and not under this repository's licence (TRADEMARKS.md).
+await copyFile("assets/seals/owl-icon-cream.svg", "dist/owl-icon-cream.svg");

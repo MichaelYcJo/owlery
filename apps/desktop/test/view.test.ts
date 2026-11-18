@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentKind, askButton, headlessLines, inboxLine, notificationFor, paneToOpen, tabLabel, withHeadless, workItemFields, workItemInFront } from "../src/renderer/view";
+import { agentKind, askButton, headlessLines, inboxLine, inboxSummary, notificationFor, paneInFront, paneTabs, tabLabel, withHeadless, workItemFields, type InboxLine } from "../src/renderer/view";
 import type { HeadlessInfo, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
@@ -29,27 +29,18 @@ function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo 
 }
 
 describe("tabLabel", () => {
-  it("labels the tab of a work item's pane with the work item's title, then the pane", () => {
-    expect(tabLabel(session(3, { workItemId: 2 }), [LOGIN, SEARCH], KINDS)).toBe("Speed up search · Claude Code 3");
-    expect(tabLabel(session(4, { kind: "shell" }), [LOGIN, SEARCH], KINDS)).toBe("Fix the login bug · Shell 4");
-  });
-
-  it("labels the tab of a pane opened without a work item with the pane alone", () => {
-    expect(tabLabel(session(1, { kind: "shell", workItemId: null }), [LOGIN], KINDS)).toBe("Shell 1");
-    expect(tabLabel(session(2, { workItemId: null }), [LOGIN], KINDS)).toBe("Claude Code 2");
-  });
-
-  it("labels with the pane alone a tab whose work item the window does not hold", () => {
-    expect(tabLabel(session(5, { kind: "shell", workItemId: 9 }), [LOGIN], KINDS)).toBe("Shell 5");
+  it("labels a tab with the pane's kind and id, and not with the work item's title, which the view's header says", () => {
+    expect(tabLabel(session(3, { workItemId: 2 }), KINDS)).toBe("Claude Code 3");
+    expect(tabLabel(session(4, { kind: "shell" }), KINDS)).toBe("Shell 4");
   });
 
   it("reads a kind's label from the daemon's list, whatever the daemon calls it", () => {
     const renamed: PaneKindInfo[] = [{ kind: "claude", label: "Agent", reportsState: true }];
-    expect(tabLabel(session(6, { workItemId: null }), [], renamed)).toBe("Agent 6");
+    expect(tabLabel(session(6), renamed)).toBe("Agent 6");
   });
 
   it("labels a pane of a kind the list does not hold with the kind as the daemon spells it", () => {
-    expect(tabLabel(session(7, { kind: "shell", workItemId: null }), [], [])).toBe("shell 7");
+    expect(tabLabel(session(7, { kind: "shell" }), [])).toBe("shell 7");
   });
 });
 
@@ -97,20 +88,74 @@ describe("inboxLine", () => {
   });
 });
 
-describe("paneToOpen", () => {
-  it("shows the work item's most recent live pane, of whatever kind", () => {
-    const sessions = [session(2), session(6, { kind: "shell" }), session(4), session(9, { workItemId: 2 })];
-    expect(paneToOpen(LOGIN, sessions, KINDS)).toEqual({ show: 6 });
+describe("inboxSummary", () => {
+  function line(state: InboxLine["state"]): InboxLine {
+    return { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" };
+  }
+
+  it("counts the work items in each state, and leaves out the lines with no state", () => {
+    expect(inboxSummary([line("working"), line("waiting"), line("waiting"), line(null)])).toBe("2 waiting · 1 working");
   });
 
-  it("opens a pane of the first kind that reports state where the work item has no live pane", () => {
-    const sessions = [session(2, { alive: false }), session(3, { workItemId: 2 }), session(4, { workItemId: null })];
-    expect(paneToOpen(LOGIN, sessions, KINDS)).toEqual({ start: "claude" });
-    expect(paneToOpen(LOGIN, [], KINDS)).toEqual({ start: "claude" });
+  it("says the state a person must act on first: waiting, then working, then finished", () => {
+    expect(inboxSummary([line("finished"), line("working"), line("finished"), line("waiting")])).toBe("1 waiting · 1 working · 2 finished");
   });
 
-  it("opens nothing where the work item has no live pane and no kind reports state", () => {
-    expect(paneToOpen(LOGIN, [], [{ kind: "shell", label: "Shell", reportsState: false }])).toBeUndefined();
+  it("leaves out a state no work item is in", () => {
+    expect(inboxSummary([line("finished"), line(null)])).toBe("1 finished");
+  });
+
+  it("is empty where no line has a state", () => {
+    expect(inboxSummary([line(null), line(null)])).toBe("");
+    expect(inboxSummary([])).toBe("");
+  });
+});
+
+describe("paneTabs", () => {
+  function ids(tabs: readonly SessionInfo[]): number[] {
+    return tabs.map((tab) => tab.id);
+  }
+
+  it("gives the work item's live panes, of whatever kind, in the order of their ids", () => {
+    const sessions = [session(6, { kind: "shell" }), session(2), session(4)];
+    expect(ids(paneTabs(LOGIN, sessions, new Set()))).toEqual([2, 4, 6]);
+  });
+
+  it("gives no tab for another work item's pane or a pane without a work item, even one the window holds a terminal for", () => {
+    const sessions = [session(2), session(9, { workItemId: 2 }), session(4, { workItemId: null })];
+    expect(ids(paneTabs(LOGIN, sessions, new Set([9, 4])))).toEqual([2]);
+  });
+
+  it("keeps the tab of an exited pane whose terminal the window holds, and gives none for one it does not hold", () => {
+    const sessions = [session(2, { alive: false }), session(3, { alive: false }), session(5)];
+    expect(ids(paneTabs(LOGIN, sessions, new Set([3])))).toEqual([3, 5]);
+  });
+
+  it("gives no tab where the work item has no pane, so opening its view starts none", () => {
+    expect(paneTabs(LOGIN, [session(3, { workItemId: 2 })], new Set())).toEqual([]);
+    expect(paneTabs(LOGIN, [], new Set())).toEqual([]);
+  });
+});
+
+describe("paneInFront", () => {
+  it("keeps in front the pane that was last in front, where it is still a tab", () => {
+    expect(paneInFront([session(2), session(4), session(6)], 4)).toBe(4);
+    expect(paneInFront([session(2, { alive: false }), session(6)], 2)).toBe(2);
+  });
+
+  it("gives the most recent live pane where the one last in front is no longer a tab, or none was", () => {
+    const tabs = [session(2), session(6), session(7, { alive: false })];
+    expect(paneInFront(tabs, 9)).toBe(6);
+    expect(paneInFront(tabs, undefined)).toBe(6);
+  });
+
+  it("gives the most recent tab where none is alive", () => {
+    expect(paneInFront([session(2, { alive: false }), session(3, { alive: false })], undefined)).toBe(3);
+  });
+
+  it("gives nothing where there is no tab", () => {
+    expect(paneInFront([], 4)).toBeUndefined();
+    expect(paneInFront([], undefined)).toBeUndefined();
   });
 });
 
@@ -156,45 +201,14 @@ describe("workItemFields", () => {
   });
 });
 
-describe("workItemInFront", () => {
-  it("gives the work item the pane in front runs in", () => {
-    expect(workItemInFront(4, [session(3), session(4, { workItemId: 2 })], [LOGIN, SEARCH])).toBe(SEARCH);
-  });
-
-  it("gives the work item of a pane in front whose process has exited, because its worktree is still there", () => {
-    expect(workItemInFront(3, [session(3, { alive: false })], [LOGIN])).toBe(LOGIN);
-  });
-
-  it("gives nothing where the pane in front was opened without a work item", () => {
-    expect(workItemInFront(3, [session(3, { workItemId: null })], [LOGIN])).toBeUndefined();
-  });
-
-  it("gives nothing where no pane is in front", () => {
-    expect(workItemInFront(undefined, [session(3)], [LOGIN])).toBeUndefined();
-  });
-
-  it("gives nothing where the window holds neither the pane nor its work item", () => {
-    expect(workItemInFront(5, [session(3)], [LOGIN])).toBeUndefined();
-    expect(workItemInFront(3, [session(3, { workItemId: 9 })], [LOGIN])).toBeUndefined();
-  });
-});
-
 describe("askButton", () => {
-  it("is enabled, and says where it asks, with a prompt and a work item's pane in front", () => {
+  it("is enabled, and says where it asks, once a prompt is typed", () => {
     expect(askButton("Which file holds the login form?", LOGIN)).toEqual({ enabled: true, title: "Ask in Fix the login bug" });
-  });
-
-  it("is disabled, and says why, while the pane in front belongs to no work item", () => {
-    expect(askButton("Which file holds the login form?", undefined)).toEqual({ enabled: false, title: "Bring a work item's pane to the front to ask in it." });
   });
 
   it("is disabled, and says why, while the field is empty or holds white space alone", () => {
     expect(askButton("", LOGIN)).toEqual({ enabled: false, title: "Type what to ask." });
     expect(askButton(" \n ", LOGIN)).toEqual({ enabled: false, title: "Type what to ask." });
-  });
-
-  it("names the missing work item first where the field is empty as well", () => {
-    expect(askButton("", undefined).title).toBe("Bring a work item's pane to the front to ask in it.");
   });
 });
 
@@ -212,7 +226,7 @@ describe("withHeadless", () => {
 describe("headlessLines", () => {
   it("says each session's prompt, its state and its answer with the line breaks kept, the most recent first", () => {
     const sessions = [headless(1, { state: "finished", answer: "src/login/form.ts\nsrc/login/submit.ts" }), headless(2, { prompt: "And the tests?", answer: "test/" })];
-    expect(headlessLines(sessions)).toEqual([
+    expect(headlessLines(sessions, 1)).toEqual([
       { id: 2, prompt: "And the tests?", state: "working", text: "test/" },
       { id: 1, prompt: "Which file holds the login form?", state: "finished", text: "src/login/form.ts\nsrc/login/submit.ts" },
     ]);
@@ -220,6 +234,13 @@ describe("headlessLines", () => {
 
   it("shows a failed session's error in place of its answer", () => {
     const failed = headless(3, { state: "failed", answer: "src/lo", error: "the session exited with code 1 and gave no result" });
-    expect(headlessLines([failed])).toEqual([{ id: 3, prompt: "Which file holds the login form?", state: "failed", text: "the session exited with code 1 and gave no result" }]);
+    expect(headlessLines([failed], 1)).toEqual([{ id: 3, prompt: "Which file holds the login form?", state: "failed", text: "the session exited with code 1 and gave no result" }]);
+  });
+
+  it("gives the lines of the one work item alone", () => {
+    const sessions = [headless(1), headless(2, { workItemId: 2 }), headless(3)];
+    expect(headlessLines(sessions, 1).map((line) => line.id)).toEqual([3, 1]);
+    expect(headlessLines(sessions, 2).map((line) => line.id)).toEqual([2]);
+    expect(headlessLines(sessions, 3)).toEqual([]);
   });
 });

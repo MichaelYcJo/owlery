@@ -23,4 +23,4 @@ AgenticSeal is the original Owlery draws on, and Owlery is the product that exte
 
 ## License
 
-Apache License 2.0. Why, and how code from other projects is taken, is in [docs/architecture.md](docs/architecture.md#license-and-code-from-other-projects).
+Apache License 2.0. Why, and how code from other projects is taken, is in [docs/architecture.md](docs/architecture.md#license-and-code-from-other-projects). The Owlery and AgenticSeal names and the owl emblem are not under that license, and [TRADEMARKS.md](TRADEMARKS.md) states what they are under.
