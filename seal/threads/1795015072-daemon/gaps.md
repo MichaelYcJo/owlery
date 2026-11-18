@@ -15,4 +15,6 @@
 - **The recent output is kept in memory, 256K characters per session.** Output older than that is lost when the window reconnects; the disk log `docs/architecture.md` *Memory design* names comes later.
 - **An ended session stays listed until the daemon exits.** No way to close a pane exists yet; it comes with the work items of issue #6.
 - **The window reloads when the daemon goes away.** The reload finds or starts a daemon again, which loses nothing the daemon did not already lose; a reconnect without the reload can come with the inbox (issue #7).
+- **The window names a tab by the pane's kind, `claude` among them.** `docs/architecture.md` *Rules that keep it portable*, rule 2, has the UI read a list of features rather than branch on a vendor's name; the daemon telling the window which kinds of pane it can open, with their labels, comes with the inbox (issue #7), which rebuilds the window's top bar. The base branched the same way over IPC.
+- **A replay cut at 256K characters can start inside an escape sequence.** It is cut by characters, not at a line; cutting at a line comes with the disk log.
 - **The daemon lives in the desktop package.** It shares `node-pty` built for Electron's ABI and runs on Electron's Node; a package of its own can come when the phone needs it.
