@@ -17,8 +17,8 @@ The tree as read at `1abd9ef`.
 
 ## Scope
 
-1. **Agent state per session**, kept by the daemon: `working` after `prompt`, `tool-start`, `tool-end` or `tool-failed`; `waiting` after `permission` or `notification`; `finished` after `turn-end`; `null` until the first event, and for a pane kind that reports no agent events. A session that has exited is `alive: false`, whatever its last state. The mapping is a pure function of the last event, in a module of its own.
-2. **New commits per work item**: a work item records the commit its branch started from (`baseCommit`) when it is created. The daemon reads, for every work item, the number of commits on its branch after `baseCommit` (`git rev-list --count <baseCommit>..<branch>` in the repository), at most every 3 seconds, and only while a client is connected. A work item from before this field has `baseCommit: null` and shows no count.
+1. **Agent state per session**, kept by the daemon: `working` after `prompt`, `tool-start`, `tool-end` or `tool-failed`; `waiting` after `permission` or `notification`; `finished` after `turn-end`; `null` after `session-start`, until the first event, and for a pane kind that reports no agent events. A session that has exited is `alive: false`, whatever its last state. The mapping is a pure function of the last event, in a module of its own.
+2. **New commits per work item**: a work item records the commit its branch started from (`baseCommit`) when it is created. The daemon reads, for every work item, the number of commits on its branch after `baseCommit` (`git rev-list --count <baseCommit>..refs/heads/<branch> --` in the repository, the full ref name so a tag or a file of that name is not read instead), at most every 3 seconds, and only while a client is connected. A work item from before this field has `baseCommit: null` and shows no count.
 3. **The kinds of pane the daemon offers**, in `ready`: `[{ kind, label, reportsState }]`, today `shell` ("Shell", false) and `claude` ("Claude Code", true). The window builds its "+" buttons, the work-item form's choice and the tab labels from this list, and names no kind itself.
 4. **Every client hears every change.** A server message `inbox` carries the whole list of sessions and work items, and the daemon sends it to every client whenever a session starts, changes state, exits or closes, or a work item is created or its commit count changes. `ready` carries the same lists, as today, plus the kinds.
 5. **Closing a pane**: a client message `close` ends the session's process if it is alive and removes the session from the lists. The window puts a close control on each tab.
@@ -51,7 +51,7 @@ In `apps/desktop/src/shared/protocol.ts`:
 - Server: `ready` gains `paneKinds: PaneKindInfo[]`; new `{ type: "inbox"; sessions: SessionInfo[]; workItems: WorkItem[] }`.
 - Client: new `{ type: "close"; id: number }`.
 
-The state function goes in `apps/desktop/src/daemon/agent-state.ts`, the commit count in `apps/desktop/src/daemon/worktrees.ts`, the notification decision in `apps/desktop/src/renderer/view.ts`. The pane kinds are defined once, in the daemon, beside `commandFor`.
+The state function goes in `apps/desktop/src/daemon/agent-state.ts`, the commit count in `apps/desktop/src/daemon/worktrees.ts`, the notification decision in `apps/desktop/src/renderer/view.ts`. The pane kinds are defined once, in the daemon, as `PANE_KINDS` in `apps/desktop/src/daemon/pane-kinds.ts`, which `main.ts` passes to `Daemon` beside `commandFor`; `main.ts` starts the daemon when imported, so a case cannot read a value defined there.
 
 ## Rule changes
 
