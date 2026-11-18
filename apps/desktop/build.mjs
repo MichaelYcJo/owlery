@@ -14,7 +14,15 @@ await Promise.all([
     platform: "node",
     format: "cjs",
     // Native and Electron modules load at run time, never bundled.
-    external: ["electron", "node-pty"],
+    external: ["electron", "node-pty", "ws", "bufferutil", "utf-8-validate"],
+  }),
+  esbuild.build({
+    ...common,
+    entryPoints: ["src/daemon/main.ts"],
+    outfile: "dist/daemon.js",
+    platform: "node",
+    format: "cjs",
+    external: ["node-pty", "ws", "bufferutil", "utf-8-validate"],
   }),
   esbuild.build({
     ...common,

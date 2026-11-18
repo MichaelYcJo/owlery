@@ -17,11 +17,13 @@
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-webgl": "0.19.0",
     "@xterm/xterm": "6.0.0",
-    "node-pty": "1.1.0"
+    "node-pty": "1.1.0",
+    "ws": "8.22.1"
   },
   "devDependencies": {
     "@electron/rebuild": "4.2.1",
     "@types/node": "22.20.5",
+    "@types/ws": "8.18.2",
     "electron": "45.3.3",
     "esbuild": "0.28.2",
     "typescript": "5.9.3",

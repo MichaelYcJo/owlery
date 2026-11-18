@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:*" />
     <title>Owlery</title>
     <link rel="stylesheet" href="./renderer.css" />
     <style>
@@ -12,6 +12,7 @@
       #bar button { background: #333; color: inherit; border: 1px solid #444; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
       #bar button.active { background: #0e639c; border-color: #0e639c; }
       #tabs { display: flex; gap: 4px; margin-left: 8px; }
+      #status { margin-left: auto; color: #e2c08d; }
       #stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
       .pane { position: absolute; inset: 8px; }
       #side { border-left: 1px solid #333; overflow: auto; padding: 6px 8px; min-height: 0; }
@@ -25,6 +26,7 @@
       <button id="new-shell">+ Shell</button>
       <button id="new-claude">+ Claude Code</button>
       <div id="tabs"></div>
+      <span id="status"></span>
     </div>
     <div id="stage"></div>
     <aside id="side">
