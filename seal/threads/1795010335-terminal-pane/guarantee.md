@@ -33,3 +33,34 @@ The audit ran in a clone at `8a11760` under the sealer's scratch directory, with
 target: 8a11760 against 1fa85cc
 Verdict: withheld reason: the orchestrator's `Closes #3` in `pr.md`, with `gaps.md` silent, leaves undone the issue #3 sentence "The result decides the open row "Tauri for macOS only" in docs/architecture.md Open decisions": the row at docs/architecture.md:332 and docs/architecture.ko.md:332 and the waiting sentence at :307 of both stand unchanged; settle the row with the owner in both documents, or name it in `gaps.md` Not done with who decides it
 ```
+
+## Re-audit at de9e0f7
+
+The commits since `8a11760` are `ebd44e4` (this file), `557c89a` (`docs/architecture.md`, `docs/architecture.ko.md`), `f52bf9f` (`trail/gate.md`) and `de9e0f7` (`changelog.md`). None touches `apps/`, the workspace files or `seal/config.json` (executed: `git diff --stat 8a11760 HEAD -- apps package.json pnpm-lock.yaml pnpm-workspace.yaml seal/config.json` prints nothing), so the code claims re-run at `8a11760` stand unchanged and are not re-run. The claims and parties below are the ones those commits touched.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run stands at HEAD | `trail/gate.md`, newest block `run: 557c89a against 1fa85cc` | `git merge-base --is-ancestor 557c89a HEAD`; `git log --no-merges --name-only 557c89a..HEAD ^1fa85cc` | holds (executed): `557c89a` is an ancestor of HEAD; `f52bf9f` and `de9e0f7` follow it and touch only `seal/threads/1795010335-terminal-pane/trail/gate.md` and `seal/threads/1795010335-terminal-pane/changelog.md` |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file `seal pr-body` rewrote at `de9e0f7` | `seal pr-body seal/threads/1795010335-terminal-pane --body <file> --check` | holds (executed): exit 0, `matches` |
+| The row "Tauri for macOS only" is settled in both editions | `557c89a`; the orchestrator's message | `git diff 8a11760 HEAD -- docs`; `git grep -n -i tauri -- docs README.md README.ko.md` | holds (executed): the row is gone from *Open decisions* in both editions; `docs/architecture.md:307` and `docs/architecture.ko.md:307` now say Electron stays on macOS (decided 2026-11-18), with Korean input in the Electron pane and the measured gap of up to about 10% at `:300` as the grounds on the row's two criteria; the *Measure before building* item for a Tauri test app is gone from both; the grep prints nothing, exit 1 |
+| The two editions still agree in table rows | the broad gate's documents check | `grep -c '^\|' docs/architecture.md docs/architecture.ko.md` | holds (executed): 107 and 107 |
+| The owner chose to keep Electron on macOS | the orchestrator's message, relaying the owner's answer in the session on 2026-11-18 | none: the answer was given to the orchestrator | unverified: the owner answers it, and reads the decision at `docs/architecture.md:307` in the pull request |
+| The dated Korean input result is still recorded | `docs/architecture.md:303`, `docs/architecture.ko.md:303` | `sed -n 303p docs/architecture.md` | holds (executed): the line stands as audited at `8a11760` |
+| The earlier verdict block stands as written | this file at `ebd44e4` | `git show ebd44e4:<this file> \| diff - <this file>` before this block was appended | holds (executed): no difference |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | No frame; unchanged since `8a11760` | the build | none |
+| the build | The code is unchanged since `8a11760`; `557c89a` settles the row the issue says the Korean input result decides, in both editions | issue #3 *Checked at the start* and its two *Done when* lines, with Codex disclosed as unverified in `gaps.md` | none |
+| the last round | No round ran: `routing.md` answers Review `straight to the PR` | not applicable | not applicable |
+| the changelog | Adds that Electron stays on macOS: the open row is gone, Korean input works in the Electron pane, and the measured memory gap does not decide | `docs/architecture.md:307` and the removed row | none |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged: `Closes #3`, with the routing paragraph and the Codex row of `gaps.md` quoted | issue #3, now that the row its *Checked at the start* sentence names is decided in the tree; `gaps.md` | none |
+
+```seal
+target: de9e0f7 against 1fa85cc
+Verdict: sealed
+```
