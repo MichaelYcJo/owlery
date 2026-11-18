@@ -46,4 +46,6 @@ The runs print each verdict and exit code and not the failing line, so the faili
 
 **After the drive.** Both apps and both daemons the probe started had exited, `daemon.json` and `work-items.json` were gone from the run directory, `~/.owlery` did not exist, and `~/.claude.json` named no folder of the scratch. The temporary repository and its three worktrees stay under the phase's scratch.
 
+**One commit follows the drive.** `a2def7b` rewrites one comment in `src/renderer/renderer.ts` and changes no statement; the package's `tsc --noEmit` and `pnpm run build` passed after it, and the drive and the mutation runs were not repeated. The plan's Status cell names `265e734`, the commit the drive and the mutation ran on.
+
 **Departure from the spawn.** The spawn asked for the probe to be deleted after its run. The agent contract, rule 17, has no agent remove a file in a scratch directory, so the probe stays there.
