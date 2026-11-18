@@ -26,7 +26,7 @@ const panes = new Map<number, Pane>();
 const pending = new Map<number, Parts>();
 // The kinds of pane the daemon offers, as `ready` listed them: the buttons, the form's choice and the tab labels come from here.
 let paneKinds: PaneKindInfo[] = [];
-// The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`.
+// The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`, and a work item this window created since.
 let sessions: SessionInfo[] = [];
 let workItems: WorkItem[] = [];
 let active: Pane | undefined;
@@ -155,7 +155,7 @@ function showPaneKinds(): void {
       return button;
     }),
   );
-  // The form offers first the kind an inbox line opens.
+  // The form starts on the kind an inbox line opens.
   const preferred = agentKind(paneKinds);
   kindField.replaceChildren(...paneKinds.map(({ kind, label }) => new Option(label, kind, kind === preferred, kind === preferred)));
 }
