@@ -4,7 +4,7 @@ The ticket is issue #18.
 
 ## Grounding
 
-The tree as read at `12cd34f`. The window's code as issue #8 leaves it was read at `d3bc681`, the tip of `feat/8-the-daemon-launches-no-headless-session`, because #8 merges before this work is built (`frame/plan.md` *Overlap with the release*).
+The tree as read at `12cd34f`. The window's code as issue #8 leaves it was read at `d3bc681`, the tip of `feat/8-the-daemon-launches-no-headless-session`, because #8 merges before this work is built (`frame/plan.md` *Overlap with the release*). #8 has since merged into `release/v0.0.1` as `ed91bb6`, and this branch merged that as `2a45d69`. `git diff --stat d3bc681 2a45d69 -- apps/desktop` printed nothing (`executed`), so what this section says of `apps/desktop` at `d3bc681` holds at `2a45d69`.
 
 | Policy clause | What it fixes for this work |
 |---|---|
@@ -26,8 +26,8 @@ What reading and probes gave, each labelled:
 - `read`: `seal/threads/1795043695-inbox-first-window/routing.md` at `12cd34f`. It says the build waits on the owner choosing one of the mockups.
 - `executed`: `ls seal/follow-up.md` found no file. `gh release view --json body --jq .body` answered "release not found". `grep -n 'Process changes' seal/threads/*/changelog.md` printed nothing.
 - `executed`: `ls /Users/michael/Documents/GitHub/owlery/etcs/research/ux.md` found no file on 2026-11-19, so the design study's comparison was not read. No mockup existed to read either.
-- Nobody's finding, relayed by the orchestrator's spawn prompt: the owner said on 2026-11-19 that the window reads as "just a terminal with a lot of buttons", that Orca, Paseo and other products are references and are not to be copied, and that the work is "a rebranding toward the goal we should aim for". The owner answers what the rebranding covers (`frame/questions.md` Q1 and Q2).
-- Nobody's finding, relayed by the orchestrator's message during the framing: the owner decided on 2026-11-19 that the seal uses "the owl seal design we already made in AgenticSeal" and no new drawing. The owner answers which form the licence note takes (`frame/questions.md` Q3).
+- Nobody's finding, relayed by the orchestrator's spawn prompt: the owner said on 2026-11-19 that the window reads as "just a terminal with a lot of buttons", that Orca, Paseo and other products are references and are not to be copied, and that the work is "a rebranding toward the goal we should aim for". The owner answered on 2026-11-19 that the rebranding reaches the name, the app's icon and the README, and issue #21 carries that reach (`frame/questions.md` Q2). Which mockup the window follows is still the owner's to answer (`frame/questions.md` Q1).
+- Nobody's finding, relayed by the orchestrator's message during the framing: the owner decided on 2026-11-19 that the seal uses "the owl seal design we already made in AgenticSeal" and no new drawing. The owner chose the form of the licence note on 2026-11-19: a `TRADEMARKS.md` linked from both READMEs (`frame/questions.md` Q3).
 - `executed`: `ls` of `/Users/michael/.claude/plugins/cache/agenticseal/agentic/0.38.2/assets/seals/` lists `owl.svg`, `horned-owl.svg`, `owl-icon-cream.svg` and `owl-icon-coral.svg` among its files. `shasum -a 256` of `owl-icon-cream.svg` there gave `fa8ffa5d357ecb3cc17cb9636e04564e0ce45c1b162f7dc8dd904f1e509aa27d`, and `wc -c` gave 4925 bytes.
 - `read`: that directory's `README.md`, *The little owl*, "The directory icon". `owl.svg` is the detailed drawing, whose fret border, scallops and thin lines blur together in a small tile. `owl-icon-cream.svg` keeps the wax outline and draws the owl in flat shapes with fewer, thicker lines for that size. The file refers to nothing outside itself.
 - `read`: the plugin's `TRADEMARKS.md` at 0.38.2. The AgenticSeal name, the owl emblem and its seal drawings are not under the plugin's MIT License: "All rights reserved", and every `.svg` under `assets/seals/` is named. This repository's `LICENSE` is the Apache License 2.0, its `README.md` *License* names that licence alone, and the tree holds no `TRADEMARKS.md` and no `NOTICE` (`ls` of the top directory, `executed`).
@@ -65,7 +65,7 @@ The chosen mockup's link goes here when the owner has chosen (`frame/questions.m
 15. **The seal's place draws AgenticSeal's owl emblem, and no new drawing.**
     - The drawing is `owl-icon-cream.svg` of the AgenticSeal plugin 0.38.2, committed byte for byte as `apps/desktop/assets/seals/owl-icon-cream.svg`. `apps/desktop/build.mjs` copies it into `dist/`, and the page shows it as an image from there. No other drawing of the plugin is committed, because the window shows no other.
     - No work item can be sealed before milestone 2. Until then the place shows the emblem dimmed by the page's style, with the accessible name and the title "No seal yet", on every line and in every view's header. The undimmed emblem is what milestone 2 shows for a sealed work item. How dim, and at what size, follows the chosen mockup (item 13).
-    - The repository says that the emblem is not under its licence. A `TRADEMARKS.md` at the top of the tree says that the Apache License 2.0 covers the code, and that the Owlery and AgenticSeal names, the owl emblem and the drawing under `apps/desktop/assets/seals/` are not licensed under it, all rights reserved. `README.md` *License* and `README.ko.md` *라이선스* each gain one sentence that links it. `## Rule changes` states the same in `docs/architecture.md` and its Korean edition. `frame/questions.md` Q3 holds the form of this note; this sub-item and those two operations are its default, and an answer that takes another form is folded into both.
+    - The repository says that the emblem is not under its licence. A `TRADEMARKS.md` at the top of the tree says that the Apache License 2.0 covers the code, and that the Owlery and AgenticSeal names, the owl emblem and the drawing under `apps/desktop/assets/seals/` are not licensed under it, all rights reserved. `README.md` *License* and `README.ko.md` *라이선스* each gain one sentence that links it. `## Rule changes` states the same in `docs/architecture.md` and its Korean edition. The owner chose this form on 2026-11-19, in answer to `frame/questions.md` Q3.
 16. Out of scope, each with its reason:
     - Removing the pane without a work item from the daemon and the protocol (`start` without `workItemId`, `DaemonOptions.cwd`). `frame/plan.md` *Alternatives considered* holds the grounds, and the framer's hand-back names it as a follow-up.
     - Disposing of a hidden terminal, a `detach` message, and showing several panes side by side. Issue #9 measures four visible terminals and owns what it needs for that.
@@ -73,12 +73,12 @@ The chosen mockup's link goes here when the owner has chosen (`frame/questions.m
     - A headless session on the inbox line, and a notification when one ends. Issue #8 leaves both not done (`gaps.md` of `1795042041-headless-session` at `d3bc681`), and #18 asks for neither.
     - Sorting, filtering or grouping the inbox, and removing a work item (milestone 4).
     - What a click on a notification does, and keeping the open view across a reload. Neither is asked, and each needs the main process or a place to keep the window's state.
-    - Any change to `docs/`, the README, the app's icon or the product's name beyond the licence note of item 15. `frame/questions.md` Q2 holds whether the rebranding reaches them.
+    - Any change to `docs/`, the README, the app's icon or the product's name beyond the licence note of item 15. The owner answered `frame/questions.md` Q2 on 2026-11-19: the rebranding reaches them, as a work item of its own. Issue #21 holds the app's icon, the opening of both READMEs, the *Emblem* row of `docs/name.md` *Open decisions* and whether the name stays.
     - The daemon that dies where its run folder's path is too long (issue #19).
 
 ## User scenarios & acceptance *(mandatory)*
 
-"The drive" is one run of the built app through Electron's debugging port by the phase's builder, as the phases of issues #7 and #8 ran it, with a short `--user-data-dir` (issue #19). `<base>` is the commit of `release/v0.0.1` the branch last merged before phase 1's first edit.
+"The drive" is one run of the built app through Electron's debugging port by the phase's builder, as the phases of issues #7 and #8 ran it, with a short `--user-data-dir` (issue #19). `<base>` is `ed91bb6`, the commit of `release/v0.0.1` this branch merged before phase 1's first edit.
 
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
