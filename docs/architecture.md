@@ -45,7 +45,7 @@ When the daemon deals with an agent in a structured way, it goes only through on
 
 ### Authentication of the Claude adapter
 
-The Claude adapter attaches in only one way: the daemon launches the `claude` CLI that the user installed and logged into. It does not use the Agent SDK. The Agent SDK documentation does not allow third-party products without prior approval to offer claude.ai login or subscription usage limits (Agent SDK overview, checked 2026-11-17). When the daemon launches the user's CLI, authentication is the user's from the start.
+The Claude adapter attaches in only one way: the daemon launches the `claude` CLI that the user installed and logged into. It does not use the Agent SDK. The Agent SDK documentation does not allow third-party products without prior approval to offer claude.ai login or subscription usage limits (Agent SDK overview, read 2026-11-18). When the daemon launches the user's CLI, authentication is the user's from the start.
 
 | What | How |
 |---|---|
@@ -54,7 +54,7 @@ The Claude adapter attaches in only one way: the daemon launches the `claude` CL
 | Original screen | If the user wants to look inside, a role session opens in a terminal (`claude --resume <session ID>`). State is then judged by hooks |
 | Role bundle | The daemon loads the Owlery agent definitions and skills shipped in the app only into role sessions (`--plugin-dir`). They are not installed into the user's Claude Code, so the app's version and the bundle's version are always the same. See "What each session loads" below |
 
-Anthropic publishes two documents that bear on this, and neither addresses another product launching the user's own logged-in CLI in headless mode. The support article "Use the Claude Agent SDK with your Claude plan" says that `claude -p` and third-party app usage still draw from the user's subscription limits. The Agent SDK overview says that, unless previously approved, third-party developers may not offer claude.ai login or rate limits for their products. Both were read on 2026-11-18. Owlery sends Anthropic no inquiry. It judges headless role sessions against these two documents, and judges again when either changes. Role sessions are launched only through the adapter, so moving them to interactive terminals read through hooks stays cheap.
+Anthropic publishes two documents that bear on this, and neither addresses another product launching the user's own logged-in CLI in headless mode. The support article "Use the Claude Agent SDK with your Claude plan" says that `claude -p` and third-party app usage still draw from the user's subscription limits. The Agent SDK overview holds the rule on claude.ai login stated at the top of this section. Both were read on 2026-11-18. Owlery sends Anthropic no inquiry. It judges headless role sessions against these two documents, and judges again when either changes. Role sessions are launched only through the adapter, so moving them to interactive terminals read through hooks stays cheap.
 
 ### Reading usage limits
 
