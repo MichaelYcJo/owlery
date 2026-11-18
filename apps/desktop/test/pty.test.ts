@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TerminalSession, terminalEnv } from "../src/main/pty";
+import { TerminalSession, terminalEnv } from "../src/daemon/pty";
 
 function collect(session: TerminalSession, until: (out: string) => boolean, timeoutMs = 5000): Promise<string> {
   return new Promise((resolve, reject) => {

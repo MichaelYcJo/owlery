@@ -123,7 +123,6 @@ export class HookServer {
       buffer += chunk;
     });
     socket.on("end", () => {
-      socket.end();
       const event = parseEvent(buffer);
       if (event) for (const listener of this.listeners) listener(event);
     });

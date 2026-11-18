@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { claudePaneCommand, HOOK_EVENTS, HookServer, hookSettings, writeHookSettings, type HookEvent } from "../src/main/hooks";
+import { claudePaneCommand, HOOK_EVENTS, HookServer, hookSettings, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
 
 const dirs: string[] = [];
 function scratch(): string {
@@ -50,7 +50,7 @@ describe("hookSettings", () => {
 });
 
 describe("writeHookSettings", () => {
-  it("writes the file Owlery passes to claude, and nothing under the user's ~/.claude", () => {
+  it("writes the hook settings into the directory it is given", () => {
     const dir = scratch();
     const file = writeHookSettings(dir);
     expect(file.startsWith(dir)).toBe(true);
