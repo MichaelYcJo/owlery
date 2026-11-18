@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -54,8 +54,12 @@ describe("WorkItemList", () => {
   });
 
   it("keeps the list in memory alone where it is given no run directory", () => {
+    // Where a list with no run directory would write, were it to write at all.
+    const stray = join(process.cwd(), "work-items.json");
+    cleanups.push(() => rmSync(stray, { force: true }));
     const list = new WorkItemList(undefined);
     expect(list.add(PLACE).id).toBe(1);
     expect(list.all()).toHaveLength(1);
+    expect(existsSync(stray)).toBe(false);
   });
 });
