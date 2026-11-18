@@ -28,3 +28,5 @@
 - **The window does not show a session's cost, and shows no notification when a headless session ends.** The cost on the back of the seal is out of scope (*Scope* item 8), and item 5 names no notification.
 - **The list is not bounded in the window.** It shows every headless session the daemon holds, each answer whole, in the side panel's own scroll.
 - **The CLI's version is not read.** The flags were run against 2.1.327 alone. Checking the minimum version is out of scope (*Scope* item 8).
+- **The daemon does not start where its run folder's path is too long for a Unix socket.** Phase 2's drive met it with a run folder under the scratch directory: the daemon exited with `listen EINVAL … hooks.sock` and the window stopped after 10 seconds without a word. It predates this work; issue #19 holds it.
+- **Where the "Ask" section sits is #18's to move.** Issue #18 rebuilds the window around the inbox, and its plan says where the section lands.
