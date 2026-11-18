@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createWorktree, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { createWorktree, newCommits, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
@@ -60,7 +60,8 @@ describe("createWorktree", () => {
   it("cuts the branch owlery/<slug> at HEAD and checks it out in <root>/<repo name>/<slug>", async () => {
     const { repo, root } = repository();
     const made = await createWorktree({ folder: repo, title: "Fix the login bug", root });
-    expect(made).toEqual({ repo, branch: "owlery/fix-the-login-bug", worktree: join(root, "project", "fix-the-login-bug") });
+    const head = git(repo, "rev-parse", "HEAD").trim();
+    expect(made).toEqual({ repo, branch: "owlery/fix-the-login-bug", worktree: join(root, "project", "fix-the-login-bug"), baseCommit: head });
     expect(git(repo, "branch", "--list", "owlery/*").trim()).toContain("owlery/fix-the-login-bug");
     expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/fix-the-login-bug");
     expect(git(repo, "rev-parse", "owlery/fix-the-login-bug")).toBe(git(repo, "rev-parse", "HEAD"));
@@ -132,5 +133,41 @@ describe("createWorktree", () => {
     const folder = join(base, "missing");
     await expect(createWorktree({ folder, title: "Anything", root })).rejects.toThrow(`${folder} is not inside a git repository`);
     expect(existsSync(root)).toBe(false);
+  });
+});
+
+describe("newCommits", () => {
+  /** Commits a new file in the folder, on whatever branch it has checked out. */
+  function commit(folder: string, file: string): void {
+    writeFileSync(join(folder, file), `${file}\n`);
+    git(folder, "add", file);
+    git(folder, "commit", "--quiet", "-m", `add ${file}`);
+  }
+
+  it("counts none on a branch just cut, then each commit made in its worktree", async () => {
+    const { repo, root } = repository();
+    const made = await createWorktree({ folder: repo, title: "Counted", root });
+    expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(0);
+    commit(made.worktree, "one.txt");
+    expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(1);
+    commit(made.worktree, "two.txt");
+    expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(2);
+  });
+
+  it("counts the work item's branch alone, not what the person's own checkout or another work item commits", async () => {
+    const { repo, root } = repository();
+    const made = await createWorktree({ folder: repo, title: "Mine", root });
+    const other = await createWorktree({ folder: repo, title: "Other", root });
+    commit(repo, "on-main.txt");
+    commit(other.worktree, "on-other.txt");
+    expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(0);
+    expect(await newCommits(other.repo, other.branch, other.baseCommit)).toBe(1);
+  });
+
+  it("gives no count where git cannot give one: the branch is gone, or the repository is", async () => {
+    const { repo, root, base } = repository();
+    const made = await createWorktree({ folder: repo, title: "Gone", root });
+    expect(await newCommits(made.repo, "owlery/never-cut", made.baseCommit)).toBeNull();
+    expect(await newCommits(join(base, "missing"), made.branch, made.baseCommit)).toBeNull();
   });
 });

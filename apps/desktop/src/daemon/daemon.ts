@@ -3,11 +3,12 @@ import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type ClientMessage, type PaneKind, type ServerMessage, type SessionInfo, UNAUTHORIZED } from "../shared/protocol";
+import { type ClientMessage, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
 import { agentEventFor } from "./agent-events";
+import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { WorkItemList } from "./work-items";
-import { createWorktree, worktreesRoot } from "./worktrees";
+import { createWorktree, newCommits, worktreesRoot } from "./worktrees";
 
 export interface PaneCommand {
   command: string;
@@ -17,6 +18,8 @@ export interface PaneCommand {
 
 export interface DaemonOptions {
   token: string;
+  /** The kinds of pane a client may open, as `ready` offers them. */
+  paneKinds: readonly PaneKindInfo[];
   /** The command of a new pane of that kind, given the pane's id. */
   commandFor: (kind: PaneKind, id: number) => PaneCommand;
   /** Where a pane opened without a work item runs. */
@@ -27,6 +30,8 @@ export interface DaemonOptions {
   worktreesRoot?: string;
   /** The clock a work item's `createdAt` is read from. */
   now?: () => number;
+  /** How long the daemon waits between two reads of the work items' new commits. */
+  commitPollMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -57,6 +62,12 @@ export class Daemon {
   private readonly workItems: WorkItemList;
   // Creations run one after another, so two of one title never pick the same branch and folder.
   private creating: Promise<void> = Promise.resolve();
+  // The new commits last read for each work item, by its id; the list itself does not store them.
+  private readonly commitCounts = new Map<number, number | null>();
+  private commitTimer: NodeJS.Timeout | undefined;
+  private commitsReadAt = 0;
+  private readingCommits = false;
+  private closed = false;
 
   constructor(private readonly options: DaemonOptions) {
     this.workItems = new WorkItemList(options.runDir, options.now);
@@ -79,15 +90,26 @@ export class Daemon {
     return (this.server?.address() as AddressInfo | undefined)?.address;
   }
 
-  /** Delivers an agent's event for a pane to every client, as a neutral event. */
+  /**
+   * Delivers an agent's event for a pane to every client, as a neutral event,
+   * and keeps the state it leaves the pane's session in.
+   */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const event = agentEventFor(hookName);
     if (!event) return;
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });
+    const session = this.sessions.get(paneId);
+    if (!session || !this.reportsState(session.info.kind)) return;
+    const state = agentStateAfter(event);
+    if (state === session.info.state) return;
+    session.info.state = state;
+    this.broadcastInbox();
   }
 
   async close(): Promise<void> {
+    this.closed = true;
+    clearTimeout(this.commitTimer);
     clearTimeout(this.idleTimer);
     for (const session of this.sessions.values()) if (session.info.alive) session.terminal.kill();
     for (const client of this.clients.keys()) client.terminate();
@@ -114,7 +136,8 @@ export class Daemon {
         authorized = true;
         this.clients.set(socket, new Set());
         this.checkIdle();
-        this.send(socket, { type: "ready", sessions: [...this.sessions.values()].map((s) => s.info), workItems: this.workItems.all() });
+        this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds] });
+        this.scheduleCommitRead();
         return;
       }
       this.handle(socket, message);
@@ -122,6 +145,11 @@ export class Daemon {
     socket.on("close", () => {
       clearTimeout(helloTimer);
       this.clients.delete(socket);
+      // Nobody reads the counts while no client is connected.
+      if (this.clients.size === 0) {
+        clearTimeout(this.commitTimer);
+        this.commitTimer = undefined;
+      }
       this.checkIdle();
     });
     socket.on("error", () => socket.terminate());
@@ -145,7 +173,9 @@ export class Daemon {
           cwd = workItem.worktree;
         }
         const info = this.startSession(socket, message, cwd, message.workItemId ?? null);
+        // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
         this.send(socket, { type: "started", requestId: message.requestId, session: info });
+        this.broadcastInbox();
         return;
       }
       case "createWorkItem": {
@@ -153,9 +183,13 @@ export class Daemon {
           try {
             if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
             const place = await createWorktree({ folder: message.repo, title: message.title, root: this.options.worktreesRoot ?? worktreesRoot(process.env) });
-            const workItem = this.workItems.add({ title: message.title, ...place });
+            const stored = this.workItems.add({ title: message.title, ...place });
+            // The branch was cut at its base commit a moment ago.
+            this.commitCounts.set(stored.id, 0);
+            const workItem: WorkItem = { ...stored, newCommits: 0 };
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
+            this.broadcastInbox();
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -170,6 +204,17 @@ export class Daemon {
         // so the client draws each line once.
         this.send(socket, { type: "replay", id: message.id, data: session.output.text() });
         this.clients.get(socket)?.add(message.id);
+        return;
+      }
+      case "close": {
+        const session = this.sessions.get(message.id);
+        if (!session) return;
+        // Off the lists first, so the process's end is told to nobody as a session's.
+        this.sessions.delete(message.id);
+        for (const attached of this.clients.values()) attached.delete(message.id);
+        if (session.info.alive) session.terminal.kill();
+        this.broadcastInbox();
+        this.checkIdle();
         return;
       }
       case "input":
@@ -195,7 +240,7 @@ export class Daemon {
       rows: pane.rows,
       env: { ...process.env, ...env },
     });
-    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
+    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
     this.sessions.set(id, session);
     terminal.onData((data) => {
       session.output.append(data);
@@ -203,7 +248,11 @@ export class Daemon {
     });
     terminal.onExit((exitCode) => {
       session.info.alive = false;
-      this.broadcast({ type: "exit", id, exitCode });
+      // A closed pane is on no list, and its end is no client's news.
+      if (this.sessions.get(id) === session) {
+        this.broadcast({ type: "exit", id, exitCode });
+        this.broadcastInbox();
+      }
       this.checkIdle();
     });
     this.clients.get(socket)?.add(id);
@@ -216,6 +265,59 @@ export class Daemon {
     const given = Buffer.from(token);
     const expected = Buffer.from(this.options.token);
     return given.length === expected.length && timingSafeEqual(given, expected);
+  }
+
+  private reportsState(kind: PaneKind): boolean {
+    return this.options.paneKinds.some((offered) => offered.kind === kind && offered.reportsState);
+  }
+
+  private sessionList(): SessionInfo[] {
+    return [...this.sessions.values()].map((s) => s.info);
+  }
+
+  private workItemList(): WorkItem[] {
+    return this.workItems.all().map((item) => ({ ...item, newCommits: this.commitCounts.get(item.id) ?? null }));
+  }
+
+  /** Sends every client the whole of both lists, after either changed. */
+  private broadcastInbox(): void {
+    this.broadcast({ type: "inbox", sessions: this.sessionList(), workItems: this.workItemList() });
+  }
+
+  /**
+   * Arranges the next read of the work items' new commits: at once where the
+   * last one is an interval old, and never while no client is connected or a
+   * read is arranged or running.
+   */
+  private scheduleCommitRead(): void {
+    if (this.closed || this.commitTimer !== undefined || this.readingCommits || this.clients.size === 0) return;
+    const interval = this.options.commitPollMs ?? 3000;
+    const wait = Math.max(0, this.commitsReadAt + interval - Date.now());
+    this.commitTimer = setTimeout(() => {
+      this.commitTimer = undefined;
+      this.commitsReadAt = Date.now();
+      this.readingCommits = true;
+      void this.readCommits().finally(() => {
+        this.readingCommits = false;
+        this.scheduleCommitRead();
+      });
+    }, wait);
+  }
+
+  /** Reads each work item's new commits from git, and tells every client where a count changed. */
+  private async readCommits(): Promise<void> {
+    let changed = false;
+    await Promise.all(
+      this.workItems.all().map(async (item) => {
+        // A work item from before the base commit was recorded has nothing to count from.
+        if (item.baseCommit === null) return;
+        const count = await newCommits(item.repo, item.branch, item.baseCommit);
+        if (count === (this.commitCounts.get(item.id) ?? null)) return;
+        this.commitCounts.set(item.id, count);
+        changed = true;
+      }),
+    );
+    if (changed && !this.closed) this.broadcastInbox();
   }
 
   private send(socket: WebSocket, message: ServerMessage): void {
