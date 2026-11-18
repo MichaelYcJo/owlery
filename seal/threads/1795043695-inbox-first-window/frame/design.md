@@ -87,7 +87,7 @@ The chosen mockup is direction B, "Night desk", artboards B1 and B2 of the desig
 11. **The notification's rule is unchanged**: `notificationFor` decides as it does today. The pane in front is the tab in front of the view on screen while the window has focus. On the inbox screen and on the summary screen no pane is in front, so a session that starts to wait is notified there as well.
 12. **One status line stays on every screen** for the text the window shows today: that it is reconnecting to the daemon, and the message of a refused request that no form shows.
 13. **The look follows direction B, "Night desk"**, which the owner chose (`frame/questions.md` Q1). Its link stands in `## Grounding`, with the colours, the typefaces and the parts of B1 and B2 as the fold read them.
-    - The colours, the typefaces and the spacing are custom properties of `:root` in `src/renderer/index.html`, and their values are B's. The window of `src/main/main.ts` opens 1440 pixels wide and 900 high, the size of the artboards, on B's ground.
+    - The colours, the typefaces and the spacing used in more than one rule are custom properties of `:root` in `src/renderer/index.html`, and their values are B's; a space one rule alone uses stays a literal there. The window of `src/main/main.ts` opens 1440 pixels wide and 900 high, the size of the artboards, on B's ground, so its page is 1440 by 868 under the title bar.
     - The inbox screen is laid out as B1 and a work item's view as B2, as items 2 to 5, 9, 15 and 17 state them. The summary screen has no artboard in direction B: it takes B's colours and typefaces and A1's arrangement (item 19).
     - The typefaces are named first in each property and followed by the system's. The window fetches no typeface and the tree gains no font file, so where a family is not installed the system's draws.
     - A typeface with fixed-width letters draws a branch, a commit and the terminal, and nothing else.
@@ -114,7 +114,7 @@ The chosen mockup is direction B, "Night desk", artboards B1 and B2 of the desig
     - One line of the inbox is selected, and the preview shows its work item: the state in the heading's words, the title, the branch, the new commits, the seal's place of item 15, the control "Open the work item", and the sentence "Enter opens it. J and K move through the inbox." Where the inbox has no work item the preview is empty.
     - The first line is selected at load. The selection is kept by the work item's id, so a redraw at an `inbox` leaves it where it was, and it returns to the first line where its work item is no longer listed.
     - J selects the next line and K the one before, in the order the lines are displayed, and each stops at the end of the list. Enter opens the selected work item's view, as the preview's control does. The window reads the key's place on the keyboard (`KeyboardEvent.code`), so the keys act under a Korean input source as well.
-    - The keys act only while the inbox screen is in front, no dialog is open, the focus is in no field, and no modifier key is held. A pointer that moves over a line selects nothing.
+    - The keys act only while the inbox screen is in front, no dialog is open, the focus is in no field, and no modifier key is held. A pointer that moves over a line selects nothing. A line that is pressed, or that the focus reaches, is selected, and a line returned to from its view is selected and focused. Enter pressed on a control is the control's, not the inbox's.
 18. **The daemon keeps when a person last looked.**
     - A client sends `looked`, a message with no field. The daemon then keeps one record, the look: the time, and the lists of sessions and of work items as an `inbox` sent at that moment would carry them. A later `looked` replaces the record. The daemon writes the record into its run folder as it writes the list of work items, so a daemon started again on that folder holds it.
     - `ready` gains `lastLook`, the record as it stood when the client said hello, or `null` where no client ever sent `looked`. The window reads a `ready` without the field, which a daemon of an earlier build sends, as `null`.
@@ -173,7 +173,8 @@ The decisions are functions of `apps/desktop/src/renderer/view.ts`, with cases i
 
 - `inboxLine`: unchanged. The preview, the view and `changesSince` call it as the line does.
 - `inboxSummary(lines: readonly InboxLine[]): string`, new (*Scope* item 3).
-- `inboxGroups(lines)`, new: the lines in the groups and the order of *Scope* item 2, each group with its heading.
+- `inboxGroups(entries)`, new: the entries, each carrying its `line`, in the groups and the order of *Scope* item 2, each group with its heading from `stateHeading`.
+- `stateHeading(state)`, `selectedLine(ids, selected)` and `inboxKey(event, context)`, new: a group's heading in the words of *Scope* item 2, the selection *Scope* item 17 keeps, and whether a key event is J, K, Enter or nothing under the conditions of *Scope* item 17.
 - `moveSelection(ids: readonly number[], selected: number | undefined, key: "next" | "previous"): number | undefined`, new: the work item *Scope* item 17 selects, over the ids in the displayed order.
 - `changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[])`, new: the changed work items of *Scope* item 19 in the order of its lines, each with its present `InboxLine` and its sentence.
 - `summarySentence(changes): string` and `lastHere(at: number, now: number): string`, new: the two sentences of *Scope* item 19.
