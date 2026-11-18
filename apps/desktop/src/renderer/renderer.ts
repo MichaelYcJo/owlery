@@ -2,8 +2,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { OwleryApi } from "../shared/ipc";
-import type { AgentState, ClientMessage, PaneKind, PaneKindInfo, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
-import { agentKind, inboxLine, notificationFor, paneToOpen, tabLabel, workItemFields } from "./view";
+import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, PaneKindInfo, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import { agentKind, askButton, headlessLines, inboxLine, notificationFor, paneToOpen, tabLabel, withHeadless, workItemFields, workItemInFront } from "./view";
 
 declare global {
   interface Window {
@@ -29,10 +29,14 @@ let paneKinds: PaneKindInfo[] = [];
 // The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`, and a work item this window created since.
 let sessions: SessionInfo[] = [];
 let workItems: WorkItem[] = [];
+// The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since.
+let headless: HeadlessInfo[] = [];
 let active: Pane | undefined;
 let nextRequest = 1;
 // The request the "+ Work item" form is waiting on.
 let formRequest: number | undefined;
+// The request the "Ask" field is waiting on: the field keeps its prompt until the daemon has taken it.
+let askRequest: number | undefined;
 let socket: WebSocket | undefined;
 
 const tabs = document.getElementById("tabs") as HTMLElement;
@@ -48,6 +52,10 @@ const titleField = document.getElementById("work-item-title") as HTMLInputElemen
 const kindField = document.getElementById("work-item-kind") as HTMLSelectElement;
 const formError = document.getElementById("work-item-error") as HTMLElement;
 const createButton = document.getElementById("work-item-create") as HTMLButtonElement;
+const askForm = document.getElementById("ask-form") as HTMLFormElement;
+const askField = document.getElementById("ask-prompt") as HTMLInputElement;
+const askSubmit = document.getElementById("ask-submit") as HTMLButtonElement;
+const headlessList = document.getElementById("headless") as HTMLUListElement;
 
 function send(message: ClientMessage): void {
   socket?.send(JSON.stringify(message));
@@ -83,12 +91,20 @@ function newTerminal(): Parts {
   return { term, fit, element };
 }
 
+/** Sets the "Ask" button for the pane in front and the field as they are now. */
+function showAsk(): void {
+  const button = askButton(askField.value, workItemInFront(active?.id, sessions, workItems));
+  askSubmit.disabled = !button.enabled;
+  askSubmit.title = button.title;
+}
+
 function show(pane: Pane): void {
   for (const other of panes.values()) {
     other.element.hidden = other !== pane;
     other.tab.classList.toggle("active", other === pane);
   }
   active = pane;
+  showAsk();
   pane.fit.fit();
   pane.term.focus();
 }
@@ -136,6 +152,7 @@ function remove(pane: Pane): void {
   active = undefined;
   const next = [...panes.values()].pop();
   if (next) show(next);
+  else showAsk();
 }
 
 function start(kind: PaneKind, workItemId?: number): void {
@@ -205,6 +222,26 @@ function showInbox(): void {
   );
 }
 
+function showHeadless(): void {
+  headlessList.replaceChildren(
+    ...headlessLines(headless).map((line) => {
+      const item = document.createElement("li");
+      // The answer is plain text, never markup, and its line breaks are kept by the style.
+      item.append(row(part("prompt", line.prompt), part(`state ${line.state}`, line.state)), part("answer", line.text));
+      return item;
+    }),
+  );
+}
+
+/** Asks the field's prompt in the work item of the pane in front. */
+function ask(): void {
+  const workItem = workItemInFront(active?.id, sessions, workItems);
+  // One ask per answer: a second press before the daemon has taken the first would ask the same prompt twice.
+  if (askRequest !== undefined || !workItem || !askButton(askField.value, workItem).enabled) return;
+  askRequest = nextRequest++;
+  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value });
+}
+
 /** Takes the daemon's lists at an `inbox`: notifies of each state that changed, drops the closed panes, and redraws the lines. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(sessions.map((session) => [session.id, session.state]));
@@ -218,6 +255,8 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): vo
   const listed = new Set(sessions.map((session) => session.id));
   for (const pane of [...panes.values()]) if (!listed.has(pane.id)) remove(pane);
   showInbox();
+  // The pane in front may have gained its place in the lists, or lost its work item's line.
+  showAsk();
 }
 
 function openWorkItemForm(): void {
@@ -261,8 +300,10 @@ function onMessage(message: ServerMessage): void {
       paneKinds = message.paneKinds;
       sessions = message.sessions;
       workItems = message.workItems;
+      headless = message.headless;
       showPaneKinds();
       showInbox();
+      showHeadless();
       // Sessions that outlived the last window come back with the output they printed meanwhile.
       const alive = sessions.filter((s) => s.alive);
       for (const info of alive) attach(info);
@@ -295,8 +336,23 @@ function onMessage(message: ServerMessage): void {
       if (parts) adopt(message.session, parts);
       return;
     }
+    case "asked":
+      // The daemon took the prompt, so the field is free for the next one.
+      if (message.requestId === askRequest) {
+        askRequest = undefined;
+        askField.value = "";
+        showAsk();
+      }
+      headless = withHeadless(headless, message.headless);
+      showHeadless();
+      return;
+    case "headless":
+      headless = withHeadless(headless, message.headless);
+      showHeadless();
+      return;
     case "error": {
       // Nothing was created or started, so the terminal prepared for the request goes.
+      if (message.requestId === askRequest) askRequest = undefined;
       const parts = pending.get(message.requestId);
       pending.delete(message.requestId);
       parts?.term.dispose();
@@ -355,6 +411,12 @@ workItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
   createWorkItem();
 });
+askField.addEventListener("input", showAsk);
+askForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  ask();
+});
+showAsk();
 new ResizeObserver(() => active?.fit.fit()).observe(stage);
 
 void connect();

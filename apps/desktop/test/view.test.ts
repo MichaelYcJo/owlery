@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { agentKind, inboxLine, notificationFor, paneToOpen, tabLabel, workItemFields } from "../src/renderer/view";
-import type { PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
+import { agentKind, askButton, headlessLines, inboxLine, notificationFor, paneToOpen, tabLabel, withHeadless, workItemFields, workItemInFront } from "../src/renderer/view";
+import type { HeadlessInfo, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -22,6 +22,10 @@ const KINDS: PaneKindInfo[] = [
 
 function session(id: number, fields: Partial<SessionInfo> = {}): SessionInfo {
   return { id, kind: "claude", alive: true, workItemId: 1, state: null, ...fields };
+}
+
+function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo {
+  return { id, workItemId: 1, prompt: "Which file holds the login form?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, ...fields };
 }
 
 describe("tabLabel", () => {
@@ -149,5 +153,73 @@ describe("workItemFields", () => {
 
   it("refuses an empty title", () => {
     expect(workItemFields("/r/project", " ")).toEqual({ error: "Give the work item a title." });
+  });
+});
+
+describe("workItemInFront", () => {
+  it("gives the work item the pane in front runs in", () => {
+    expect(workItemInFront(4, [session(3), session(4, { workItemId: 2 })], [LOGIN, SEARCH])).toBe(SEARCH);
+  });
+
+  it("gives the work item of a pane in front whose process has exited, because its worktree is still there", () => {
+    expect(workItemInFront(3, [session(3, { alive: false })], [LOGIN])).toBe(LOGIN);
+  });
+
+  it("gives nothing where the pane in front was opened without a work item", () => {
+    expect(workItemInFront(3, [session(3, { workItemId: null })], [LOGIN])).toBeUndefined();
+  });
+
+  it("gives nothing where no pane is in front", () => {
+    expect(workItemInFront(undefined, [session(3)], [LOGIN])).toBeUndefined();
+  });
+
+  it("gives nothing where the window holds neither the pane nor its work item", () => {
+    expect(workItemInFront(5, [session(3)], [LOGIN])).toBeUndefined();
+    expect(workItemInFront(3, [session(3, { workItemId: 9 })], [LOGIN])).toBeUndefined();
+  });
+});
+
+describe("askButton", () => {
+  it("is enabled, and says where it asks, with a prompt and a work item's pane in front", () => {
+    expect(askButton("Which file holds the login form?", LOGIN)).toEqual({ enabled: true, title: "Ask in Fix the login bug" });
+  });
+
+  it("is disabled, and says why, while the pane in front belongs to no work item", () => {
+    expect(askButton("Which file holds the login form?", undefined)).toEqual({ enabled: false, title: "Bring a work item's pane to the front to ask in it." });
+  });
+
+  it("is disabled, and says why, while the field is empty or holds white space alone", () => {
+    expect(askButton("", LOGIN)).toEqual({ enabled: false, title: "Type what to ask." });
+    expect(askButton(" \n ", LOGIN)).toEqual({ enabled: false, title: "Type what to ask." });
+  });
+
+  it("names the missing work item first where the field is empty as well", () => {
+    expect(askButton("", undefined).title).toBe("Bring a work item's pane to the front to ask in it.");
+  });
+});
+
+describe("withHeadless", () => {
+  it("adds a headless session the window did not hold, after the others", () => {
+    expect(withHeadless([headless(1)], headless(2))).toEqual([headless(1), headless(2)]);
+  });
+
+  it("replaces the session the window holds under the same id, in its place", () => {
+    const grown = headless(1, { answer: "src/login" });
+    expect(withHeadless([headless(1), headless(2)], grown)).toEqual([grown, headless(2)]);
+  });
+});
+
+describe("headlessLines", () => {
+  it("says each session's prompt, its state and its answer with the line breaks kept, the most recent first", () => {
+    const sessions = [headless(1, { state: "finished", answer: "src/login/form.ts\nsrc/login/submit.ts" }), headless(2, { prompt: "And the tests?", answer: "test/" })];
+    expect(headlessLines(sessions)).toEqual([
+      { id: 2, prompt: "And the tests?", state: "working", text: "test/" },
+      { id: 1, prompt: "Which file holds the login form?", state: "finished", text: "src/login/form.ts\nsrc/login/submit.ts" },
+    ]);
+  });
+
+  it("shows a failed session's error in place of its answer", () => {
+    const failed = headless(3, { state: "failed", answer: "src/lo", error: "the session exited with code 1 and gave no result" });
+    expect(headlessLines([failed])).toEqual([{ id: 3, prompt: "Which file holds the login form?", state: "failed", text: "the session exited with code 1 and gave no result" }]);
   });
 });

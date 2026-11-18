@@ -3,13 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import type { RoleAdapter } from "../src/daemon/adapters/adapter";
+import { fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { createWorktree } from "../src/daemon/worktrees";
-import type { ServerMessage } from "../src/shared/protocol";
+import type { HeadlessInfo, ServerMessage } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -22,6 +24,7 @@ async function daemon(options: Partial<DaemonOptions> = {}): Promise<{ daemon: D
   const d = new Daemon({
     token: TOKEN,
     paneKinds: PANE_KINDS,
+    roleAdapter: fakeAdapter(),
     // The fake command of a pane: prints, waits, prints again, and stays alive.
     commandFor: () => ({ command: "/bin/sh", args: ["-c", "echo first; sleep 0.3; echo second; sleep 30"], env: {} }),
     ...options,
@@ -229,7 +232,7 @@ describe("work items", () => {
     expect(Object.keys(created.workItem).sort()).toEqual(["baseCommit", "branch", "createdAt", "id", "newCommits", "repo", "title", "worktree"]);
     expect(Object.keys(created.session).sort()).toEqual(["alive", "id", "kind", "state", "workItemId"]);
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["paneKinds", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["headless", "paneKinds", "sessions", "type", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["kind", "label", "reportsState"]);
     const inbox = await c.message("inbox");
     expect(Object.keys(inbox).sort()).toEqual(["sessions", "type", "workItems"]);
@@ -285,7 +288,7 @@ describe("work items", () => {
     const { repo, root, base } = repository();
     const runDir = join(base, "run");
     mkdirSync(runDir);
-    const first = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, commandFor: printsItsFolder, runDir, worktreesRoot: root });
+    const first = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, roleAdapter: fakeAdapter(), commandFor: printsItsFolder, runDir, worktreesRoot: root });
     const c = await client(`ws://127.0.0.1:${await first.listen(0)}`);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Outlives the daemon", kind: "shell", cols: 80, rows: 24 });
@@ -641,6 +644,229 @@ describe("the inbox", () => {
   });
 });
 
+describe("headless sessions", () => {
+  type Headless = Extract<ServerMessage, { type: "headless" }>;
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const told = (c: { messages: ServerMessage[] }): HeadlessInfo[] => c.messages.flatMap((m) => (m.type === "headless" ? [m.headless] : []));
+
+  /** A daemon that holds one work item, and the clients connected to it. */
+  async function withWorkItem(options: Partial<DaemonOptions> = {}, clients = 1) {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { daemon: d, url } = await daemon({ worktreesRoot: made.root, now: () => 1234, ...options });
+    const connected = [];
+    for (let i = 0; i < clients; i++) {
+      const c = await client(url);
+      await c.message("ready");
+      connected.push(c);
+    }
+    const c = connected[0]!;
+    c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    return { daemon: d, url, clients: connected, c, workItem };
+  }
+
+  /** A fake adapter that also records where each session was started, and how many runs were stopped. */
+  function watched(inner: RoleAdapter = fakeAdapter()) {
+    const seen = { started: [] as { prompt: string; cwd: string }[], stopped: 0 };
+    const adapter: RoleAdapter = {
+      name: inner.name,
+      features: inner.features,
+      start: async (options, listener) => {
+        seen.started.push(options);
+        const run = await inner.start(options, listener);
+        return {
+          stop: () => {
+            seen.stopped++;
+            run.stop();
+          },
+        };
+      },
+    };
+    return { adapter, seen };
+  }
+
+  it("runs an asked prompt against the fake adapter: every client sees it working, its text as it grows, then finished with the whole answer", async () => {
+    const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ pieces: () => ["A barn ", "owl."] }) }, 2);
+    const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
+    one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?" });
+    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234 };
+    expect(await one.message("asked")).toEqual({ type: "asked", requestId: 5, headless: working });
+    for (const c of [one, two]) {
+      await c.message("headless", (m) => m.headless.state === "finished");
+      expect(told(c)).toEqual([working, { ...working, answer: "A barn " }, { ...working, answer: "A barn owl." }, { ...working, state: "finished", answer: "A barn owl." }]);
+    }
+    expect(two.messages.some((m) => m.type === "asked")).toBe(false);
+  });
+
+  it("answers the client that asked before it tells every client of the session", async () => {
+    const { c, workItem } = await withWorkItem();
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    const order = c.messages.flatMap((m) => (m.type === "asked" || m.type === "headless" ? [m.type] : []));
+    expect(order.slice(0, 2)).toEqual(["asked", "headless"]);
+  });
+
+  it("starts the session in the work item's worktree, with the prompt as it was asked", async () => {
+    const { adapter, seen } = watched();
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Where am I?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    expect(seen.started).toEqual([{ prompt: "Where am I?", cwd: workItem.worktree }]);
+  });
+
+  it("carries the cost the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+    const roleAdapter: RoleAdapter = {
+      name: "priced",
+      features: [],
+      start: (_options, listener) => {
+        setTimeout(() => {
+          listener({ type: "text", text: "Let me look. " });
+          listener({ type: "text", text: "An owl." });
+          listener({ type: "result", text: "An owl.", isError: false, costUsd: 0.25 });
+          listener({ type: "text", text: " And more." });
+          listener({ type: "exit", exitCode: 0 });
+        }, 0);
+        return Promise.resolve({ stop: () => {} });
+      },
+    };
+    const { c, workItem } = await withWorkItem({ roleAdapter });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+    expect(headless).toMatchObject({ answer: "An owl.", costUsd: 0.25, error: null });
+    // The result closes the answer: the text that arrives after it changes nothing.
+    await pause(100);
+    expect(told(c).map((h) => h.answer)).toEqual(["", "Let me look. ", "Let me look. An owl.", "An owl."]);
+  });
+
+  it("says a session failed, with the adapter's message, where the adapter does not start", async () => {
+    const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ fail: "start" }) }, 2);
+    const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
+    one.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    expect((await one.message("asked")).headless.state).toBe("working");
+    for (const c of [one, two]) {
+      const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
+      expect(headless).toMatchObject({ id: 1, state: "failed", answer: "", error: "the fake adapter was told not to start", costUsd: null });
+    }
+  });
+
+  it("says a session failed, with the result's text, where the result is an error", async () => {
+    const { c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ fail: "result" }) });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
+    expect(headless).toMatchObject({ state: "failed", answer: "", error: "the fake adapter was told to fail" });
+    // The exit that follows the result changes nothing, and is told to nobody.
+    await pause(100);
+    expect(told(c).map((h) => h.state)).toEqual(["working", "failed"]);
+  });
+
+  it("says a session failed, with the exit code, where the process exits without a result", async () => {
+    const { c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ fail: "exit" }) });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
+    expect(headless).toMatchObject({ state: "failed", answer: "", error: "the session exited with code 1 and gave no result" });
+  });
+
+  it("tells nobody of the exit that follows a result", async () => {
+    const { c, workItem } = await withWorkItem();
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    await pause(100);
+    expect(told(c).map((h) => h.state)).toEqual(["working", "working", "finished"]);
+  });
+
+  it("lists a finished session, with its answer, to a client that connects later", async () => {
+    const { c, url, workItem } = await withWorkItem();
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Remembered?" });
+    const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+    c.socket.close();
+    const later = await client(url);
+    expect((await later.message("ready")).headless).toEqual([headless]);
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, costUsd: null, startedAt: 1234 });
+  });
+
+  it("lists no headless session where none was asked, and counts them apart from the panes", async () => {
+    const { c, url, workItem } = await withWorkItem();
+    // The work item's pane already holds the pane id 1.
+    expect((await (await client(url)).message("ready")).headless).toEqual([]);
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "One" });
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Two" });
+    expect((await c.message("asked", (m) => m.requestId === 1)).headless.id).toBe(1);
+    expect((await c.message("asked", (m) => m.requestId === 2)).headless.id).toBe(2);
+    await c.message("headless", (m) => m.headless.id === 2 && m.headless.state === "finished");
+    expect((await (await client(url)).message("ready")).headless.map((h) => [h.id, h.prompt, h.state])).toEqual([[1, "One", "finished"], [2, "Two", "finished"]]);
+  });
+
+  it("carries only the fields the protocol names, the adapter's name not among them", async () => {
+    const { c, url, workItem } = await withWorkItem();
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const asked = await c.message("asked");
+    const changed = await c.message("headless", (m) => m.headless.state === "finished");
+    const ready = await (await client(url)).message("ready");
+    const fields = ["answer", "costUsd", "error", "id", "prompt", "startedAt", "state", "workItemId"];
+    expect(Object.keys(asked).sort()).toEqual(["headless", "requestId", "type"]);
+    expect(Object.keys(changed).sort()).toEqual(["headless", "type"]);
+    for (const info of [asked.headless, changed.headless, ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
+    expect(JSON.stringify([asked, changed, ready.headless])).not.toContain("fake");
+  });
+
+  it("answers an ask it cannot start with an error, and starts nothing", async () => {
+    const { adapter, seen } = watched();
+    const { c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const refused = async (requestId: number, fields: object) => {
+      c.send({ type: "ask", requestId, ...fields });
+      return (await c.message("error", (m) => m.requestId === requestId)).message;
+    };
+    expect(await refused(1, { workItemId: 42, prompt: "Q" })).toBe("no work item 42");
+    expect(await refused(2, { prompt: "Q" })).toBe("asking needs a work item and a prompt");
+    expect(await refused(3, { workItemId: workItem.id, prompt: " \n" })).toBe("asking needs a work item and a prompt");
+    expect(await refused(4, { workItemId: workItem.id, prompt: 7 })).toBe("asking needs a work item and a prompt");
+    rmSync(workItem.worktree, { recursive: true, force: true });
+    expect(await refused(5, { workItemId: workItem.id, prompt: "Q" })).toBe(`the folder of work item ${workItem.id} is gone: ${workItem.worktree}`);
+    expect(seen.started).toEqual([]);
+    expect(c.messages.some((m) => m.type === "asked" || m.type === "headless")).toBe(false);
+    expect((await (await client(url)).message("ready")).headless).toEqual([]);
+  });
+
+  it("stops every run still going when the daemon closes", async () => {
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 5000 }));
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "One" });
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Two" });
+    await c.message("asked", (m) => m.requestId === 2);
+    await pause(20);
+    expect(seen.stopped).toBe(0);
+    await d.close();
+    expect(seen.stopped).toBe(2);
+  });
+
+  it("stops a run that starts only after the daemon closed", async () => {
+    const inner = fakeAdapter({ delayMs: 5000 });
+    let stopped = 0;
+    const roleAdapter: RoleAdapter = {
+      name: "slow",
+      features: [],
+      start: async (options, listener) => {
+        await pause(150);
+        const run = await inner.start(options, listener);
+        return {
+          stop: () => {
+            stopped++;
+            run.stop();
+          },
+        };
+      },
+    };
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    await c.message("asked");
+    await d.close();
+    expect(stopped).toBe(0);
+    await pause(300);
+    expect(stopped).toBe(1);
+  });
+});
+
 describe("idle exit", () => {
   it("asks to exit once no session is alive and no client is connected", async () => {
     let idle = 0;
@@ -662,6 +888,33 @@ describe("idle exit", () => {
     c.socket.close();
     await new Promise((r) => setTimeout(r, 400));
     expect(idle).toBe(0);
+  });
+
+  it("stays while a headless session is working, though no client is connected, and asks to exit once it has ended", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    let idle = 0;
+    // The pane ends at once, so only the headless session can keep the daemon.
+    const { url } = await daemon({
+      worktreesRoot: made.root,
+      idleExitMs: 100,
+      onIdle: () => idle++,
+      commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }),
+      roleAdapter: fakeAdapter({ delayMs: 300 }),
+    });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Waited for", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    await c.message("exit");
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Q" });
+    await c.message("asked");
+    c.socket.close();
+    // The text arrives 300 ms after the ask and the result 300 ms after that.
+    await new Promise((r) => setTimeout(r, 450));
+    expect(idle).toBe(0);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(idle).toBe(1);
   });
 });
 

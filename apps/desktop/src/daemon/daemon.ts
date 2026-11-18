@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type ClientMessage, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
+import { type ClientMessage, type HeadlessInfo, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
+import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
@@ -22,13 +23,15 @@ export interface DaemonOptions {
   paneKinds: readonly PaneKindInfo[];
   /** The command of a new pane of that kind, given the pane's id. */
   commandFor: (kind: PaneKind, id: number) => PaneCommand;
+  /** The adapter every headless session is started through. */
+  roleAdapter: RoleAdapter;
   /** Where a pane opened without a work item runs. */
   cwd?: string;
   /** Where the list of work items is kept, in `work-items.json`; without it the list is in memory alone. */
   runDir?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
-  /** The clock a work item's `createdAt` is read from. */
+  /** The clock a work item's `createdAt` and a headless session's `startedAt` are read from. */
   now?: () => number;
   /** How long the daemon waits between two reads of the work items' new commits. */
   commitPollMs?: number;
@@ -36,7 +39,7 @@ export interface DaemonOptions {
   bufferChars?: number;
   /** How long a client has to present the token. */
   helloTimeoutMs?: number;
-  /** How long the daemon waits, with no session alive and no client connected, before it asks to exit. */
+  /** How long the daemon waits, with no session alive, no headless session working and no client connected, before it asks to exit. */
   idleExitMs?: number;
   onIdle?: () => void;
 }
@@ -47,8 +50,15 @@ interface Session {
   output: OutputBuffer;
 }
 
+interface HeadlessSession {
+  info: HeadlessInfo;
+  /** The adapter's run, once it has started. */
+  run: RoleRun | undefined;
+}
+
 /**
- * Owns the terminal sessions and their output, and outlives the window. A
+ * Owns the terminal sessions and their output, and the headless sessions and
+ * their answers, and outlives the window. A
  * client reaches it over WebSocket on the loopback address and is refused
  * unless its first message carries the token.
  */
@@ -58,6 +68,9 @@ export class Daemon {
   private readonly clients = new Map<WebSocket, Set<number>>();
   private server: WebSocketServer | undefined;
   private nextId = 1;
+  // The headless sessions, by an id counted apart from the panes'. They live in memory alone.
+  private readonly headless = new Map<number, HeadlessSession>();
+  private nextHeadlessId = 1;
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly workItems: WorkItemList;
   // Creations run one after another, so two of one title never pick the same branch and folder.
@@ -112,6 +125,7 @@ export class Daemon {
     clearTimeout(this.commitTimer);
     clearTimeout(this.idleTimer);
     for (const session of this.sessions.values()) if (session.info.alive) session.terminal.kill();
+    for (const session of this.headless.values()) session.run?.stop();
     for (const client of this.clients.keys()) client.terminate();
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
   }
@@ -136,7 +150,7 @@ export class Daemon {
         authorized = true;
         this.clients.set(socket, new Set());
         this.checkIdle();
-        this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds] });
+        this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList() });
         this.scheduleCommitRead();
         return;
       }
@@ -155,17 +169,9 @@ export class Daemon {
       case "start": {
         let cwd = this.options.cwd ?? process.cwd();
         if (message.workItemId !== undefined) {
-          const workItem = this.workItems.get(message.workItemId);
-          if (!workItem) {
-            this.send(socket, { type: "error", requestId: message.requestId, message: `no work item ${String(message.workItemId)}` });
-            return;
-          }
-          // A person can remove a worktree's folder by hand, and a process cannot start in it.
-          if (!existsSync(workItem.worktree)) {
-            this.send(socket, { type: "error", requestId: message.requestId, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
-            return;
-          }
-          cwd = workItem.worktree;
+          const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
+          if (worktree === undefined) return;
+          cwd = worktree;
         }
         const info = this.startSession(socket, message, cwd, message.workItemId ?? null);
         // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
@@ -211,6 +217,26 @@ export class Daemon {
         this.checkIdle();
         return;
       }
+      case "ask": {
+        // A headless session runs in a work item's worktree and nowhere else: in the
+        // daemon's own folder it would read whatever instructions that folder holds.
+        if (typeof message.workItemId !== "number" || typeof message.prompt !== "string" || message.prompt.trim() === "") {
+          this.send(socket, { type: "error", requestId: message.requestId, message: "asking needs a work item and a prompt" });
+          return;
+        }
+        const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
+        if (worktree === undefined) return;
+        const session: HeadlessSession = {
+          info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, costUsd: null, startedAt: (this.options.now ?? Date.now)() },
+          run: undefined,
+        };
+        this.headless.set(session.info.id, session);
+        // The answer first, so the client that asked knows the session as its own when every client is told of it.
+        this.send(socket, { type: "asked", requestId: message.requestId, headless: session.info });
+        this.headlessChanged(session);
+        this.startHeadless(session, worktree);
+        return;
+      }
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
@@ -220,6 +246,66 @@ export class Daemon {
       default:
         return;
     }
+  }
+
+  /** The worktree of the work item a request names; where it has none to run in, the request is answered with an error. */
+  private worktreeFor(socket: WebSocket, requestId: number, workItemId: number): string | undefined {
+    const workItem = this.workItems.get(workItemId);
+    if (!workItem) {
+      this.send(socket, { type: "error", requestId, message: `no work item ${String(workItemId)}` });
+      return undefined;
+    }
+    // A person can remove a worktree's folder by hand, and a process cannot start in it.
+    if (!existsSync(workItem.worktree)) {
+      this.send(socket, { type: "error", requestId, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
+      return undefined;
+    }
+    return workItem.worktree;
+  }
+
+  /** Starts a headless session's run through the adapter, and keeps what its events say of it. */
+  private startHeadless(session: HeadlessSession, cwd: string): void {
+    const { info } = session;
+    const failed = (message: string): void => {
+      info.state = "failed";
+      info.error = message;
+      this.headlessChanged(session);
+    };
+    const onEvent = (event: RoleEvent): void => {
+      if (event.type === "exit") {
+        if (info.state === "working") failed(`the session exited with code ${event.exitCode} and gave no result`);
+        return;
+      }
+      // The result closes the answer: nothing that arrives after it changes the session.
+      if (info.state !== "working") return;
+      if (event.type === "text") {
+        info.answer += event.text;
+        this.headlessChanged(session);
+        return;
+      }
+      info.costUsd = event.costUsd;
+      if (event.isError) {
+        failed(event.text || "the session ended with an error");
+        return;
+      }
+      info.state = "finished";
+      info.answer = event.text;
+      this.headlessChanged(session);
+    };
+    this.options.roleAdapter.start({ prompt: info.prompt, cwd }, onEvent).then(
+      (run) => {
+        // A daemon that closed while the adapter was starting stopped no run of this session.
+        if (this.closed) run.stop();
+        else session.run = run;
+      },
+      (error: unknown) => failed(error instanceof Error ? error.message : String(error)),
+    );
+  }
+
+  /** Sends every client one headless session whole, after it changed. */
+  private headlessChanged(session: HeadlessSession): void {
+    this.broadcast({ type: "headless", headless: session.info });
+    this.checkIdle();
   }
 
   /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. */
@@ -267,6 +353,10 @@ export class Daemon {
 
   private sessionList(): SessionInfo[] {
     return [...this.sessions.values()].map((s) => s.info);
+  }
+
+  private headlessList(): HeadlessInfo[] {
+    return [...this.headless.values()].map((s) => s.info);
   }
 
   private workItemList(): WorkItem[] {
@@ -332,7 +422,7 @@ export class Daemon {
 
   private checkIdle(): void {
     clearTimeout(this.idleTimer);
-    const busy = this.clients.size > 0 || [...this.sessions.values()].some((s) => s.info.alive);
+    const busy = this.clients.size > 0 || [...this.sessions.values()].some((s) => s.info.alive) || [...this.headless.values()].some((s) => s.info.state === "working");
     if (busy || !this.options.onIdle) return;
     this.idleTimer = setTimeout(() => this.options.onIdle?.(), this.options.idleExitMs ?? 60_000);
   }

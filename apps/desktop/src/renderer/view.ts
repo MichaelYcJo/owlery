@@ -1,7 +1,7 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
-import type { AgentState, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, HeadlessInfo, HeadlessState, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
 
 /**
  * A tab's label: the pane's kind, as the daemon labels it, and id, after the
@@ -91,4 +91,45 @@ export function workItemFields(repo: string, title: string): { repo: string; tit
   if (!fields.repo) return { error: "Choose the repository folder." };
   if (!fields.title) return { error: "Give the work item a title." };
   return fields;
+}
+
+/**
+ * The work item the pane in front runs in, which is where "Ask" asks. Nothing
+ * where no pane is in front, the pane was opened without a work item, or the
+ * window does not hold the pane or its work item.
+ */
+export function workItemInFront(front: number | undefined, sessions: readonly SessionInfo[], workItems: readonly WorkItem[]): WorkItem | undefined {
+  const pane = sessions.find((session) => session.id === front);
+  return pane ? workItems.find((item) => item.id === pane.workItemId) : undefined;
+}
+
+/**
+ * Whether the "Ask" button can be pressed, and its title: where it asks, or
+ * why it cannot. A headless session runs in a work item's worktree alone, and
+ * the daemon refuses a prompt of white space.
+ */
+export function askButton(prompt: string, workItem: WorkItem | undefined): { enabled: boolean; title: string } {
+  if (!workItem) return { enabled: false, title: "Bring a work item's pane to the front to ask in it." };
+  if (!prompt.trim()) return { enabled: false, title: "Type what to ask." };
+  return { enabled: true, title: `Ask in ${workItem.title}` };
+}
+
+/** The headless sessions the window holds, with one the daemon just sent: in place of the one of the same id, or after the others. */
+export function withHeadless(held: readonly HeadlessInfo[], changed: HeadlessInfo): HeadlessInfo[] {
+  return held.some((info) => info.id === changed.id) ? held.map((info) => (info.id === changed.id ? changed : info)) : [...held, changed];
+}
+
+export interface HeadlessLine {
+  id: number;
+  prompt: string;
+  state: HeadlessState;
+  /** The answer as far as it has arrived, or the error of a session that failed. */
+  text: string;
+}
+
+/** The lines of the headless sessions, the most recent first, so the one just asked sits under the field. */
+export function headlessLines(held: readonly HeadlessInfo[]): HeadlessLine[] {
+  return [...held]
+    .sort((a, b) => b.id - a.id)
+    .map((info) => ({ id: info.id, prompt: info.prompt, state: info.state, text: info.state === "failed" ? (info.error ?? "") : info.answer }));
 }
