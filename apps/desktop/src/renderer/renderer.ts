@@ -143,7 +143,7 @@ function createWorkItem(): void {
   pending.set(requestId, parts);
   formRequest = requestId;
   formError.textContent = "";
-  // One creation per answer: the form opens again, or says why not, when the daemon answers.
+  // One creation per answer: the button stays off until the daemon answers.
   createButton.disabled = true;
   send({
     type: "createWorkItem",
