@@ -3,7 +3,25 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { OwleryApi } from "../shared/ipc";
 import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, PaneKindInfo, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
-import { agentKind, askButton, headlessLines, inboxLine, inboxSummary, notificationFor, paneInFront, paneTabs, tabLabel, withHeadless, workItemFields } from "./view";
+import {
+  agentKind,
+  askButton,
+  headlessLines,
+  inboxGroups,
+  inboxKey,
+  inboxLine,
+  inboxSummary,
+  moveSelection,
+  notificationFor,
+  paneInFront,
+  paneTabs,
+  selectedLine,
+  stateHeading,
+  tabLabel,
+  withHeadless,
+  workItemFields,
+  type InboxLine,
+} from "./view";
 
 declare global {
   interface Window {
@@ -35,6 +53,9 @@ let workItems: WorkItem[] = [];
 let headless: HeadlessInfo[] = [];
 // The work item whose view is on screen, or nothing while the inbox screen is. It is kept nowhere else, so a reload opens on the inbox.
 let viewing: number | undefined;
+// The work items in the order the inbox displays their lines, and the one whose line is selected: the preview shows it, and J, K and Enter act on it.
+let displayed: number[] = [];
+let selected: number | undefined;
 // The pane in front of the view on screen. No pane is in front on the inbox screen.
 let front: number | undefined;
 // The pane last in front in each work item's view since the window loaded.
@@ -50,10 +71,16 @@ let socket: WebSocket | undefined;
 
 const inboxScreen = document.getElementById("inbox-screen") as HTMLElement;
 const summary = document.getElementById("inbox-summary") as HTMLElement;
-const inbox = document.getElementById("inbox") as HTMLUListElement;
+const inbox = document.getElementById("inbox") as HTMLElement;
 const inboxEmpty = document.getElementById("inbox-empty") as HTMLElement;
+const previewContent = document.getElementById("preview-content") as HTMLElement;
+const previewState = document.getElementById("preview-state") as HTMLElement;
+const previewTitle = document.getElementById("preview-title") as HTMLElement;
+const previewBranch = document.getElementById("preview-branch") as HTMLElement;
+const previewCommits = document.getElementById("preview-commits") as HTMLElement;
 const view = document.getElementById("work-item-view") as HTMLElement;
-const viewHeader = document.getElementById("view-header") as HTMLElement;
+const viewSummary = document.getElementById("view-summary") as HTMLElement;
+const viewWorkItems = document.getElementById("view-work-items") as HTMLUListElement;
 const viewTitle = document.getElementById("view-title") as HTMLElement;
 const viewBranch = document.getElementById("view-branch") as HTMLElement;
 const viewState = document.getElementById("view-state") as HTMLElement;
@@ -80,6 +107,11 @@ function viewed(): WorkItem | undefined {
   return workItems.find((item) => item.id === viewing);
 }
 
+/** A value of the page's look: a custom property of `:root`, which the terminal takes its colours and its typeface from. */
+function look(property: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(property).trim();
+}
+
 function send(message: ClientMessage): void {
   socket?.send(JSON.stringify(message));
 }
@@ -96,10 +128,9 @@ function terminalFor(id: number): Pane {
   const term = new Terminal({
     // The UI keeps 1,000 lines; older output stays with the daemon (docs/architecture.md, Memory design).
     scrollback: 1000,
-    // Nerd Fonts first, so the icons of common shell prompts draw; then Korean fallbacks.
-    fontFamily:
-      '"MesloLGS NF", "MesloLGS Nerd Font", "JetBrainsMono Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", Menlo, "D2Coding", "Apple SD Gothic Neo", monospace',
-    fontSize: 13,
+    fontFamily: look("--font-terminal"),
+    fontSize: Number.parseFloat(look("--size-terminal")),
+    theme: { background: look("--terminal-bg"), foreground: look("--terminal-text"), cursor: look("--terminal-text") },
     cursorBlink: true,
     macOptionIsMeta: true,
     allowProposedApi: true,
@@ -174,33 +205,124 @@ function row(...parts: HTMLElement[]): HTMLElement {
   return element;
 }
 
-/** The seal's place. No work item can be sealed yet, so it shows the emblem dimmed and says so. */
-function sealPlace(): HTMLImageElement {
-  const image = document.createElement("img");
-  image.className = "seal unsealed";
-  image.src = "./owl-icon-cream.svg";
-  image.alt = NO_SEAL;
-  image.title = NO_SEAL;
-  return image;
+/** The seal's place. No work item can be sealed yet, so it is a ring the page's style draws, with no image, and says so. */
+function sealPlace(large = false): HTMLElement {
+  const ring = document.createElement("span");
+  ring.className = large ? "seal unsealed large" : "seal unsealed";
+  ring.setAttribute("role", "img");
+  ring.setAttribute("aria-label", NO_SEAL);
+  ring.title = NO_SEAL;
+  return ring;
 }
 
-/** Draws the summary and one line per work item, in the daemon's order. */
+/** A state's dot, which says the state in its colour and, to a pointer and a screen reader, in the words of its heading. */
+function dot(state: AgentState | null): HTMLElement {
+  const element = part(`dot state ${stateClass(state)}`, "");
+  element.setAttribute("role", "img");
+  element.setAttribute("aria-label", stateHeading(state));
+  element.title = stateHeading(state);
+  return element;
+}
+
+/** The class that gives a state its colour. */
+function stateClass(state: AgentState | null): string {
+  return state ?? "no-agent";
+}
+
+function lineButton(workItemId: number): HTMLElement | null {
+  return inbox.querySelector<HTMLElement>(`button[data-work-item="${workItemId}"]`);
+}
+
+/** Selects a work item's line and shows the work item in the preview. The lines are not drawn again, so the keyboard keeps its place. */
+function select(workItemId: number | undefined): void {
+  selected = workItemId;
+  for (const button of inbox.querySelectorAll<HTMLElement>("button[data-work-item]")) {
+    const isSelected = button.dataset.workItem === String(workItemId);
+    button.classList.toggle("selected", isSelected);
+    if (isSelected) button.setAttribute("aria-current", "true");
+    else button.removeAttribute("aria-current");
+  }
+  showPreview();
+}
+
+/** Draws the preview: the selected work item, or nothing where the inbox has no work item. */
+function showPreview(): void {
+  const workItem = workItems.find((item) => item.id === selected);
+  previewContent.hidden = !workItem;
+  if (!workItem) return;
+  const line = inboxLine(workItem, sessions, paneKinds);
+  previewState.textContent = stateHeading(line.state);
+  previewState.className = `caption state ${stateClass(line.state)}`;
+  previewTitle.textContent = line.title;
+  previewBranch.textContent = line.branch;
+  previewCommits.textContent = line.commits;
+}
+
+function lineElement(workItem: WorkItem, line: InboxLine): HTMLElement {
+  const button = document.createElement("button");
+  button.className = "line";
+  button.title = workItem.worktree;
+  button.dataset.workItem = String(workItem.id);
+  const text = part("text", "");
+  const meta = part("meta", "");
+  meta.append(part("branch", line.branch), part("commits", line.commits));
+  text.append(part("title", line.title), meta);
+  button.append(dot(line.state), text, sealPlace());
+  button.addEventListener("click", () => openView(workItem.id));
+  // The keyboard's place on a line is the selection, so the preview shows the line a person tabbed to.
+  button.addEventListener("focus", () => {
+    if (selected !== workItem.id) select(workItem.id);
+  });
+  const item = document.createElement("li");
+  item.append(button);
+  return item;
+}
+
+/** One work item of the list at the left of a view: its state's dot and its title, marked where its view is the one on screen. */
+function navElement(workItem: WorkItem, line: InboxLine): HTMLElement {
+  const button = document.createElement("button");
+  button.dataset.workItem = String(workItem.id);
+  if (workItem.id === viewing) {
+    button.className = "open";
+    button.setAttribute("aria-current", "page");
+  }
+  button.append(dot(line.state), part("title", line.title));
+  button.addEventListener("click", () => {
+    if (workItem.id !== viewing) openView(workItem.id);
+  });
+  const item = document.createElement("li");
+  item.append(button);
+  return item;
+}
+
+/**
+ * Draws what both screens say of every work item: the inbox's sentence, the
+ * lines in their groups with the selected one marked, the preview, and the
+ * list at the left of a view.
+ */
 function showInbox(): void {
-  const lines = workItems.map((workItem) => ({ workItem, line: inboxLine(workItem, sessions, paneKinds) }));
-  summary.textContent = inboxSummary(lines.map(({ line }) => line));
-  inboxEmpty.hidden = lines.length > 0;
+  const entries = workItems.map((workItem) => ({ workItem, line: inboxLine(workItem, sessions, paneKinds) }));
+  const groups = inboxGroups(entries);
+  const sentence = inboxSummary(entries.map(({ line }) => line));
+  for (const element of [summary, viewSummary]) {
+    element.textContent = sentence;
+    element.hidden = sentence === "";
+  }
+  inboxEmpty.hidden = entries.length > 0;
   inbox.replaceChildren(
-    ...lines.map(({ workItem, line }) => {
-      const button = document.createElement("button");
-      button.title = workItem.worktree;
-      button.dataset.workItem = String(workItem.id);
-      button.append(part("title", line.title), part("branch", line.branch), part(`state ${line.state ?? ""}`, line.state ?? ""), part("commits", line.commits), sealPlace());
-      button.addEventListener("click", () => openView(workItem.id));
-      const item = document.createElement("li");
-      item.append(button);
-      return item;
+    ...groups.flatMap((group) => {
+      const heading = document.createElement("h2");
+      heading.className = `caption state ${stateClass(group.state)}`;
+      heading.textContent = group.heading;
+      const list = document.createElement("ul");
+      list.append(...group.entries.map(({ workItem, line }) => lineElement(workItem, line)));
+      return [heading, list];
     }),
   );
+  const inOrder = groups.flatMap((group) => group.entries);
+  displayed = inOrder.map(({ workItem }) => workItem.id);
+  viewWorkItems.replaceChildren(...inOrder.map(({ workItem, line }) => navElement(workItem, line)));
+  select(selectedLine(displayed, selected));
 }
 
 /** Sets the "Ask" button for the view's work item and the field as they are now. */
@@ -247,8 +369,9 @@ function tabElement(session: SessionInfo, active: boolean): HTMLElement {
 }
 
 /**
- * Draws the view of the work item on screen: its header, its tabs, the
- * terminal of the tab in front, and its "Ask" section. It starts no process.
+ * Draws the view of the work item on screen: its header, its new commits,
+ * its tabs, the terminal of the tab in front, and its "Ask" section. It
+ * starts no process.
  */
 function showView(): void {
   const workItem = viewed();
@@ -259,9 +382,10 @@ function showView(): void {
   const line = inboxLine(workItem, sessions, paneKinds);
   viewTitle.textContent = line.title;
   viewBranch.textContent = line.branch;
-  viewState.textContent = line.state ?? "";
-  viewState.className = `state ${line.state ?? ""}`;
+  viewState.textContent = stateHeading(line.state);
+  viewState.className = `caption state ${stateClass(line.state)}`;
   viewCommits.textContent = line.commits;
+  viewCommits.hidden = line.commits === "";
   const shown = paneTabs(workItem, sessions, new Set(panes.keys()));
   const target = paneInFront(shown, lastInFront.get(workItem.id));
   tabs.replaceChildren(...shown.map((session) => tabElement(session, session.id === target)));
@@ -280,7 +404,7 @@ function showView(): void {
   showAskSection();
 }
 
-/** Puts a work item's view in front of the inbox screen. */
+/** Puts a work item's view in front: of the inbox screen, or of the view of another work item. */
 function openView(workItemId: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
@@ -289,6 +413,8 @@ function openView(workItemId: number): void {
   front = undefined;
   inboxScreen.hidden = true;
   view.hidden = false;
+  // The list at the left marks the view on screen.
+  showInbox();
   showView();
 }
 
@@ -299,8 +425,38 @@ function showInboxScreen(): void {
   front = undefined;
   view.hidden = true;
   inboxScreen.hidden = false;
-  // The keyboard stays on the line of the work item the person left.
-  if (left !== undefined) inbox.querySelector<HTMLElement>(`button[data-work-item="${left}"]`)?.focus();
+  if (left === undefined) return;
+  // The work item the person left is the selected one, and the keyboard stays on its line.
+  select(selectedLine(displayed, left));
+  lineButton(left)?.focus();
+}
+
+/** Acts on a key of the inbox screen: J and K move the selection, and Enter opens the selected work item's view. */
+function onKey(event: KeyboardEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  const key = inboxKey(
+    { code: event.code, modified: event.ctrlKey || event.metaKey || event.altKey || event.shiftKey },
+    {
+      inboxInFront: !inboxScreen.hidden,
+      dialogOpen: workItemDialog.open,
+      inField: target?.closest("input, textarea, select, [contenteditable]") != null,
+      onControl: target?.closest("button, a") != null,
+    },
+  );
+  if (key === null) return;
+  event.preventDefault();
+  if (key === "open") {
+    if (selected !== undefined) openView(selected);
+    return;
+  }
+  const next = moveSelection(displayed, selected, key);
+  if (next === undefined) return;
+  // Where the keyboard is on a line it moves with the selection, so Enter there opens the selected one.
+  const onLine = document.activeElement instanceof HTMLElement && inbox.contains(document.activeElement);
+  select(next);
+  const button = lineButton(next);
+  if (onLine) button?.focus();
+  button?.scrollIntoView({ block: "nearest" });
 }
 
 /** Asks the field's prompt in the work item whose view is on screen. */
@@ -390,7 +546,6 @@ function onMessage(message: ServerMessage): void {
         if (workItemDialog.open) workItemDialog.close();
       }
       takeStarted(message.session);
-      showInbox();
       openView(message.workItem.id);
       return;
     }
@@ -456,7 +611,12 @@ async function connect(): Promise<void> {
   });
 }
 
-viewHeader.append(sealPlace());
+document.getElementById("preview-seal")?.replaceWith(sealPlace());
+document.getElementById("view-seal-place")?.replaceWith(sealPlace(true));
+document.addEventListener("keydown", onKey);
+document.getElementById("open-work-item")?.addEventListener("click", () => {
+  if (selected !== undefined) openView(selected);
+});
 document.getElementById("new-work-item")?.addEventListener("click", openWorkItemForm);
 document.getElementById("back-to-inbox")?.addEventListener("click", showInboxScreen);
 document.getElementById("work-item-cancel")?.addEventListener("click", () => workItemDialog.close());

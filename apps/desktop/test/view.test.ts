@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { agentKind, askButton, headlessLines, inboxLine, inboxSummary, notificationFor, paneInFront, paneTabs, tabLabel, withHeadless, workItemFields, type InboxLine } from "../src/renderer/view";
+import {
+  agentKind,
+  askButton,
+  headlessLines,
+  inboxGroups,
+  inboxKey,
+  inboxLine,
+  inboxSummary,
+  moveSelection,
+  notificationFor,
+  paneInFront,
+  paneTabs,
+  selectedLine,
+  stateHeading,
+  tabLabel,
+  withHeadless,
+  workItemFields,
+  type InboxLine,
+} from "../src/renderer/view";
 import type { HeadlessInfo, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
@@ -93,12 +111,12 @@ describe("inboxSummary", () => {
     return { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" };
   }
 
-  it("counts the work items in each state, and leaves out the lines with no state", () => {
-    expect(inboxSummary([line("working"), line("waiting"), line("waiting"), line(null)])).toBe("2 waiting · 1 working");
+  it("counts the work items in each state in a sentence, and leaves out the lines with no state", () => {
+    expect(inboxSummary([line("working"), line("waiting"), line("waiting"), line(null)])).toBe("2 waiting for you, 1 working");
   });
 
   it("says the state a person must act on first: waiting, then working, then finished", () => {
-    expect(inboxSummary([line("finished"), line("working"), line("finished"), line("waiting")])).toBe("1 waiting · 1 working · 2 finished");
+    expect(inboxSummary([line("finished"), line("working"), line("finished"), line("waiting")])).toBe("1 waiting for you, 1 working, 2 finished");
   });
 
   it("leaves out a state no work item is in", () => {
@@ -108,6 +126,118 @@ describe("inboxSummary", () => {
   it("is empty where no line has a state", () => {
     expect(inboxSummary([line(null), line(null)])).toBe("");
     expect(inboxSummary([])).toBe("");
+  });
+});
+
+describe("stateHeading", () => {
+  it("says each state in the words of its group's heading, and a line with no state as having no agent", () => {
+    expect(stateHeading("waiting")).toBe("Waiting for you");
+    expect(stateHeading("working")).toBe("Working");
+    expect(stateHeading("finished")).toBe("Finished");
+    expect(stateHeading(null)).toBe("No agent");
+  });
+});
+
+describe("inboxGroups", () => {
+  function entry(id: number, state: InboxLine["state"]): { id: number; line: InboxLine } {
+    return { id, line: { title: `Work item ${id}`, branch: `owlery/work-item-${id}`, state, commits: "" } };
+  }
+
+  it("puts the lines under the heading of their state, the groups in the order a person acts on them and the lines with no state last", () => {
+    const groups = inboxGroups([entry(1, null), entry(2, "finished"), entry(3, "working"), entry(4, "waiting")]);
+    expect(groups.map((group) => [group.state, group.heading, group.entries.map((held) => held.id)])).toEqual([
+      ["waiting", "Waiting for you", [4]],
+      ["working", "Working", [3]],
+      ["finished", "Finished", [2]],
+      [null, "No agent", [1]],
+    ]);
+  });
+
+  it("keeps, inside a group, the order the lines were given in", () => {
+    const groups = inboxGroups([entry(5, "working"), entry(2, "waiting"), entry(9, "working"), entry(1, "waiting"), entry(3, "working")]);
+    expect(groups.map((group) => group.entries.map((held) => held.id))).toEqual([
+      [2, 1],
+      [5, 9, 3],
+    ]);
+  });
+
+  it("leaves out a group no line is in, heading and all", () => {
+    expect(inboxGroups([entry(1, null), entry(2, "working")]).map((group) => group.heading)).toEqual(["Working", "No agent"]);
+    expect(inboxGroups([])).toEqual([]);
+  });
+});
+
+describe("selectedLine", () => {
+  it("keeps the selected work item while it is listed, wherever its line now stands", () => {
+    expect(selectedLine([4, 7, 2], 2)).toBe(2);
+  });
+
+  it("gives the first line where nothing is selected or the selected work item is no longer listed", () => {
+    expect(selectedLine([4, 7, 2], undefined)).toBe(4);
+    expect(selectedLine([4, 7, 2], 9)).toBe(4);
+  });
+
+  it("gives nothing where the inbox has no line", () => {
+    expect(selectedLine([], 4)).toBeUndefined();
+    expect(selectedLine([], undefined)).toBeUndefined();
+  });
+});
+
+describe("moveSelection", () => {
+  it("selects the next line and the one before, in the order the lines are displayed", () => {
+    expect(moveSelection([4, 7, 2], 4, "next")).toBe(7);
+    expect(moveSelection([4, 7, 2], 7, "next")).toBe(2);
+    expect(moveSelection([4, 7, 2], 2, "previous")).toBe(7);
+  });
+
+  it("stops at each end of the list", () => {
+    expect(moveSelection([4, 7, 2], 2, "next")).toBe(2);
+    expect(moveSelection([4, 7, 2], 4, "previous")).toBe(4);
+  });
+
+  it("moves from the first line where the selected work item is no longer listed", () => {
+    expect(moveSelection([4, 7, 2], 9, "next")).toBe(7);
+    expect(moveSelection([4, 7, 2], undefined, "previous")).toBe(4);
+  });
+
+  it("selects nothing where the inbox has no line", () => {
+    expect(moveSelection([], 4, "next")).toBeUndefined();
+    expect(moveSelection([], undefined, "previous")).toBeUndefined();
+  });
+});
+
+describe("inboxKey", () => {
+  const INBOX = { inboxInFront: true, dialogOpen: false, inField: false, onControl: false };
+  const plain = (code: string) => ({ code, modified: false });
+
+  it("reads J, K and Enter by their place on the keyboard", () => {
+    expect(inboxKey(plain("KeyJ"), INBOX)).toBe("next");
+    expect(inboxKey(plain("KeyK"), INBOX)).toBe("previous");
+    expect(inboxKey(plain("Enter"), INBOX)).toBe("open");
+  });
+
+  it("reads no other key", () => {
+    expect(inboxKey(plain("KeyL"), INBOX)).toBeNull();
+    expect(inboxKey(plain("ArrowDown"), INBOX)).toBeNull();
+  });
+
+  it("reads no key while another screen is in front, a dialog is open or the focus is in a field", () => {
+    for (const code of ["KeyJ", "KeyK", "Enter"]) {
+      expect(inboxKey(plain(code), { ...INBOX, inboxInFront: false })).toBeNull();
+      expect(inboxKey(plain(code), { ...INBOX, dialogOpen: true })).toBeNull();
+      expect(inboxKey(plain(code), { ...INBOX, inField: true })).toBeNull();
+    }
+  });
+
+  it("reads no key pressed with a modifier key held", () => {
+    for (const code of ["KeyJ", "KeyK", "Enter"]) expect(inboxKey({ code, modified: true }, INBOX)).toBeNull();
+  });
+
+  it("leaves Enter to the control that has the focus, and still moves the selection from there", () => {
+    const onControl = { ...INBOX, onControl: true };
+    expect(inboxKey(plain("Enter"), onControl)).toBeNull();
+    expect(inboxKey(plain("KeyJ"), onControl)).toBe("next");
+    expect(inboxKey(plain("KeyK"), onControl)).toBe("previous");
   });
 });
 

@@ -44,19 +44,81 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   };
 }
 
-/** The agent states in the order a person must act on them, which is the order the summary says them in. */
+/** The agent states in the order a person must act on them, which is the order of the inbox's sentence and of its groups. */
 const STATES_BY_URGENCY: readonly AgentState[] = ["waiting", "working", "finished"];
 
+/** Each agent state as the inbox's sentence says it, after its count. */
+const STATE_IN_SENTENCE: Record<AgentState, string> = { waiting: "waiting for you", working: "working", finished: "finished" };
+
 /**
- * The inbox's summary: how many work items are in each agent state, as in
- * "1 waiting · 2 working". A state no line is in is left out, and the summary
- * is empty where no line has a state.
+ * The inbox's sentence: how many work items are in each agent state, as in
+ * "1 waiting for you, 2 working". A state no line is in is left out, and the
+ * sentence is empty where no line has a state.
  */
 export function inboxSummary(lines: readonly InboxLine[]): string {
   return STATES_BY_URGENCY.map((state) => ({ state, count: lines.filter((line) => line.state === state).length }))
     .filter(({ count }) => count > 0)
-    .map(({ state, count }) => `${count} ${state}`)
-    .join(" · ");
+    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state]}`)
+    .join(", ");
+}
+
+/** A line's state in words: the heading of its group in the inbox, which the preview and a view's header say as well. */
+export function stateHeading(state: AgentState | null): string {
+  if (state === null) return "No agent";
+  return { waiting: "Waiting for you", working: "Working", finished: "Finished" }[state];
+}
+
+export interface InboxGroup<Entry> {
+  /** The state of every line of the group, or null for the lines with no state. */
+  state: AgentState | null;
+  heading: string;
+  entries: Entry[];
+}
+
+/**
+ * The inbox's lines in their groups: the states in the order a person must
+ * act on them, then the lines with no state. A group no line is in is left
+ * out, and inside a group the lines keep the order they were given in.
+ */
+export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly Entry[]): InboxGroup<Entry>[] {
+  return [...STATES_BY_URGENCY, null]
+    .map((state) => ({ state, heading: stateHeading(state), entries: entries.filter((entry) => entry.line.state === state) }))
+    .filter((group) => group.entries.length > 0);
+}
+
+/**
+ * The work item whose line is selected, `ids` being the work items in the
+ * order their lines are displayed: the one that was `selected` while it is
+ * listed, and otherwise the first line's. Nothing where the inbox has no line.
+ */
+export function selectedLine(ids: readonly number[], selected: number | undefined): number | undefined {
+  return selected !== undefined && ids.includes(selected) ? selected : ids[0];
+}
+
+/** The work item selected after a key moved the selection one line, which stops at each end of the list. */
+export function moveSelection(ids: readonly number[], selected: number | undefined, key: "next" | "previous"): number | undefined {
+  const from = selectedLine(ids, selected);
+  if (from === undefined) return undefined;
+  const at = ids.indexOf(from) + (key === "next" ? 1 : -1);
+  return ids[Math.min(Math.max(at, 0), ids.length - 1)];
+}
+
+/**
+ * What a key does on the inbox screen, or null where the window leaves it
+ * alone. J and K are read by their place on the keyboard, so they act under
+ * any input source. No key is read while another screen is in front, a
+ * dialog is open, the focus is in a field or a modifier key is held. Enter
+ * on a control is that control's own press.
+ */
+export function inboxKey(
+  key: { code: string; modified: boolean },
+  where: { inboxInFront: boolean; dialogOpen: boolean; inField: boolean; onControl: boolean },
+): "next" | "previous" | "open" | null {
+  if (!where.inboxInFront || where.dialogOpen || where.inField || key.modified) return null;
+  if (key.code === "KeyJ") return "next";
+  if (key.code === "KeyK") return "previous";
+  if (key.code === "Enter" && !where.onControl) return "open";
+  return null;
 }
 
 /**
@@ -103,7 +165,7 @@ export function notificationFor(
 }
 
 /**
- * The folder and the title the "+ Work item" form sends, or why it sends
+ * The folder and the title the "New work item" form sends, or why it sends
  * nothing. An empty folder is refused here because the daemon would run git
  * with it in the daemon's own folder.
  */
