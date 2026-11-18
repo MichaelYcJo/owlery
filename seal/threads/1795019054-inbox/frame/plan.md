@@ -23,7 +23,7 @@ The window's `Notification` is the web API, which Electron shows as an OS notifi
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 5 in the daemon and the protocol | Scenarios 1, 3, 4, 5 and 8 as cases, each seen red before its code; the state function and the commit count against temporary repositories | `3e45672` |
-| 2 | *Scope* items 3 (the window's side), 6, 7 and 8, and the removals | Scenarios 2, 6 and 7, and scenario 1 and 3 in the built app, driven once through the debugging port; the hook relay of a pane's environment drives the state | |
+| 2 | *Scope* items 3 (the window's side), 6, 7 and 8, and the removals | Scenarios 2, 6 and 7, and scenario 1 and 3 in the built app, driven once through the debugging port; the hook relay of a pane's environment drives the state | `53d3f4e` |
 
 ## Overlap with the release
 
