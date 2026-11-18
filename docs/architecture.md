@@ -304,12 +304,11 @@ The UI is built with Electron. Frameworks that use the system webview used somew
 - **Linux:** There are fewer open issues with Wayland, Nvidia and WebGL.
 - **Updates:** Delta updates download only the changed parts. In exchange, the app is large (.app 253 MB).
 
-Depending on the results of the macOS Korean input test, we may revisit moving macOS alone to the system webview (Tauri) (see "Open decisions").
+Electron stays on macOS too (decided 2026-11-18). Moving macOS alone to the system webview was weighed on two criteria: Korean input, which works in the Electron pane (above), and how much lighter the app becomes, which the measured gap of up to about 10% does not decide.
 
 ## Measure before building
 
 - **Direct connection rate:** Measure how often a phone connects to the daemon without the relay, on Korean LTE and 5G, office Wi-Fi and café Wi-Fi, for iroh and WebRTC each ([Connecting from outside](#connecting-from-outside-phones-and-other-machines)).
-- **Korean input on macOS:** In a Tauri test app, type "안녕하세요" with the Dubeolsik layout and check the strings the DOM and the WebGL terminal receive. A person has to type it.
 - **Switching latency when screens are reused:** Measure on macOS, Windows and Linux each, with 1,000 and 5,000 lines of history at 200 columns.
 - **GPU memory one visible terminal uses:** Measure at our pane size, for WebGL and DOM each, and for Retina and 4K each.
 - **Daemon CPU:** Measure the cost of parsing terminal output when 10 agents print at once.
@@ -329,7 +328,6 @@ Depending on the results of the macOS Korean input test, we may revisit moving m
 | Scope of the records kept in the repository | Keep every record of the work in the repository, as AgenticSeal does / keep only the seal and its grounds, and the rest in the daemon | The first version takes the former: it commits all records, starting from the AgenticSeal format. Whether to cut down to the latter depends on whether the repository only needs to hold what the PR check and people outside the app must read, and on what AgenticSeal's settle (folding records into the policy documents after a release) reads |
 | Compatibility with the AgenticSeal record format | Keep compatibility, and also propose the fields Owlery needs to AgenticSeal as issues / diverge, and make the Owlery format independent | If compatibility is kept, Owlery reads records built up with the AgenticSeal plugin as they are, and the two products' PR checks give the same verdict. The formats diverge once the fields Owlery needs, as it takes in other runtimes and branches built elsewhere, start not to fit the AgenticSeal format |
 | Splitting the orchestration documents | Whether to split AgenticSeal's orchestration documents into "the order the daemon runs" and "the orchestrator's judgment" and use them as input to the app's design | When daemon implementation starts |
-| Tauri for macOS only | Keep / switch | The results of the Korean input test, and how much lighter the app becomes |
 | Editor component | CodeMirror 6 / Monaco | The memory added and the time taken to open one file, and Korean input on macOS. Not measured yet. No language servers or extensions are included, so most of Monaco's advantages go unused |
 | What the phone reads for the conversation | Hooks only (the last reply of each turn) / also the CLI's session log (the text between tool calls) | How often the session log's format changes across CLI versions, and whether a chat without the text in between is enough on a phone ([The phone: the terminal session as a chat](#the-phone-the-terminal-session-as-a-chat)) |
 | Input from the terminal and the phone at once | Whoever types first, the other waits / the terminal always wins | Whether the daemon can tell reliably that the CLI is waiting for input, and how the person learns that their input from the phone did not go in |
