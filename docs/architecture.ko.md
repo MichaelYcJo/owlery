@@ -265,13 +265,13 @@ v0.1의 마일스톤, 그 순서, 그 순서의 근거는 [roadmap.ko.md](roadma
 
 휴대폰은 책상의 터미널에서 도는 세션을 채팅 모양으로 보여 줍니다. 원본은 터미널이고, 휴대폰은 같은 세션을 보는 두 번째 방법입니다. 휴대폰은 사람이 돌리는 모든 에이전트 CLI에 대해 이렇게 하고, 연결은 위의 길로만 오가며 어느 에이전트 회사의 서버도 거치지 않습니다. 휴대폰을 붙일 수 있게 지금부터 두 가지를 지킵니다. 데몬의 WebSocket 프로토콜을 데스크톱 화면에만 맞추지 않고, 화면 쪽에 상태를 두지 않습니다.
 
-Claude Code에서는 채팅의 각 부분이 아래에서 옵니다. 훅 이름과 필드는 Claude Code 2.1.327 실행 파일에서 찾았고(2026-11-18), 아직 하나도 돌려 보지 않았습니다.
+Claude Code에서는 채팅의 각 부분이 아래에서 옵니다. 2026-11-18에 Owlery가 띄운 대화형 Claude Code 2.1.327 세션에서 훅을 하나씩 실제로 돌렸습니다. 훅 설정은 `--settings`로 넘겼고, 이 설정은 사용자와 프로젝트의 설정에 더해질 뿐 어느 쪽도 바꾸지 않습니다. 모든 이벤트에 `session_id`, `transcript_path`, `cwd`, `permission_mode`가 들어 있습니다.
 
 | 채팅의 부분 | 오는 곳 |
 |---|---|
 | 사람이 보낸 말 | `UserPromptSubmit` 훅 |
 | 도구 호출과 그 결과 | `PreToolUse`, `PostToolUse`, `PostToolUseFailure` 훅 |
-| 권한 요청 | `PermissionRequest` 훅. 훅이 휴대폰의 답을 기다렸다가 허용이나 거절을 돌려줍니다 |
+| 권한 요청 | `PermissionRequest` 훅. `tool_name`, `tool_input`, `permission_suggestions`가 오고 `tool_use_id`는 오지 않습니다. 훅이 휴대폰의 답을 기다렸다가 허용이나 거절을 돌려줍니다 |
 | 한 턴의 마지막 답 | `Stop` 훅 입력의 `last_assistant_message` |
 | 도구 호출 사이에 에이전트가 쓴 글 | Claude Code가 디스크에 남기는 세션 기록(`~/.claude/projects/<프로젝트>/<세션 ID>.jsonl`)에만 있습니다. 형식이 공개되지 않았으므로 보조로만 읽습니다. 데몬이 해석하지 못하면 휴대폰은 훅 이벤트만 보여 줍니다 |
 
