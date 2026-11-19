@@ -19,6 +19,11 @@ function livePanes(workItem: WorkItem, sessions: readonly SessionInfo[]): Sessio
   return sessions.filter((session) => session.workItemId === workItem.id && session.alive).sort((a, b) => b.id - a.id);
 }
 
+/** The pane a work item's line reads its state from: its most recent live pane of a kind that reports state, or nothing where it has none. */
+export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): SessionInfo | undefined {
+  return livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
+}
+
 export interface InboxLine {
   title: string;
   branch: string;
@@ -34,7 +39,7 @@ export interface InboxLine {
  * last state and is passed over, because nothing will change that state again.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
-  const reporting = livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
+  const reporting = lineSession(workItem, sessions, paneKinds);
   const count = workItem.newCommits ?? 0;
   return {
     title: workItem.title,
@@ -42,6 +47,18 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
     state: reporting ? reporting.state : null,
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
+}
+
+/** A work item as the lists and the sidebar show it: with its line, and the pane the line reads its state from. */
+export interface Entry {
+  workItem: WorkItem;
+  line: InboxLine;
+  session: SessionInfo | undefined;
+}
+
+/** Every work item with its line and that line's pane, in the order the daemon lists them. */
+export function workItemEntries(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Entry[] {
+  return workItems.map((workItem) => ({ workItem, line: inboxLine(workItem, sessions, paneKinds), session: lineSession(workItem, sessions, paneKinds) }));
 }
 
 /** The agent states in the order a person must act on them, which is the order of the inbox's sentence and of its groups. */
@@ -84,6 +101,110 @@ export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly
   return [...STATES_BY_URGENCY, null]
     .map((state) => ({ state, heading: stateHeading(state), entries: entries.filter((entry) => entry.line.state === state) }))
     .filter((group) => group.entries.length > 0);
+}
+
+/** A repository's name: the one the daemon sends, or the last part of its folder for a daemon of an earlier build, which sends none. */
+function repoNameOf(workItem: WorkItem): string {
+  return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
+}
+
+export interface SidebarRepository {
+  /** The repository's folder, which tells two repositories of one name apart. */
+  repo: string;
+  name: string;
+  /** How many work items are listed under it. */
+  count: number;
+  entries: Entry[];
+}
+
+/**
+ * The sidebar's repositories: each repository a given work item is of, in the
+ * order of its first work item, with its work items in the order given. A
+ * repository is its folder, so two of one name are two.
+ */
+export function sidebarTree(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): SidebarRepository[] {
+  const tree: SidebarRepository[] = [];
+  for (const entry of workItemEntries(workItems, sessions, paneKinds)) {
+    let repository = tree.find((held) => held.repo === entry.workItem.repo);
+    if (!repository) {
+      repository = { repo: entry.workItem.repo, name: repoNameOf(entry.workItem), count: 0, entries: [] };
+      tree.push(repository);
+    }
+    repository.entries.push(entry);
+    repository.count = repository.entries.length;
+  }
+  return tree;
+}
+
+/**
+ * The history screen's lines: the work items whose agent finished, the one
+ * that finished last first. Two that finished at one time keep the order
+ * given, and one whose time the daemon did not send stands last.
+ */
+export function historyLines<E extends { line: InboxLine; session: SessionInfo | undefined }>(entries: readonly E[]): E[] {
+  const since = (entry: E) => entry.session?.stateSince ?? Number.NEGATIVE_INFINITY;
+  return entries.filter((entry) => entry.line.state === "finished").sort((a, b) => (since(a) === since(b) ? 0 : since(b) > since(a) ? 1 : -1));
+}
+
+/**
+ * The places in `text` where what is typed stands, in any case of letters:
+ * each a start and an end, in order, and none over another. Nothing where
+ * nothing is typed.
+ */
+export function markRanges(text: string, query: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  if (query === "") return ranges;
+  const typed = query.toLowerCase();
+  for (let at = 0; at + query.length <= text.length; ) {
+    if (text.slice(at, at + query.length).toLowerCase() === typed) {
+      ranges.push([at, at + query.length]);
+      at += query.length;
+    } else {
+      at += 1;
+    }
+  }
+  return ranges;
+}
+
+/** What the filter shows: every state, one agent state, or the work items with no state. */
+export type StateFilter = "all" | AgentState | "none";
+
+/** The filter's choices: "All", and the heading of each of the inbox's groups, in their order. */
+export function filterChoices(): { value: StateFilter; label: string }[] {
+  return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) }))];
+}
+
+/**
+ * The work items a search and a filter leave, in the order given: those
+ * whose title, branch or repository's name holds what is typed, and whose
+ * line is in the state chosen.
+ */
+export function matchWorkItems<E extends { workItem: WorkItem; line: InboxLine }>(entries: readonly E[], query: string, state: StateFilter): E[] {
+  return entries.filter(({ workItem, line }) => {
+    if (state !== "all" && (line.state ?? "none") !== state) return false;
+    return query === "" || [workItem.title, workItem.branch, repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
+  });
+}
+
+/** How many work items a search leaves, of how many, as the search field says it. */
+export function matchCount(matched: number, total: number): string {
+  return `${matched} of ${total}`;
+}
+
+/** The same in words, as the head of a list says it. */
+export function matchSentence(matched: number, total: number, query: string): string {
+  return `${matchCount(matched, total)} ${total === 1 ? "work item matches" : "work items match"} "${query}" in title, branch or repository`;
+}
+
+/**
+ * What a list says in place of its lines, `total` being the screen's work
+ * items and `shown` the ones a search and a filter leave: nothing where it
+ * has a line.
+ */
+export function emptyList(screen: "inbox" | "history", total: number, shown: number): string {
+  if (shown > 0) return "";
+  if (total > 0) return "No work item matches.";
+  return screen === "inbox" ? "No work items yet." : "Nothing has finished yet.";
 }
 
 export interface Change {
@@ -130,6 +251,45 @@ export function changesSince(look: Look, workItems: readonly WorkItem[], session
  */
 export function summarySentence(changes: readonly { line: InboxLine }[]): string {
   return inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+}
+
+/**
+ * What stands in the place of the summary's sentence: the sentence where a
+ * work item changed, and otherwise why the screen holds no line.
+ */
+export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine }[]): string {
+  if (!hasLook) return "No earlier look is recorded.";
+  return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
+}
+
+/** How many work items changed, as the sidebar says it beside "Summary": nothing where none did. */
+export function summaryCount(changed: number): string {
+  return changed > 0 ? `${changed} new` : "";
+}
+
+export interface SummaryControls {
+  /** The control Enter presses: it opens the view of a work item, or the inbox. */
+  main: { label: string; opens: number | "inbox" };
+  second: { label: string; opens: "inbox" } | null;
+  hint: string;
+}
+
+/**
+ * The summary screen's controls. Where a changed work item waits, the main
+ * one opens the first that waits and the inbox stands beside it; otherwise
+ * the inbox is the main control and the only one.
+ */
+export function summaryControls(changes: readonly { workItem: WorkItem; line: InboxLine }[]): SummaryControls {
+  const inbox = { label: "Open the inbox", opens: "inbox" as const };
+  const waits = changes.find((change) => change.line.state === "waiting");
+  if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
+  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that waits." };
+}
+
+/** The status line where the window has nothing else to say: that the daemon runs, and how many agents do, an agent being a live pane of a kind that reports its state. */
+export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): string {
+  const agents = sessions.filter((session) => session.alive && paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState)).length;
+  return `Daemon running, ${agents === 0 ? "no agent" : agents === 1 ? "1 agent" : `${agents} agents`}`;
 }
 
 /**
@@ -182,6 +342,19 @@ export function inboxKey(
   if (key.code === "KeyK") return "previous";
   if (key.code === "Enter" && !where.onControl) return "open";
   return null;
+}
+
+/**
+ * What a key pressed with the Command key does on every screen, or null
+ * where the window leaves it alone: K puts the focus in the search field. The
+ * Control key stands for the Command key where the keyboard has none. The key
+ * is read by its place on the keyboard, and not while a dialog is open or
+ * another modifier key is held as well.
+ */
+export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | null {
+  const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
+  if (!command || key.alt || key.shift || where.dialogOpen) return null;
+  return key.code === "KeyK" ? "search" : null;
 }
 
 /**

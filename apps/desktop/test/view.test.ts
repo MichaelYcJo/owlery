@@ -3,21 +3,36 @@ import {
   agentKind,
   askButton,
   changesSince,
+  commandKey,
+  daemonStatus,
+  emptyList,
+  filterChoices,
   headlessLines,
+  historyLines,
   inboxGroups,
   inboxKey,
   inboxLine,
   inboxSummary,
   lastHere,
+  lineSession,
+  markRanges,
+  matchCount,
+  matchSentence,
+  matchWorkItems,
   moveSelection,
   notificationFor,
   paneInFront,
   paneTabs,
   selectedLine,
+  sidebarTree,
   stateHeading,
+  summaryControls,
+  summaryCount,
+  summaryHead,
   summarySentence,
   tabLabel,
   withHeadless,
+  workItemEntries,
   workItemFields,
   type InboxLine,
 } from "../src/renderer/view";
@@ -498,5 +513,264 @@ describe("headlessLines", () => {
     expect(headlessLines(sessions, 1).map((line) => line.id)).toEqual([3, 1]);
     expect(headlessLines(sessions, 2).map((line) => line.id)).toEqual([2]);
     expect(headlessLines(sessions, 3)).toEqual([]);
+  });
+});
+
+describe("lineSession", () => {
+  it("gives the pane a line reads its state from, and nothing where no live pane of the work item reports one", () => {
+    const sessions = [session(2, { state: "finished" }), session(4, { state: "waiting", stateSince: 900 }), session(5, { kind: "shell" })];
+    expect(lineSession(LOGIN, sessions, KINDS)).toBe(sessions[1]);
+    expect(lineSession(SEARCH, sessions, KINDS)).toBeUndefined();
+  });
+});
+
+describe("workItemEntries", () => {
+  it("gives each work item with its line and the pane the line reads, in the daemon's order", () => {
+    const sessions = [session(3, { workItemId: 2, state: "working" })];
+    expect(workItemEntries([LOGIN, SEARCH], sessions, KINDS)).toEqual([
+      { workItem: LOGIN, line: inboxLine(LOGIN, sessions, KINDS), session: undefined },
+      { workItem: SEARCH, line: inboxLine(SEARCH, sessions, KINDS), session: sessions[0] },
+    ]);
+  });
+});
+
+describe("sidebarTree", () => {
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+
+  it("lists each repository that has a work item, in the order of its first one, with its name, its count and its work items in the daemon's order", () => {
+    const sessions = [session(4, { workItemId: 2, state: "waiting" })];
+    const tree = sidebarTree([LOGIN, DOCS, SEARCH], sessions, KINDS);
+    expect(tree.map((repository) => [repository.repo, repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)])).toEqual([
+      ["/r/project", "project", 2, [1, 2]],
+      ["/r/docs", "docs", 1, [3]],
+    ]);
+    expect(tree[0]?.entries[1]?.line.state).toBe("waiting");
+  });
+
+  it("keeps two repositories of one name apart, each under its own folder", () => {
+    const other: WorkItem = { ...SEARCH, repo: "/elsewhere/project" };
+    expect(sidebarTree([LOGIN, other], [], KINDS).map((repository) => [repository.repo, repository.name, repository.count])).toEqual([
+      ["/r/project", "project", 1],
+      ["/elsewhere/project", "project", 1],
+    ]);
+  });
+
+  it("names a repository by the last part of its folder where the daemon sent no name, as one of an earlier build does", () => {
+    const unnamed = { ...LOGIN, repo: "/r/older/", repoName: undefined } as unknown as WorkItem;
+    expect(sidebarTree([unnamed], [], KINDS).map((repository) => repository.name)).toEqual(["older"]);
+  });
+
+  it("lists nothing where no work item is given", () => {
+    expect(sidebarTree([], [], KINDS)).toEqual([]);
+  });
+});
+
+describe("historyLines", () => {
+  const third: WorkItem = { ...LOGIN, id: 3, title: "Third" };
+  const fourth: WorkItem = { ...LOGIN, id: 4, title: "Fourth" };
+
+  it("gives the work items whose agent finished alone, the one that finished last first", () => {
+    const sessions = [
+      session(5, { workItemId: 1, state: "finished", stateSince: 100 }),
+      session(6, { workItemId: 2, state: "working", stateSince: 400 }),
+      session(7, { workItemId: 3, state: "finished", stateSince: 300 }),
+    ];
+    expect(historyLines(workItemEntries([LOGIN, SEARCH, third, fourth], sessions, KINDS)).map((entry) => entry.workItem.id)).toEqual([3, 1]);
+  });
+
+  it("keeps the given order where two finished at the same time, and puts last one whose time the daemon did not send", () => {
+    const sessions = [
+      session(5, { workItemId: 1, state: "finished" }),
+      session(6, { workItemId: 2, state: "finished", stateSince: 200 }),
+      session(7, { workItemId: 3, state: "finished", stateSince: 200 }),
+      session(8, { workItemId: 4, state: "finished", stateSince: 500 }),
+    ];
+    expect(historyLines(workItemEntries([LOGIN, SEARCH, third, fourth], sessions, KINDS)).map((entry) => entry.workItem.id)).toEqual([4, 2, 3, 1]);
+  });
+});
+
+describe("markRanges", () => {
+  it("gives every place what is typed stands in a text, in any case of letters", () => {
+    expect(markRanges("Session store for sessions", "sess")).toEqual([
+      [0, 4],
+      [18, 22],
+    ]);
+    expect(markRanges("owlery/fix-the-login-bug", "LOGIN")).toEqual([[15, 20]]);
+  });
+
+  it("gives no place where nothing is typed or the text does not hold it", () => {
+    expect(markRanges("Fix the login bug", "")).toEqual([]);
+    expect(markRanges("Fix the login bug", "search")).toEqual([]);
+  });
+
+  it("marks no letter twice where what is typed overlaps itself", () => {
+    expect(markRanges("aaaa", "aa")).toEqual([
+      [0, 2],
+      [2, 4],
+    ]);
+    expect(markRanges("aaa", "aa")).toEqual([[0, 2]]);
+  });
+});
+
+describe("matchWorkItems", () => {
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+  const sessions = [session(4, { workItemId: 1, state: "waiting" }), session(5, { workItemId: 2, state: "working" }), session(6, { workItemId: 3, state: "finished" })];
+  const FOURTH: WorkItem = { ...LOGIN, id: 4, title: "Tidy up", branch: "owlery/tidy-up" };
+  const ids = (query: string, state: Parameters<typeof matchWorkItems>[2]) =>
+    matchWorkItems(workItemEntries([LOGIN, SEARCH, DOCS, FOURTH], sessions, KINDS), query, state).map((entry) => entry.workItem.id);
+
+  it("leaves the work items whose title, branch or repository's name holds what is typed, in any case of letters", () => {
+    expect(ids("LOGIN", "all")).toEqual([1]);
+    expect(ids("speed-up", "all")).toEqual([2]);
+    expect(ids("Docs", "all")).toEqual([3]);
+    expect(ids("owlery/", "all")).toEqual([1, 2, 3, 4]);
+    expect(ids("nowhere", "all")).toEqual([]);
+  });
+
+  it("matches nothing else of a work item: not its folder and not its worktree", () => {
+    expect(ids("/r/", "all")).toEqual([]);
+    expect(ids("/w/", "all")).toEqual([]);
+  });
+
+  it("leaves every work item where nothing is typed and every state is chosen", () => {
+    expect(ids("", "all")).toEqual([1, 2, 3, 4]);
+  });
+
+  it("leaves the work items of the one state chosen, and of no state where that is chosen", () => {
+    expect(ids("", "waiting")).toEqual([1]);
+    expect(ids("", "working")).toEqual([2]);
+    expect(ids("", "finished")).toEqual([3]);
+    expect(ids("", "none")).toEqual([4]);
+  });
+
+  it("narrows by what is typed and by the state together", () => {
+    expect(ids("project", "working")).toEqual([2]);
+    expect(ids("docs", "working")).toEqual([]);
+  });
+
+  it("reads a repository's name from its folder where the daemon sent none", () => {
+    const unnamed = { ...LOGIN, repo: "/r/older", repoName: undefined } as unknown as WorkItem;
+    expect(matchWorkItems(workItemEntries([unnamed], [], KINDS), "older", "all")).toHaveLength(1);
+  });
+});
+
+describe("matchCount and matchSentence", () => {
+  it("says how many work items match, of how many", () => {
+    expect(matchCount(3, 10)).toBe("3 of 10");
+  });
+
+  it("says the same in words, with what was typed and where it was looked for", () => {
+    expect(matchSentence(3, 10, "sess")).toBe('3 of 10 work items match "sess" in title, branch or repository');
+    expect(matchSentence(0, 1, "x")).toBe('0 of 1 work item matches "x" in title, branch or repository');
+  });
+});
+
+describe("filterChoices", () => {
+  it("offers every state at once and then each group's heading, in the inbox's order", () => {
+    expect(filterChoices()).toEqual([
+      { value: "all", label: "All" },
+      { value: "waiting", label: "Waiting for you" },
+      { value: "working", label: "Working" },
+      { value: "finished", label: "Finished" },
+      { value: "none", label: "No agent" },
+    ]);
+  });
+});
+
+describe("emptyList", () => {
+  it("says nothing where the list has a line", () => {
+    expect(emptyList("inbox", 3, 1)).toBe("");
+    expect(emptyList("history", 1, 1)).toBe("");
+  });
+
+  it("says that a search or a filter left no work item, where the screen has some without them", () => {
+    expect(emptyList("inbox", 3, 0)).toBe("No work item matches.");
+    expect(emptyList("history", 2, 0)).toBe("No work item matches.");
+  });
+
+  it("says in each screen's own sentence that it has no line at all", () => {
+    expect(emptyList("inbox", 0, 0)).toBe("No work items yet.");
+    expect(emptyList("history", 0, 0)).toBe("Nothing has finished yet.");
+  });
+});
+
+describe("summaryControls", () => {
+  function change(id: number, state: InboxLine["state"]): { workItem: WorkItem; line: InboxLine } {
+    return { workItem: { ...LOGIN, id }, line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" } };
+  }
+
+  it("makes answering the first work item that waits the main control, with the inbox beside it", () => {
+    expect(summaryControls([change(4, "finished"), change(7, "waiting"), change(9, "waiting")])).toEqual({
+      main: { label: "Answer the first question", opens: 7 },
+      second: { label: "Open the inbox", opens: "inbox" },
+      hint: "Enter opens the first that waits.",
+    });
+  });
+
+  it("makes the inbox the main control and the only one where no changed work item waits, or none changed", () => {
+    const alone = { main: { label: "Open the inbox", opens: "inbox" }, second: null, hint: "Enter opens it." };
+    expect(summaryControls([change(4, "finished"), change(5, "working"), change(6, null)])).toEqual(alone);
+    expect(summaryControls([])).toEqual(alone);
+  });
+});
+
+describe("summaryHead", () => {
+  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine }];
+
+  it("is the summary's sentence where a work item changed", () => {
+    expect(summaryHead(true, waits)).toBe("1 waiting for you");
+  });
+
+  it("says that nothing changed where a look is recorded and no work item changed", () => {
+    expect(summaryHead(true, [])).toBe("Nothing changed since you were last here.");
+  });
+
+  it("says that no look is recorded where none is", () => {
+    expect(summaryHead(false, [])).toBe("No earlier look is recorded.");
+  });
+});
+
+describe("summaryCount", () => {
+  it("says how many work items changed, and nothing where none did", () => {
+    expect(summaryCount(3)).toBe("3 new");
+    expect(summaryCount(1)).toBe("1 new");
+    expect(summaryCount(0)).toBe("");
+  });
+});
+
+describe("daemonStatus", () => {
+  it("says that the daemon runs and how many agents run: the live panes of a kind that reports its state", () => {
+    const sessions = [session(1), session(2, { state: "working" }), session(3, { kind: "shell" }), session(4, { alive: false, state: "finished" })];
+    expect(daemonStatus(sessions, KINDS)).toBe("Daemon running, 2 agents");
+    expect(daemonStatus([session(1)], KINDS)).toBe("Daemon running, 1 agent");
+  });
+
+  it("says that no agent runs where none does", () => {
+    expect(daemonStatus([session(3, { kind: "shell" }), session(4, { alive: false })], KINDS)).toBe("Daemon running, no agent");
+    expect(daemonStatus([], KINDS)).toBe("Daemon running, no agent");
+  });
+});
+
+describe("commandKey", () => {
+  const plain = { code: "KeyK", meta: false, ctrl: false, alt: false, shift: false };
+  const free = { mac: true, dialogOpen: false };
+
+  it("reads K with the Command key as the search's key, by the key's place on the keyboard", () => {
+    expect(commandKey({ ...plain, meta: true }, free)).toBe("search");
+    expect(commandKey({ ...plain, code: "KeyJ", meta: true }, free)).toBeNull();
+  });
+
+  it("reads K with the Control key where the keyboard has no Command key, and not where it has one", () => {
+    expect(commandKey({ ...plain, ctrl: true }, { ...free, mac: false })).toBe("search");
+    expect(commandKey({ ...plain, ctrl: true }, free)).toBeNull();
+    expect(commandKey({ ...plain, meta: true }, { ...free, mac: false })).toBeNull();
+  });
+
+  it("reads no key while a dialog is open, with no modifier key, or with another one held as well", () => {
+    expect(commandKey({ ...plain, meta: true }, { ...free, dialogOpen: true })).toBeNull();
+    expect(commandKey(plain, free)).toBeNull();
+    expect(commandKey({ ...plain, meta: true, shift: true }, free)).toBeNull();
+    expect(commandKey({ ...plain, meta: true, alt: true }, free)).toBeNull();
+    expect(commandKey({ ...plain, meta: true, ctrl: true }, free)).toBeNull();
   });
 });

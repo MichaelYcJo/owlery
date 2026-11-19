@@ -6,7 +6,7 @@
     <title>Owlery</title>
     <link rel="stylesheet" href="./renderer.css" />
     <style>
-      /* The look: the colours, the typefaces, the sizes and the spacing of the three screens are these properties and nothing else. A typeface that is not installed gives way to the next one named. */
+      /* The look: the colours, the typefaces, the sizes and the spacing of the sidebar and the four screens are these properties and nothing else. A typeface that is not installed gives way to the next one named. */
       :root {
         --bg: #0f1218;
         --raised: #131720;
@@ -27,6 +27,7 @@
         --terminal-bg: #0b0e13;
         --terminal-text: #d9dde4;
         --backdrop: rgba(0, 0, 0, 0.6);
+        --mark: rgba(237, 182, 79, 0.3);
         --font-display: "Space Grotesk", "Inter", system-ui, -apple-system, sans-serif;
         --font-text: "Inter", system-ui, -apple-system, sans-serif;
         --font-mono: "JetBrains Mono", Menlo, monospace;
@@ -56,15 +57,19 @@
         --space-10: 44px;
         --space-11: 56px;
         --radius: 8px;
+        --radius-small: 6px;
         --radius-card: 10px;
-        --bar-height: 56px;
+        --titlebar-height: 40px;
+        --sidebar-width: 256px;
+        --sidebar-line: 28px;
+        --icon-button: 24px;
+        --icon: 16px;
         --control-height: 44px;
         --field-height: 36px;
         --line-height: 68px;
         --summary-line-height: 72px;
         --change-width: 400px;
         --list-width: 620px;
-        --nav-width: 272px;
         --facts-width: 328px;
         --dialog-width: 460px;
         --tab-width: 240px;
@@ -74,19 +79,29 @@
         --seal-size-large: 52px;
       }
       html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: var(--size-text) var(--font-text); }
-      body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+      body { display: flex; height: 100vh; overflow: hidden; }
       /* A screen that is not in front carries `hidden`, whatever its own display is. */
       [hidden] { display: none !important; }
       button { font: inherit; color: inherit; cursor: pointer; }
       button:disabled { opacity: 0.5; cursor: default; }
       h1, h2, p, ul { margin: 0; padding: 0; }
       ul { list-style: none; }
-      .screen { flex: 1; min-height: 0; }
+      .screen { flex: 1; min-width: 0; min-height: 0; }
       .primary { height: var(--control-height); padding: 0 18px; border: 0; border-radius: var(--radius); background: var(--accent); color: var(--on-accent); font-size: var(--size-control); font-weight: 600; }
       .quiet { display: flex; align-items: center; gap: var(--space-4); height: var(--control-height); padding: 0 var(--space-6); border: 0; border-radius: var(--radius); background: none; box-shadow: inset 0 0 0 1px var(--selected-edge); font-size: var(--size-control); font-weight: 600; }
       .caption { font-size: var(--size-label); font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-muted); }
       .hint { font-size: var(--size-label); color: var(--text-muted); }
-      .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* A title is in the plain ink, and in the strong ink at the heavier weight where its work item changed since the person last looked. */
+      .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-second); font-weight: 500; }
+      .title.changed { color: var(--text); font-weight: 600; }
+      /* The letters of a title or a branch that match what is typed in the search field. */
+      mark { border-radius: var(--space-1); background: var(--mark); color: inherit; }
+      .count { flex: none; font-size: var(--size-label); color: var(--text-muted); }
+      .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: var(--space-1); box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-small); background: none; color: var(--text-muted); font-size: var(--size-line); }
+      .icon-button:hover, .icon-button.on { color: var(--text); }
+      .icon-button svg { width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+      /* The sidebar's filter is its icon, with the choices laid over it unseen, so a press on the icon opens them. */
+      .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; cursor: pointer; }
       /* A fixed-width typeface draws a branch, a commit and the terminal, and nothing else. */
       .branch { font-family: var(--font-mono); font-size: var(--size-text); color: var(--text-muted); overflow-wrap: anywhere; }
       /* A state's colour, which its dot, its heading and its words take. */
@@ -103,10 +118,31 @@
       .seal.unsealed { flex: none; display: block; box-sizing: border-box; width: var(--seal-size); height: var(--seal-size); border-radius: 50%; border: 1.5px dashed var(--unsealed); }
       .seal.large { width: var(--seal-size-large); height: var(--seal-size-large); }
 
-      .bar { flex: none; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box; height: var(--bar-height); padding: 0 var(--space-8); border-bottom: 1px solid var(--rule); }
-      .brand { display: flex; align-items: center; gap: var(--space-5); }
-      .brand .emblem { width: 32px; height: 32px; }
-      .brand .name { font-family: var(--font-display); font-size: var(--size-name); font-weight: 600; }
+      #sidebar { flex: none; display: flex; flex-direction: column; box-sizing: border-box; width: var(--sidebar-width); min-height: 0; border-right: 1px solid var(--rule); background: var(--raised); }
+      /* As high as the hidden title bar: it holds the window's traffic lights on macOS, drags the window and holds nothing else. */
+      #sidebar-top { flex: none; height: var(--titlebar-height); -webkit-app-region: drag; }
+      #search { position: relative; flex: none; display: flex; align-items: center; margin: 0 var(--space-5) var(--space-5); }
+      #search-field { flex: 1; min-width: 0; height: var(--sidebar-line); padding-right: 84px; border-radius: var(--radius-small); }
+      #search-aside { position: absolute; right: var(--space-4); display: flex; gap: var(--space-3); pointer-events: none; }
+      #sidebar-nav { flex: none; display: flex; flex-direction: column; gap: var(--space-1); padding: 0 var(--space-4); }
+      .side-item { display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; width: 100%; height: var(--sidebar-line); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-small); background: none; color: var(--text-second); text-align: left; }
+      .side-item[aria-current] { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); color: var(--text); }
+      .side-item .word, .side-item .title { flex: 1; }
+      .side-item .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .side-item .dot { width: var(--dot-small); height: var(--dot-small); }
+      #repositories-head { flex: none; display: flex; align-items: center; gap: var(--space-1); margin-top: var(--space-5); padding: var(--space-5) var(--space-4) var(--space-3) var(--space-5); border-top: 1px solid var(--rule); }
+      #repositories-head h2 { flex: 1; }
+      #repositories { flex: 1; display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; overflow: auto; padding: 0 var(--space-4) var(--space-4); }
+      .repository ul { display: flex; flex-direction: column; gap: var(--space-1); }
+      .repository .fold { color: var(--text-muted); }
+      .repository .fold .chevron { flex: none; width: var(--space-5); }
+      .repository li .side-item { padding-left: var(--space-7); }
+      #sidebar-foot { flex: none; padding: var(--space-4) var(--space-5); border-top: 1px solid var(--rule); }
+      #status { font-size: var(--size-label); color: var(--text-muted); overflow-wrap: anywhere; }
+      /* What the window has to tell: that it is reconnecting, or a request the daemon refused. */
+      #status.notice { color: var(--waiting); }
+      #status:empty::before { content: "\00a0"; }
+
       #summary-screen { display: flex; flex-direction: column; gap: var(--space-9); box-sizing: border-box; overflow: auto; padding: var(--space-10) var(--space-11); }
       #summary-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-10); }
       #summary-sentence { font-family: var(--font-display); font-size: var(--size-summary); font-weight: 600; line-height: 64px; letter-spacing: var(--tracking-title); }
@@ -114,44 +150,40 @@
       #summary-lines { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
       #summary-lines button { display: grid; grid-template-columns: minmax(0, 1fr) var(--change-width) auto; column-gap: var(--space-7); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border: 0; border-bottom: 1px solid var(--rule); background: none; text-align: left; }
       #summary-lines .text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
-      #summary-lines .title { font-size: var(--size-line); font-weight: 600; }
+      #summary-lines .title { font-size: var(--size-line); color: var(--text); font-weight: 600; }
       #summary-lines .branch { font-size: var(--size-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #summary-lines .change { font-size: var(--size-control); line-height: 20px; }
       #summary-foot { display: flex; align-items: center; gap: var(--space-6); }
 
-      #inbox-screen { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-      #inbox-list { display: flex; flex-direction: column; gap: var(--space-7); box-sizing: border-box; min-height: 0; overflow: auto; padding: var(--space-9) var(--space-6) var(--space-7) var(--space-8); border-right: 1px solid var(--rule); }
-      #inbox-head { display: flex; flex-direction: column; gap: var(--space-4); padding: 0 var(--space-4); }
-      #inbox-summary { font-family: var(--font-display); font-size: var(--size-sentence); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); }
-      #inbox { display: flex; flex-direction: column; gap: var(--space-1); }
-      #inbox h2 { padding: 18px var(--space-4) var(--space-3); }
-      #inbox h2:first-child { padding-top: var(--space-3); }
-      #inbox ul { display: flex; flex-direction: column; gap: var(--space-1); }
+      /* The inbox screen and the history screen: a list of lines and the preview of the selected one. */
+      .list-screen { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+      .list { display: flex; flex-direction: column; gap: var(--space-7); box-sizing: border-box; min-height: 0; overflow: auto; padding: var(--space-9) var(--space-6) var(--space-7) var(--space-8); border-right: 1px solid var(--rule); }
+      .list-head { display: flex; flex-direction: column; gap: var(--space-4); padding: 0 var(--space-4); }
+      .list-head .row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
+      .list-head select { height: var(--sidebar-line); font-size: var(--size-label); border-radius: var(--radius-small); }
+      .list-sentence { font-family: var(--font-display); font-size: var(--size-sentence); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); }
+      .lines { display: flex; flex-direction: column; gap: var(--space-1); }
+      .lines h2 { padding: 18px var(--space-4) var(--space-3); }
+      .lines h2:first-child { padding-top: var(--space-3); }
+      .lines ul { display: flex; flex-direction: column; gap: var(--space-1); }
       .line { display: grid; grid-template-columns: var(--space-5) minmax(0, 1fr) auto; column-gap: var(--space-5); align-items: center; box-sizing: border-box; width: 100%; height: var(--line-height); padding: 0 var(--space-5) 0 var(--space-4); border: 0; border-radius: var(--radius); background: none; text-align: left; }
       .line.selected { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
       .line .text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
-      .line .title { font-size: var(--size-line); font-weight: 600; }
+      .line .title { font-size: var(--size-line); }
       .line .meta { font-family: var(--font-mono); font-size: var(--size-label); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .line .branch { font-size: inherit; }
       .line .commits:not(:empty)::before { content: " · "; }
-      #inbox-empty { padding: 0 var(--space-4); color: var(--text-muted); }
-      #inbox-last-here { font-size: var(--size-text); }
-      #inbox-legend { margin-top: auto; padding: 0 var(--space-4); }
-      #preview { box-sizing: border-box; min-width: 0; min-height: 0; overflow: auto; padding: var(--space-10) var(--space-11); background: var(--raised); }
-      #preview-content { display: flex; flex-direction: column; gap: var(--space-9); min-height: 100%; }
-      #preview-heading { display: flex; flex-direction: column; gap: var(--space-5); }
-      #preview-title { font-family: var(--font-display); font-size: var(--size-preview-title); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); overflow-wrap: anywhere; }
-      #preview-facts { display: flex; align-items: center; gap: var(--space-5); }
-      #preview-foot { margin-top: auto; display: flex; align-items: center; gap: var(--space-6); }
+      .list-empty { padding: 0 var(--space-4); color: var(--text-muted); }
+      .list-last-here, .list-match { font-size: var(--size-text); }
+      .list-legend { margin-top: auto; padding: 0 var(--space-4); }
+      .preview { box-sizing: border-box; min-width: 0; min-height: 0; overflow: auto; padding: var(--space-10) var(--space-11); background: var(--raised); }
+      .preview-content { display: flex; flex-direction: column; gap: var(--space-9); min-height: 100%; }
+      .preview-heading { display: flex; flex-direction: column; gap: var(--space-5); }
+      .preview-title { font-family: var(--font-display); font-size: var(--size-preview-title); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); overflow-wrap: anywhere; }
+      .preview-facts { display: flex; align-items: center; gap: var(--space-5); }
+      .preview-foot { margin-top: auto; display: flex; align-items: center; gap: var(--space-6); }
 
-      #work-item-view { display: grid; grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--facts-width); grid-template-rows: minmax(0, 1fr); }
-      #view-nav { display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-5) var(--space-5); border-right: 1px solid var(--rule); }
-      #back-to-inbox { display: flex; align-items: center; gap: var(--space-4); flex: none; height: var(--control-height); padding: 0 var(--space-4); border: 0; background: none; font-size: var(--size-control); font-weight: 600; text-align: left; }
-      #view-summary { padding: 0 var(--space-4); line-height: 19px; color: var(--text-muted); }
-      #view-work-items { display: flex; flex-direction: column; gap: var(--space-1); }
-      #view-work-items button { display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: 100%; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius); background: none; color: var(--text-second); text-align: left; }
-      #view-work-items button.open { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); color: var(--text); font-weight: 600; }
-      #view-work-items .dot { width: var(--dot-small); height: var(--dot-small); }
+      #work-item-view { display: grid; grid-template-columns: minmax(0, 1fr) var(--facts-width); grid-template-rows: minmax(0, 1fr); }
       #view-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
       #view-header { flex: none; display: flex; flex-direction: column; gap: var(--space-4); padding: 22px var(--space-9) 18px; }
       #view-title { font-family: var(--font-display); font-size: var(--size-view-title); font-weight: 600; line-height: 30px; letter-spacing: var(--tracking-title); overflow-wrap: anywhere; }
@@ -191,9 +223,6 @@
 
       input, select { box-sizing: border-box; height: var(--field-height); padding: 0 var(--space-5); border: 1px solid var(--selected-edge); border-radius: var(--radius); background: var(--bg); color: var(--text); font: inherit; }
 
-      #status { flex: none; padding: var(--space-3) var(--space-8); border-top: 1px solid var(--rule); background: var(--raised); color: var(--waiting); overflow-wrap: anywhere; }
-      #status:empty { display: none; }
-
       #work-item-dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-8); border: 1px solid var(--selected-edge); border-radius: var(--radius-card); background: var(--raised); color: inherit; }
       #work-item-dialog::backdrop { background: var(--backdrop); }
       #work-item-dialog h2 { margin-bottom: var(--space-6); font-family: var(--font-display); font-size: var(--size-name); font-weight: 600; }
@@ -206,14 +235,47 @@
     </style>
   </head>
   <body>
-    <!-- The bar of the summary screen and of the inbox screen. A work item's view has none. -->
-    <header id="bar" class="bar">
-      <span class="brand">
-        <img class="emblem" src="./owl-icon-cream.svg" alt="" />
-        <span class="name">Owlery</span>
-      </span>
-      <button id="new-work-item" class="primary">New work item</button>
-    </header>
+    <!-- The sidebar stands at the left of every screen, and is displayed before the daemon's `ready` arrives. -->
+    <nav id="sidebar" aria-label="Owlery">
+      <div id="sidebar-top"></div>
+      <div id="search">
+        <input id="search-field" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search the work items by title, branch or repository" />
+        <span id="search-aside" class="hint">
+          <span id="search-count"></span>
+          <span id="search-key"></span>
+        </span>
+      </div>
+      <ul id="sidebar-nav">
+        <li>
+          <button id="nav-inbox" class="side-item"><span class="word">Inbox</span><span id="nav-inbox-count" class="count"></span></button>
+        </li>
+        <li>
+          <button id="nav-summary" class="side-item"><span class="word">Summary</span><span id="nav-summary-count" class="count"></span></button>
+        </li>
+        <li>
+          <button id="nav-history" class="side-item"><span class="word">History</span></button>
+        </li>
+      </ul>
+      <div id="repositories-head">
+        <h2 class="caption">Repositories</h2>
+        <button id="bell" class="icon-button">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3L4 11Z" /><path d="M6.5 14.5h3" /></svg>
+          <span id="bell-count" class="count"></span>
+        </button>
+        <label id="sidebar-filter-control" class="icon-button">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M4.5 8h7M6.5 12h3" /></svg>
+          <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state"></select>
+        </label>
+        <button id="add-repository" class="icon-button" title="Add a repository" aria-label="Add a repository">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 12.5v-9h4l1.5 2h7.5v7h-13Z" /><path d="M8 7.5v3M6.5 9h3" /></svg>
+        </button>
+        <button id="new-work-item" class="icon-button" title="New work item" aria-label="New work item">+</button>
+      </div>
+      <div id="repositories"></div>
+      <div id="sidebar-foot">
+        <p id="status" role="status"></p>
+      </div>
+    </nav>
     <!-- No screen is in front until the daemon's `ready` says which one opens. -->
     <main id="summary-screen" class="screen" hidden>
       <div id="summary-head">
@@ -222,44 +284,48 @@
       </div>
       <ul id="summary-lines"></ul>
       <div id="summary-foot">
-        <button id="open-inbox" class="primary">Open the inbox</button>
-        <span class="hint">Enter opens it.</span>
+        <button id="summary-main" class="primary"></button>
+        <button id="summary-second" class="quiet" hidden></button>
+        <span id="summary-hint" class="hint"></span>
       </div>
     </main>
-    <main id="inbox-screen" class="screen" hidden>
-      <section id="inbox-list" aria-label="Inbox">
-        <div id="inbox-head" hidden>
-          <h1 id="inbox-summary" hidden></h1>
-          <p id="inbox-last-here" class="hint" hidden></p>
+    <!-- The inbox screen and the history screen are each a copy of the list screen below, whose parts take the screen's name before their own as their ids. -->
+    <main id="inbox-screen" class="screen list-screen" hidden></main>
+    <main id="history-screen" class="screen list-screen" hidden></main>
+    <template id="list-screen">
+      <section data-part="list" class="list">
+        <div data-part="head" class="list-head">
+          <div class="row">
+            <span data-part="word" class="caption"></span>
+            <select data-part="filter" class="filter" aria-label="Show the work items of one state"></select>
+          </div>
+          <h1 data-part="summary" class="list-sentence" hidden></h1>
+          <p data-part="last-here" class="hint list-last-here" hidden></p>
+          <p data-part="match" class="hint list-match" hidden></p>
         </div>
-        <div id="inbox"></div>
-        <p id="inbox-empty" hidden>No work items yet.</p>
-        <p id="inbox-legend" class="hint" hidden>A filled dot marks what changed since you were last here.</p>
+        <div data-part="lines" class="lines"></div>
+        <p data-part="empty" class="list-empty" hidden></p>
+        <p data-part="legend" class="hint list-legend" hidden>A filled dot marks what changed since you were last here.</p>
       </section>
-      <section id="preview" aria-label="The selected work item">
-        <div id="preview-content" hidden>
-          <div id="preview-heading">
-            <span id="preview-state" class="caption state"></span>
-            <h2 id="preview-title"></h2>
-            <span id="preview-branch" class="branch"></span>
+      <section data-part="preview" class="preview" aria-label="The selected work item">
+        <div data-part="preview-content" class="preview-content" hidden>
+          <div class="preview-heading">
+            <span data-part="preview-state" class="caption state"></span>
+            <h2 data-part="preview-title" class="preview-title"></h2>
+            <span data-part="preview-branch" class="branch"></span>
           </div>
-          <div id="preview-facts">
-            <span id="preview-seal"></span>
-            <span id="preview-commits" class="caption"></span>
+          <div class="preview-facts">
+            <span data-part="preview-seal"></span>
+            <span data-part="preview-commits" class="caption"></span>
           </div>
-          <div id="preview-foot">
-            <button id="open-work-item" class="quiet">Open the work item <span aria-hidden="true">›</span></button>
+          <div class="preview-foot">
+            <button data-part="open-work-item" class="quiet">Open the work item <span aria-hidden="true">›</span></button>
             <span class="hint">Enter opens it. J and K move through the inbox.</span>
           </div>
         </div>
       </section>
-    </main>
+    </template>
     <main id="work-item-view" class="screen" hidden>
-      <nav id="view-nav" aria-label="Inbox">
-        <button id="back-to-inbox"><span aria-hidden="true">‹</span> Inbox</button>
-        <p id="view-summary" hidden></p>
-        <ul id="view-work-items"></ul>
-      </nav>
       <div id="view-main">
         <header id="view-header">
           <span id="view-state" class="caption state"></span>
@@ -294,7 +360,6 @@
         </section>
       </aside>
     </main>
-    <p id="status" role="status"></p>
     <dialog id="work-item-dialog">
       <form id="work-item-form">
         <h2>New work item</h2>

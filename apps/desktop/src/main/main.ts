@@ -16,6 +16,8 @@ function createWindow(): BrowserWindow {
     width: 1440,
     height: 900,
     title: "Owlery",
+    // The title bar is hidden and inset: on macOS the traffic lights stand inside the sidebar, whose top drags the window.
+    titleBarStyle: "hiddenInset",
     backgroundColor: "#0f1218",
     webPreferences: {
       preload: join(__dirname, "preload.js"),
