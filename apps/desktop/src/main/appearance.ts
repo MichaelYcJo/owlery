@@ -17,8 +17,8 @@ export const GROUNDS: Record<Theme, string> = {
 /** The saved choice, or Night desk where none was saved, as at the first run, and where the file is not one this app wrote. */
 export function readAppearance(userData: string): ThemeChoice {
   try {
-    const value: unknown = JSON.parse(readFileSync(join(userData, FILE), "utf8"));
-    return themeChoice(typeof value === "object" && value !== null ? (value as { theme?: unknown }).theme : undefined);
+    // A file that holds `null` throws here as one that is not JSON throws above, and both are read as no file.
+    return themeChoice((JSON.parse(readFileSync(join(userData, FILE), "utf8")) as { theme?: unknown }).theme);
   } catch {
     return themeChoice(undefined);
   }
