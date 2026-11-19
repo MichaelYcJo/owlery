@@ -1,0 +1,159 @@
+{
+  "lines": [
+    {
+      "text": "한글",
+      "keys": "g k s r m f",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyG" }, { "type": "compose", "text": "ㅎ" }, { "type": "keyUp", "code": "KeyG", "keyCode": 71 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "하" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "compose", "text": "한" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "imeKey", "code": "KeyR" }, { "type": "commit", "text": "한" }, { "type": "compose", "text": "ㄱ" }, { "type": "keyUp", "code": "KeyR", "keyCode": 82 },
+        { "type": "imeKey", "code": "KeyM" }, { "type": "compose", "text": "그" }, { "type": "keyUp", "code": "KeyM", "keyCode": 77 },
+        { "type": "imeKey", "code": "KeyF" }, { "type": "compose", "text": "글" }, { "type": "keyUp", "code": "KeyF", "keyCode": 70 },
+        { "type": "commit", "text": "글" }
+      ]
+    },
+    {
+      "text": "하나",
+      "keys": "g k s k",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyG" }, { "type": "compose", "text": "ㅎ" }, { "type": "keyUp", "code": "KeyG", "keyCode": 71 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "하" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "compose", "text": "한" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "commit", "text": "하" }, { "type": "compose", "text": "나" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "commit", "text": "나" }
+      ]
+    },
+    {
+      "text": "갑시다",
+      "keys": "r k q t l e k",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyR" }, { "type": "compose", "text": "ㄱ" }, { "type": "keyUp", "code": "KeyR", "keyCode": 82 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "가" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyQ" }, { "type": "compose", "text": "갑" }, { "type": "keyUp", "code": "KeyQ", "keyCode": 81 },
+        { "type": "imeKey", "code": "KeyT" }, { "type": "compose", "text": "값" }, { "type": "keyUp", "code": "KeyT", "keyCode": 84 },
+        { "type": "imeKey", "code": "KeyL" }, { "type": "commit", "text": "갑" }, { "type": "compose", "text": "시" }, { "type": "keyUp", "code": "KeyL", "keyCode": 76 },
+        { "type": "imeKey", "code": "KeyE" }, { "type": "compose", "text": "싣" }, { "type": "keyUp", "code": "KeyE", "keyCode": 69 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "commit", "text": "시" }, { "type": "compose", "text": "다" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "commit", "text": "다" }
+      ]
+    },
+    {
+      "text": "과일",
+      "keys": "r h k d l f",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyR" }, { "type": "compose", "text": "ㄱ" }, { "type": "keyUp", "code": "KeyR", "keyCode": 82 },
+        { "type": "imeKey", "code": "KeyH" }, { "type": "compose", "text": "고" }, { "type": "keyUp", "code": "KeyH", "keyCode": 72 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "과" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyD" }, { "type": "compose", "text": "광" }, { "type": "keyUp", "code": "KeyD", "keyCode": 68 },
+        { "type": "imeKey", "code": "KeyL" }, { "type": "commit", "text": "과" }, { "type": "compose", "text": "이" }, { "type": "keyUp", "code": "KeyL", "keyCode": 76 },
+        { "type": "imeKey", "code": "KeyF" }, { "type": "compose", "text": "일" }, { "type": "keyUp", "code": "KeyF", "keyCode": 70 },
+        { "type": "commit", "text": "일" }
+      ]
+    },
+    {
+      "text": "어디",
+      "keys": "d j e l",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyD" }, { "type": "compose", "text": "ㅇ" }, { "type": "keyUp", "code": "KeyD", "keyCode": 68 },
+        { "type": "imeKey", "code": "KeyJ" }, { "type": "compose", "text": "어" }, { "type": "keyUp", "code": "KeyJ", "keyCode": 74 },
+        { "type": "imeKey", "code": "KeyE" }, { "type": "compose", "text": "얻" }, { "type": "keyUp", "code": "KeyE", "keyCode": 69 },
+        { "type": "imeKey", "code": "KeyL" }, { "type": "commit", "text": "어" }, { "type": "compose", "text": "디" }, { "type": "keyUp", "code": "KeyL", "keyCode": 76 },
+        { "type": "commit", "text": "디" }
+      ]
+    },
+    {
+      "text": "한 글",
+      "keys": "g k s Space r m f",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyG" }, { "type": "compose", "text": "ㅎ" }, { "type": "keyUp", "code": "KeyG", "keyCode": 71 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "하" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "compose", "text": "한" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "commit", "text": "한" },
+        { "type": "key", "code": "Space", "key": " ", "keyCode": 32, "text": " " }, { "type": "keyUp", "code": "Space", "key": " ", "keyCode": 32 },
+        { "type": "imeKey", "code": "KeyR" }, { "type": "compose", "text": "ㄱ" }, { "type": "keyUp", "code": "KeyR", "keyCode": 82 },
+        { "type": "imeKey", "code": "KeyM" }, { "type": "compose", "text": "그" }, { "type": "keyUp", "code": "KeyM", "keyCode": 77 },
+        { "type": "imeKey", "code": "KeyF" }, { "type": "compose", "text": "글" }, { "type": "keyUp", "code": "KeyF", "keyCode": 70 },
+        { "type": "commit", "text": "글" }
+      ]
+    },
+    {
+      "text": "한1",
+      "keys": "g k s 1",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyG" }, { "type": "compose", "text": "ㅎ" }, { "type": "keyUp", "code": "KeyG", "keyCode": 71 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "하" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "compose", "text": "한" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "commit", "text": "한" },
+        { "type": "key", "code": "Digit1", "key": "1", "keyCode": 49, "text": "1" }, { "type": "keyUp", "code": "Digit1", "key": "1", "keyCode": 49 }
+      ]
+    },
+    {
+      "text": "글.",
+      "keys": "r m f .",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyR" }, { "type": "compose", "text": "ㄱ" }, { "type": "keyUp", "code": "KeyR", "keyCode": 82 },
+        { "type": "imeKey", "code": "KeyM" }, { "type": "compose", "text": "그" }, { "type": "keyUp", "code": "KeyM", "keyCode": 77 },
+        { "type": "imeKey", "code": "KeyF" }, { "type": "compose", "text": "글" }, { "type": "keyUp", "code": "KeyF", "keyCode": 70 },
+        { "type": "commit", "text": "글" },
+        { "type": "key", "code": "Period", "key": ".", "keyCode": 190, "text": "." }, { "type": "keyUp", "code": "Period", "key": ".", "keyCode": 190 }
+      ]
+    },
+    {
+      "text": "할",
+      "keys": "g k s Backspace f",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyG" }, { "type": "compose", "text": "ㅎ" }, { "type": "keyUp", "code": "KeyG", "keyCode": 71 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "하" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "compose", "text": "한" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "imeKey", "code": "Backspace" }, { "type": "compose", "text": "하" }, { "type": "keyUp", "code": "Backspace", "keyCode": 8 },
+        { "type": "imeKey", "code": "KeyF" }, { "type": "compose", "text": "할" }, { "type": "keyUp", "code": "KeyF", "keyCode": 70 },
+        { "type": "commit", "text": "할" }
+      ]
+    },
+    {
+      "text": "안녕하세요 반갑습니다",
+      "keys": "d k s s u d g k t p d y Space q k s r k q t m q s l e k",
+      "source": "assumed",
+      "steps": [
+        { "type": "imeKey", "code": "KeyD" }, { "type": "compose", "text": "ㅇ" }, { "type": "keyUp", "code": "KeyD", "keyCode": 68 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "아" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "compose", "text": "안" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "commit", "text": "안" }, { "type": "compose", "text": "ㄴ" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "imeKey", "code": "KeyU" }, { "type": "compose", "text": "녀" }, { "type": "keyUp", "code": "KeyU", "keyCode": 85 },
+        { "type": "imeKey", "code": "KeyD" }, { "type": "compose", "text": "녕" }, { "type": "keyUp", "code": "KeyD", "keyCode": 68 },
+        { "type": "imeKey", "code": "KeyG" }, { "type": "commit", "text": "녕" }, { "type": "compose", "text": "ㅎ" }, { "type": "keyUp", "code": "KeyG", "keyCode": 71 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "하" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyT" }, { "type": "compose", "text": "핫" }, { "type": "keyUp", "code": "KeyT", "keyCode": 84 },
+        { "type": "imeKey", "code": "KeyP" }, { "type": "commit", "text": "하" }, { "type": "compose", "text": "세" }, { "type": "keyUp", "code": "KeyP", "keyCode": 80 },
+        { "type": "imeKey", "code": "KeyD" }, { "type": "compose", "text": "셍" }, { "type": "keyUp", "code": "KeyD", "keyCode": 68 },
+        { "type": "imeKey", "code": "KeyY" }, { "type": "commit", "text": "세" }, { "type": "compose", "text": "요" }, { "type": "keyUp", "code": "KeyY", "keyCode": 89 },
+        { "type": "commit", "text": "요" },
+        { "type": "key", "code": "Space", "key": " ", "keyCode": 32, "text": " " }, { "type": "keyUp", "code": "Space", "key": " ", "keyCode": 32 },
+        { "type": "imeKey", "code": "KeyQ" }, { "type": "compose", "text": "ㅂ" }, { "type": "keyUp", "code": "KeyQ", "keyCode": 81 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "바" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "compose", "text": "반" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "imeKey", "code": "KeyR" }, { "type": "commit", "text": "반" }, { "type": "compose", "text": "ㄱ" }, { "type": "keyUp", "code": "KeyR", "keyCode": 82 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "compose", "text": "가" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "imeKey", "code": "KeyQ" }, { "type": "compose", "text": "갑" }, { "type": "keyUp", "code": "KeyQ", "keyCode": 81 },
+        { "type": "imeKey", "code": "KeyT" }, { "type": "compose", "text": "값" }, { "type": "keyUp", "code": "KeyT", "keyCode": 84 },
+        { "type": "imeKey", "code": "KeyM" }, { "type": "commit", "text": "갑" }, { "type": "compose", "text": "스" }, { "type": "keyUp", "code": "KeyM", "keyCode": 77 },
+        { "type": "imeKey", "code": "KeyQ" }, { "type": "compose", "text": "습" }, { "type": "keyUp", "code": "KeyQ", "keyCode": 81 },
+        { "type": "imeKey", "code": "KeyS" }, { "type": "commit", "text": "습" }, { "type": "compose", "text": "ㄴ" }, { "type": "keyUp", "code": "KeyS", "keyCode": 83 },
+        { "type": "imeKey", "code": "KeyL" }, { "type": "compose", "text": "니" }, { "type": "keyUp", "code": "KeyL", "keyCode": 76 },
+        { "type": "imeKey", "code": "KeyE" }, { "type": "compose", "text": "닏" }, { "type": "keyUp", "code": "KeyE", "keyCode": 69 },
+        { "type": "imeKey", "code": "KeyK" }, { "type": "commit", "text": "니" }, { "type": "compose", "text": "다" }, { "type": "keyUp", "code": "KeyK", "keyCode": 75 },
+        { "type": "commit", "text": "다" }
+      ]
+    }
+  ]
+}
