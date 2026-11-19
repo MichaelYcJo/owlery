@@ -56,7 +56,7 @@
 - **Two replays on their way (scenario 6 in the window).** Three presses in one turn of the page sent `attach 6`, `detach 6`, `attach 5`, `detach 5`, `attach 6`. Two seconds later the screen showed pane 6's lines 1 to 8, in order, each once, and none of pane 5's.
 - **A pane that exits while hidden (scenario 7).** Pane 7's process was ended with code 7 while pane 6 was in front. Its tab stayed. Pressed, it showed its lines 1 to 9, which it printed while hidden, and last `[process exited with code 7]`, once. The daemon was alive after the exited pane took a screen and was told its size.
 - **The inbox in front.** The page held one screen, hidden, and the window had sent `detach` for the pane that was on it.
-- **After a reload.** The view of the second work item showed four tabs, the exited pane's among them, with the most recent live pane in front. The exited pane's tab showed the same lines ending with the exit line once. Its close control left three tabs, and the window sent `close 7`.
+- **After a reload.** The view of the second work item showed four tabs, the exited pane's among them, with the live pane with the highest id in front. The exited pane's tab showed the same lines ending with the exit line once. Its close control left three tabs, and the window sent `close 7`.
 - **The answers.** Panes 1 to 7 were each sent the cursor's place once. Pane 8 was sent it twice: once at its start and once for the first replay after the reload, which is a new load of the window. In the first run, before the rule, panes 5 and 6 were sent it twice and pane 8 three times.
 - `BuiltApp#stop` left no process. Four of the panes' processes were still listed in the moment after it and were gone two seconds later.
 
