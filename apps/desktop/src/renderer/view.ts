@@ -683,7 +683,8 @@ export function screenTurns(term: TerminalWrites): ScreenTurns {
 /**
  * The notification for a session whose state was `previous`, or null where
  * none is shown: one is shown when the state becomes waiting or finished, and
- * never for the pane in front of a focused window, which the person is looking at.
+ * never where `inFront` holds: the pane is on the stage of a focused window,
+ * so the person is looking at it, whether or not it has the keyboard.
  */
 export function notificationFor(
   previous: AgentState | null,
