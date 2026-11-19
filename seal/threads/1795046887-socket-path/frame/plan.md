@@ -57,3 +57,4 @@ No dependency, no environment variable and no file of the run folder is added. T
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
 | 2026-11-19 | The crafter of every phase runs on Fable 5.2, and the sealer on Opus 5.5 | The owner's choice for the work that runs beside #18; a builder on another model than the sealer's | `docs/product.md` *The seal belongs to the product and looks the same everywhere* |
+| 2026-11-19 | The sealer runs on Fable 5.2, not Opus 5.5 as row 1 recorded | The owner asked at 09:38 that everything run until 22:00 run on Fable ("10시까지도는건 다 fable로 진행하자"), and the sealer is spawned before then; the crafter and the sealer then share a model, which the guarantee's reader learns from this row | `docs/product.md` *The seal belongs to the product and looks the same everywhere* |
