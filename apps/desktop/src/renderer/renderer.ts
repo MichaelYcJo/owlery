@@ -385,7 +385,13 @@ function onMessage(message: ServerMessage): void {
 }
 
 async function connect(): Promise<void> {
-  const { url, token } = await window.owlery.daemon();
+  const answer = await window.owlery.daemon();
+  if ("error" in answer) {
+    // No daemon to reach: the status line says why, and stays until the person starts the app again.
+    status.textContent = answer.error;
+    return;
+  }
+  const { url, token } = answer;
   const ws = new WebSocket(url);
   socket = ws;
   ws.addEventListener("open", () => {
