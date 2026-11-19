@@ -44,6 +44,12 @@ The method was to list every control the page draws. The 13 `button` elements of
 
 Precondition: none beyond the properties both blocks of `themes.css` already define. The snippet leaves the label of the tab in front without a pointer or press style. Pressing that label shows again what is already in front. The fix pass owes either a rule for it or a line of `gaps.md` *Not done* that says why it has none, since *Scope* item 13 names every tab.
 
+```seal
+verdict: fixed b3ee196
+location: `seal/threads/1795043695-inbox-first-window/gaps.md`
+answer: The five rules of the paste-ready fix stand after `#tabs .tab .close`, as written. They were read against *Scope* item 13 and the weights of `#pane-bar button:hover`, `#tabs .tab:hover` and `#tabs .tab.active` before they were applied. The cause, a later rule of equal weight that hides a state's rule, was then followed through every rule of the page that marks a control as selected or in front. It hid the pressed ground of a selected line (`.line.selected` over `.line:active`) and of the sidebar's item in front (`.side-item[aria-current]` over `.side-item:active`), and since a press selects a line at once, no line ever showed the pressed ground. The commit adds `.line.selected:active` and `.side-item[aria-current]:active`, which the finding does not name. The label of the tab in front gets no rule: `--pressed` is made for the page's ground and that tab stands on the terminal's, where Letter's label would not be legible on it. A line of `gaps.md` *Not done*, which opens "What is selected or in front keeps its ground under the pointer", says so, and says that a selected line, the sidebar's item in front and the tab in front keep their ground under the pointer. No case loads the page, so the styles were shown by one drive of the built app at `571edfa`. In Night desk the computed ground of a pressed tab that is not in front was `rgba(246, 236, 216, 0.075)` and under the pointer `0.043`; its close control read `rgb(117, 110, 99)` at rest, `rgb(228, 221, 207)` under the pointer and `rgb(246, 236, 216)` pressed; the close control of the tab in front read `rgb(214, 207, 193)` and `rgb(246, 236, 216)`; a pressed selected line and the pressed sidebar's item in front read `0.075` over `0.1` at rest. In Letter the close control of the tab in front read `rgb(216, 207, 189)` and `rgb(246, 236, 216)`. Not shown: a tab that is not in front in Letter, and a press on a line that is not selected, where the probe's reading named another line once the press had selected the first; both are in `gaps.md` *Not verified*.
+```
+
 ### 2. Five shadows, a gradient and a radius stand written in `index.html`, where *Scope* item 13 has every shadow, texture and radius a property of the theme
 
 ```seal
@@ -91,6 +97,12 @@ In `index.html`, the six declarations read them:
 
 Precondition: a custom property of a theme block may read another of the same block, which `--seal-blank-ground` and the edges do. The seven names pass the four cases of `test/themes.test.ts` over the blocks as written: none holds a word of a measure, none holds a red, and each block defines all seven. With the snippet, the comment at `index.html:10`, the head of `themes.css` and `gaps.md:54` say what holds, and the fix pass owes none of them a change. Where the fix pass keeps the page as it is, those three sentences and *Scope* item 13 are the statements it owes instead.
 
+```seal
+verdict: fixed 03b115e
+location: `apps/desktop/test/themes.test.ts`
+answer: The seven properties of the paste-ready fix stand in both blocks of `themes.css` and the six declarations of `index.html` read them, as written; the two properties of the blank seal stand with the block's other `--seal-` properties. The fix was read against *Scope* item 13 *Tokens* and against the cases of `test/themes.test.ts` before it was applied. A new case of that file, which the finding does not ask for, holds the rule: "writes no shadow, no light, no gradient and no corner of its own in its style" refuses a `box-shadow`, a `filter` or a radius whose value is more than properties every theme defines, `none`, `0` and `50%` aside, and any value that holds a gradient. It was written first and seen red against the page as it stood, listing the eight declarations the finding's table names and no other. `seal mutate` then wrote four literals back into `index.html`, a shadow, a radius read from `--space-1`, a gradient and a `drop-shadow`, and each went red. The comment at `index.html:10`, the head of `themes.css` and the line of `gaps.md` that opens "Not every measure of the page is a custom property" now say what holds and are unchanged. The drive at `571edfa` read each of the seven properties as a computed value in both themes, and the field's and the front tab's computed shadow.
+```
+
 ### 3. Before the daemon's `ready`, the sidebar's "+" opens a form whose "Create" does nothing, and two lines of `gaps.md` say the sidebar does nothing then
 
 ```seal
@@ -134,6 +146,11 @@ function openWorkItemForm(folder?: string): void {
 ```
 
 The two lines replace `gaps.md:81` and `:82`. The precondition is that `held.ready` turns true at `ready` alone (`renderer.ts:192`), which holds. N with the Command key reaches `openWorkItemForm` too, so the first snippet covers it. No case covers `renderer.ts` or `sidebar.ts`: the frame has the page shown by the drive (`frame/plan.md` *Technical context*). The fix pass says how it showed the form not opening before `ready`.
+
+```seal
+verdict: fixed 94c0114
+answer: Both snippets are applied as written, after they were read against *Scope* items 1, 7 and 20 and against every caller of `openWorkItemForm`: the sidebar's "+", the control that adds a repository and N with the Command key. The two lines of `gaps.md` are replaced by the record's, with two clauses added: that the key opens no form either, and that the theme's control acts before `ready` as at any time. No case covers the two modules, so the form was shown by one drive of the built app at `571edfa`. The page was loaded again with a `WebSocket` that never opens, so no `ready` arrived: all four screens were hidden, the status line was empty, and the dialog's `open` was false after a press on "+" and after N with the Command key. After a load with `ready`, the same key and the same press each opened the form. A press on the bell in the held page set the filter to "Waiting for you", as the new line says. The guard on the control that adds a repository was read and not run: its folder dialog is the system's, and the drive did not press it.
+```
 
 ### 4. A theme choice saved after one that could not be saved leaves "The theme could not be saved." in the status line
 
@@ -182,6 +199,12 @@ initTheme(window.owlery.appearance, {
 
 Precondition: none. `untell` compares the notice's text, so it leaves a refusal the daemon sent in between. The snippet leaves `gaps.md:97` to the fix pass, which owes it "The status line says so until a later choice is saved". The rest of that line holds as it is.
 
+```seal
+verdict: fixed fb468ef
+location: `apps/desktop/src/renderer/view.ts`, `apps/desktop/test/view.test.ts`
+answer: `ThemeActions` gains `saved`, the listener calls `actions.save(choice).then(actions.saved, actions.notSaved)`, and `renderer.ts` passes `untell` of the one text, as the paste-ready fix has it. One part is in the pass's own words: the comparison `untell` makes is a function of `view.ts`, `noticeWithout(notice, taken)`, so that a case holds it, as `frame/plan.md` *Alternatives considered* keeps every decision of the page. Its case was written first and seen red (`noticeWithout is not a function`), and two mutants of it, one that always clears and one that never does, went red under `seal mutate`. The line of `gaps.md` now reads "The status line says so until a later choice is saved or another notice takes its place". The drive at `571edfa` put a folder where the app renames `appearance.json` to: a choice of Letter then gave "The theme could not be saved." as a notice. With the folder removed, a choice of Night desk gave "Daemon running, no agent" and no notice, and a further choice left it so. A notice of another kind left standing by a saved choice is held by the case and was not driven.
+```
+
 ### 5. Two sentences of the records say the theme cases catch any colour outside a theme, and the cases read four colour functions
 
 ```seal
@@ -208,6 +231,11 @@ The sentence's last clause, "the page uses none today", holds. The listing found
 ```
 
 The first block replaces `gaps.md:55`, the second `frame/plan.md:40`, and the third the docstring at `themes.test.ts:68`. Widening `FUNCTION` and `isRed` to every function instead would make the two sentences true as they stand. Such a widening is a change to the cases, owes a red run, and is the fix pass's to choose. No other statement in the tree says what the cases catch. `git grep -n -i -e "themes.test" -e "cases over" -e "colour function" -e "colour outside"` over the work item's records, `trail/` aside, printed these two lines and scenarios 31 and 32, which state what is required. The finding is located in the work item's records and in one docstring of a case.
+
+```seal
+verdict: fixed 51c9041
+answer: The line of `gaps.md` and the docstring of `namesColour` are replaced by the record's blocks, after each clause was read against `HEX`, `FUNCTION`, `colours` and `isRed` of `test/themes.test.ts`; the grep for the other colour functions over the page, the themes and the modules printed nothing again. The cases were not widened: the reworded sentences say what the cases read, and a case over every colour function and CSS's list of names is more than the finding needs. `frame/plan.md:40` still says "The cases over `themes.css` catch a colour outside it": a fix pass writes no line of the frame but its Status cell, so the record's second block is the orchestrator's to fold, and the hand-back names it.
+```
 
 ## Confirmations
 
