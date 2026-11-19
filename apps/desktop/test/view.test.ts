@@ -555,6 +555,10 @@ describe("sidebarTree", () => {
     ]);
   });
 
+  it("names a repository as the daemon names it", () => {
+    expect(sidebarTree([{ ...LOGIN, repoName: "the project" }], [], KINDS).map((repository) => repository.name)).toEqual(["the project"]);
+  });
+
   it("names a repository by the last part of its folder where the daemon sent no name, as one of an earlier build does", () => {
     const unnamed = { ...LOGIN, repo: "/r/older/", repoName: undefined } as unknown as WorkItem;
     expect(sidebarTree([unnamed], [], KINDS).map((repository) => repository.name)).toEqual(["older"]);
@@ -620,7 +624,8 @@ describe("matchWorkItems", () => {
     matchWorkItems(workItemEntries([LOGIN, SEARCH, DOCS, FOURTH], sessions, KINDS), query, state).map((entry) => entry.workItem.id);
 
   it("leaves the work items whose title, branch or repository's name holds what is typed, in any case of letters", () => {
-    expect(ids("LOGIN", "all")).toEqual([1]);
+    // The first stands in a title alone, and the second in a branch alone.
+    expect(ids("The LOGIN", "all")).toEqual([1]);
     expect(ids("speed-up", "all")).toEqual([2]);
     expect(ids("Docs", "all")).toEqual([3]);
     expect(ids("owlery/", "all")).toEqual([1, 2, 3, 4]);
@@ -764,6 +769,7 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, ctrl: true }, { ...free, mac: false })).toBe("search");
     expect(commandKey({ ...plain, ctrl: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true }, { ...free, mac: false })).toBeNull();
+    expect(commandKey({ ...plain, meta: true, ctrl: true }, { ...free, mac: false })).toBeNull();
   });
 
   it("reads no key while a dialog is open, with no modifier key, or with another one held as well", () => {
