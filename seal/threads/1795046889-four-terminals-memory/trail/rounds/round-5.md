@@ -66,6 +66,12 @@ export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[],
   });
 ```
 
+```seal
+verdict: fixed bb77204
+location: `apps/desktop/src/renderer/view.ts`, `apps/desktop/src/renderer/work-item-view.ts`, `apps/desktop/test/view.test.ts`, `seal/threads/1795046889-four-terminals-memory/trail/phases/phase-4.md`, `seal/threads/1795046889-four-terminals-memory/gaps.md`
+answer: The finding holds, and the snippet is applied as written, after it was read against `frame/design.md` *Scope* item 1, scenario 2 and every input `work-item-view.ts#showView` hands `stageOf`. With "Side by side" not pressed the snippet takes the path the tree took, so the rule round 4's finding 1 restored stands. With it pressed and a closed pane first in `recent`, the stage keeps the four panes most recently in front, and `paneInFront` picks among those four. The changed case was run before the code and failed on `expected { front: 6, shown: [ 1, 2, 3, 6 ] } to deeply equal { front: 4, shown: [ 1, 2, 3, 4 ] }` (`fix-5/stage-red.txt` in the pass's scratch). `bb77204` also gives that case a second expectation, where one of the four has exited and the most recent live one of them comes in front, and rewords `recentKept`'s docstring, the comment in `dropClosed` and `phase-4.md:23`. `9ec7872` adds two expectations for the snippet's two guards, which no case held: not pressed, a closed pane first in a view of six still brings the most recent live pane of the view, and pressed with no pane ever in front, a view whose four most recent tabs have exited keeps its one live pane in front and on the stage. Six mutants of `stageOf` each read red under `seal mutate` (`fix-5/mutate-stage.txt`), the two guards' mutants on those two expectations. `d8b87bd` adds the pass's narrow run and the changed close to two rows of `gaps.md`, which the finding's `location:` does not name. The narrow run, `test/view.test.ts`, `test/memory.test.ts` and `test/themes.test.ts` in one command, passed 206 cases, and `tsc` over the four files of the window and its cases exited 0. The pass started no app, so the close in the window stays `read` in the wiring, and the sentence at `frame/design.md:131` is handed to the orchestrator with its replacement. One edge is kept as the snippet gives it: where all four panes most recently in front have exited, the most recent of them takes the keyboard although a live pane stands off the stage, since item 1 names the four for the stage.
+```
+
 ## Confirmations
 
 ```seal
