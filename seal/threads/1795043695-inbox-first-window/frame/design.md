@@ -218,7 +218,7 @@ The look's source is the polish mockups' variant 3, "Night desk", and variant 4,
 24. **Two themes, and a way to switch.**
     - The themes are `night-desk` and `letter`, the two blocks of item 13. The page's `html` carries the one in use as `data-theme`.
     - A person chooses "Night desk", "Letter" or "Match the system" from a control at the sidebar's foot. "Match the system" is Night desk under the system's dark appearance and Letter under its light one, and follows the system while the window is open. The first run is Night desk (`frame/questions.md` Q7).
-    - The choice is kept by the app's main process in a file of its own under the app's user data folder, and given to the page at its load, so a window opens in the theme it was left in, on that theme's ground. The daemon does not learn of it (`frame/questions.md` Q8).
+    - The choice is kept by the app's main process in a file of its own under the app's user data folder, and given to the page at its load, so a window opens in the theme it was left in, on that theme's ground. The daemon does not learn of it (`frame/questions.md` Q8). A save that fails, at its write or at its rename, removes the partial file it wrote, so no `appearance.json.<pid>` stays in the folder.
     - A change of theme redraws nothing but the colours, the typefaces, the texture, the radii and the seal's light: no element is added, removed or moved, and each open terminal takes the new theme's colours.
 
 ## User scenarios & acceptance *(mandatory)*
