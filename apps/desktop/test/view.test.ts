@@ -481,11 +481,7 @@ describe("stageOf", () => {
     expect(stageOf([session(2)], [2], true)).toEqual({ front: 2, shown: [2] });
   });
 
-  it("puts the four panes most recently in front on the stage of a view with more tabs, in the tabs' order", () => {
-    expect(stageOf(six, [3, 5, 2, 6, 1, 4], true)).toEqual({ front: 3, shown: [2, 3, 5, 6] });
-  });
-
-  it("puts a pressed tab that was not shown in place of the shown pane least recently in front", () => {
+  it("puts the four panes most recently in front on the stage of a view with more tabs, in the tabs' order, so a pressed tab that was not shown takes the place of the shown pane least recently in front", () => {
     // Panes 3, 5, 2 and 6 are on the stage, and the tab of pane 1 is pressed.
     expect(stageOf(six, [1, 3, 5, 2, 6], true)).toEqual({ front: 1, shown: [1, 2, 3, 5] });
   });
