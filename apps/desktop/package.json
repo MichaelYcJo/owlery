@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test-in-electron.mjs",
     "check": "pnpm run typecheck && pnpm run test",
-    "korean:typed": "OWLERY_KOREAN_TYPED=1 node scripts/test-in-electron.mjs test/korean-input.test.ts"
+    "korean:typed": "OWLERY_KOREAN_TYPED=1 node scripts/test-in-electron.mjs test/korean-input.test.ts",
+    "measure:memory": "OWLERY_MEASURE_MEMORY=1 node scripts/test-in-electron.mjs test/memory.test.ts"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
