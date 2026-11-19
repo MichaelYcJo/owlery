@@ -171,6 +171,8 @@
       .side-item:hover { background: var(--hover); transition: background-color var(--motion); }
       .side-item:active { background: var(--pressed); }
       .side-item[aria-current] { background: var(--selected); box-shadow: var(--selected-edge); }
+      /* The item of what is in front keeps its ground under the pointer and answers the press. */
+      .side-item[aria-current]:active { background: var(--pressed); }
       .side-item > svg.icon { color: var(--ink-muted); }
       .side-item .word, .side-item .title { flex: 1 1 auto; }
       .side-item .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -226,6 +228,8 @@
       .line:hover { background: var(--hover); transition: background-color var(--motion); }
       .line:active { background: var(--pressed); }
       .line.selected { background: var(--selected); box-shadow: var(--selected-edge); }
+      /* The selected line keeps its ground under the pointer and answers the press. */
+      .line.selected:active { background: var(--pressed); }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
@@ -269,6 +273,12 @@
       #tabs .tab .label { max-width: var(--tab-width); padding: 0 var(--space-2) 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #tabs .tab.active .label { color: var(--terminal-strong); font-weight: 600; }
       #tabs .tab .close { padding: 0 var(--space-4) 0 var(--space-2); color: var(--ink-faint); }
+      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. On the tab in front the close control takes the terminal's inks, since that tab stands on the terminal's ground. */
+      #tabs .tab:not(.active):active { background: var(--pressed); }
+      #tabs .tab .close:hover { color: var(--ink); }
+      #tabs .tab .close:active { color: var(--ink-strong); }
+      #tabs .tab.active .close:hover { color: var(--terminal-ink); }
+      #tabs .tab.active .close:active { color: var(--terminal-strong); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
       .pane { position: absolute; inset: var(--space-5) 18px 10px; }
