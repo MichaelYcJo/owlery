@@ -67,6 +67,11 @@ Why it matters: the bullet ends "While the terminal draws a later replay, the sc
    - What a person types into a screen, and each size the screen takes, goes to the pane that holds the screen at that moment. A free screen sends nothing. What the terminal answers to a question a replay holds is sent only for the first replay the window draws of a pane since it loaded. While the terminal draws a later replay, the screen sends nothing a person types or the terminal answers. A size it takes still goes to its pane.
 ```
 
+```seal
+verdict: fixed 75f1f87
+answer: The finding holds: the sentence is what is wrong, and the size a screen takes still goes to its pane. The orchestrator replaced the last two sentences of `frame/design.md` *Scope* item 2's fourth bullet with the crafter's text, which also covers finding 1's later drawing: the screen sends nothing a person types or the terminal answers, and a size still goes to its pane where that pane's process runs.
+```
+
 ### 3. Two `replayStep` cases hold nothing the case of two replays does not hold
 
 ```seal
