@@ -18,6 +18,8 @@
         --size-sentence: 34px;
         --size-terminal: 12px;
         --tracking-title: -0.01em;
+        /* The weight of a changed work item's title. It sets the width of a title's box, so it is the layout's and no theme's. */
+        --weight-changed: 650;
         --space-1: 2px;
         --space-2: 4px;
         --space-3: 6px;
@@ -82,7 +84,7 @@
       .head { font-family: var(--font-title); font-size: var(--size-head); font-weight: 600; line-height: 1.2; letter-spacing: var(--tracking-title); color: var(--ink-strong); }
       /* A title is in the plain ink, and in the strong ink at the heavier weight where its work item changed since the person last looked. */
       .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 500; }
-      .title.changed { color: var(--ink-strong); font-weight: var(--weight-title); }
+      .title.changed { color: var(--ink-strong); font-weight: var(--weight-changed); }
       /* The letters of a title or a branch that match what is typed in the search field. */
       mark { border-radius: var(--space-1); background: var(--mark); box-shadow: 0 0 0 1px var(--mark); color: inherit; }
       .count, .age { flex: none; font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
@@ -95,7 +97,7 @@
       .icon-button.on { color: var(--ink-strong); }
       /* An icon is a line of 1.5 pixels in the colour of the words beside it. */
       svg.icon, .state-icon svg { flex: none; display: block; width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-      /* The sidebar's filter is its icon, with the choices laid over it unseen, so a press on the icon opens them. */
+      /* The sidebar's filter and the theme's control are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
       .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; }
       .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
       /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and nothing else. */
@@ -186,8 +188,9 @@
       .repository .fold svg.icon { width: var(--space-5); height: var(--space-5); color: var(--ink-faint); }
       .repository .fold[aria-expanded="false"] svg.icon { transform: rotate(-90deg); }
       .repository li .side-item { padding-left: 26px; }
-      #sidebar-foot { flex: none; display: flex; align-items: center; min-height: var(--sidebar-line); padding: var(--space-3) 18px 10px; }
-      #status { font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      /* The foot: the status line, and the control that chooses the theme, which is its icon with the choices laid over it as the filter's are. */
+      #sidebar-foot { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: var(--sidebar-line); padding: var(--space-3) 10px 10px 18px; }
+      #status { flex: 1; min-width: 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
       /* What the window has to tell: that it is reconnecting, or a request the daemon refused. */
       #status.notice { color: var(--state-failed); }
       #status:empty::before { content: "\00a0"; }
@@ -201,7 +204,7 @@
       #summary-lines button { display: grid; grid-template-columns: var(--icon) minmax(0, var(--summary-title)) minmax(0, 1fr) auto var(--seal-size-line); column-gap: var(--space-5); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border-bottom: 1px solid var(--rule-soft); text-align: left; }
       #summary-lines button:hover { background: var(--hover); transition: background-color var(--motion); }
       #summary-lines button:active { background: var(--pressed); }
-      #summary-lines .title { color: var(--ink-strong); font-weight: var(--weight-title); }
+      #summary-lines .title { color: var(--ink-strong); font-weight: var(--weight-changed); }
       #summary-lines .change { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); }
       #summary-foot { display: flex; align-items: center; gap: var(--space-4); min-height: 60px; margin-top: var(--space-6); }
 
@@ -264,7 +267,7 @@
       #tabs .tab:hover { background: var(--hover); transition: background-color var(--motion); }
       #tabs .tab.active { background: var(--terminal-ground); box-shadow: 1px 0 0 var(--rule), -1px 0 0 var(--rule); }
       #tabs .tab .label { max-width: var(--tab-width); padding: 0 var(--space-2) 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      #tabs .tab.active .label { color: var(--ink-strong); font-weight: 600; }
+      #tabs .tab.active .label { color: var(--terminal-strong); font-weight: 600; }
       #tabs .tab .close { padding: 0 var(--space-4) 0 var(--space-2); color: var(--ink-faint); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
@@ -360,6 +363,10 @@
       <div id="repositories"></div>
       <div id="sidebar-foot">
         <p id="status" role="status"></p>
+        <label id="theme-control" class="icon-button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" /><path d="M8 2.5v11M8 5.5h4.6M8 8h5.5M8 10.5h4.6" /></svg>
+          <select id="theme" aria-label="Theme"></select>
+        </label>
       </div>
     </nav>
     <!-- No screen is in front until the daemon's `ready` says which one opens. -->

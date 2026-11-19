@@ -67,9 +67,10 @@
   --added: #a3b47c;
   --removed: #a39b8d;
 
-  /* The terminal, which draws the colours its program asks for over these two. */
+  /* The terminal, which draws the colours its program asks for over the first two. The strong ink is the label of the tab in front, which stands on the terminal's ground. */
   --terminal-ground: #151312;
   --terminal-ink: #d6cfc1;
+  --terminal-strong: #f6ecd8;
 
   /* The seal. Its drawing and the wax's red are the drawing's own; a theme gives the tones of the blank place and the light on each. */
   --seal-blank: #292624;
@@ -88,4 +89,82 @@
   --card-edge: inset 0 0 0 1px rgba(246, 236, 216, 0.06);
   --backdrop: rgba(0, 0, 0, 0.6);
   --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme="letter"] {
+  --scheme: light;
+
+  /* The typefaces are the system's. The serif one draws the titles as well. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-serif);
+  --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
+  --weight-title: 600;
+  --weight-said: 500;
+
+  /* The grounds. A view's right column and a card are the raised paper, the column under its ruled texture. */
+  --ground: #f1e9d8;
+  --ground-side: #e8dfcb;
+  --ground-column: #faf5e9;
+  --ground-raised: #faf5e9;
+  --ground-sunken: #fbf7ee;
+  --texture: repeating-linear-gradient(0deg, rgba(120, 95, 60, 0.028) 0 1px, transparent 1px 3px);
+
+  --ink-strong: #1a1613;
+  --ink: #2e2924;
+  --ink-muted: #665c50;
+  --ink-faint: #857a6b;
+  --rule: #d6cab2;
+  --rule-soft: #e3d9c4;
+
+  --hover: rgba(46, 41, 36, 0.045);
+  --pressed: rgba(46, 41, 36, 0.07);
+  --selected: rgba(46, 41, 36, 0.09);
+  --selected-edge: none;
+
+  /* A button is the raised paper, and the main button ink blue, never red. */
+  --control: #faf5e9;
+  --control-hover: #fffbf1;
+  --control-pressed: #efe6d2;
+  --control-edge: inset 0 0 0 1px #cfc2a8, 0 1px 0 rgba(120, 95, 60, 0.12);
+  --main: #1f2a44;
+  --main-hover: #2b3959;
+  --main-pressed: #172034;
+  --on-main: #fbf6ea;
+
+  --focus: #5e3b0f;
+  --mark: rgba(162, 96, 10, 0.3);
+  --badge: rgba(46, 41, 36, 0.1);
+  --badge-ink: #2e2924;
+
+  --state-waiting: #1a1613;
+  --state-working: #665c50;
+  --state-finished: #857a6b;
+  --state-no-agent: #857a6b;
+  --state-failed: #a2600a;
+  --added: #4f6b2a;
+  --removed: #665c50;
+
+  /* The terminal stays dark on the paper. */
+  --terminal-ground: #1c1815;
+  --terminal-ink: #d8cfbd;
+  --terminal-strong: #f6ecd8;
+
+  /* The blank place is pressed into the paper, and a seal casts a short shadow on it. */
+  --seal-blank: #ebe2ce;
+  --seal-blank-deep: #e6dcc6;
+  --seal-blank-ring: #f4eddd;
+  --seal-blank-owl: #d9ccb2;
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
+  --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+
+  --radius-card: 4px;
+  --radius-control: 5px;
+  --radius-line: 5px;
+  --radius-chip: 3px;
+
+  --card-edge: inset 0 0 0 1px #d6cab2;
+  --backdrop: rgba(46, 41, 36, 0.4);
+  --dialog-shadow: 0 24px 80px rgba(90, 60, 30, 0.35);
 }

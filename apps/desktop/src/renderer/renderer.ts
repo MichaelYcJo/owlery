@@ -1,5 +1,6 @@
 // The window: its connection to the daemon, which of its four screens is in
-// front, the keys it reads, and the "New work item" form. The sidebar, the
+// front, the keys it reads, and the "New work item" form. The theme and its
+// control are ./theme. The sidebar, the
 // list with its preview, a work item's view and the summary are a module
 // each, and what each says and decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
@@ -8,8 +9,9 @@ import { listScreen, type ListScreen } from "./list";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, tell, type Front } from "./sidebar";
 import { initSummary, pressMain, showSummary } from "./summary";
+import { initTheme } from "./theme";
 import { agentKind, changesSince, commandKey, inboxKey, notificationFor, workItemFields, type StateFilter } from "./view";
-import { dropClosed, enterView, initView, leaveView, paneOnScreen, requestRefused, showPaneButtons, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { dropClosed, enterView, initView, leaveView, paneOnScreen, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -304,6 +306,11 @@ initSidebar(
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
 initView(() => openList("inbox"));
+initTheme(window.owlery.appearance, {
+  save: (choice) => window.owlery.saveAppearance(choice),
+  changed: showTerminalColours,
+  notSaved: () => tell("The theme could not be saved."),
+});
 // The keys pressed with the Command key are read before a terminal that has the focus reads them.
 document.addEventListener("keydown", onCommandKey, { capture: true });
 document.addEventListener("keydown", onKey);

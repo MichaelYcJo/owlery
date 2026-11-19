@@ -63,6 +63,16 @@ function look(property: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(property).trim();
 }
 
+/** The colours a terminal draws its own text and ground in, as the theme in use has them. */
+function terminalColours(): { background: string; foreground: string; cursor: string } {
+  return { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") };
+}
+
+/** Gives every terminal the window holds the colours of the theme now in use, after the theme changed. */
+export function showTerminalColours(): void {
+  for (const pane of panes.values()) pane.term.options.theme = terminalColours();
+}
+
 /**
  * Makes the terminal of a pane the first time the pane is in front, and takes
  * the output the pane printed so far. The view is on screen then, so the
@@ -77,7 +87,7 @@ function terminalFor(id: number): Pane {
     scrollback: 1000,
     fontFamily: look("--font-terminal"),
     fontSize: Number.parseFloat(look("--size-terminal")),
-    theme: { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") },
+    theme: terminalColours(),
     cursorBlink: true,
     macOptionIsMeta: true,
     allowProposedApi: true,

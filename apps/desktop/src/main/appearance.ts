@@ -1,0 +1,39 @@
+// The theme a person chose, kept by the main process in `appearance.json` in
+// the app's user data folder, so a window opens in the theme it was left in.
+// It is this client's own appearance and not the daemon's state. Nothing
+// here is Electron's, so the cases run without it.
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { themeChoice, themeFor, type Theme, type ThemeChoice } from "../shared/appearance";
+
+const FILE = "appearance.json";
+
+/** Each theme's ground, `--ground` of its block in src/renderer/themes.css. The main process names them itself because it opens the window before any page is drawn; test/appearance.test.ts holds the two files equal. */
+export const GROUNDS: Record<Theme, string> = {
+  "night-desk": "#1c1a18",
+  letter: "#f1e9d8",
+};
+
+/** The saved choice, or Night desk where none was saved, as at the first run, and where the file is not one this app wrote. */
+export function readAppearance(userData: string): ThemeChoice {
+  try {
+    const value: unknown = JSON.parse(readFileSync(join(userData, FILE), "utf8"));
+    return themeChoice(typeof value === "object" && value !== null ? (value as { theme?: unknown }).theme : undefined);
+  } catch {
+    return themeChoice(undefined);
+  }
+}
+
+/** Saves a choice, as the daemon writes its list of work items: to a partial file it then renames, readable by the user alone. */
+export function writeAppearance(userData: string, choice: ThemeChoice): void {
+  const file = join(userData, FILE);
+  const partial = `${file}.${process.pid}`;
+  writeFileSync(partial, JSON.stringify({ theme: choice }), { mode: 0o600 });
+  // A window that loads meanwhile never reads a half-written file.
+  renameSync(partial, file);
+}
+
+/** The ground a window opens on, so it does not flash another theme's colour before its page is drawn. */
+export function groundAtStart(choice: ThemeChoice, systemIsDark: boolean): string {
+  return GROUNDS[themeFor(choice, systemIsDark)];
+}

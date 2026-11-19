@@ -1,10 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { THEMES } from "../src/shared/appearance";
 
 // The rules of the page's look that hold as text: a theme is one block of
-// src/renderer/themes.css, red stands on the seal alone, a theme changes no
-// measure, and the page names no colour outside a theme. The files are read
+// src/renderer/themes.css, each theme the window can draw in has one, red
+// stands on the seal alone, a theme changes no measure, and the page names no
+// colour outside a theme. The files are read
 // as text; no case loads the page.
 const renderer = join(__dirname, "..", "src", "renderer");
 const themes = readFileSync(join(renderer, "themes.css"), "utf8");
@@ -76,22 +78,25 @@ function pageParts(): { style: string; markup: string } {
 }
 
 describe("themes.css", () => {
-  it("holds the theme blocks and nothing else, Night desk among them", () => {
-    expect(themeBlocks().map(({ theme }) => theme)).toContain("night-desk");
+  it("holds one block for each theme the window can draw in, Night desk and Letter, and nothing else", () => {
+    expect(themeBlocks().map(({ theme }) => theme)).toEqual([...THEMES]);
+    expect([...THEMES]).toEqual(["night-desk", "letter"]);
     expect(withoutComments(themes).replace(BLOCK, "").trim()).toBe("");
   });
 
   it("holds a red in no property but the seal's", () => {
     const reds = themeBlocks().flatMap(({ theme, properties }) => properties.filter(([, value]) => isRed(value)).map(([name]) => `${theme} ${name}`));
-    // The seal's light is a red, so the reading finds one where there is one.
+    // The seal's light is a red in both themes, so the reading finds one where there is one.
     expect(reds).toContain("night-desk --seal-light");
+    expect(reds).toContain("letter --seal-light");
     expect(reds.filter((name) => !name.includes(" --seal-"))).toEqual([]);
   });
 
   it("defines the same names in every block", () => {
     const blocks = themeBlocks().map(({ theme, properties }) => ({ theme, names: properties.map(([name]) => name).sort() }));
+    expect(blocks.length).toBe(2);
     const first = blocks[0]?.names ?? [];
-    expect(new Set(first).size).toBe(first.length);
+    for (const { names } of blocks) expect(new Set(names).size).toBe(names.length);
     for (const other of blocks) expect(other).toEqual({ theme: other.theme, names: first });
   });
 
