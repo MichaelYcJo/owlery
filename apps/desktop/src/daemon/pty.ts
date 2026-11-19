@@ -27,13 +27,35 @@ const INHERITED_ONLY = new Set([
 ]);
 const INHERITED_PREFIXES = ["CLAUDE_CODE_SESSION_", "CLAUDE_CODE_CHILD_", "CLAUDE_CODE_MESSAGING_"];
 
+// The variables a package script gives the app it starts, as
+// `pnpm -C apps/desktop start` does. nvm refuses to load while
+// `npm_config_prefix` is set, so a login shell in the pane found no `node`.
+// The prefixes are lower case, as the scripts spell them, so the user's own
+// `PNPM_HOME`, set in their profile, stays.
+const SCRIPT_ONLY = new Set(["PNPM_SCRIPT_SRC_DIR", "INIT_CWD", "NODE", "NODE_PATH"]);
+const SCRIPT_PREFIXES = ["npm_", "pnpm_"];
+
 function inheritedOnly(key: string): boolean {
-  return INHERITED_ONLY.has(key) || INHERITED_PREFIXES.some((prefix) => key.startsWith(prefix));
+  return (
+    INHERITED_ONLY.has(key) ||
+    INHERITED_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
+    SCRIPT_ONLY.has(key) ||
+    SCRIPT_PREFIXES.some((prefix) => key.startsWith(prefix))
+  );
+}
+
+/** `path` without the folders inside a `node_modules` folder, which a package script puts first: a command in the pane would run the app's own copy of a tool before the user's. */
+function withoutPackageFolders(path: string): string {
+  return path
+    .split(":")
+    .filter((folder) => !folder.split("/").includes("node_modules"))
+    .join(":");
 }
 
 /**
- * The environment a terminal pane gives its process: the user's own, with a
- * terminal type, true colour, and a UTF-8 locale where the app inherited none.
+ * The environment a terminal pane gives its process: the user's own, without
+ * what the process that started the app gave it, with a terminal type, true
+ * colour, and a UTF-8 locale where the app inherited none.
  * An app opened from the Finder starts without LANG, and the shell then cannot
  * read or print Korean.
  */
@@ -42,6 +64,7 @@ export function terminalEnv(base: NodeJS.ProcessEnv): Record<string, string> {
   for (const [key, value] of Object.entries(base)) {
     if (value !== undefined && !inheritedOnly(key)) env[key] = value;
   }
+  if (env.PATH !== undefined) env.PATH = withoutPackageFolders(env.PATH);
   env.TERM = "xterm-256color";
   env.COLORTERM = "truecolor";
   if (!env.LANG) env.LANG = "en_US.UTF-8";
