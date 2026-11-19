@@ -21,6 +21,8 @@ pnpm install
 pnpm --filter @owlery/desktop start
 ```
 
+처음 실행할 때 Electron의 바이너리를 내려받고, 그 뒤에 창이 열립니다.
+
 ## 문서
 
 | 문서 | 담은 것 |

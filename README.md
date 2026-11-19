@@ -21,6 +21,8 @@ pnpm install
 pnpm --filter @owlery/desktop start
 ```
 
+The first start downloads Electron's binary, and then the window opens.
+
 ## Documents
 
 | Document | What it holds |
