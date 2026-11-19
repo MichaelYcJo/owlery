@@ -251,7 +251,8 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
 });
 
 describe.runIf(MEASURE)("the memory measurement", () => {
-  const plan = planOf(process.env);
+  // A skipped suite's body still runs when the file is collected, so the two variables are read only where the measurement runs: a stray one would otherwise fail the cases above.
+  const plan: ReturnType<typeof planOf> = MEASURE ? planOf(process.env) : { scenarios: [], runs: 0 };
   const start = startOf(process.env);
   const runs: Run[] = [];
 
