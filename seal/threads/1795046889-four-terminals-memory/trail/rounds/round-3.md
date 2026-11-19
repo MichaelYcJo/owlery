@@ -47,6 +47,12 @@ The fix tracks, in the order of the terminal's writes, which pane's output the t
    - What a person types into a screen, and each size the screen takes, goes to the pane that holds the screen at that moment. A free screen sends nothing. What the terminal answers to a question a replay holds is sent only for the first replay the window draws of a pane since it loaded. While the terminal draws a later replay, or still draws output of the pane that held the screen before, the screen sends nothing a person types or the terminal answers. A size it takes still goes to its pane.
 ```
 
+```seal
+verdict: fixed 72e15fc
+location: `apps/desktop/src/renderer/view.ts`, `apps/desktop/test/view.test.ts`, `seal/threads/1795046889-four-terminals-memory/gaps.md`
+answer: The finding holds, and the fix is in the fix pass's own words. The snippet compares the pane the terminal has reached with the pane on the screen. Where a pane takes a screen again before the terminal drew what it printed in an earlier turn there, the two are equal and the screen would send in that span. The fix counts the screen's turns in place of the pane: each take hands the terminal an empty write, whose callback names that turn as reached, and nothing a person types or the terminal answers is sent until the turn reached is the turn of the pane on the screen. It is `screenTurns` in `apps/desktop/src/renderer/view.ts`, which also holds the reset written at a hand-over and the muting of a later replay, both moved from `work-item-view.ts` unchanged. Its six cases in `apps/desktop/test/view.test.ts` run it against a terminal that draws later and in order. With the tree's logic moved into the unit unchanged, the case of the crossing failed on `expected [ [ 5, 'answer to where?' ] ] to deeply equal []`, and the cases of a person's keys and of an earlier turn failed each on its own assertion. `seal mutate` first left one of twelve mutants alive, the turn read at the callback in place of the turn of the take. `58118b0` reshaped the case of an earlier turn for it, and all twelve were then red. The paragraph of `gaps.md` *Not done* now names both spans, and the row on the pool's wiring says what has no case. `frame/design.md:64` and `frame/plan.md:33` are the frame's, and the hand-back gives their text to the orchestrator. Not shown: no start of the app ran the fix at this commit, so that xterm.js runs the callback of an empty write in its place is `read` (`WriteBuffer.ts:103-130`, `WriteBuffer.ts:210-238`). The Korean input case and phase 4's drive, which run after this pass on the same branch, type into a screen that sends only after that callback.
+```
+
 ### 2. The frame says a screen drawing a later replay sends nothing, and the screen still sends each size it takes
 
 ```seal
@@ -74,6 +80,11 @@ Why it matters: "writes the replay the window asked for, and the output after it
 ```ts
 // apps/desktop/test/view.test.ts: delete lines 493-500, the cases "writes the replay the window asked for, and the output after it" and "drops output that arrives before the replay, which holds it", and rename the case at line 502:
   it("drops output that arrives before the last replay asked for, writes that replay alone, and writes the output after it, where a pane was attached, detached and attached again before either replay arrived", () => {
+```
+
+```seal
+verdict: fixed e0582fc
+answer: The finding holds, and the snippet was applied as written: the two cases are deleted and the case that stays carries the snippet's name. The fix pass read the three calls of the deleted cases against the second, third and fourth steps of the case that stays, and they are the same calls with the same results. At `e0582fc`, `seal mutate src/renderer/view.ts` with six mutants of `replayStep`, the round's three survivors among them, read all six red under the two `replayStep` cases that stay.
 ```
 
 ## Confirmations
