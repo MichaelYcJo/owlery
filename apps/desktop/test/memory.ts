@@ -103,7 +103,12 @@ export interface Sums {
   byKind: Record<Kind, number>;
 }
 
-/** The sums of one reading. A process that ended before `footprint` read it has no number and adds none. */
+/** The app's processes that `footprint` gave no number for. A sum without one of them is not the app's, so `measure` takes no sample where this holds any. */
+export function unread(split: Split, bytes: ReadonlyMap<number, number>): { pid: number; kind: Kind }[] {
+  return split.app.filter((process) => !bytes.has(process.pid));
+}
+
+/** The sums of one reading. A pane's process that ended before `footprint` read it has no number and adds none; `unread` names a process of the app that has none. */
 export function sums(split: Split, bytes: ReadonlyMap<number, number>): Sums {
   const byKind: Record<Kind, number> = { main: 0, renderer: 0, gpu: 0, utility: 0, daemon: 0, other: 0 };
   for (const { pid, kind } of split.app) byKind[kind] += bytes.get(pid) ?? 0;
@@ -386,7 +391,8 @@ export async function measure(scenario: Scenario, run: number, start: Start): Pr
       const split = splitProcesses(listed(), started.pid, serving);
       panes = split.panes;
       const bytes = footprintsOf([...split.app.map((process) => process.pid), ...split.panes]);
-      if (!bytes.has(started.pid) || !bytes.has(serving)) throw new Error("`footprint` gave no number for the app's main process or for its daemon. The measurement is macOS's.");
+      const missing = unread(split, bytes);
+      if (missing.length > 0) throw new Error(`\`footprint\` gave no number for ${missing.map((process) => `the ${process.kind} process ${process.pid}`).join(", ")}, so the sum is not the app's. The measurement is macOS's.`);
       samples.push({ at, ...sums(split, bytes), ...(await page) });
     }
     const running = printers(started.pid, serving).length;

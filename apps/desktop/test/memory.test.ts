@@ -19,6 +19,7 @@ import {
   sums,
   tables,
   thrownAway,
+  unread,
 } from "./memory";
 
 /** The measurement, started by `pnpm run measure:memory`. Without it the file is the cases. */
@@ -108,6 +109,20 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
     const split = splitProcesses(rows, 100, 104);
     expect(split.app.map((process) => process.pid)).toEqual([100, 101, 102, 103, 108, 104]);
     expect(split.panes).toEqual([105, 106, 107]);
+  });
+
+  it("names each process of the app that `footprint` gave no number for, and none of the panes'", () => {
+    const split = splitProcesses(processRows(listed), 100, 104);
+    // `footprint` read neither the GPU process nor two of the panes' three.
+    const bytes = new Map([
+      [100, 60],
+      [102, 5],
+      [103, 40],
+      [104, 20],
+      [108, 1],
+      [105, 2],
+    ]);
+    expect(unread(split, bytes)).toEqual([{ pid: 101, kind: "gpu" }]);
   });
 
   it("takes no process of another app", () => {
