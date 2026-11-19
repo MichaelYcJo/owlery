@@ -11,7 +11,7 @@ import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from 
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import { agentKind, changesSince, commandKey, inboxKey, notificationFor, workItemFields, type StateFilter } from "./view";
-import { dropClosed, enterView, initView, leaveView, paneOnScreen, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { detachUnshown, dropClosed, enterView, initView, leaveView, paneOnScreen, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -213,6 +213,7 @@ function onMessage(message: ServerMessage): void {
     case "started":
       tell("");
       takeStarted(message.session);
+      detachUnshown(message.session.id);
       return;
     case "workItemCreated": {
       // The view is drawn from the list, and the `inbox` that carries the new work item comes after this answer.

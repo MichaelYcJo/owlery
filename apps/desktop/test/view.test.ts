@@ -33,6 +33,8 @@ import {
   notificationFor,
   paneInFront,
   paneTabs,
+  replayStep,
+  screenMoves,
   selectedLine,
   sidebarTree,
   stateHeading,
@@ -418,22 +420,22 @@ describe("paneTabs", () => {
 
   it("gives the work item's live panes, of whatever kind, in the order of their ids", () => {
     const sessions = [session(6, { kind: "shell" }), session(2), session(4)];
-    expect(ids(paneTabs(LOGIN, sessions, new Set()))).toEqual([2, 4, 6]);
+    expect(ids(paneTabs(LOGIN, sessions))).toEqual([2, 4, 6]);
   });
 
-  it("gives no tab for another work item's pane or a pane without a work item, even one the window holds a terminal for", () => {
+  it("gives no tab for another work item's pane or a pane without a work item", () => {
     const sessions = [session(2), session(9, { workItemId: 2 }), session(4, { workItemId: null })];
-    expect(ids(paneTabs(LOGIN, sessions, new Set([9, 4])))).toEqual([2]);
+    expect(ids(paneTabs(LOGIN, sessions))).toEqual([2]);
   });
 
-  it("keeps the tab of an exited pane whose terminal the window holds, and gives none for one it does not hold", () => {
-    const sessions = [session(2, { alive: false }), session(3, { alive: false }), session(5)];
-    expect(ids(paneTabs(LOGIN, sessions, new Set([3])))).toEqual([3, 5]);
+  it("gives an exited pane its tab for as long as the daemon lists it, whatever the window holds", () => {
+    const sessions = [session(5), session(3, { alive: false }), session(2, { alive: false })];
+    expect(ids(paneTabs(LOGIN, sessions))).toEqual([2, 3, 5]);
   });
 
   it("gives no tab where the work item has no pane, so opening its view starts none", () => {
-    expect(paneTabs(LOGIN, [session(3, { workItemId: 2 })], new Set())).toEqual([]);
-    expect(paneTabs(LOGIN, [], new Set())).toEqual([]);
+    expect(paneTabs(LOGIN, [session(3, { workItemId: 2 })])).toEqual([]);
+    expect(paneTabs(LOGIN, [])).toEqual([]);
   });
 });
 
@@ -456,6 +458,59 @@ describe("paneInFront", () => {
   it("gives nothing where there is no tab", () => {
     expect(paneInFront([], 4)).toBeUndefined();
     expect(paneInFront([], undefined)).toBeUndefined();
+  });
+});
+
+describe("screenMoves", () => {
+  it("gives a pane that comes onto the stage a free screen, the first of them, before it asks for a new one", () => {
+    expect(screenMoves([undefined], [4])).toEqual({ holds: [4], back: [], taken: [{ screen: 0, pane: 4 }] });
+    expect(screenMoves([undefined, 3, undefined], [3, 7])).toEqual({ holds: [7, 3, undefined], back: [], taken: [{ screen: 0, pane: 7 }] });
+  });
+
+  it("asks for a new screen, one past the pool's end, only where none is free", () => {
+    expect(screenMoves([], [4])).toEqual({ holds: [4], back: [], taken: [{ screen: 0, pane: 4 }] });
+    expect(screenMoves([2], [2, 5])).toEqual({ holds: [2, 5], back: [], taken: [{ screen: 1, pane: 5 }] });
+  });
+
+  it("keeps a pane that stays on the stage on the screen it has, in whatever order the stage names it", () => {
+    expect(screenMoves([2, 3], [3, 2])).toEqual({ holds: [2, 3], back: [], taken: [] });
+  });
+
+  it("names the screen of each pane that left the stage to give back, and hands it to a pane that comes on", () => {
+    expect(screenMoves([2], [5])).toEqual({ holds: [5], back: [{ screen: 0, pane: 2 }], taken: [{ screen: 0, pane: 5 }] });
+    expect(screenMoves([2, undefined, 3], [])).toEqual({
+      holds: [undefined, undefined, undefined],
+      back: [
+        { screen: 0, pane: 2 },
+        { screen: 2, pane: 3 },
+      ],
+      taken: [],
+    });
+  });
+});
+
+describe("replayStep", () => {
+  it("writes the replay the window asked for, and the output after it", () => {
+    expect(replayStep(1, "replay")).toEqual({ awaited: 0, write: true });
+    expect(replayStep(0, "output")).toEqual({ awaited: 0, write: true });
+  });
+
+  it("drops output that arrives before the replay, which holds it", () => {
+    expect(replayStep(1, "output")).toEqual({ awaited: 1, write: false });
+  });
+
+  it("writes the last of two replays alone where a pane was attached, detached and attached again before either arrived", () => {
+    const first = replayStep(2, "replay");
+    expect(first).toEqual({ awaited: 1, write: false });
+    const between = replayStep(first.awaited, "output");
+    expect(between).toEqual({ awaited: 1, write: false });
+    const second = replayStep(between.awaited, "replay");
+    expect(second).toEqual({ awaited: 0, write: true });
+    expect(replayStep(second.awaited, "output")).toEqual({ awaited: 0, write: true });
+  });
+
+  it("writes no replay the window did not ask for", () => {
+    expect(replayStep(0, "replay")).toEqual({ awaited: 0, write: false });
   });
 });
 

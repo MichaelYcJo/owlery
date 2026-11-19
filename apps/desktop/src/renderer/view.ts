@@ -518,13 +518,12 @@ export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; al
 }
 
 /**
- * The tabs of a work item's view, in the order of the panes' ids: its panes
- * whose process runs, and those whose terminal this window holds, `held`
- * being their ids. An exited pane the window holds keeps its tab and its last
- * screen until it is closed; one it does not hold has nothing to show.
+ * The tabs of a work item's view: its panes as the daemon lists them, whether
+ * their process runs or has exited, in the order of their ids. An exited
+ * pane keeps its tab until it is closed, and the daemon keeps its last output.
  */
-export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[], held: ReadonlySet<number>): SessionInfo[] {
-  return sessions.filter((session) => session.workItemId === workItem.id && (session.alive || held.has(session.id))).sort((a, b) => a.id - b.id);
+export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
+  return sessions.filter((session) => session.workItemId === workItem.id).sort((a, b) => a.id - b.id);
 }
 
 /**
@@ -537,6 +536,48 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
   if (tabs.some((tab) => tab.id === last)) return last;
   const recent = [...tabs].sort((a, b) => b.id - a.id);
   return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
+}
+
+/** A screen of the pool, by its place there, and a pane. */
+export interface ScreenAndPane {
+  screen: number;
+  pane: number;
+}
+
+/**
+ * What the pool of terminal screens does when the stage shows `stage`,
+ * `holds` being the pane each screen holds now, or nothing for a free one. A
+ * pane that stays on the stage keeps its screen. The screen of a pane that
+ * left is given back, `back`. A pane that comes on takes the first free
+ * screen, one given back here among them, and only where none is free a new
+ * one, whose place is one past the pool's end, `taken`. `holds` is the pool
+ * after both.
+ */
+export function screenMoves(holds: readonly (number | undefined)[], stage: readonly number[]): { holds: (number | undefined)[]; back: ScreenAndPane[]; taken: ScreenAndPane[] } {
+  const after = holds.map((pane) => (pane !== undefined && stage.includes(pane) ? pane : undefined));
+  const back = holds.flatMap((pane, screen) => (pane !== undefined && after[screen] === undefined ? [{ screen, pane }] : []));
+  const taken: ScreenAndPane[] = [];
+  for (const pane of stage) {
+    if (after.includes(pane)) continue;
+    const free = after.indexOf(undefined);
+    const screen = free === -1 ? after.length : free;
+    after[screen] = pane;
+    taken.push({ screen, pane });
+  }
+  return { holds: after, back, taken };
+}
+
+/**
+ * What the window does with a `replay` or an `output` of a pane, `awaited`
+ * being the replays it asked for with an `attach` and has not received: the
+ * count after the message, and whether the message is written into the
+ * pane's screen. The last replay asked for is written and no other, since it
+ * holds what the earlier ones held. Output before it is dropped, since the
+ * replay holds that too.
+ */
+export function replayStep(awaited: number, kind: "replay" | "output"): { awaited: number; write: boolean } {
+  if (kind === "output") return { awaited, write: awaited === 0 };
+  return { awaited: Math.max(0, awaited - 1), write: awaited === 1 };
 }
 
 /**
