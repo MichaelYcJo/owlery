@@ -324,9 +324,12 @@ export class Daemon {
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
-      case "resize":
-        this.sessions.get(message.id)?.terminal.resize(message.cols, message.rows);
+      case "resize": {
+        const session = this.sessions.get(message.id);
+        // A window fits the screen it shows an exited pane on. The pseudo-terminal of a process that exited is closed, and a size set on it throws.
+        if (session?.info.alive) session.terminal.resize(message.cols, message.rows);
         return;
+      }
       default:
         return;
     }

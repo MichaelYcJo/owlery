@@ -251,6 +251,19 @@ describe("sessions", () => {
     expect((await later.message("replay")).data).toBe("last\r\n[process exited with code 3]\r\n");
   });
 
+  it("takes a size sent for a session whose process exited, changes nothing, and goes on answering", async () => {
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await c.message("started");
+    await c.message("exit");
+    // A window that shows an exited pane fits its screen and tells the size, as it does for a live one. The pseudo-terminal is closed by then.
+    c.send({ type: "resize", id: session.id, cols: 100, rows: 30 });
+    c.send({ type: "attach", id: session.id });
+    expect((await c.message("replay")).data).toBe("\r\n[process exited with code 3]\r\n");
+  });
+
   it("tells every client when a session ends, and lists it as ended", async () => {
     const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
     const c = await client(url);
