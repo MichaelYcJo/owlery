@@ -11,6 +11,8 @@ export interface ThemeActions {
   save(choice: ThemeChoice): Promise<void>;
   /** Called once the page is in another theme, for what takes its colours outside the page's style: the terminals. */
   changed(): void;
+  /** Called where the choice was kept, so the notice that an earlier one was not is taken back. */
+  saved(): void;
   /** Called where the choice could not be kept: the window is in the theme chosen, and the next one opens in the theme saved before. */
   notSaved(): void;
 }
@@ -34,7 +36,7 @@ export function initTheme(saved: ThemeChoice, actions: ThemeActions): void {
   choices.addEventListener("change", () => {
     choice = choices.value as ThemeChoice;
     show();
-    actions.save(choice).catch(actions.notSaved);
+    actions.save(choice).then(actions.saved, actions.notSaved);
   });
   // Under "Match the system" the theme follows the system's appearance while the window is open.
   systemIsDark.addEventListener("change", show);

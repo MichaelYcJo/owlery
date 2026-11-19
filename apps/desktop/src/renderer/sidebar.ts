@@ -2,7 +2,7 @@
 // the three screens it opens, the repositories with their work items, and the
 // status line at its foot.
 import { byId, changedSince, CHEVRON, entries, held, icon, marked, narrowed, part, stateIcon, titleClass } from "./shared";
-import { ageOf, daemonStatus, filterChoices, matchCount, sidebarTree, summaryCount, type StateFilter } from "./view";
+import { ageOf, daemonStatus, filterChoices, matchCount, noticeWithout, sidebarTree, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. */
 export type Front = "summary" | "inbox" | "history" | "view" | null;
@@ -76,6 +76,11 @@ export function focusSearch(): void {
 export function tell(text: string): void {
   notice = text;
   showStatus();
+}
+
+/** Takes `text` back from the status line, where the line still says it, and leaves any other notice. */
+export function untell(text: string): void {
+  tell(noticeWithout(notice, text));
 }
 
 function showStatus(): void {

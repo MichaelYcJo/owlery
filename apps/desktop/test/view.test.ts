@@ -29,6 +29,7 @@ import {
   matchSentence,
   matchWorkItems,
   moveSelection,
+  noticeWithout,
   notificationFor,
   paneInFront,
   paneTabs,
@@ -807,6 +808,15 @@ describe("daemonStatus", () => {
   it("says that no agent runs where none does", () => {
     expect(daemonStatus([session(3, { kind: "shell" }), session(4, { alive: false })], KINDS)).toBe("Daemon running, no agent");
     expect(daemonStatus([], KINDS)).toBe("Daemon running, no agent");
+  });
+});
+
+describe("noticeWithout", () => {
+  it("takes a notice back where the status line still tells it, and leaves any other as it stands", () => {
+    expect(noticeWithout("The theme could not be saved.", "The theme could not be saved.")).toBe("");
+    // A request the daemon refused since then stays.
+    expect(noticeWithout("The repository is not a git repository.", "The theme could not be saved.")).toBe("The repository is not a git repository.");
+    expect(noticeWithout("", "The theme could not be saved.")).toBe("");
   });
 });
 

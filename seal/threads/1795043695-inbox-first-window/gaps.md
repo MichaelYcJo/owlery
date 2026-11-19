@@ -94,5 +94,5 @@
 - **The window's own ground follows the theme at start alone.** `main.ts` gives it to the window when the window is made. A person who changes the theme and then resizes the window may see the old theme's ground at the edge for a moment, until the app is started again. Setting it again at each choice was within reach and leaves "Match the system" behind when the system's appearance turns, unless the main process listens for that too.
 - **A terminal takes a new theme's colours and neither its typeface nor its size.** `frame/design.md` *Scope* item 13 names the colours, and both themes name one terminal typeface.
 - **One property, `--weight-said`, draws what an agent says and the summary's sentence,** so Letter has both at 500 where variant 4 has the first at 600.
-- **A choice that could not be saved is not tried again.** The status line says so once, the window stays in the theme chosen, and the next window opens in the theme saved before.
+- **A choice that could not be saved is not tried again.** The status line says so until a later choice is saved or another notice takes its place, the window stays in the theme chosen, and the next window opens in the theme saved before.
 - **The words beside a sealed place would still say "No seal yet" in Letter,** as in Night desk: the row above on the drawings in their red holds of both themes.

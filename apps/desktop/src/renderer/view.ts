@@ -296,6 +296,11 @@ export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readon
   return `Daemon running, ${agents === 0 ? "no agent" : agents === 1 ? "1 agent" : `${agents} agents`}`;
 }
 
+/** What the status line tells once `taken` is taken back: nothing where it still told `taken`, and any other notice as it stands. */
+export function noticeWithout(notice: string, taken: string): string {
+  return notice === taken ? "" : notice;
+}
+
 /**
  * How long ago a time is, `at` and `now` being times in milliseconds: in
  * minutes under an hour, in hours and minutes under a day, and in days from

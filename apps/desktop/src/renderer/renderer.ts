@@ -7,7 +7,7 @@ import type { OwleryApi } from "../shared/ipc";
 import type { AgentState, ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
-import { focusSearch, initSidebar, showSidebar, tell, type Front } from "./sidebar";
+import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import { agentKind, changesSince, commandKey, inboxKey, notificationFor, workItemFields, type StateFilter } from "./view";
@@ -306,10 +306,12 @@ initSidebar(
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
 initView(() => openList("inbox"));
+const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
   save: (choice) => window.owlery.saveAppearance(choice),
   changed: showTerminalColours,
-  notSaved: () => tell("The theme could not be saved."),
+  saved: () => untell(THEME_NOT_SAVED),
+  notSaved: () => tell(THEME_NOT_SAVED),
 });
 // The keys pressed with the Command key are read before a terminal that has the focus reads them.
 document.addEventListener("keydown", onCommandKey, { capture: true });
