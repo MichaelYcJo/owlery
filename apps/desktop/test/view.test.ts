@@ -470,6 +470,8 @@ describe("stageOf", () => {
 
   it("puts the pane in front alone on the stage where \"Side by side\" is not pressed, and nothing where the view has no tab", () => {
     expect(stageOf([session(2), session(4), session(6)], [4, 6], false)).toEqual({ front: 4, shown: [4] });
+    // Pane 9 was in front and is closed, so the most recent live pane of the view follows it, whichever were in front before.
+    expect(stageOf(six, [9, 2, 1, 3, 4], false)).toEqual({ front: 6, shown: [6] });
     expect(stageOf([], [4], false)).toEqual({ front: undefined, shown: [] });
     expect(stageOf([], [4], true)).toEqual({ front: undefined, shown: [] });
   });
@@ -490,6 +492,9 @@ describe("stageOf", () => {
     // After a load no pane was in front, so the most recent live pane is.
     expect(stageOf(six, [], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
     expect(stageOf(six, [2], true)).toEqual({ front: 2, shown: [2, 4, 5, 6] });
+    // No pane was in front and the four most recent tabs have exited, so the live pane is in front and on the stage.
+    const oneLive = [session(1), session(2, { alive: false }), session(3, { alive: false }), session(4, { alive: false }), session(5, { alive: false })];
+    expect(stageOf(oneLive, [], true)).toEqual({ front: 1, shown: [1, 3, 4, 5] });
   });
 
   it("gives a pane no longer among the tabs no place on the stage, so where the pane in front closed the four most recently in front stay and the most recent live one of them has the keyboard, and counts a pane named twice once", () => {
