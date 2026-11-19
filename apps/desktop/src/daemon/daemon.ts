@@ -8,6 +8,7 @@ import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
+import { LastLook } from "./last-look";
 import { WorkItemList } from "./work-items";
 import { createWorktree, newCommits, worktreesRoot } from "./worktrees";
 
@@ -27,11 +28,11 @@ export interface DaemonOptions {
   roleAdapter: RoleAdapter;
   /** Where a pane opened without a work item runs. */
   cwd?: string;
-  /** Where the list of work items is kept, in `work-items.json`; without it the list is in memory alone. */
+  /** Where the list of work items is kept, in `work-items.json`, and the last look, in `last-look.json`; without it both are in memory alone. */
   runDir?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
-  /** The clock a work item's `createdAt` and a headless session's `startedAt` are read from. */
+  /** The clock a work item's `createdAt`, a headless session's `startedAt` and a look's `at` are read from. */
   now?: () => number;
   /** How long the daemon waits between two reads of the work items' new commits. */
   commitPollMs?: number;
@@ -73,6 +74,7 @@ export class Daemon {
   private nextHeadlessId = 1;
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly workItems: WorkItemList;
+  private readonly lastLook: LastLook;
   // Creations run one after another, so two of one title never pick the same branch and folder.
   private creating: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
@@ -84,6 +86,7 @@ export class Daemon {
 
   constructor(private readonly options: DaemonOptions) {
     this.workItems = new WorkItemList(options.runDir, options.now);
+    this.lastLook = new LastLook(options.runDir);
   }
 
   listen(port: number): Promise<number> {
@@ -150,7 +153,7 @@ export class Daemon {
         authorized = true;
         this.clients.set(socket, new Set());
         this.checkIdle();
-        this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList() });
+        this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
         this.scheduleCommitRead();
         return;
       }
@@ -235,6 +238,16 @@ export class Daemon {
         this.send(socket, { type: "asked", requestId: message.requestId, headless: session.info });
         this.headlessChanged(session);
         this.startHeadless(session, worktree);
+        return;
+      }
+      case "looked": {
+        // No client is told: the look reaches a client in its `ready`, and an inbox sent here would redraw every window as one loses focus.
+        try {
+          this.lastLook.record((this.options.now ?? Date.now)(), this.sessionList(), this.workItemList());
+        } catch (error) {
+          // The message has no answer to carry an error, and the look is held in memory whether or not it was written.
+          console.error(`the last look was not written: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return;
       }
       case "input":

@@ -53,6 +53,17 @@ export interface SessionInfo {
   state: AgentState | null;
 }
 
+/**
+ * When a person last looked, and what the daemon listed then: `at` is the
+ * time, and the two lists are as an `inbox` sent at that moment would carry
+ * them. The daemon keeps one, for whichever client sent `looked` last.
+ */
+export interface Look {
+  at: number;
+  sessions: SessionInfo[];
+  workItems: WorkItem[];
+}
+
 /** What a headless session is doing: `working` until its result, then `finished`, or `failed` where it gave none or an error. */
 export type HeadlessState = "working" | "finished" | "failed";
 
@@ -83,11 +94,14 @@ export type ClientMessage =
   | { type: "close"; id: number }
   // Starts a headless session that answers `prompt` in the work item's worktree.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string }
+  // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
+  | { type: "looked" }
   | { type: "input"; id: number; data: string }
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  | { type: "ready"; sessions: SessionInfo[]; workItems: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[] }
+  // `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`.
+  | { type: "ready"; sessions: SessionInfo[]; workItems: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null }
   // The whole of both lists, sent to every client whenever either changes.
   | { type: "inbox"; sessions: SessionInfo[]; workItems: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }

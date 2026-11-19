@@ -231,8 +231,15 @@ describe("work items", () => {
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
     expect(Object.keys(created.workItem).sort()).toEqual(["baseCommit", "branch", "createdAt", "id", "newCommits", "repo", "title", "worktree"]);
     expect(Object.keys(created.session).sort()).toEqual(["alive", "id", "kind", "state", "workItemId"]);
+    // A look, so that `ready` carries one; the `attach` after it is answered once the daemon has handled both.
+    c.send({ type: "looked" });
+    c.send({ type: "attach", id: created.session.id });
+    await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["headless", "paneKinds", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["headless", "lastLook", "paneKinds", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
+    expect(Object.keys(ready.lastLook!.workItems[0]!).sort()).toEqual(["baseCommit", "branch", "createdAt", "id", "newCommits", "repo", "title", "worktree"]);
+    expect(Object.keys(ready.lastLook!.sessions[0]!).sort()).toEqual(["alive", "id", "kind", "state", "workItemId"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["kind", "label", "reportsState"]);
     const inbox = await c.message("inbox");
     expect(Object.keys(inbox).sort()).toEqual(["sessions", "type", "workItems"]);
@@ -641,6 +648,121 @@ describe("the inbox", () => {
     expect((await c.message("ready")).workItems.map((w) => [w.baseCommit, w.newCommits])).toEqual([[null, null], [after.baseCommit, null]]);
     const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 1);
     expect(inbox.workItems[0]).toMatchObject({ id: 1, baseCommit: null, newCommits: null });
+  });
+});
+
+describe("the last look", () => {
+  type Client = Awaited<ReturnType<typeof client>>;
+  const stateOf = (m: Extract<ServerMessage, { type: "inbox" }>, id: number) => m.sessions.find((s) => s.id === id)?.state;
+
+  function repository() {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  /**
+   * Sends `looked`, which has no answer, and after it a start the daemon
+   * refuses: the refusal arrives once the daemon has handled both, and starts nothing.
+   */
+  let refused = 900;
+  async function looked(c: Client): Promise<void> {
+    const requestId = refused++;
+    c.send({ type: "looked" });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+    await c.message("error", (m) => m.requestId === requestId);
+  }
+
+  /** The look a client that says hello now is given. */
+  const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
+
+  it("gives a client no look where no client ever sent `looked`", async () => {
+    const { url } = await daemon();
+    expect((await (await client(url)).message("ready")).lastLook).toBeNull();
+    expect(await lookNow(url)).toBeNull();
+  });
+
+  it("keeps the time and both lists of the moment a client sends `looked`, and gives them to a client that connects afterwards", async () => {
+    const { repo, root } = repository();
+    const { daemon: d, url } = await daemon({ worktreesRoot: root, now: () => 1234 });
+    const c = await client(url);
+    expect((await c.message("ready")).lastLook).toBeNull();
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Looked at", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await c.message("inbox", (m) => stateOf(m, session.id) === "working");
+    await looked(c);
+    // The agent goes on after the look, and the look stays as it was taken.
+    d.agentEvent(session.id, "PermissionRequest", {});
+    await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
+    const ready = await (await client(url)).message("ready");
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working" }], workItems: [workItem] });
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting" }]);
+  });
+
+  it("replaces the look with the one of a later `looked`, from whichever client", async () => {
+    let clock = 100;
+    const { url } = await daemon({ now: () => clock });
+    const one = await client(url);
+    await one.message("ready");
+    await looked(one);
+    expect(await lookNow(url)).toEqual({ at: 100, sessions: [], workItems: [] });
+    const two = await client(url);
+    await two.message("ready");
+    two.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await two.message("started");
+    clock = 200;
+    await looked(two);
+    expect(await lookNow(url)).toEqual({ at: 200, sessions: [session], workItems: [] });
+  });
+
+  it("tells a client of the look only in its `ready`: a `looked` is answered with nothing and sent to nobody", async () => {
+    const { url } = await daemon();
+    const one = await client(url);
+    const other = await client(url);
+    await one.message("ready");
+    await other.message("ready");
+    await looked(one);
+    expect(one.messages.map((m) => m.type)).toEqual(["ready", "error"]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready"]);
+  });
+
+  it("gives after a restart the look taken before it, from a file the user alone can read", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const first = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, roleAdapter: fakeAdapter(), commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), runDir, worktreesRoot: root, now: () => 1234 });
+    const c = await client(`ws://127.0.0.1:${await first.listen(0)}`);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Outlives the daemon", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    first.agentEvent(session.id, "UserPromptSubmit", {});
+    await c.message("inbox", (m) => stateOf(m, session.id) === "working");
+    await looked(c);
+    await first.close();
+    expect(statSync(join(runDir, "last-look.json")).mode & 0o777).toBe(0o600);
+
+    const { url } = await daemon({ runDir, worktreesRoot: root, now: () => 5678 });
+    const ready = await (await client(url)).message("ready");
+    // The look keeps the session it was taken with, which the daemon that starts no longer holds.
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working" }], workItems: [workItem] });
+    expect(ready.sessions).toEqual([]);
+  });
+
+  it("stays up and holds the look where its run folder cannot be written, and says so in its log", async () => {
+    const { base } = repository();
+    const said: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void said.push(args);
+    cleanups.push(() => {
+      console.error = error;
+    });
+    const { url } = await daemon({ runDir: join(base, "removed"), now: () => 1234 });
+    const c = await client(url);
+    await c.message("ready");
+    await looked(c);
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [] });
+    expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the last look was not written: /)]);
   });
 });
 
