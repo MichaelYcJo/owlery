@@ -550,17 +550,21 @@ export const STAGE_PANES = 4;
  * to `STAGE_PANES` panes: the one in front, then the ones most recently in
  * front, then the tabs that were never in front, the most recent first. A
  * pressed tab is the most recent, so it takes the place of the shown pane
- * least recently in front.
+ * least recently in front. A closed pane that `recentKept` left first takes
+ * no place: the stage keeps the four most recently in front, and the pane in
+ * front is `paneInFront`'s among those four.
  */
 export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean): { front: number | undefined; shown: number[] } {
-  const front = paneInFront(tabs, recent[0]);
-  if (front === undefined) return { front, shown: [] };
-  if (!sideBySide) return { front, shown: [front] };
   const ids = tabs.map((tab) => tab.id);
   const never = ids.filter((id) => !recent.includes(id)).sort((a, b) => b - a);
   // A set keeps each pane at the first place it is named.
-  const ranked = [...new Set([front, ...recent.filter((id) => ids.includes(id)), ...never])];
-  const top = ranked.slice(0, STAGE_PANES);
+  const byRecency = [...new Set([...recent.filter((id) => ids.includes(id)), ...never])];
+  const closedFirst = sideBySide && recent.length > 0 && !ids.includes(recent[0] as number);
+  const candidates = closedFirst ? tabs.filter((tab) => byRecency.slice(0, STAGE_PANES).includes(tab.id)) : tabs;
+  const front = paneInFront(candidates, recent[0]);
+  if (front === undefined) return { front, shown: [] };
+  if (!sideBySide) return { front, shown: [front] };
+  const top = [...new Set([front, ...byRecency])].slice(0, STAGE_PANES);
   return { front, shown: ids.filter((id) => top.includes(id)) };
 }
 
@@ -568,8 +572,10 @@ export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[],
  * The panes that were in front in a view, the most recent first, once the
  * daemon lists only `listed`. A pane it no longer lists leaves, except the
  * most recent one: that one stays as the pane last in front, so `paneInFront`
- * finds it is no tab and gives the most recent live pane. Were it taken out,
- * the pane in front before it would come in front, an exited one included.
+ * finds it is no tab and gives the most recent live pane, which `stageOf`
+ * takes from the four most recently in front where "Side by side" is pressed.
+ * Were it taken out, the pane in front before it would come in front, an
+ * exited one included.
  */
 export function recentKept(recent: readonly number[], listed: ReadonlySet<number>): number[] {
   return recent.filter((pane, place) => place === 0 || listed.has(pane));

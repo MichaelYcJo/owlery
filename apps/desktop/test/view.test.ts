@@ -492,8 +492,11 @@ describe("stageOf", () => {
     expect(stageOf(six, [2], true)).toEqual({ front: 2, shown: [2, 4, 5, 6] });
   });
 
-  it("counts a pane no longer among the tabs as never in front, and a pane named twice once", () => {
-    expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true)).toEqual({ front: 6, shown: [1, 2, 3, 6] });
+  it("gives a pane no longer among the tabs no place on the stage, so where the pane in front closed the four most recently in front stay and the most recent live one of them has the keyboard, and counts a pane named twice once", () => {
+    expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
+    // Pane 4 has exited, so pane 3 is the most recent live one of the four.
+    const exited = [session(1), session(2), session(3), session(4, { alive: false }), session(5), session(6)];
+    expect(stageOf(exited, [9, 2, 1, 3, 4], true)).toEqual({ front: 3, shown: [1, 2, 3, 4] });
   });
 });
 
