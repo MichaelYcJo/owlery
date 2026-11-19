@@ -3,17 +3,33 @@
 // composition into the pane through Electron's debugging port, and reads the
 // bytes the receiver was handed. It does not stand for a macOS input source:
 // a person's typed run does.
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BuiltApp, buildApp, untilGone } from "./built-app";
-import { compositionView, ENTER, type Line, openReceiverPane, readLines, Received, RECEIVER, replay } from "./korean-pane";
+import { compositionView, countCompositions, endedFromOutside, ENTER, type Line, openReceiverPane, readLines, Received, RECEIVER, replay } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
 
 const lines = readLines();
 
 /** A whole syllable, as against a lone consonant. */
 const SYLLABLE = /^[가-힣]$/u;
+
+describe("the receiver", () => {
+  it("exits at once and writes nothing where its input is no terminal", () => {
+    // The daemon runs $SHELL that way to look for `claude`, and a receiver that stayed would empty the file the pane's receiver writes.
+    const repository = temporaryRepository("receiver");
+    try {
+      const file = join(repository.base, "received");
+      execFileSync(RECEIVER, ["-l", "-i", "-c", "true"], { env: { ...process.env, OWLERY_RECEIVER_FILE: file }, stdio: ["pipe", "ignore", "ignore"], timeout: 2_000 });
+      expect(existsSync(file)).toBe(false);
+      expect(existsSync(`${file}.pid`)).toBe(false);
+    } finally {
+      repository.remove();
+    }
+  });
+});
 
 describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
   let app: BuiltApp;
@@ -37,12 +53,34 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
     repository?.remove();
   }, 30_000);
 
-  /** Reads what the receiver was handed for a line, and fails with the line and both byte strings in hex. */
-  async function expectDelivered(line: Line): Promise<void> {
+  /**
+   * Types a line with `type`, which ends it with Enter, and reads what the
+   * receiver was handed for it. It fails with the line and both byte strings
+   * in hex. Where something outside the window ended a composition while the
+   * line was typed, the line was not typed as written: its bytes are dropped
+   * and it is typed again, three times at most. Nothing else types a line
+   * twice.
+   */
+  async function deliver(line: Line, type: () => Promise<void>): Promise<void> {
     const expected = Buffer.from(`${line.text}\r`, "utf8");
-    const got = await received.next(expected.length);
-    expect(got.toString("hex"), `the line "${line.text}": expected ${expected.toString("hex")}, received ${got.toString("hex") || "nothing"}`).toBe(expected.toString("hex"));
+    for (let attempt = 1; ; attempt += 1) {
+      await countCompositions(app);
+      await type();
+      const got = await received.next(expected.length);
+      const outside = await endedFromOutside(app, line.steps);
+      if (outside && attempt < 3) continue;
+      const taken = outside ? ", and in each of three attempts a composition ended that no step ended: something keeps taking the system's focus from the window" : "";
+      expect(got.toString("hex"), `the line "${line.text}": expected ${expected.toString("hex")}, received ${got.toString("hex") || "nothing"}${taken}`).toBe(expected.toString("hex"));
+      return;
+    }
   }
+
+  // The first whole syllable the first line composes. Every step after it, up to its commit, leaves it uncommitted.
+  const first = lines[0]!;
+  const composing = first.steps.findIndex((step) => step.type === "compose" && SYLLABLE.test(step.text));
+  const syllable = (first.steps[composing] as { text: string }).text;
+  const upToSyllable = first.steps.slice(0, composing + 1);
+  const afterSyllable = [...first.steps.slice(composing + 1), ...ENTER];
 
   it("opens one pane through the form, of the shell kind", async () => {
     expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#tabs .tab .label")].map((label) => label.textContent)`)).toEqual(["Shell 1"]);
@@ -54,20 +92,44 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
   });
 
   it("shows the syllable being composed until it is committed", async () => {
-    const line = lines[0]!;
-    // The first whole syllable the line composes: every later step up to its commit leaves it uncommitted.
-    const composing = line.steps.findIndex((step) => step.type === "compose" && SYLLABLE.test(step.text));
-    const syllable = line.steps[composing] as { text: string };
-    await replay(app, line.steps.slice(0, composing + 1));
-    expect(await compositionView(app)).toEqual({ active: true, text: syllable.text });
-    await replay(app, [...line.steps.slice(composing + 1), ...ENTER]);
-    expect((await compositionView(app))?.active).toBe(false);
-    await expectDelivered(line);
+    let whileComposing: Awaited<ReturnType<typeof compositionView>> = null;
+    let afterTheLine: Awaited<ReturnType<typeof compositionView>> = null;
+    await deliver(first, async () => {
+      await replay(app, upToSyllable);
+      whileComposing = await compositionView(app);
+      await replay(app, afterSyllable);
+      afterTheLine = await compositionView(app);
+    });
+    expect(whileComposing).toEqual({ active: true, text: syllable });
+    expect(afterTheLine).toMatchObject({ active: false });
   });
 
   it.each(lines)("hands the pane's process $text as typed", async (line) => {
-    await replay(app, [...line.steps, ...ENTER]);
-    await expectDelivered(line);
+    await deliver(line, () => replay(app, [...line.steps, ...ENTER]));
+  });
+
+  it("types a line again where a composition ended that no step ended", async () => {
+    let attempts = 0;
+    await deliver(first, async () => {
+      attempts += 1;
+      await replay(app, upToSyllable);
+      // What another app taking the system's focus does to the pane: the composing syllable is committed where it stands, and the page sees no blur.
+      if (attempts === 1) await app.cdp("Input.insertText", { text: syllable });
+      await replay(app, afterSyllable);
+    });
+    expect(attempts).toBe(2);
+  });
+
+  it("does not take a composition the window's own code ended for one ended from outside", async () => {
+    await countCompositions(app);
+    await replay(app, upToSyllable);
+    // What the window's own code would do by moving the focus while a person types. A click gives the pane the keyboard back.
+    await app.evaluate("document.activeElement.blur()");
+    await app.click("#stage .pane:not([hidden])");
+    await replay(app, afterSyllable);
+    // The line's bytes are read so that no later reading holds them.
+    await received.next(Buffer.byteLength(`${first.text}\r`));
+    expect(await endedFromOutside(app, first.steps)).toBe(false);
   });
 
   it("stops the app, the daemon and the receiver, and removes its folders", async () => {

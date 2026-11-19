@@ -77,6 +77,49 @@ export async function replay(app: BuiltApp, steps: readonly Step[]): Promise<voi
 }
 
 /**
+ * Starts counting from zero, on the terminal's hidden textarea, the
+ * compositions that end and the times the textarea loses the keyboard inside
+ * the window. The listeners are added from here, once, and the app's code
+ * holds none of them.
+ */
+export async function countCompositions(app: BuiltApp): Promise<void> {
+  await app.evaluate(`(() => {
+    if (!window.__koreanInput) {
+      const area = document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea");
+      const counts = { ended: 0, blurred: 0 };
+      area.addEventListener("compositionend", () => { counts.ended += 1; }, true);
+      area.addEventListener("blur", () => { counts.blurred += 1; }, true);
+      window.__koreanInput = counts;
+    }
+    window.__koreanInput.ended = 0;
+    window.__koreanInput.blurred = 0;
+  })()`);
+}
+
+/**
+ * True where, since the count started, a composition ended that none of
+ * `steps` ended, while the textarea kept the keyboard inside the window.
+ * That is what another app taking the system's focus does: the composing
+ * syllable is committed where it stands, the page sees no blur, and the
+ * pane's process receives the syllable once more than was typed. A
+ * composition that ended with a blur was ended by the window's own code,
+ * and is not this.
+ */
+export async function endedFromOutside(app: BuiltApp, steps: readonly Step[]): Promise<boolean> {
+  const seen = await app.evaluate<{ ended: number; blurred: number }>("window.__koreanInput");
+  let composing = false;
+  let ended = 0;
+  for (const step of steps) {
+    if (step.type === "compose") composing = true;
+    else if (step.type === "commit" && composing) {
+      ended += 1;
+      composing = false;
+    }
+  }
+  return seen.blurred === 0 && seen.ended > ended;
+}
+
+/**
  * Opens a shell pane the way a person gets a first one: the sidebar's "New
  * work item" button, the form filled with `repo` and a title, the shell kind
  * chosen where the form preselects Claude Code, and "Create". It returns once
@@ -84,7 +127,8 @@ export async function replay(app: BuiltApp, steps: readonly Step[]): Promise<voi
  * has started. It calls `focus()` on nothing.
  */
 export async function openReceiverPane(app: BuiltApp, repo: string, receivedFile: string): Promise<void> {
-  await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => !document.getElementById(id).hidden)`, "a screen in front");
+  // The daemon's `ready` puts a screen in front. The session may open before the page holds its elements.
+  await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
   await app.click("#new-work-item");
   await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
   await app.click("#work-item-repo");
