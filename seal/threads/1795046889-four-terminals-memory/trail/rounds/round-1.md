@@ -42,6 +42,11 @@ export function unread(split: Split, bytes: ReadonlyMap<number, number>): { pid:
 
 The snippet leaves one statement for the fix pass. The docstring of `sums` at `memory.ts:106` says "A process that ended before `footprint` read it has no number and adds none". After the fix, that is true of a pane's process alone, and the docstring should say so.
 
+```seal
+verdict: fixed b8f9fc7
+answer: The finding holds. `d9c58ac` applied the snippet: `unread` beside `sums`, `measure` failing the launch on it, the case, and the docstring of `sums` now naming a pane's process alone. `b8f9fc7` then rewrote it in the fix pass's own words, because the snippet's sentence is one a person reads and no case held it (contract rule 14). `unread` now returns that sentence, or null where `footprint` read every process of the app, and `measure` throws what it returns. Two cases hold it: one reads the sentence whole for a GPU and a renderer process with no number, and one reads null where only the panes' processes have none. The first case was seen red against a stub that returned nothing, both were seen red against `d9c58ac`, and four mutants of `unread` at `b8f9fc7` were red. The throw in `measure` has no case, since it needs a launch, and no launch was made.
+```
+
 ### 2. A malformed measurement variable fails every case of the file in a plain `pnpm run test`
 
 ```seal
@@ -60,6 +65,11 @@ describe.runIf(MEASURE)("the memory measurement", () => {
 
 `startOf(process.env)` on the next line throws nothing and may stay. A vitest case cannot pin a collection-time read. The fix pass shows the fix by running the probe's command again for exit 0 and 25 cases passed, and by seeing it fail with the guard removed.
 
+```seal
+verdict: fixed 35aab18
+answer: The finding holds, and the snippet was applied with its comment reworded. At `d9c58ac`, without the guard, the round's command exited 1 with `OWLERY_MEMORY_RUNS is "0"` and `Tests no tests`. At `35aab18` the same command exited 0 with 26 passed, and so did a run with `OWLERY_MEMORY_SCENARIOS=four`. The count is 26 and not 25 because finding 1's case had been added and finding 3's not yet removed. With the measurement off the file now lists no launch, where it listed nine as skipped. `vitest list` under `OWLERY_MEASURE_MEMORY=1`, which collects and runs nothing, still listed the nine launches, and with `OWLERY_MEMORY_RUNS=0` beside it failed on the same sentence.
+```
+
 ### 3. "takes no process of another app" covers nothing the two cases above it do not
 
 ```seal
@@ -75,6 +85,11 @@ Why it matters: the case at `memory.test.ts:88` asserts the whole `app` list of 
 ```
 
 The phase record's sentence at `trail/phases/phase-1.md:55` is dated to `aeaa1e0`, where the case stood, and stays.
+
+```seal
+verdict: fixed 9849e41
+answer: The finding holds, and the case is deleted. `seal mutate` with the test of a row's parent removed from `splitProcesses` was run against each of the two cases the finding names, alone: "takes the main process, every process below it and the daemon for the app itself, each by its kind" failed on the app's list, and "takes every process below the daemon for the panes', and none of them for the app itself" failed on the panes' list.
+```
 
 ### 4. Phase 1's Status cell renders empty, and its commit falls into a fifth cell
 

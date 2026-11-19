@@ -20,3 +20,5 @@ Three launches of each scenario were not made in phase 1. The spawn asked for as
 The measurement prints the date and the versions of macOS, Electron and xterm.js. It does not print the commit, the machine and its displays, the window's size or a tile's size. `frame/design.md` *Scope* item 7 asks them of `apps/desktop/measurements/memory.md`, which phase 4 writes.
 
 A launch that is thrown away is not made again by the tool. The run fails, and whoever ran it runs it again.
+
+A launch fails where `footprint` gave no number for any process of the app (`apps/desktop/test/memory.ts#unread`, round 1's finding 1), and no process of the app is let off. A helper that Chromium starts and ends between the read of `ps` and the read of `footprint` would fail a launch that way. No launch has been made since the rule, so nobody has seen whether one does. The by-kind rows of phase 1's three kept launches hold the same five kinds (`trail/phases/phase-1.md`).
