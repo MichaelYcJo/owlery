@@ -1,17 +1,30 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { claudePaneCommand, HOOK_EVENTS, HookServer, hookSettings, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
 
 const dirs: string[] = [];
 function scratch(): string {
-  const dir = mkdtempSync(join(tmpdir(), "owlery-hooks-"));
+  // The real path, so a case can compare it with `process.cwd()`.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "owlery-hooks-")));
   dirs.push(dir);
   return dir;
 }
+// macOS refuses a Unix socket whose path, as given to the system, is over 104 bytes.
+const SOCKET_PATH_CAP = 104;
+/** A folder whose `hooks.sock` has a path over the cap. */
+function longDir(): string {
+  const dir = join(scratch(), "x".repeat(120));
+  mkdirSync(dir);
+  expect(Buffer.byteLength(join(dir, "hooks.sock"))).toBeGreaterThan(SOCKET_PATH_CAP);
+  return dir;
+}
+// Some cases move the working directory of this process, which vitest forks for this file alone.
+const startedIn = process.cwd();
 afterEach(() => {
+  process.chdir(startedIn);
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -19,18 +32,27 @@ afterEach(() => {
  * Runs the hook command of the settings as Claude Code would, with the event JSON on stdin,
  * in a child process, so the server in this process can answer while it runs.
  */
-function runCommand(command: string, env: Record<string, string>, input: string): Promise<{ status: number | null; ms: number }> {
+function runCommand(
+  command: string,
+  env: Record<string, string>,
+  input: string,
+  cwd?: string,
+): Promise<{ status: number | null; ms: number; output: string }> {
   const started = Date.now();
   return new Promise((resolve) => {
-    const child = spawn("/bin/sh", ["-c", command], { env: { PATH: "/usr/bin:/bin", ...env } });
-    child.on("close", (status) => resolve({ status, ms: Date.now() - started }));
+    const child = spawn("/bin/sh", ["-c", command], { env: { PATH: "/usr/bin:/bin", ...env }, cwd });
+    // What the command writes is what the session would see, on either stream.
+    let output = "";
+    child.stdout.on("data", (chunk) => (output += String(chunk)));
+    child.stderr.on("data", (chunk) => (output += String(chunk)));
+    child.on("close", (status) => resolve({ status, ms: Date.now() - started, output }));
     child.stdin.end(input);
   });
 }
-function runHook(settings: ReturnType<typeof hookSettings>, env: Record<string, string>, payload: object) {
+function runHook(settings: ReturnType<typeof hookSettings>, env: Record<string, string>, payload: object, cwd?: string) {
   const command = settings.hooks.Stop?.[0]?.hooks[0]?.command;
   if (!command) throw new Error("no Stop hook");
-  return runCommand(command, env, JSON.stringify(payload));
+  return runCommand(command, env, JSON.stringify(payload), cwd);
 }
 
 describe("hookSettings", () => {
@@ -44,7 +66,9 @@ describe("hookSettings", () => {
 
   it("names no pane and no socket in the file, so one file serves every pane", () => {
     const text = JSON.stringify(hookSettings());
-    expect(text).toContain("$OWLERY_HOOK_SOCKET");
+    // The socket's folder and its name are both taken from the one variable.
+    expect(text).toContain("${OWLERY_HOOK_SOCKET%/*}");
+    expect(text).toContain("${OWLERY_HOOK_SOCKET##*/}");
     expect(text).toContain("$OWLERY_PANE_ID");
   });
 });
@@ -78,10 +102,67 @@ describe("HookServer", () => {
     await server.close();
   });
 
+  it("receives an event in a run folder whose socket path is over the system's cap", async () => {
+    const server = await HookServer.listen(join(longDir(), "hooks.sock"));
+    const received = new Promise<HookEvent>((resolve) => server.onEvent(resolve));
+    const result = await runHook(hookSettings(), { OWLERY_HOOK_SOCKET: server.socketPath, OWLERY_PANE_ID: "7" }, { hook_event_name: "Stop" });
+    expect(result.status).toBe(0);
+    const event = await received;
+    expect(event.paneId).toBe(7);
+    expect(event.name).toBe("Stop");
+    // Readable by the user alone, as in a short folder.
+    expect(statSync(server.socketPath).mode & 0o777).toBe(0o600);
+    await server.close();
+  });
+
+  it("leaves the working directory where it was when the listen and the close resolve", async () => {
+    const dir = longDir();
+    const server = await HookServer.listen(join(dir, "hooks.sock"));
+    expect(process.cwd()).toBe(startedIn);
+    const closed = server.close();
+    expect(process.cwd()).toBe(startedIn);
+    await closed;
+    expect(process.cwd()).toBe(startedIn);
+  });
+
+  it.each([
+    ["the socket's folder does not exist", (dir: string) => join(dir, "absent", "hooks.sock")],
+    ["the socket's own name is over the cap", (dir: string) => join(dir, `${"s".repeat(SOCKET_PATH_CAP)}.sock`)],
+  ])("leaves the working directory where it was when the listen is refused because %s", async (_why, socketPath) => {
+    await expect(HookServer.listen(socketPath(longDir()))).rejects.toThrow();
+    expect(process.cwd()).toBe(startedIn);
+  });
+
+  it("removes the socket from its folder when it closes, and spares a file of the same name in the working directory", async () => {
+    const bystander = join(scratch(), "hooks.sock");
+    writeFileSync(bystander, "not Owlery's");
+    process.chdir(dirname(bystander));
+    const server = await HookServer.listen(join(longDir(), "hooks.sock"));
+    expect(existsSync(server.socketPath)).toBe(true);
+    await server.close();
+    expect(existsSync(server.socketPath)).toBe(false);
+    expect(readFileSync(bystander, "utf8")).toBe("not Owlery's");
+  });
+
   it("lets the session go on when Owlery is not listening", async () => {
     const dir = scratch();
     const result = await runHook(hookSettings(), { OWLERY_HOOK_SOCKET: join(dir, "absent.sock"), OWLERY_PANE_ID: "1" }, { hook_event_name: "Stop" });
     expect(result.status).toBe(0);
+    expect(result.output).toBe("");
+  });
+
+  it("sends nothing, says nothing and lets the session go on when the socket's folder is gone", async () => {
+    // A hook that went on after a failed `cd` would reach a socket of the same name in the session's own folder.
+    const sessionDir = scratch();
+    const other = await HookServer.listen(join(sessionDir, "hooks.sock"));
+    const events: HookEvent[] = [];
+    other.onEvent((e) => events.push(e));
+    const env = { OWLERY_HOOK_SOCKET: join(sessionDir, "absent", "hooks.sock"), OWLERY_PANE_ID: "1" };
+    const result = await runHook(hookSettings(), env, { hook_event_name: "Stop" }, sessionDir);
+    expect(result.status).toBe(0);
+    expect(result.output).toBe("");
+    await other.close();
+    expect(events).toEqual([]);
   });
 
   it("ignores a payload that is not JSON rather than crashing", async () => {
