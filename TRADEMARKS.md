@@ -15,7 +15,8 @@ this repository are:
   the little owl on a wax seal drawn for a small size, which the app shows on
   the line of a sealed work item.
 - [`apps/desktop/assets/icon/app-icon.svg`](apps/desktop/assets/icon/app-icon.svg),
-  Owlery's emblem: a warm white owl on a black rounded square.
+  Owlery's emblem: a warm white owl on a black rounded square, which both
+  READMEs open with.
 - [`apps/desktop/assets/icon/app-icon-small.svg`](apps/desktop/assets/icon/app-icon-small.svg),
   the emblem drawn for 32 pixels and under: the same owl without its chest
   marks and its two side lines, with heavier eyes.
