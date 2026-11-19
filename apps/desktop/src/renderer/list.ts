@@ -1,20 +1,27 @@
 // A list of work items' lines beside the preview of the selected one: the
 // inbox screen, and the history screen over the work items whose agent
 // finished. Each is a copy of the page's `list-screen` template.
-import { byId, changedSince, dot, entries, held, marked, sealPlace, stateClass, titleClass } from "./shared";
+import { byId, changedSince, detail, dot, entries, held, marked, part, sealPlace, stateClass, titleClass } from "./shared";
 import {
+  ageOf,
+  ahead,
   emptyList,
   filterChoices,
+  gainedSince,
   historyLines,
   inboxGroups,
   inboxSummary,
+  keyHints,
   lastHere,
+  lineBadge,
+  lineText,
   markRanges,
   matchSentence,
   matchWorkItems,
   moveSelection,
+  repoNameOf,
   selectedLine,
-  stateHeading,
+  stateWithAge,
   type Entry,
   type StateFilter,
 } from "./view";
@@ -37,7 +44,7 @@ export interface ListActions {
   filter(state: StateFilter): void;
 }
 
-export function listScreen(name: "inbox" | "history", actions: ListActions): ListScreen {
+export function listScreen(name: "inbox" | "history", actions: ListActions, mac: boolean): ListScreen {
   const root = byId(`${name}-screen`);
   root.append(byId<HTMLTemplateElement>("list-screen").content.cloneNode(true));
   // Each part takes the screen's name before its own as its id.
@@ -54,7 +61,9 @@ export function listScreen(name: "inbox" | "history", actions: ListActions): Lis
   const previewState = piece("preview-state");
   const previewTitle = piece("preview-title");
   const previewBranch = piece("preview-branch");
-  const previewCommits = piece("preview-commits");
+  const previewAhead = piece("preview-ahead");
+  const previewRepo = piece("preview-repo");
+  const previewDetail = piece("preview-detail");
   // The work items in the order their lines are displayed, and the one whose line is selected: the preview shows it, and J, K and Enter act on it.
   let displayed: number[] = [];
   let selected: number | undefined;
@@ -62,6 +71,7 @@ export function listScreen(name: "inbox" | "history", actions: ListActions): Lis
   piece("word").textContent = name === "inbox" ? "Inbox" : "History";
   piece("list").setAttribute("aria-label", name === "inbox" ? "Inbox" : "History");
   piece("preview-seal").replaceWith(sealPlace());
+  piece("preview-keys").replaceChildren(...keyHints(name, mac).map((keys) => part("key", keys)));
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
   piece("open-work-item").addEventListener("click", () => {
@@ -76,11 +86,14 @@ export function listScreen(name: "inbox" | "history", actions: ListActions): Lis
     const entry = entries().find(({ workItem }) => workItem.id === selected);
     previewContent.hidden = !entry;
     if (!entry) return;
-    previewState.textContent = stateHeading(entry.line.state);
+    previewState.textContent = stateWithAge(entry.line.state, entry.session?.stateSince, Date.now());
     previewState.className = `caption state ${stateClass(entry.line.state)}`;
     previewTitle.textContent = entry.line.title;
     previewBranch.textContent = entry.line.branch;
-    previewCommits.textContent = entry.line.commits;
+    previewAhead.textContent = ahead(entry.workItem).sentence;
+    previewRepo.textContent = repoNameOf(entry.workItem);
+    // The commits the branch gained since the look carry a dot.
+    previewDetail.replaceChildren(...detail(entry, gainedSince(entry.workItem, held.lastLook)));
   }
 
   /** The lines are not drawn again, so the keyboard keeps its place. */
@@ -95,21 +108,18 @@ export function listScreen(name: "inbox" | "history", actions: ListActions): Lis
     showPreview();
   }
 
-  function lineElement({ workItem, line }: Entry): HTMLElement {
+  function lineElement({ workItem, line, session }: Entry): HTMLElement {
     const button = document.createElement("button");
     button.className = "line";
     button.title = workItem.worktree;
     button.dataset.workItem = String(workItem.id);
-    const text = document.createElement("span");
-    text.className = "text";
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    const commits = document.createElement("span");
-    commits.className = "commits";
-    commits.textContent = line.commits;
-    meta.append(marked("branch", line.branch, markRanges(line.branch, held.query)), commits);
-    text.append(marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), meta);
-    button.append(dot(line.state, held.lastLook ? changedSince(workItem.id) : undefined), text, sealPlace());
+    const first = part("first", "");
+    first.append(dot(line.state, held.lastLook ? changedSince(workItem.id) : undefined), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), part("age", ageOf(session?.stateSince, Date.now())));
+    // The second row's text is the branch while a search is typed, with the letters that match marked.
+    const said = lineText(workItem, session, held.query !== "");
+    const second = part("second", "");
+    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("badge", lineBadge(workItem, held.lastLook)), sealPlace());
+    button.append(first, second);
     button.addEventListener("click", () => actions.openView(workItem.id));
     // The keyboard's place on a line is the selection, so the preview shows the line a person tabbed to.
     button.addEventListener("focus", () => {
@@ -151,7 +161,7 @@ export function listScreen(name: "inbox" | "history", actions: ListActions): Lis
         ...groups.flatMap((group) => {
           const heading = document.createElement("h2");
           heading.className = `caption state ${stateClass(group.state)}`;
-          heading.textContent = group.heading;
+          heading.append(part("word", group.heading), part("count", String(group.entries.length)));
           return [heading, listOf(group.entries)];
         }),
       );

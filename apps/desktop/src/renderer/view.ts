@@ -1,7 +1,7 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
-import type { AgentState, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
 
 /** A tab's label: the pane's kind, as the daemon labels it, and its id. The work item's title is the view's header's to say. */
 export function tabLabel(session: SessionInfo, paneKinds: readonly PaneKindInfo[]): string {
@@ -79,7 +79,7 @@ export function inboxSummary(lines: readonly InboxLine[]): string {
     .join(", ");
 }
 
-/** A line's state in words: the heading of its group in the inbox, which the preview and a view's header say as well. */
+/** A line's state in words: the heading of its group in the inbox, which the preview and a view say as well, with the state's age. */
 export function stateHeading(state: AgentState | null): string {
   if (state === null) return "No agent";
   return { waiting: "Waiting for you", working: "Working", finished: "Finished" }[state];
@@ -104,7 +104,7 @@ export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly
 }
 
 /** A repository's name: the one the daemon sends, or the last part of its folder for a daemon of an earlier build, which sends none. */
-function repoNameOf(workItem: WorkItem): string {
+export function repoNameOf(workItem: WorkItem): string {
   return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
 }
 
@@ -211,6 +211,8 @@ export interface Change {
   workItem: WorkItem;
   /** The work item's line as the lists now give it. */
   line: InboxLine;
+  /** The pane that line reads its state from, whose time is the age the summary's line says. */
+  session: SessionInfo | undefined;
   /** What changed, opening with the present state. */
   sentence: string;
 }
@@ -239,7 +241,7 @@ export function changesSince(look: Look, workItems: readonly WorkItem[], session
       if (rise === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
       if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
     }
-    return [{ workItem, line, sentence: said.join(" ") }];
+    return [{ workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" ") }];
   });
   return inboxGroups(changes).flatMap((group) => group.entries);
 }
@@ -293,20 +295,166 @@ export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readon
 }
 
 /**
- * When the person was last here, `at` and `now` being times in milliseconds:
- * in minutes under an hour, in hours and minutes under a day, and in days
- * from then on.
+ * How long ago a time is, `at` and `now` being times in milliseconds: in
+ * minutes under an hour, in hours and minutes under a day, and in days from
+ * then on. Nothing where there is no time, as for a pane with no state and
+ * for a daemon of an earlier build, which sends none.
  */
-export function lastHere(at: number, now: number): string {
+export function ageOf(at: number | null | undefined, now: number): string {
+  if (at == null) return "";
   const minutes = Math.floor((now - at) / 60_000);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  let ago: string;
-  if (minutes < 1) ago = "less than a minute";
-  else if (hours < 1) ago = `${minutes} min`;
-  else if (days < 1) ago = minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
-  else ago = `${days} ${days === 1 ? "day" : "days"}`;
-  return `You were last here ${ago} ago.`;
+  if (minutes < 1) return "less than a minute";
+  if (hours < 1) return `${minutes} min`;
+  if (days < 1) return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
+/** When the person was last here, in the words of an age. */
+export function lastHere(at: number, now: number): string {
+  return `You were last here ${ageOf(at, now)} ago.`;
+}
+
+/** A state in its heading's words and how long it has lasted, as in "Waiting for you, 12 min": the state alone where it has no time. */
+export function stateWithAge(state: AgentState | null, since: number | null | undefined, now: number): string {
+  const age = state === null ? "" : ageOf(since, now);
+  return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
+}
+
+/** What a pane's state carried, as a person reads it: its text, or for a pane that waits with a tool's name and no text, which tool it asks for. */
+function saidBy(session: SessionInfo | undefined): string | null {
+  if (!session || session.state === null) return null;
+  if (session.stateText) return session.stateText;
+  return session.state === "waiting" && session.stateTool ? `Asks to use ${session.stateTool}` : null;
+}
+
+/**
+ * What the agent of a work item's line says, under its head: the label of
+ * the pane's kind and "asks" while the agent waits, "said" otherwise.
+ * Nothing where the state carried neither a text nor, for a pane that waits,
+ * a tool's name.
+ */
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string } | null {
+  const text = saidBy(session);
+  if (!session || text === null) return null;
+  const kind = paneKinds.find((offered) => offered.kind === session.kind);
+  return { head: `${kind ? kind.label : session.kind} ${session.state === "waiting" ? "asks" : "said"}`, text };
+}
+
+/**
+ * The text of a line's second row, and which of the three it is: what the
+ * agent's state carried, otherwise the newest commit's subject, otherwise
+ * the branch. While a search is typed it is the branch, where the letters
+ * that match are marked.
+ */
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "state" | "commit" | "branch"; text: string } {
+  const said = searching ? null : saidBy(session);
+  if (said !== null) return { says: "state", text: said };
+  const newest = searching ? undefined : workItem.commits?.[0];
+  return newest ? { says: "commit", text: newest.subject } : { says: "branch", text: workItem.branch };
+}
+
+/**
+ * How many commits a work item's branch gained since the person last looked:
+ * its count now less its count in the look, and all of them for a work item
+ * the look does not hold. None where no look is recorded, and where the
+ * daemon gave no count on either side.
+ */
+export function gainedSince(workItem: WorkItem, look: Look | null): number {
+  if (!look || workItem.newCommits === null) return 0;
+  const before = look.workItems.find((item) => item.id === workItem.id);
+  if (!before) return workItem.newCommits;
+  return before.newCommits === null ? 0 : Math.max(0, workItem.newCommits - before.newCommits);
+}
+
+/** A line's badge: the commits its branch gained since the look, as in "3 new", or nothing where it gained none. */
+export function lineBadge(workItem: WorkItem, look: Look | null): string {
+  const gained = gainedSince(workItem, look);
+  return gained > 0 ? `${gained} new` : "";
+}
+
+/**
+ * How far a work item's branch is ahead of its base: as the preview's
+ * sentence, "6 commits ahead of main", and as the base's fact in a view,
+ * "main · 6 ahead". The base branch is left out where none is recorded, and
+ * the count where the daemon read none.
+ */
+export function ahead(workItem: WorkItem): { sentence: string; fact: string } {
+  const count = workItem.newCommits ?? null;
+  const base = workItem.baseBranch ?? null;
+  const sentence = count === null ? "" : `${count} ${count === 1 ? "commit" : "commits"} ahead${base === null ? "" : ` of ${base}`}`;
+  const fact = [base, count === null ? null : `${count} ahead`].filter((part) => part !== null).join(" · ");
+  return { sentence, fact: fact || "Not recorded" };
+}
+
+/** The lines added and removed, as in "+12 \u22123", or nothing where git counted none, as for a binary file. */
+export function lineCounts(added: number | null, removed: number | null): string {
+  return added === null || removed === null ? "" : `+${added} \u2212${removed}`;
+}
+
+/** How many more of something there are than are listed, or what to say of none listed at all; nothing where every one is listed. */
+function listFoot(listed: number, total: number | null, one: string, many: string, none: string): string {
+  if (listed === 0 && !total) return none;
+  const more = (total ?? listed) - listed;
+  return more > 0 ? `${more} more ${more === 1 ? one : many}` : "";
+}
+
+export interface CommitLine {
+  hash: string;
+  subject: string;
+  /** The lines the commit added and removed. */
+  counts: string;
+  age: string;
+  /** Whether the branch gained the commit since the person last looked. */
+  gained: boolean;
+}
+
+/**
+ * A work item's commits as the preview and a view list them, newest first:
+ * the first `gained` of them are the ones the branch gained since the look.
+ * The foot says how many more the branch holds than the daemon sent, or that
+ * it holds none. Nothing where the daemon read no commits.
+ */
+export function commitLines(workItem: WorkItem, gained: number, now: number): { lines: CommitLine[]; foot: string } | null {
+  const commits = workItem.commits ?? null;
+  if (commits === null) return null;
+  return {
+    lines: commits.map((commit, at) => ({ hash: commit.hash, subject: commit.subject, counts: lineCounts(commit.added, commit.removed), age: ageOf(commit.at, now), gained: at < gained })),
+    foot: listFoot(commits.length, workItem.newCommits, "commit", "commits", "No commit yet."),
+  };
+}
+
+/**
+ * The files a work item's branch changed, each with its lines, under the
+ * count of all of them and the sums of their lines. The foot says how many
+ * more there are than the daemon sent, or that there is none. Nothing where
+ * the daemon read no changes.
+ */
+export function fileLines(workItem: WorkItem): { sum: string; lines: { path: string; counts: string }[]; foot: string } | null {
+  const changes = workItem.changes ?? null;
+  if (changes === null) return null;
+  return {
+    sum: changes.files === 0 ? "" : `${changes.files} ${changes.files === 1 ? "file" : "files"}, ${lineCounts(changes.added, changes.removed)}`,
+    lines: changes.list.map((file: FileChange) => ({ path: file.path, counts: lineCounts(file.added, file.removed) })),
+    foot: listFoot(changes.list.length, changes.files, "file", "files", "No file changed yet."),
+  };
+}
+
+/** The facts of a view's right column, in their order: the agent, which is the label of the kind of the pane the state is read from, when the work item was started, its base and its worktree. */
+export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now: number): { label: string; value: string }[] {
+  const kind = entry.session && paneKinds.find((offered) => offered.kind === entry.session?.kind);
+  return [
+    { label: "Agent", value: entry.session ? (kind ? kind.label : entry.session.kind) : "None" },
+    { label: "Started", value: `${ageOf(entry.workItem.createdAt, now)} ago` },
+    { label: "Base", value: ahead(entry.workItem).fact },
+    { label: "Worktree", value: entry.workItem.worktree },
+  ];
+}
+
+/** The keys a list says under its preview: the two that move through it, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
+export function keyHints(screen: "inbox" | "history", mac: boolean): string[] {
+  return [`J K move through the ${screen}`, `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
 }
 
 /**
@@ -347,15 +495,17 @@ export function inboxKey(
 
 /**
  * What a key pressed with the Command key does on every screen, or null
- * where the window leaves it alone: K puts the focus in the search field. The
- * Control key stands for the Command key where the keyboard has none. The key
- * is read by its place on the keyboard, and not while a dialog is open or
- * another modifier key is held as well.
+ * where the window leaves it alone: K puts the focus in the search field,
+ * and N opens the "New work item" form. The Control key stands for the
+ * Command key where the keyboard has none. The key is read by its place on
+ * the keyboard, and not while a dialog is open or another modifier key is
+ * held as well.
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | null {
+export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | "new" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
   if (!command || key.alt || key.shift || where.dialogOpen) return null;
-  return key.code === "KeyK" ? "search" : null;
+  if (key.code === "KeyK") return "search";
+  return key.code === "KeyN" ? "new" : null;
 }
 
 /**

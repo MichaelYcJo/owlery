@@ -1,11 +1,13 @@
 // A work item's view: its header, its tabs with the terminal of the one in
-// front, and its "Ask" section. The terminals the window holds live here.
+// front and the strip under it, and its right column, which says what the
+// daemon sends of the work item above the "Ask" section and the seal's
+// place. The terminals the window holds live here.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
-import { byId, held, part, request, row, sealPlace, send, stateClass } from "./shared";
-import { askButton, headlessLines, inboxLine, paneInFront, paneTabs, stateHeading, tabLabel, withHeadless } from "./view";
+import { byId, detail, entries, held, part, request, row, sealPlace, send, stateClass } from "./shared";
+import { askButton, headlessLines, paneInFront, paneTabs, repoNameOf, stateWithAge, tabLabel, viewFacts, withHeadless } from "./view";
 
 interface Pane {
   id: number;
@@ -34,8 +36,14 @@ let leave: () => void = () => {};
 
 const viewTitle = byId("view-title");
 const viewBranch = byId("view-branch");
+const viewRepo = byId("view-repo");
+const viewFactsTitle = byId("view-facts-title");
 const viewState = byId("view-state");
-const viewCommits = byId("view-commits");
+const viewFactList = byId("view-fact-list");
+const viewDetail = byId("view-detail");
+const stripSize = byId("strip-size");
+const stripWorktree = byId("strip-worktree");
+const stripState = byId("strip-state");
 const tabs = byId("tabs");
 const paneButtons = byId("pane-buttons");
 const noPanes = byId("no-panes");
@@ -89,7 +97,10 @@ function terminalFor(id: number): Pane {
   const pane: Pane = { id, term, fit, element, awaitingReplay: true };
   panes.set(id, pane);
   term.onData((data) => send({ type: "input", id, data }));
-  term.onResize(({ cols, rows }) => send({ type: "resize", id, cols, rows }));
+  term.onResize(({ cols, rows }) => {
+    send({ type: "resize", id, cols, rows });
+    showSize();
+  });
   send({ type: "resize", id, cols: term.cols, rows: term.rows });
   // The replay holds everything the pane printed, a pane this window started a moment ago included.
   send({ type: "attach", id });
@@ -116,6 +127,12 @@ export function dropClosed(listed: ReadonlySet<number>): void {
 export function startSize(): { cols: number; rows: number } {
   const pane = front === undefined ? undefined : panes.get(front);
   return pane ? { cols: pane.term.cols, rows: pane.term.rows } : DEFAULT_SIZE;
+}
+
+/** Says in the strip the columns and rows of the terminal in front, or nothing where the view shows none. */
+function showSize(): void {
+  const pane = front === undefined ? undefined : panes.get(front);
+  stripSize.textContent = pane ? `${pane.term.cols} \u00d7 ${pane.term.rows}` : "";
 }
 
 /** Starts a pane of `kind` in the work item whose view is on screen. */
@@ -180,23 +197,38 @@ function tabElement(session: SessionInfo, active: boolean): HTMLElement {
 }
 
 /**
- * Draws the view of the work item on screen: its header, its new commits,
- * its tabs, the terminal of the tab in front, and its "Ask" section. It
- * starts no process.
+ * Draws the view of the work item on screen: its header, its tabs, the
+ * terminal of the tab in front with the strip under it, its right column and
+ * its "Ask" section. It starts no process.
  */
 export function showView(): void {
-  const workItem = viewed();
-  if (!workItem) {
+  const entry = entries().find((listed) => listed.workItem.id === held.viewing);
+  if (!entry) {
     leave();
     return;
   }
-  const line = inboxLine(workItem, held.sessions, held.paneKinds);
+  const { workItem, line } = entry;
+  const now = Date.now();
+  const state = stateWithAge(line.state, entry.session?.stateSince, now);
   viewTitle.textContent = line.title;
   viewBranch.textContent = line.branch;
-  viewState.textContent = stateHeading(line.state);
+  viewRepo.textContent = repoNameOf(workItem);
+  viewFactsTitle.textContent = line.title;
+  viewState.textContent = state;
   viewState.className = `caption state ${stateClass(line.state)}`;
-  viewCommits.textContent = line.commits;
-  viewCommits.hidden = line.commits === "";
+  viewFactList.replaceChildren(
+    ...viewFacts(entry, held.paneKinds, now).flatMap(({ label, value }) => {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const said = document.createElement("dd");
+      said.textContent = value;
+      return [term, said];
+    }),
+  );
+  viewDetail.replaceChildren(...detail(entry, 0));
+  stripWorktree.textContent = workItem.worktree;
+  stripState.textContent = state;
+  stripState.className = `state ${stateClass(line.state)}`;
   const shown = paneTabs(workItem, held.sessions, new Set(panes.keys()));
   const target = paneInFront(shown, lastInFront.get(workItem.id));
   tabs.replaceChildren(...shown.map((session) => tabElement(session, session.id === target)));
@@ -212,6 +244,7 @@ export function showView(): void {
       pane.term.focus();
     }
   }
+  showSize();
   showAskSection();
 }
 

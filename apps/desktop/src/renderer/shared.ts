@@ -3,7 +3,7 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { AgentState, ClientMessage, HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
-import { matchWorkItems, stateHeading, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import { commitLines, fileLines, matchWorkItems, stateHeading, stateSays, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -130,4 +130,63 @@ export function dot(state: AgentState | null, changed?: boolean): HTMLElement {
   element.setAttribute("aria-label", words);
   element.title = words;
   return element;
+}
+
+function section(className: string, heading: HTMLElement, ...parts: HTMLElement[]): HTMLElement {
+  const element = document.createElement("section");
+  element.className = className;
+  element.append(heading, ...parts);
+  return element;
+}
+
+function heading(text: string, ...parts: HTMLElement[]): HTMLElement {
+  const element = document.createElement("h3");
+  element.className = "caption";
+  element.append(text, ...parts);
+  return element;
+}
+
+function listOf(lines: readonly HTMLElement[]): HTMLElement {
+  const list = document.createElement("ul");
+  list.append(...lines);
+  return list;
+}
+
+function item(className: string, ...parts: HTMLElement[]): HTMLElement {
+  const element = document.createElement("li");
+  element.className = className;
+  element.append(...parts);
+  return element;
+}
+
+/**
+ * What the preview and a view's right column say of a work item alike: what
+ * its agent says, its commits and its changed files, each left out where the
+ * daemon sent none. The first `gained` commits carry the dot of a commit the
+ * branch gained since the person last looked.
+ */
+export function detail(entry: Entry, gained: number): HTMLElement[] {
+  const parts: HTMLElement[] = [];
+  const says = stateSays(entry.session, held.paneKinds);
+  // The agent's words are plain text, never markup.
+  if (says) parts.push(section("says", heading(says.head), part("said", says.text)));
+  const commits = commitLines(entry.workItem, gained, Date.now());
+  if (commits) {
+    const lines = commits.lines.map((line) => {
+      const mark = part(line.gained ? "gained new" : "gained", "");
+      if (line.gained) {
+        mark.setAttribute("role", "img");
+        mark.setAttribute("aria-label", "New since you were last here");
+        mark.title = "New since you were last here";
+      }
+      return item("commit", mark, part("hash", line.hash), part("subject", line.subject), part("counts", line.counts), part("age", line.age));
+    });
+    parts.push(section("commits", heading("Commits"), ...(lines.length > 0 ? [listOf(lines)] : []), ...(commits.foot ? [part("hint foot", commits.foot)] : [])));
+  }
+  const files = fileLines(entry.workItem);
+  if (files) {
+    const lines = files.lines.map((line) => item("file", part("path", line.path), part("counts", line.counts)));
+    parts.push(section("files", heading("Changes", part("sum", files.sum)), ...(lines.length > 0 ? [listOf(lines)] : []), ...(files.foot ? [part("hint foot", files.foot)] : [])));
+  }
+  return parts;
 }

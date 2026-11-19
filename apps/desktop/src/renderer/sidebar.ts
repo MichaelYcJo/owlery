@@ -2,7 +2,7 @@
 // the three screens it opens, the repositories with their work items, and the
 // status line at its foot.
 import { byId, dot, entries, held, narrowed, part, titleClass } from "./shared";
-import { daemonStatus, filterChoices, matchCount, sidebarTree, summaryCount, type StateFilter } from "./view";
+import { ageOf, daemonStatus, filterChoices, matchCount, sidebarTree, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. */
 export type Front = "summary" | "inbox" | "history" | "view" | null;
@@ -81,13 +81,13 @@ function showStatus(): void {
   status.classList.toggle("notice", notice !== "");
 }
 
-function workItemElement(workItemId: number, title: string, state: Parameters<typeof dot>[0]): HTMLElement {
+function workItemElement(workItemId: number, title: string, state: Parameters<typeof dot>[0], since: number | null | undefined): HTMLElement {
   const button = document.createElement("button");
   button.className = "side-item";
   button.dataset.workItem = String(workItemId);
   // The sidebar marks the work item whose view is on screen.
   if (workItemId === held.viewing) button.setAttribute("aria-current", "page");
-  button.append(dot(state), part(titleClass(workItemId), title));
+  button.append(dot(state), part(titleClass(workItemId), title), part("age", ageOf(since, Date.now())));
   button.addEventListener("click", () => {
     if (workItemId !== held.viewing) actions.openView(workItemId);
   });
@@ -144,7 +144,7 @@ export function showSidebar(inFront: Front = front): void {
       });
       const list = document.createElement("ul");
       list.hidden = isFolded;
-      list.append(...repository.entries.map(({ workItem, line }) => workItemElement(workItem.id, line.title, line.state)));
+      list.append(...repository.entries.map(({ workItem, line, session }) => workItemElement(workItem.id, line.title, line.state, session?.stateSince)));
       section.append(head, list);
       return section;
     }),

@@ -1,20 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
   agentKind,
+  ageOf,
+  ahead,
   askButton,
   changesSince,
   commandKey,
+  commitLines,
   daemonStatus,
   emptyList,
+  fileLines,
   filterChoices,
+  gainedSince,
   headlessLines,
   historyLines,
   inboxGroups,
   inboxKey,
   inboxLine,
   inboxSummary,
+  keyHints,
   lastHere,
+  lineBadge,
+  lineCounts,
   lineSession,
+  lineText,
   markRanges,
   matchCount,
   matchSentence,
@@ -26,17 +35,20 @@ import {
   selectedLine,
   sidebarTree,
   stateHeading,
+  stateSays,
+  stateWithAge,
   summaryControls,
   summaryCount,
   summaryHead,
   summarySentence,
   tabLabel,
+  viewFacts,
   withHeadless,
   workItemEntries,
   workItemFields,
   type InboxLine,
 } from "../src/renderer/view";
-import type { HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -271,9 +283,15 @@ describe("changesSince", () => {
   it("gives a work item whose state and count of new commits both moved, with its present line and what changed in one sentence", () => {
     const before = look([{ ...LOGIN, newCommits: 1 }], [session(3, { state: "working" })]);
     const now = { ...LOGIN, newCommits: 3 };
-    const changes = changesSince(before, [now], [session(3, { state: "waiting" })], KINDS);
+    const waits = session(3, { state: "waiting", stateSince: 5000 });
+    const changes = changesSince(before, [now], [waits], KINDS);
     expect(changes).toEqual([
-      { workItem: now, line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "3 new commits" }, sentence: "Waits for you. 2 new commits since you were last here." },
+      {
+        workItem: now,
+        line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "3 new commits" },
+        session: waits,
+        sentence: "Waits for you. 2 new commits since you were last here.",
+      },
     ]);
     expect(summarySentence(changes)).toBe("1 waiting for you");
   });
@@ -325,6 +343,15 @@ describe("changesSince", () => {
     expect(changes.map((change) => [change.workItem.id, change.sentence])).toEqual([
       [2, "Waits for you."],
       [1, "No agent is running."],
+    ]);
+  });
+
+  it("gives each change the pane its state is read from, and none where the work item has no agent", () => {
+    const finished = session(4, { workItemId: 2, state: "finished", stateSince: 7000 });
+    const changes = changesSince(look([]), [LOGIN, SEARCH], [session(3, { kind: "shell" }), finished], KINDS);
+    expect(changes.map((change) => [change.workItem.id, change.session])).toEqual([
+      [2, finished],
+      [1, undefined],
     ]);
   });
 
@@ -765,6 +792,15 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, code: "KeyJ", meta: true }, free)).toBeNull();
   });
 
+  it("reads N with the Command key as the key that opens the \"New work item\" form, and with the Control key where the keyboard has no Command key", () => {
+    expect(commandKey({ ...plain, code: "KeyN", meta: true }, free)).toBe("new");
+    expect(commandKey({ ...plain, code: "KeyN", ctrl: true }, { ...free, mac: false })).toBe("new");
+    expect(commandKey({ ...plain, code: "KeyN", ctrl: true }, free)).toBeNull();
+    expect(commandKey({ ...plain, code: "KeyN" }, free)).toBeNull();
+    expect(commandKey({ ...plain, code: "KeyN", meta: true }, { ...free, dialogOpen: true })).toBeNull();
+    expect(commandKey({ ...plain, code: "KeyN", meta: true, shift: true }, free)).toBeNull();
+  });
+
   it("reads K with the Control key where the keyboard has no Command key, and not where it has one", () => {
     expect(commandKey({ ...plain, ctrl: true }, { ...free, mac: false })).toBe("search");
     expect(commandKey({ ...plain, ctrl: true }, free)).toBeNull();
@@ -778,5 +814,263 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, meta: true, shift: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, alt: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, ctrl: true }, free)).toBeNull();
+  });
+});
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const NOW = 1_000_000_000_000;
+
+function commit(hash: string, subject: string, fields: Partial<CommitInfo> = {}): CommitInfo {
+  return { hash, subject, at: NOW - 5 * MINUTE, added: 1, removed: 0, ...fields };
+}
+
+describe("ageOf", () => {
+  it("says how long ago a time is, in the words of the sentence of the last look: minutes, hours and minutes, or days", () => {
+    expect(ageOf(NOW - 12 * MINUTE, NOW)).toBe("12 min");
+    expect(ageOf(NOW - (2 * HOUR + 40 * MINUTE), NOW)).toBe("2 h 40 min");
+    expect(ageOf(NOW - 3 * HOUR, NOW)).toBe("3 h");
+    expect(ageOf(NOW - 49 * HOUR, NOW)).toBe("2 days");
+    expect(ageOf(NOW - 30_000, NOW)).toBe("less than a minute");
+    expect(lastHere(NOW - 12 * MINUTE, NOW)).toBe(`You were last here ${ageOf(NOW - 12 * MINUTE, NOW)} ago.`);
+  });
+
+  it("says nothing where there is no time: a pane with no state, and a daemon of an earlier build, which sends none", () => {
+    expect(ageOf(null, NOW)).toBe("");
+    expect(ageOf(undefined, NOW)).toBe("");
+  });
+});
+
+describe("stateWithAge", () => {
+  it("says the state in its heading's words and how long it has lasted", () => {
+    expect(stateWithAge("waiting", NOW - 12 * MINUTE, NOW)).toBe("Waiting for you, 12 min");
+    expect(stateWithAge("finished", NOW - 3 * HOUR, NOW)).toBe("Finished, 3 h");
+  });
+
+  it("says the state alone where it has no time, and that no agent runs where there is no state", () => {
+    expect(stateWithAge("working", null, NOW)).toBe("Working");
+    expect(stateWithAge(null, null, NOW)).toBe("No agent");
+  });
+});
+
+describe("stateSays", () => {
+  it("gives a finished agent's last message under the label of its pane's kind and the word said", () => {
+    expect(stateSays(session(3, { state: "finished", stateText: "The login form is fixed." }), KINDS)).toEqual({ head: "Claude Code said", text: "The login form is fixed." });
+  });
+
+  it("gives what a waiting agent tells the person under the word asks", () => {
+    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?" }), KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?" });
+  });
+
+  it("says which tool a waiting agent asks for where its event carried the tool's name and no text", () => {
+    expect(stateSays(session(3, { state: "waiting", stateTool: "Bash" }), KINDS)).toEqual({ head: "Claude Code asks", text: "Asks to use Bash" });
+    expect(stateSays(session(3, { state: "waiting", stateText: "May I?", stateTool: "Bash" }), KINDS)?.text).toBe("May I?");
+  });
+
+  it("names a tool for a waiting agent alone", () => {
+    expect(stateSays(session(3, { state: "finished", stateTool: "Bash" }), KINDS)).toBeNull();
+    expect(stateSays(session(3, { state: "working", stateTool: "Bash" }), KINDS)).toBeNull();
+  });
+
+  it("gives nothing where the pane carries neither, where it has no state and where the work item has no such pane", () => {
+    expect(stateSays(session(3, { state: "waiting" }), KINDS)).toBeNull();
+    expect(stateSays(session(3, { stateText: "left over" }), KINDS)).toBeNull();
+    expect(stateSays(undefined, KINDS)).toBeNull();
+  });
+
+  it("reads the label from the daemon's list, and gives the kind as the daemon spells it where the list does not hold it", () => {
+    expect(stateSays(session(3, { state: "finished", stateText: "Done." }), [{ kind: "claude", label: "The agent", reportsState: true }])?.head).toBe("The agent said");
+    expect(stateSays(session(3, { state: "finished", stateText: "Done." }), [])?.head).toBe("claude said");
+  });
+
+  it("gives nothing for a pane of a daemon of an earlier build, which sends neither field", () => {
+    const { stateText: _text, stateTool: _tool, ...old } = session(3, { state: "waiting" });
+    expect(stateSays(old as SessionInfo, KINDS)).toBeNull();
+  });
+});
+
+describe("lineText", () => {
+  const two = { ...LOGIN, newCommits: 2, commits: [commit("b2b2b2b", "Check the token"), commit("a1a1a1a", "Add the form")] };
+
+  it("says what the agent's state carried where it carried a text or, while it waits, a tool's name", () => {
+    expect(lineText(two, session(3, { state: "waiting", stateText: "May I run the tests?" }), false)).toEqual({ says: "state", text: "May I run the tests?" });
+    expect(lineText(two, session(3, { state: "waiting", stateTool: "Bash" }), false)).toEqual({ says: "state", text: "Asks to use Bash" });
+  });
+
+  it("says the newest commit's subject where the state carried nothing, and for a work item with no agent", () => {
+    expect(lineText(two, session(3, { state: "working" }), false)).toEqual({ says: "commit", text: "Check the token" });
+    expect(lineText(two, undefined, false)).toEqual({ says: "commit", text: "Check the token" });
+  });
+
+  it("says the branch where there is no commit, none was read, or the daemon is of an earlier build and sends none", () => {
+    const branch = { says: "branch", text: "owlery/fix-the-login-bug" };
+    expect(lineText({ ...LOGIN, commits: [] }, undefined, false)).toEqual(branch);
+    expect(lineText(LOGIN, undefined, false)).toEqual(branch);
+    const { commits: _commits, ...old } = LOGIN;
+    expect(lineText(old as WorkItem, undefined, false)).toEqual(branch);
+  });
+
+  it("says the branch while a search is typed, whatever else it could say, so that the letters that match in it show", () => {
+    expect(lineText(two, session(3, { state: "waiting", stateText: "May I run the tests?" }), true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
+});
+
+describe("gainedSince and lineBadge", () => {
+  function look(workItems: WorkItem[]): Look {
+    return { at: 1000, sessions: [], workItems };
+  }
+
+  it("counts the commits a branch gained since the look, and says them as a line's badge", () => {
+    const before = look([{ ...LOGIN, newCommits: 1 }]);
+    expect(gainedSince({ ...LOGIN, newCommits: 3 }, before)).toBe(2);
+    expect(lineBadge({ ...LOGIN, newCommits: 3 }, before)).toBe("2 new");
+    expect(lineBadge({ ...LOGIN, newCommits: 2 }, before)).toBe("1 new");
+  });
+
+  it("counts every commit of a work item the look does not hold, which was made since", () => {
+    expect(gainedSince({ ...SEARCH, newCommits: 4 }, look([{ ...LOGIN, newCommits: 1 }]))).toBe(4);
+  });
+
+  it("gives none, and no badge, where the branch gained none, lost some, or no look is recorded", () => {
+    const before = look([{ ...LOGIN, newCommits: 3 }]);
+    expect(lineBadge({ ...LOGIN, newCommits: 3 }, before)).toBe("");
+    expect(gainedSince({ ...LOGIN, newCommits: 1 }, before)).toBe(0);
+    expect(gainedSince({ ...LOGIN, newCommits: 3 }, null)).toBe(0);
+    expect(lineBadge({ ...LOGIN, newCommits: 3 }, null)).toBe("");
+  });
+
+  it("reads a count the daemon did not give, in the look or now, as no gain", () => {
+    expect(gainedSince({ ...LOGIN, newCommits: null }, look([{ ...LOGIN, newCommits: 3 }]))).toBe(0);
+    expect(gainedSince({ ...LOGIN, newCommits: 3 }, look([{ ...LOGIN, newCommits: null }]))).toBe(0);
+    expect(gainedSince({ ...SEARCH, newCommits: null }, look([]))).toBe(0);
+  });
+});
+
+describe("ahead", () => {
+  it("says how many commits the branch is ahead of its base, as a sentence and as the base's fact", () => {
+    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main", fact: "main · 6 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: 1 })).toEqual({ sentence: "1 commit ahead of main", fact: "main · 1 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: 0 })).toEqual({ sentence: "0 commits ahead of main", fact: "main · 0 ahead" });
+  });
+
+  it("says the count alone where no base branch is recorded", () => {
+    expect(ahead({ ...LOGIN, baseBranch: null, newCommits: 3 })).toEqual({ sentence: "3 commits ahead", fact: "3 ahead" });
+  });
+
+  it("says no count where the daemon read none: the base branch alone as the fact, and that nothing is recorded where there is neither", () => {
+    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: null })).toEqual({ sentence: "", fact: "main" });
+    expect(ahead(LOGIN)).toEqual({ sentence: "", fact: "Not recorded" });
+  });
+});
+
+describe("lineCounts", () => {
+  it("says the lines added and removed", () => {
+    expect(lineCounts(12, 3)).toBe("+12 \u22123");
+    expect(lineCounts(0, 0)).toBe("+0 \u22120");
+  });
+
+  it("says nothing where git counted no lines, as for a binary file", () => {
+    expect(lineCounts(null, null)).toBe("");
+  });
+});
+
+describe("commitLines", () => {
+  const three = [commit("c3c3c3c", "Pin the redirect", { at: NOW - 5 * MINUTE, added: 4, removed: 1 }), commit("b2b2b2b", "Check the token", { at: NOW - 2 * HOUR }), commit("a1a1a1a", "Add the form", { added: null, removed: null })];
+
+  it("gives each commit, newest first as the daemon sends them, with its hash, its subject, its lines and its age", () => {
+    expect(commitLines({ ...LOGIN, newCommits: 3, commits: three }, 0, NOW)).toEqual({
+      lines: [
+        { hash: "c3c3c3c", subject: "Pin the redirect", counts: "+4 \u22121", age: "5 min", gained: false },
+        { hash: "b2b2b2b", subject: "Check the token", counts: "+1 \u22120", age: "2 h", gained: false },
+        { hash: "a1a1a1a", subject: "Add the form", counts: "", age: "5 min", gained: false },
+      ],
+      foot: "",
+    });
+  });
+
+  it("marks the commits the branch gained since the look, which are the newest ones", () => {
+    expect(commitLines({ ...LOGIN, newCommits: 3, commits: three }, 2, NOW)?.lines.map((line) => line.gained)).toEqual([true, true, false]);
+  });
+
+  it("says how many more commits the branch holds than the daemon sent, one and several", () => {
+    expect(commitLines({ ...LOGIN, newCommits: 25, commits: three }, 0, NOW)?.foot).toBe("22 more commits");
+    expect(commitLines({ ...LOGIN, newCommits: 4, commits: three }, 0, NOW)?.foot).toBe("1 more commit");
+    expect(commitLines({ ...LOGIN, newCommits: null, commits: three }, 0, NOW)?.foot).toBe("");
+  });
+
+  it("says that the branch holds no commit where it holds none", () => {
+    expect(commitLines({ ...LOGIN, newCommits: 0, commits: [] }, 0, NOW)).toEqual({ lines: [], foot: "No commit yet." });
+  });
+
+  it("gives nothing where the daemon read no commits, or is of an earlier build and sends none", () => {
+    expect(commitLines(LOGIN, 0, NOW)).toBeNull();
+    const { commits: _commits, ...old } = LOGIN;
+    expect(commitLines(old as WorkItem, 0, NOW)).toBeNull();
+  });
+});
+
+describe("fileLines", () => {
+  const list = [
+    { path: "src/login.ts", added: 10, removed: 2 },
+    { path: "assets/logo.png", added: null, removed: null },
+  ];
+
+  it("gives each changed file with its lines, under the count of the files and the sums of their lines", () => {
+    expect(fileLines({ ...LOGIN, changes: { files: 2, added: 10, removed: 2, list } })).toEqual({
+      sum: "2 files, +10 \u22122",
+      lines: [
+        { path: "src/login.ts", counts: "+10 \u22122" },
+        { path: "assets/logo.png", counts: "" },
+      ],
+      foot: "",
+    });
+    expect(fileLines({ ...LOGIN, changes: { files: 1, added: 1, removed: 0, list: list.slice(0, 1) } })?.sum).toBe("1 file, +1 \u22120");
+  });
+
+  it("says how many more files the branch changed than the daemon sent, one and several", () => {
+    expect(fileLines({ ...LOGIN, changes: { files: 64, added: 900, removed: 30, list } })?.foot).toBe("62 more files");
+    expect(fileLines({ ...LOGIN, changes: { files: 3, added: 11, removed: 2, list } })?.foot).toBe("1 more file");
+  });
+
+  it("says that no file changed where the branch changed none", () => {
+    expect(fileLines({ ...LOGIN, changes: { files: 0, added: 0, removed: 0, list: [] } })).toEqual({ sum: "", lines: [], foot: "No file changed yet." });
+  });
+
+  it("gives nothing where the daemon read no changes, or is of an earlier build and sends none", () => {
+    expect(fileLines(LOGIN)).toBeNull();
+    const { changes: _changes, ...old } = LOGIN;
+    expect(fileLines(old as WorkItem)).toBeNull();
+  });
+});
+
+describe("viewFacts", () => {
+  const item = { ...LOGIN, createdAt: NOW - 2 * HOUR, baseBranch: "main", newCommits: 6 };
+
+  it("gives the agent, when the work item was started, its base and its worktree, in that order", () => {
+    const entries = workItemEntries([item], [session(3, { state: "working" })], KINDS);
+    expect(entries.map((entry) => viewFacts(entry, KINDS, NOW))).toEqual([
+      [
+        { label: "Agent", value: "Claude Code" },
+        { label: "Started", value: "2 h ago" },
+        { label: "Base", value: "main · 6 ahead" },
+        { label: "Worktree", value: "/w/project/fix-the-login-bug" },
+      ],
+    ]);
+  });
+
+  it("says that the work item has no agent where no live pane of it reports a state", () => {
+    const entries = workItemEntries([item], [session(3, { kind: "shell" })], KINDS);
+    expect(entries.map((entry) => viewFacts(entry, KINDS, NOW)[0])).toEqual([{ label: "Agent", value: "None" }]);
+  });
+});
+
+describe("keyHints", () => {
+  it("says the keys of a list under its preview: the two that move through it, and the one that opens the form", () => {
+    expect(keyHints("inbox", true)).toEqual(["J K move through the inbox", "\u2318N opens a new work item"]);
+    expect(keyHints("history", true)[0]).toBe("J K move through the history");
+  });
+
+  it("names the Control key where the keyboard has no Command key", () => {
+    expect(keyHints("inbox", false)[1]).toBe("Ctrl N opens a new work item");
   });
 });

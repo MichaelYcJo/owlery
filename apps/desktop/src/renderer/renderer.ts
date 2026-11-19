@@ -40,8 +40,8 @@ const formError = byId("work-item-error");
 const createButton = byId<HTMLButtonElement>("work-item-create");
 
 const lists: Record<"inbox" | "history", ListScreen> = {
-  inbox: listScreen("inbox", { openView, filter }),
-  history: listScreen("history", { openView, filter }),
+  inbox: listScreen("inbox", { openView, filter }, MAC),
+  history: listScreen("history", { openView, filter }, MAC),
 };
 
 /** The list on screen, where the inbox screen or the history screen is in front. */
@@ -98,13 +98,14 @@ function filter(state: StateFilter): void {
   showNarrowed();
 }
 
-/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field. */
+/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, and N opens the "New work item" form. */
 function onCommandKey(event: KeyboardEvent): void {
   const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: workItemDialog.open });
-  if (key !== "search") return;
+  if (key === null) return;
   event.preventDefault();
   event.stopPropagation();
-  focusSearch();
+  if (key === "search") focusSearch();
+  else openWorkItemForm();
 }
 
 /**
@@ -303,7 +304,7 @@ initSidebar(
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
 initView(() => openList("inbox"));
-// The search's key is read before a terminal that has the focus reads it.
+// The keys pressed with the Command key are read before a terminal that has the focus reads them.
 document.addEventListener("keydown", onCommandKey, { capture: true });
 document.addEventListener("keydown", onKey);
 window.addEventListener("blur", looked);

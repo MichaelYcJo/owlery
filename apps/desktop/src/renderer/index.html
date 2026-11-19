@@ -66,16 +66,17 @@
         --icon: 16px;
         --control-height: 44px;
         --field-height: 36px;
-        --line-height: 68px;
-        --summary-line-height: 72px;
+        --line-height: 46px;
+        --summary-line-height: 38px;
         --change-width: 400px;
-        --list-width: 620px;
-        --facts-width: 328px;
+        --list-width: 404px;
+        --facts-width: 420px;
         --dialog-width: 460px;
         --tab-width: 240px;
         --dot: 10px;
         --dot-small: 8px;
         --seal-size: 30px;
+        --seal-size-line: 18px;
         --seal-size-large: 52px;
       }
       html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: var(--size-text) var(--font-text); }
@@ -87,6 +88,8 @@
       h1, h2, p, ul { margin: 0; padding: 0; }
       ul { list-style: none; }
       .screen { flex: 1; min-width: 0; min-height: 0; }
+      /* A control keeps its words on one line, whatever stands beside it. */
+      .primary, .quiet { flex: none; white-space: nowrap; }
       .primary { height: var(--control-height); padding: 0 18px; border: 0; border-radius: var(--radius); background: var(--accent); color: var(--on-accent); font-size: var(--size-control); font-weight: 600; }
       .quiet { display: flex; align-items: center; gap: var(--space-4); height: var(--control-height); padding: 0 var(--space-6); border: 0; border-radius: var(--radius); background: none; box-shadow: inset 0 0 0 1px var(--selected-edge); font-size: var(--size-control); font-weight: 600; }
       .caption { font-size: var(--size-label); font-weight: 600; letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-muted); }
@@ -96,7 +99,9 @@
       .title.changed { color: var(--text); font-weight: 600; }
       /* The letters of a title or a branch that match what is typed in the search field. */
       mark { border-radius: var(--space-1); background: var(--mark); color: inherit; }
-      .count { flex: none; font-size: var(--size-label); color: var(--text-muted); }
+      .count, .age { flex: none; font-size: var(--size-label); color: var(--text-muted); }
+      /* How many commits a branch gained since the person last looked. */
+      .badge { flex: none; font-size: var(--size-label); font-weight: 600; color: var(--text); }
       .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: var(--space-1); box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-small); background: none; color: var(--text-muted); font-size: var(--size-line); }
       .icon-button:hover, .icon-button.on { color: var(--text); }
       .icon-button svg { width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
@@ -117,6 +122,28 @@
       /* The seal's place of a work item with no seal: a ring the style draws, with no image in it. */
       .seal.unsealed { flex: none; display: block; box-sizing: border-box; width: var(--seal-size); height: var(--seal-size); border-radius: 50%; border: 1.5px dashed var(--unsealed); }
       .seal.large { width: var(--seal-size-large); height: var(--seal-size-large); }
+      /* On a line of a list and of the summary the place is small. */
+      .line .seal, #summary-lines .seal { width: var(--seal-size-line); height: var(--seal-size-line); }
+
+      /* What the preview and a view's right column say of a work item alike: what its agent says, its commits and its changed files. */
+      .detail { display: flex; flex-direction: column; gap: var(--space-8); }
+      .detail section { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+      .detail h3 { display: flex; align-items: baseline; gap: var(--space-4); margin: 0; }
+      .detail h3 .sum { font-family: var(--font-mono); font-weight: 400; letter-spacing: 0; text-transform: none; }
+      /* The agent's own words, as plain text with its line breaks kept. */
+      .said { font-family: var(--font-display); font-size: var(--size-line); line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .commit { display: grid; grid-template-columns: var(--dot-small) auto minmax(0, 1fr) auto auto; grid-template-areas: "gained hash subject counts age"; column-gap: var(--space-5); align-items: baseline; padding: var(--space-3) 0; border-bottom: 1px solid var(--rule); }
+      .commit .gained { grid-area: gained; align-self: center; }
+      /* The dot before a commit the branch gained since the person last looked. */
+      .commit .gained.new { width: var(--dot-small); height: var(--dot-small); border-radius: 50%; background: var(--text); }
+      .commit .hash { grid-area: hash; }
+      .commit .subject { grid-area: subject; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-second); }
+      .commit .counts { grid-area: counts; }
+      .commit .age { grid-area: age; }
+      .hash, .counts, .path { font-family: var(--font-mono); font-size: var(--size-label); color: var(--text-muted); }
+      .file { display: flex; justify-content: space-between; gap: var(--space-5); padding: var(--space-2) 0; }
+      .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .file .counts { flex: none; }
 
       #sidebar { flex: none; display: flex; flex-direction: column; box-sizing: border-box; width: var(--sidebar-width); min-height: 0; border-right: 1px solid var(--rule); background: var(--raised); }
       /* As high as the hidden title bar: it holds the window's traffic lights on macOS, drags the window and holds nothing else. */
@@ -148,11 +175,9 @@
       #summary-sentence { font-family: var(--font-display); font-size: var(--size-summary); font-weight: 600; line-height: 64px; letter-spacing: var(--tracking-title); }
       #summary-last-here { flex: none; margin-bottom: var(--space-2); font-size: var(--size-text); }
       #summary-lines { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
-      #summary-lines button { display: grid; grid-template-columns: minmax(0, 1fr) var(--change-width) auto; column-gap: var(--space-7); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border: 0; border-bottom: 1px solid var(--rule); background: none; text-align: left; }
-      #summary-lines .text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+      #summary-lines button { display: grid; grid-template-columns: var(--dot) minmax(0, 1fr) var(--change-width) auto auto; column-gap: var(--space-6); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border: 0; border-bottom: 1px solid var(--rule); background: none; text-align: left; }
       #summary-lines .title { font-size: var(--size-line); color: var(--text); font-weight: 600; }
-      #summary-lines .branch { font-size: var(--size-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      #summary-lines .change { font-size: var(--size-control); line-height: 20px; }
+      #summary-lines .change { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-control); }
       #summary-foot { display: flex; align-items: center; gap: var(--space-6); }
 
       /* The inbox screen and the history screen: a list of lines and the preview of the selected one. */
@@ -163,25 +188,31 @@
       .list-head select { height: var(--sidebar-line); font-size: var(--size-label); border-radius: var(--radius-small); }
       .list-sentence { font-family: var(--font-display); font-size: var(--size-sentence); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); }
       .lines { display: flex; flex-direction: column; gap: var(--space-1); }
-      .lines h2 { padding: 18px var(--space-4) var(--space-3); }
+      .lines h2 { display: flex; align-items: baseline; gap: var(--space-4); padding: 18px var(--space-4) var(--space-3); }
+      .lines h2 .count { color: inherit; font-weight: 400; }
       .lines h2:first-child { padding-top: var(--space-3); }
       .lines ul { display: flex; flex-direction: column; gap: var(--space-1); }
-      .line { display: grid; grid-template-columns: var(--space-5) minmax(0, 1fr) auto; column-gap: var(--space-5); align-items: center; box-sizing: border-box; width: 100%; height: var(--line-height); padding: 0 var(--space-5) 0 var(--space-4); border: 0; border-radius: var(--radius); background: none; text-align: left; }
+      /* A line is two rows: the state, the title and the state's age, and under them one text, the badge and the seal's place. */
+      .line { display: flex; flex-direction: column; justify-content: center; gap: var(--space-1); box-sizing: border-box; width: 100%; height: var(--line-height); padding: 0 var(--space-5) 0 var(--space-4); border: 0; border-radius: var(--radius); background: none; text-align: left; }
       .line.selected { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
-      .line .text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
-      .line .title { font-size: var(--size-line); }
-      .line .meta { font-family: var(--font-mono); font-size: var(--size-label); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .line .branch { font-size: inherit; }
-      .line .commits:not(:empty)::before { content: " · "; }
+      .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+      .line .second { padding-left: calc(var(--dot) + var(--space-4)); }
+      .line .title { flex: 1; font-size: var(--size-line); }
+      /* The second row's text is the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
+      .line .says { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-label); color: var(--text-muted); }
       .list-empty { padding: 0 var(--space-4); color: var(--text-muted); }
       .list-last-here, .list-match { font-size: var(--size-text); }
       .list-legend { margin-top: auto; padding: 0 var(--space-4); }
-      .preview { box-sizing: border-box; min-width: 0; min-height: 0; overflow: auto; padding: var(--space-10) var(--space-11); background: var(--raised); }
-      .preview-content { display: flex; flex-direction: column; gap: var(--space-9); min-height: 100%; }
-      .preview-heading { display: flex; flex-direction: column; gap: var(--space-5); }
+      /* The preview's body scrolls under its heading, and its foot stays in place. */
+      .preview { display: flex; flex-direction: column; box-sizing: border-box; min-width: 0; min-height: 0; background: var(--raised); }
+      .preview-content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+      .preview-body { flex: 1; display: flex; flex-direction: column; gap: var(--space-9); min-height: 0; overflow: auto; padding: var(--space-10) var(--space-11) var(--space-8); }
+      .preview-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-8); }
+      .preview-heading { flex: 1; display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; }
       .preview-title { font-family: var(--font-display); font-size: var(--size-preview-title); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); overflow-wrap: anywhere; }
-      .preview-facts { display: flex; align-items: center; gap: var(--space-5); }
-      .preview-foot { margin-top: auto; display: flex; align-items: center; gap: var(--space-6); }
+      .preview-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-6); color: var(--text-muted); }
+      .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-6); padding: var(--space-6) var(--space-11); border-top: 1px solid var(--rule); }
+      .keys { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); }
 
       #work-item-view { display: grid; grid-template-columns: minmax(0, 1fr) var(--facts-width); grid-template-rows: minmax(0, 1fr); }
       #view-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -202,13 +233,28 @@
       #no-panes { padding: var(--space-7) var(--space-9); color: var(--text-muted); }
       #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-bg); }
       .pane { position: absolute; inset: var(--space-7) var(--space-9); }
-      #view-facts { display: flex; flex-direction: column; gap: 26px; box-sizing: border-box; min-height: 0; padding: 22px var(--space-8); border-left: 1px solid var(--rule); background: var(--raised); }
-      #view-seal { display: flex; align-items: center; gap: 14px; }
+      /* The strip under the terminal: its size, the worktree's folder, and the state with its age. */
+      #view-strip { flex: none; display: flex; align-items: center; gap: var(--space-6); padding: var(--space-3) var(--space-9); border-top: 1px solid var(--rule); }
+      #strip-size, #strip-state { flex: none; }
+      #strip-worktree { flex: 1; }
+      /* The right column: what it says of the work item scrolls, and the "Ask" section and the seal's place stay at its foot. */
+      #view-facts { display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border-left: 1px solid var(--rule); background: var(--raised); }
+      #view-scroll { flex: 1; display: flex; flex-direction: column; gap: var(--space-8); min-height: 0; overflow: auto; padding: 22px var(--space-8); }
+      #view-head { display: flex; flex-direction: column; gap: var(--space-3); }
+      #view-facts-title { font-family: var(--font-display); font-size: var(--size-name); font-weight: 600; letter-spacing: var(--tracking-title); overflow-wrap: anywhere; }
+      #view-fact-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3) var(--space-6); margin: 0; }
+      #view-fact-list dt { font-size: var(--size-label); color: var(--text-muted); }
+      #view-fact-list dd { margin: 0; color: var(--text-second); overflow-wrap: anywhere; }
+      /* In the column a commit is two rows: its time and its subject, and under them its hash and its lines. */
+      #view-facts .commit { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "age subject subject" "age hash counts"; }
+      #view-facts .commit .gained { display: none; }
+      #view-facts .commit .age { align-self: start; min-width: var(--space-11); }
+      #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-6) var(--space-8); border-top: 1px solid var(--rule); }
       #view-seal .words { display: flex; flex-direction: column; gap: 3px; }
       #view-seal .name { font-size: var(--size-line); font-weight: 600; }
       #view-seal .note { font-size: var(--size-label); line-height: 17px; color: var(--text-muted); }
 
-      #ask { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; }
+      #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-6) var(--space-8); border-top: 1px solid var(--rule); }
       #ask-form { flex: none; display: flex; gap: var(--space-3); }
       #ask-form input { flex: 1; min-width: 0; }
       #ask-form button { height: var(--field-height); padding: 0 14px; }
@@ -309,18 +355,24 @@
       </section>
       <section data-part="preview" class="preview" aria-label="The selected work item">
         <div data-part="preview-content" class="preview-content" hidden>
-          <div class="preview-heading">
-            <span data-part="preview-state" class="caption state"></span>
-            <h2 data-part="preview-title" class="preview-title"></h2>
-            <span data-part="preview-branch" class="branch"></span>
-          </div>
-          <div class="preview-facts">
-            <span data-part="preview-seal"></span>
-            <span data-part="preview-commits" class="caption"></span>
+          <div class="preview-body">
+            <div class="preview-top">
+              <div class="preview-heading">
+                <span data-part="preview-state" class="caption state"></span>
+                <h2 data-part="preview-title" class="preview-title"></h2>
+                <p class="preview-facts">
+                  <span data-part="preview-branch" class="branch"></span>
+                  <span data-part="preview-ahead"></span>
+                  <span data-part="preview-repo"></span>
+                </p>
+              </div>
+              <span data-part="preview-seal"></span>
+            </div>
+            <div data-part="preview-detail" class="detail"></div>
           </div>
           <div class="preview-foot">
             <button data-part="open-work-item" class="quiet">Open the work item <span aria-hidden="true">›</span></button>
-            <span class="hint">Enter opens it. J and K move through the inbox.</span>
+            <span data-part="preview-keys" class="hint keys"></span>
           </div>
         </div>
       </section>
@@ -328,7 +380,6 @@
     <main id="work-item-view" class="screen" hidden>
       <div id="view-main">
         <header id="view-header">
-          <span id="view-state" class="caption state"></span>
           <h1 id="view-title"></h1>
           <span id="view-branch" class="branch"></span>
         </header>
@@ -339,17 +390,23 @@
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>
           <div id="stage"></div>
+          <p id="view-strip" class="hint">
+            <span id="strip-size"></span>
+            <span id="strip-worktree" class="path"></span>
+            <span id="strip-state" class="state"></span>
+          </p>
         </section>
       </div>
       <aside id="view-facts">
-        <section id="view-seal">
-          <span id="view-seal-place"></span>
-          <span class="words">
-            <span class="name">No seal yet</span>
-            <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
-          </span>
-        </section>
-        <h2 id="view-commits" class="caption" hidden></h2>
+        <div id="view-scroll">
+          <div id="view-head">
+            <span id="view-repo" class="caption"></span>
+            <h2 id="view-facts-title"></h2>
+            <span id="view-state" class="caption state"></span>
+          </div>
+          <dl id="view-fact-list"></dl>
+          <div id="view-detail" class="detail"></div>
+        </div>
         <section id="ask">
           <h2 class="caption">Ask</h2>
           <form id="ask-form">
@@ -357,6 +414,13 @@
             <button type="submit" id="ask-submit" class="quiet">Ask</button>
           </form>
           <ul id="headless"></ul>
+        </section>
+        <section id="view-seal">
+          <span id="view-seal-place"></span>
+          <span class="words">
+            <span class="name">No seal yet</span>
+            <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
+          </span>
         </section>
       </aside>
     </main>
