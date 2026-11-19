@@ -33,7 +33,7 @@ These facts shape the build. `frame/design.md` *Grounding* holds the probe behin
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 3 | Scenarios 1 to 3 as cases, each seen red before its code; scenario 4 by the run of `test/hooks.test.ts` | |
+| 1 | `frame/design.md` *Scope* items 1 to 3 | Scenarios 1 to 3 as cases, each seen red before its code; scenario 4 by the run of `test/hooks.test.ts` | `10fedd8` |
 | 2 | *Scope* items 4 to 6, and the interfaces of *Data & interfaces* outside `hooks.ts` | Scenario 5 as a case, seen red before its code; scenarios 6 and 7 in one drive of the built app | |
 
 Phase 2's commit that adds `changelog.md` carries no version move (*Operational impact*).
