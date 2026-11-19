@@ -49,3 +49,4 @@ A Claude Code pane that has sent no event 10 seconds after its start is listed a
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
 | 2026-11-19 | The crafter of every phase runs on Fable 5.2; the sealer's model is decided by the orchestrator when it is spawned | The owner chose that everything run until 22:00 on 2026-11-19 runs on Fable 5.2 (`routing.md` *Why this way*) | `docs/product.md` *The seal belongs to the product and looks the same everywhere* |
+| 2026-11-19 | The daemon's change is built in milestone 1 as framed: a pane silent for 10 seconds after its start is listed as waiting (`frame/questions.md` Q1, option a) | The owner answered "23 그렇게해" to the orchestrator's recommendation, after it was explained that the trust question comes only in the first work item of a repository never trusted in Claude Code | `docs/product.md` *Foundation* |
