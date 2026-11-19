@@ -568,9 +568,8 @@ export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[],
  * The panes that were in front in a view, the most recent first, once the
  * daemon lists only `listed`. A pane it no longer lists leaves, except the
  * most recent one: that one stays as the pane last in front, so `paneInFront`
- * finds it is no tab and gives the most recent live pane, as the window did
- * before the stage held several panes. Were it taken out, the pane in front
- * before it would come in front, an exited one included.
+ * finds it is no tab and gives the most recent live pane. Were it taken out,
+ * the pane in front before it would come in front, an exited one included.
  */
 export function recentKept(recent: readonly number[], listed: ReadonlySet<number>): number[] {
   return recent.filter((pane, place) => place === 0 || listed.has(pane));

@@ -201,7 +201,7 @@ export function onStage(pane: number): boolean {
   return screenOf(pane) !== undefined;
 }
 
-/** Takes back the screen of each pane the daemon no longer lists, awaits no replay of it, and counts it no longer among the panes that were in front, unless it was the last one. */
+/** Takes back the screen of each pane the daemon no longer lists, awaits no replay of it, and counts it no longer among the panes that were in front, unless it was the most recent of them. */
 export function dropClosed(listed: ReadonlySet<number>): void {
   for (const screen of pool) {
     const pane = screen.turns.pane;
