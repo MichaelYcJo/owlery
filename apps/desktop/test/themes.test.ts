@@ -65,7 +65,7 @@ function isRed(value: string): boolean {
   return SEAL_REDS.some((red) => lower.includes(`#${red}`)) || colours(value).some(([red, green, blue]) => red - green > RED_MARGIN && red - blue > RED_MARGIN);
 }
 
-/** Whether a text names a colour of its own, as a hexadecimal number or a colour function. */
+/** Whether a text names a colour of its own, as a hexadecimal number or with `rgb()`, `rgba()`, `hsl()` or `hsla()`. */
 function namesColour(text: string): boolean {
   return [...text.matchAll(HEX)].length > 0 || [...text.matchAll(FUNCTION)].length > 0;
 }
