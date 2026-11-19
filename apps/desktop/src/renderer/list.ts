@@ -1,7 +1,7 @@
 // A list of work items' lines beside the preview of the selected one: the
 // inbox screen, and the history screen over the work items whose agent
 // finished. Each is a copy of the page's `list-screen` template.
-import { byId, changedSince, detail, dot, entries, held, marked, part, sealPlace, stateClass, titleClass } from "./shared";
+import { byId, changedSince, detail, entries, held, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
 import {
   ageOf,
   ahead,
@@ -21,7 +21,6 @@ import {
   moveSelection,
   repoNameOf,
   selectedLine,
-  stateWithAge,
   type Entry,
   type StateFilter,
 } from "./view";
@@ -56,7 +55,6 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
   const filter = piece<HTMLSelectElement>("filter");
   const lines = piece("lines");
   const empty = piece("empty");
-  const legend = piece("legend");
   const previewContent = piece("preview-content");
   const previewState = piece("preview-state");
   const previewTitle = piece("preview-title");
@@ -70,7 +68,7 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
 
   piece("word").textContent = name === "inbox" ? "Inbox" : "History";
   piece("list").setAttribute("aria-label", name === "inbox" ? "Inbox" : "History");
-  piece("preview-seal").replaceWith(sealPlace());
+  piece("preview-seal").replaceWith(sealPlace("preview"));
   piece("preview-keys").replaceChildren(...keyHints(name, mac).map((keys) => part("key", keys)));
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
@@ -86,8 +84,7 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
     const entry = entries().find(({ workItem }) => workItem.id === selected);
     previewContent.hidden = !entry;
     if (!entry) return;
-    previewState.textContent = stateWithAge(entry.line.state, entry.session?.stateSince, Date.now());
-    previewState.className = `caption state ${stateClass(entry.line.state)}`;
+    showState(previewState, entry.line.state, entry.session?.stateSince);
     previewTitle.textContent = entry.line.title;
     previewBranch.textContent = entry.line.branch;
     previewAhead.textContent = ahead(entry.workItem).sentence;
@@ -114,11 +111,11 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
     button.title = workItem.worktree;
     button.dataset.workItem = String(workItem.id);
     const first = part("first", "");
-    first.append(dot(line.state, held.lastLook ? changedSince(workItem.id) : undefined), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), part("age", ageOf(session?.stateSince, Date.now())));
+    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), part("age", ageOf(session?.stateSince, Date.now())));
     // The second row's text is the branch while a search is typed, with the letters that match marked.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
-    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("badge", lineBadge(workItem, held.lastLook)), sealPlace());
+    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
     button.append(first, second);
     button.addEventListener("click", () => actions.openView(workItem.id));
     // The keyboard's place on a line is the selection, so the preview shows the line a person tabbed to.
@@ -153,14 +150,12 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
     match.hidden = held.query === "";
     empty.textContent = emptyList(name, own.length, shown.length);
     empty.hidden = empty.textContent === "";
-    // The dots mark a change only where a look is recorded to measure it from.
-    legend.hidden = !looked || shown.length === 0;
     if (name === "inbox") {
       const groups = inboxGroups(shown);
       lines.replaceChildren(
         ...groups.flatMap((group) => {
           const heading = document.createElement("h2");
-          heading.className = `caption state ${stateClass(group.state)}`;
+          heading.className = "caption";
           heading.append(part("word", group.heading), part("count", String(group.entries.length)));
           return [heading, listOf(group.entries)];
         }),

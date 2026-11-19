@@ -2,8 +2,8 @@
 // the window's own state, the connection to the daemon, and the pieces every
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
-import type { AgentState, ClientMessage, HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, fileLines, matchWorkItems, stateHeading, stateSays, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, Look, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import { commitLines, fileLines, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -101,34 +101,105 @@ export function titleClass(workItemId: number): string {
 
 const NO_SEAL = "No seal yet";
 
-/** The seal's place. No work item can be sealed yet, so it is a ring the page's style draws, with no image, and says so. */
-export function sealPlace(large = false): HTMLElement {
-  const ring = document.createElement("span");
-  ring.className = large ? "seal unsealed large" : "seal unsealed";
-  ring.setAttribute("role", "img");
-  ring.setAttribute("aria-label", NO_SEAL);
-  ring.title = NO_SEAL;
-  return ring;
+/**
+ * The seal's place: on a line a small disc, and in the preview and at the
+ * foot of a view's right column the seal's own drawing, which the page's
+ * style presses blank into the ground. No work item can be sealed yet, so
+ * `data-seal` is `none` everywhere, and the place says so.
+ */
+export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
+  const place = document.createElement("span");
+  place.className = where === "line" ? "seal" : where === "preview" ? "seal drawn" : "seal drawn large";
+  place.dataset.seal = "none";
+  place.setAttribute("role", "img");
+  place.setAttribute("aria-label", NO_SEAL);
+  place.title = NO_SEAL;
+  return place;
 }
 
 /** The class that gives a state its colour. */
-export function stateClass(state: AgentState | null): string {
+export function stateClass(state: AgentState | null): AgentState | "no-agent" {
   return state ?? "no-agent";
 }
 
+const SVG = "http://www.w3.org/2000/svg";
+
+/** A line icon of the page, 16 units square, from the shapes given: each a path's data, or a circle as its centre and its radius, with a class where the style needs one. */
+export function icon(shapes: readonly (string | { circle: [number, number, number]; className?: string } | { path: string; className: string })[]): SVGElement {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  for (const shape of shapes) {
+    if (typeof shape !== "string" && "circle" in shape) {
+      const circle = document.createElementNS(SVG, "circle");
+      circle.setAttribute("cx", String(shape.circle[0]));
+      circle.setAttribute("cy", String(shape.circle[1]));
+      circle.setAttribute("r", String(shape.circle[2]));
+      if (shape.className) circle.setAttribute("class", shape.className);
+      svg.append(circle);
+    } else {
+      const path = document.createElementNS(SVG, "path");
+      path.setAttribute("d", typeof shape === "string" ? shape : shape.path);
+      if (typeof shape !== "string") path.setAttribute("class", shape.className);
+      svg.append(path);
+    }
+  }
+  return svg;
+}
+
+/** The mark of a repository's fold, which the style turns where the repository is folded. */
+export const CHEVRON = ["M4.5 6.5L8 10l3.5-3.5"] as const;
+
+// The shapes of a state's icon: a speech mark for a wait, a ring that turns for work, a check in a circle for an end, a crescent for no agent, and a triangle for a failure.
+type StateShape = "waiting" | "working" | "finished" | "no-agent" | "failed";
+const STATE_SHAPES: Record<StateShape, Parameters<typeof icon>[0]> = {
+  waiting: ["M3.2 3h9.6a1.7 1.7 0 0 1 1.7 1.7v4.6a1.7 1.7 0 0 1-1.7 1.7H8.4l-3.2 2.8V11h-2a1.7 1.7 0 0 1-1.7-1.7V4.7A1.7 1.7 0 0 1 3.2 3z"],
+  working: [{ circle: [8, 8, 5.6], className: "track" }, { path: "M8 2.4A5.6 5.6 0 0 1 13.6 8", className: "turn" }],
+  finished: [{ circle: [8, 8, 5.8] }, "M5.3 8.2l1.9 1.9 3.6-4"],
+  "no-agent": ["M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z"],
+  failed: ["M8 2.3l6 10.5H2z", "M8 6.6v2.8", "M8 11.1v.1"],
+};
+
 /**
- * A state's dot, which says the state in its colour and, to a pointer and a
- * screen reader, in the words of its heading. On a line of a list, where a
- * look is recorded, `changed` says whether the work item changed since: the
- * dot is filled where it did and a ring where it did not, and its words say
- * which.
+ * A state's icon, which says the state in its shape and its colour and, to a
+ * pointer and a screen reader, in `words`. A failed headless session has an
+ * icon of its own.
  */
-export function dot(state: AgentState | null, changed?: boolean): HTMLElement {
-  const element = part(`dot state ${stateClass(state)}${changed === false ? " unchanged" : ""}`, "");
-  const words = changed === undefined ? stateHeading(state) : `${stateHeading(state)}, ${changed ? "changed" : "not changed"} since you were last here`;
+function iconOf(shape: StateShape, words: string): HTMLElement {
+  const element = part(`state-icon state ${shape}`, "");
+  element.append(icon(STATE_SHAPES[shape]));
   element.setAttribute("role", "img");
   element.setAttribute("aria-label", words);
   element.title = words;
+  return element;
+}
+
+/**
+ * The icon of a work item's state, named in the words of its heading. On a
+ * line of a list `changed` says that the work item changed since the person
+ * last looked, and the icon's words, which a line's name holds, say so too.
+ */
+export function stateIcon(state: AgentState | null, changed = false): HTMLElement {
+  return iconOf(stateClass(state), changed ? `${stateHeading(state)}, changed since you were last here` : stateHeading(state));
+}
+
+/** The icon of a headless session's state, named by the state's own word. */
+export function headlessIcon(state: HeadlessState): HTMLElement {
+  return iconOf(state, state);
+}
+
+/** Draws a state in words where the preview and a view's right column say it: its icon, then the state with its age. */
+export function showState(element: HTMLElement, state: AgentState | null, since: number | null | undefined): void {
+  element.className = `state-words state ${stateClass(state)}`;
+  element.replaceChildren(stateIcon(state), stateWithAge(state, since, Date.now()));
+}
+
+/** The lines a commit or a file added and removed, each in its own colour: the two parts of what `lineCounts` gives. */
+function counts(text: string): HTMLElement {
+  const element = part("counts", "");
+  const [added, removed] = text.split(" ");
+  if (added !== undefined && removed !== undefined) element.append(part("added", added), part("removed", removed));
   return element;
 }
 
@@ -179,13 +250,13 @@ export function detail(entry: Entry, gained: number): HTMLElement[] {
         mark.setAttribute("aria-label", "New since you were last here");
         mark.title = "New since you were last here";
       }
-      return item("commit", mark, part("hash", line.hash), part("subject", line.subject), part("counts", line.counts), part("age", line.age));
+      return item("commit", mark, part("hash", line.hash), part("subject", line.subject), counts(line.counts), part("age", line.age));
     });
     parts.push(section("commits", heading("Commits"), ...(lines.length > 0 ? [listOf(lines)] : []), ...(commits.foot ? [part("hint foot", commits.foot)] : [])));
   }
   const files = fileLines(entry.workItem);
   if (files) {
-    const lines = files.lines.map((line) => item("file", part("path", line.path), part("counts", line.counts)));
+    const lines = files.lines.map((line) => item("file", part("path", line.path), counts(line.counts)));
     parts.push(section("files", heading("Changes", part("sum", files.sum)), ...(lines.length > 0 ? [listOf(lines)] : []), ...(files.foot ? [part("hint foot", files.foot)] : [])));
   }
   return parts;

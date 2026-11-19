@@ -12,13 +12,13 @@ const runDir = join(app.getPath("userData"), "run");
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    // The size the screens are drawn for, on the ground the page's style gives them (`--bg` of src/renderer/index.html).
+    // The size the screens are drawn for, on the ground of the Night desk theme (`--ground` of src/renderer/themes.css), so the window does not flash another colour before its page is drawn.
     width: 1440,
     height: 900,
     title: "Owlery",
     // The title bar is hidden and inset: on macOS the traffic lights stand inside the sidebar, whose top drags the window.
     titleBarStyle: "hiddenInset",
-    backgroundColor: "#0f1218",
+    backgroundColor: "#1c1a18",
     webPreferences: {
       preload: join(__dirname, "preload.js"),
       contextIsolation: true,

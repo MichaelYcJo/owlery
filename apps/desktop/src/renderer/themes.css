@@ -1,0 +1,91 @@
+/*
+ * The themes. Each is one block, and the page moves between themes by the
+ * value of `data-theme` on its `html`. A block holds every colour, typeface,
+ * texture, radius and shadow the page draws with, each named for its role.
+ * It holds no width, no height and no size of type: those are the layout's,
+ * in index.html. Red stands on the seal alone, so no property but the ones
+ * that open `--seal-` holds a red. test/themes.test.ts holds these rules.
+ */
+:root[data-theme="night-desk"] {
+  /* Whether the system draws its own parts, a scroll bar and a list of choices among them, dark or light. */
+  --scheme: dark;
+
+  /* The typefaces are the system's. The serif one draws what an agent says and the summary's sentence. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-ui);
+  /* The terminal's: the fixed-width one, then where a person installed them Nerd Fonts for the icons of common shell prompts, then Korean. */
+  --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
+  --weight-title: 650;
+  --weight-said: 500;
+
+  /* The grounds: the window's, the sidebar's, a view's right column's, a card's and a field's. */
+  --ground: #1c1a18;
+  --ground-side: #262321;
+  --ground-column: #1c1a18;
+  --ground-raised: #262321;
+  --ground-sunken: #171513;
+  --texture: none;
+
+  /* The inks, from strong to faint, and the rules. */
+  --ink-strong: #f6ecd8;
+  --ink: #e4ddcf;
+  --ink-muted: #a39b8d;
+  --ink-faint: #756e63;
+  --rule: rgba(246, 236, 216, 0.09);
+  --rule-soft: rgba(246, 236, 216, 0.05);
+
+  /* A line, a sidebar's item and a tab: under the pointer, pressed, and selected. */
+  --hover: rgba(246, 236, 216, 0.045);
+  --pressed: rgba(246, 236, 216, 0.075);
+  --selected: rgba(246, 236, 216, 0.1);
+  --selected-edge: none;
+
+  /* A button, and the main button, which is never red. */
+  --control: rgba(246, 236, 216, 0.08);
+  --control-hover: rgba(246, 236, 216, 0.13);
+  --control-pressed: rgba(246, 236, 216, 0.05);
+  --control-edge: inset 0 0.5px 0 rgba(246, 236, 216, 0.14), 0 0.5px 1px rgba(0, 0, 0, 0.35);
+  --main: #f6ecd8;
+  --main-hover: #fff8e8;
+  --main-pressed: #e4ddcf;
+  --on-main: #201c18;
+
+  /* The ring of the keyboard's focus and the mark of a search's match, made from the ink and the ochre of a failure. */
+  --focus: #e8c88e;
+  --mark: rgba(219, 165, 69, 0.4);
+  --badge: rgba(246, 236, 216, 0.12);
+  --badge-ink: #f6ecd8;
+
+  /* The states. A failure is the ochre. */
+  --state-waiting: #f6ecd8;
+  --state-working: #bdb5a5;
+  --state-finished: #7d766a;
+  --state-no-agent: #756e63;
+  --state-failed: #dba545;
+  --added: #a3b47c;
+  --removed: #a39b8d;
+
+  /* The terminal, which draws the colours its program asks for over these two. */
+  --terminal-ground: #151312;
+  --terminal-ink: #d6cfc1;
+
+  /* The seal. Its drawing and the wax's red are the drawing's own; a theme gives the tones of the blank place and the light on each. */
+  --seal-blank: #292624;
+  --seal-blank-deep: #23201e;
+  --seal-blank-ring: #312d2a;
+  --seal-blank-owl: #3b3632;
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
+  --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+
+  /* The radii of a card, a control, a line and a chip. */
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-line: 6px;
+  --radius-chip: 4px;
+
+  --card-edge: inset 0 0 0 1px rgba(246, 236, 216, 0.06);
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}

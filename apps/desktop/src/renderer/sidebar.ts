@@ -1,7 +1,7 @@
 // The sidebar, which stands at the left of every screen: the search field,
 // the three screens it opens, the repositories with their work items, and the
 // status line at its foot.
-import { byId, dot, entries, held, narrowed, part, titleClass } from "./shared";
+import { byId, changedSince, CHEVRON, entries, held, icon, narrowed, part, stateIcon, titleClass } from "./shared";
 import { ageOf, daemonStatus, filterChoices, matchCount, sidebarTree, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. */
@@ -81,13 +81,13 @@ function showStatus(): void {
   status.classList.toggle("notice", notice !== "");
 }
 
-function workItemElement(workItemId: number, title: string, state: Parameters<typeof dot>[0], since: number | null | undefined): HTMLElement {
+function workItemElement(workItemId: number, title: string, state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
   const button = document.createElement("button");
   button.className = "side-item";
   button.dataset.workItem = String(workItemId);
   // The sidebar marks the work item whose view is on screen.
   if (workItemId === held.viewing) button.setAttribute("aria-current", "page");
-  button.append(dot(state), part(titleClass(workItemId), title), part("age", ageOf(since, Date.now())));
+  button.append(stateIcon(state, changedSince(workItemId)), part(titleClass(workItemId), title), part("age", ageOf(since, Date.now())));
   button.addEventListener("click", () => {
     if (workItemId !== held.viewing) actions.openView(workItemId);
   });
@@ -114,6 +114,7 @@ export function showSidebar(inFront: Front = front): void {
   summaryNew.textContent = summaryCount(held.changes.length);
   const waiting = all.filter(({ line }) => line.state === "waiting").length;
   bellCount.textContent = waiting > 0 ? String(waiting) : "";
+  bell.classList.toggle("ringing", waiting > 0);
   bell.title = waiting > 0 ? `${waiting} waiting for you. Show them alone.` : "Show the work items that wait for you alone.";
   bell.setAttribute("aria-label", bell.title);
   filter.value = held.filter;
@@ -136,7 +137,7 @@ export function showSidebar(inFront: Front = front): void {
       head.title = repository.repo;
       head.dataset.repo = repository.repo;
       head.setAttribute("aria-expanded", String(!isFolded));
-      head.append(part("chevron", isFolded ? "▸" : "▾"), part("word", repository.name), part("count", String(repository.count)));
+      head.append(icon(CHEVRON), part("word", repository.name), part("count", String(repository.count)));
       head.addEventListener("click", () => {
         if (!folded.delete(repository.repo)) folded.add(repository.repo);
         showSidebar();

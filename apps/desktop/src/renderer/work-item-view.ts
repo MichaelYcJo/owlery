@@ -6,7 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
-import { byId, detail, entries, held, part, request, row, sealPlace, send, stateClass } from "./shared";
+import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import { askButton, headlessLines, paneInFront, paneTabs, repoNameOf, stateWithAge, tabLabel, viewFacts, withHeadless } from "./view";
 
 interface Pane {
@@ -58,7 +58,7 @@ function viewed(): WorkItem | undefined {
   return held.workItems.find((item) => item.id === held.viewing);
 }
 
-/** A value of the page's look: a custom property of `:root`, which the terminal takes its colours and its typeface from. */
+/** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
 function look(property: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(property).trim();
 }
@@ -77,7 +77,7 @@ function terminalFor(id: number): Pane {
     scrollback: 1000,
     fontFamily: look("--font-terminal"),
     fontSize: Number.parseFloat(look("--size-terminal")),
-    theme: { background: look("--terminal-bg"), foreground: look("--terminal-text"), cursor: look("--terminal-text") },
+    theme: { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") },
     cursorBlink: true,
     macOptionIsMeta: true,
     allowProposedApi: true,
@@ -169,7 +169,7 @@ function showAskSection(): void {
     ...headlessLines(held.headless, workItem.id).map((line) => {
       const item = document.createElement("li");
       // The answer is plain text, never markup, and its line breaks are kept by the style.
-      item.append(row(part("prompt", line.prompt), part(`state ${line.state}`, line.state)), part("answer", line.text));
+      item.append(row(headlessIcon(line.state), part("prompt", line.prompt), part(`state ${line.state}`, line.state)), part("answer", line.text));
       return item;
     }),
   );
@@ -214,8 +214,7 @@ export function showView(): void {
   viewBranch.textContent = line.branch;
   viewRepo.textContent = repoNameOf(workItem);
   viewFactsTitle.textContent = line.title;
-  viewState.textContent = state;
-  viewState.className = `caption state ${stateClass(line.state)}`;
+  showState(viewState, line.state, entry.session?.stateSince);
   viewFactList.replaceChildren(
     ...viewFacts(entry, held.paneKinds, now).flatMap(({ label, value }) => {
       const term = document.createElement("dt");
@@ -311,7 +310,7 @@ export function write(id: number, kind: "replay" | "output" | "exit", data: stri
 
 export function initView(onLeave: () => void): void {
   leave = onLeave;
-  byId("view-seal-place").replaceWith(sealPlace(true));
+  byId("view-seal-place").replaceWith(sealPlace("view"));
   askField.addEventListener("input", () => {
     const workItem = viewed();
     if (workItem) showAsk(workItem);

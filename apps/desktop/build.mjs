@@ -42,6 +42,8 @@ await Promise.all([
 ]);
 
 await copyFile("src/renderer/index.html", "dist/index.html");
+await copyFile("src/renderer/themes.css", "dist/themes.css");
 await copyFile("node_modules/@xterm/xterm/css/xterm.css", "dist/renderer.css");
-// The seal's emblem, which the page shows as an image. It is AgenticSeal's drawing and not under this repository's licence (TRADEMARKS.md).
+// The seal's drawings, which the page's style draws a seal's place from: the wax seal, and the small mark of a sealed line. They are AgenticSeal's and not under this repository's licence (TRADEMARKS.md).
+await copyFile("assets/seals/owl.svg", "dist/owl.svg");
 await copyFile("assets/seals/owl-icon-cream.svg", "dist/owl-icon-cream.svg");
