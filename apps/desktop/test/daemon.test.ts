@@ -11,8 +11,9 @@ import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { createWorktree } from "../src/daemon/worktrees";
+import { generateName } from "../src/shared/names";
 import type { HeadlessInfo, ServerMessage } from "../src/shared/protocol";
-import { git, temporaryRepository } from "./repositories";
+import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
@@ -96,6 +97,32 @@ function watchedGit(base: string, seconds = 0): { calls: (command: string) => nu
     calls: (command) => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line === command).length : 0),
     stop,
   };
+}
+
+/**
+ * Puts a `git` before the real one on the path the daemon runs git from: its
+ * `git worktree` waits until `release`, and every other command runs at once.
+ */
+function heldGit(base: string): { release: () => void } {
+  const bin = join(base, "held-bin");
+  const released = join(base, "git-released");
+  const path = process.env.PATH ?? "";
+  mkdirSync(bin);
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$1" = worktree ]; then while [ ! -e '${released}' ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+  process.env.PATH = `${bin}:${path}`;
+  const release = (): void => {
+    writeFileSync(released, "");
+    process.env.PATH = path;
+  };
+  cleanups.push(release);
+  return { release };
+}
+
+/** A temporary clone, removed after the case. */
+function clone(branch?: string) {
+  const made = temporaryClone(branch);
+  cleanups.push(made.remove);
+  return made;
 }
 
 /** A run folder that lists one work item, made before the daemon that reads it, whose branch holds one new commit. */
@@ -373,6 +400,175 @@ describe("work items", () => {
     expect(second.workItem).toMatchObject({ id: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2") });
   });
 
+  it("names a work item nobody named with one generated name, as its title, its branch and its folder, and stores a typed title without the white space at its ends", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root, random: () => 0.5 });
+    const name = generateName(() => 0.5);
+    const c = await client(url);
+    await c.message("ready");
+    const create = async (requestId: number, fields: object) => {
+      c.send({ type: "createWorkItem", requestId, repo, kind: "shell", cols: 80, rows: 24, ...fields });
+      return (await c.message("workItemCreated", (m) => m.requestId === requestId)).workItem;
+    };
+    expect(await create(1, { title: "" })).toMatchObject({ title: name, branch: `owlery/${name}`, worktree: join(root, "project", name) });
+    expect(git(repo, "for-each-ref", "--format=%(refname)", "refs/heads/owlery").trim()).toBe(`refs/heads/owlery/${name}`);
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${join(root, "project", name)}\n`);
+    // The same draw again: the title carries the number the branch and the folder got.
+    expect(await create(2, { title: " \t" })).toMatchObject({ title: `${name}-2`, branch: `owlery/${name}-2`, worktree: join(root, "project", `${name}-2`) });
+    // A title that leaves no slug is the work item's title as typed, and the name sent names its branch.
+    expect(await create(3, { title: " 로그인 버그 ", name: "amber-heron" })).toMatchObject({ title: "로그인 버그", branch: "owlery/amber-heron" });
+    expect(await create(4, { title: " Fix the login bug ", name: "amber-heron" })).toMatchObject({ title: "Fix the login bug", branch: "owlery/fix-the-login-bug" });
+    // An empty title with a name sent is called by that name.
+    expect(await create(5, { title: "", name: "quiet-otter" })).toMatchObject({ title: "quiet-otter", branch: "owlery/quiet-otter" });
+  });
+
+  it("cuts a work item at the base its creation names: a local branch, a remote's branch no local branch bears, and the local branch where both bear the name, each without an upstream", async () => {
+    const { repo, origin, root } = clone();
+    git(origin, "branch", "--quiet", "shadow");
+    git(origin, "checkout", "--quiet", "-b", "remote-only");
+    const remoteOnly = commitFile(origin, "remote.txt");
+    git(repo, "fetch", "--quiet", "origin");
+    git(repo, "checkout", "--quiet", "-b", "feature");
+    const feature = commitFile(repo, "feature.txt");
+    // A local branch that bears the name of the remote's `shadow`, at another commit than it.
+    git(repo, "branch", "--quiet", "origin/shadow");
+    git(repo, "checkout", "--quiet", "main");
+    git(repo, "config", "branch.autoSetupMerge", "always");
+    const first = git(repo, "rev-parse", "refs/remotes/origin/shadow").trim();
+    expect(new Set([first, feature, remoteOnly]).size).toBe(3);
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    const create = async (requestId: number, base: string) => {
+      c.send({ type: "createWorkItem", requestId, repo, title: `From ${requestId}`, base, kind: "shell", cols: 80, rows: 24 });
+      const { workItem } = await c.message("workItemCreated", (m) => m.requestId === requestId);
+      expect(git(repo, "for-each-ref", "--format=%(upstream)", `refs/heads/${workItem.branch}`).trim()).toBe("");
+      expect(git(repo, "rev-parse", `refs/heads/${workItem.branch}`).trim()).toBe(workItem.baseCommit);
+      return [workItem.baseBranch, workItem.baseCommit, workItem.aheadOfBase];
+    };
+    expect(await create(1, "feature")).toEqual(["feature", feature, 0]);
+    expect(await create(2, "origin/remote-only")).toEqual(["origin/remote-only", remoteOnly, 0]);
+    expect(await create(3, "origin/shadow")).toEqual(["origin/shadow", feature, 0]);
+  });
+
+  it("answers a creation whose base is none of the repository's with an error that names it, and creates no branch, folder or list entry", async () => {
+    const { repo, root } = clone();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    const refused = async (requestId: number, base: unknown) => {
+      c.send({ type: "createWorkItem", requestId, repo, title: "Refused", base, kind: "shell", cols: 80, rows: 24 });
+      return (await c.message("error", (m) => m.requestId === requestId)).message;
+    };
+    expect(await refused(1, "nope")).toBe(`${repo} has no branch nope to start a work item from`);
+    // A remote's HEAD entry is a ref of the clone, and no base.
+    expect(git(repo, "rev-parse", "--verify", "refs/remotes/origin/HEAD").trim()).toBe(git(repo, "rev-parse", "HEAD").trim());
+    expect(await refused(2, "origin/HEAD")).toBe(`${repo} has no branch origin/HEAD to start a work item from`);
+    // A name that only begins a branch's is none, and neither is one git reads as a pattern.
+    git(repo, "branch", "--quiet", "feat/login");
+    expect(await refused(3, "feat")).toBe(`${repo} has no branch feat to start a work item from`);
+    expect(await refused(4, "ma*")).toBe(`${repo} has no branch ma* to start a work item from`);
+    expect(await refused(5, "")).toBe(`${repo} has no branch  to start a work item from`);
+    expect(await refused(6, 7)).toBe("a work item starts from a branch's name, and 7 is none");
+    expect(await refused(7, null)).toBe("a work item starts from a branch's name, and null is none");
+    expect(git(repo, "for-each-ref", "refs/heads/owlery")).toBe("");
+    expect(existsSync(root)).toBe(false);
+    const ready = await (await client(url)).message("ready");
+    expect(ready.workItems).toEqual([]);
+    expect(ready.sessions).toEqual([]);
+    expect(c.messages.some((m) => m.type === "workItemCreated")).toBe(false);
+  });
+
+  it("answers a plan with the branch and the folder a creation would get, and creates nothing", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root, random: () => 0.5 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Fix the login bug", kind: "shell", cols: 80, rows: 24 });
+    await c.message("workItemCreated");
+    const held = () => [git(repo, "for-each-ref"), git(repo, "worktree", "list", "--porcelain"), readdirSync(join(root, "project"))];
+    const before = held();
+    const plan = async (requestId: number, fields: object) => {
+      c.send({ type: "planWorkItem", requestId, repo, ...fields });
+      return await c.message("workItemPlan", (m) => m.requestId === requestId);
+    };
+    // A work item's own branch is a local branch, and a base as any other.
+    const planned = await plan(2, { title: "Fix the login bug" });
+    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main" });
+    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "localBases", "remoteBases", "requestId", "type", "worktree"]);
+    // The name sent names the branch where the title leaves no slug, and a generated name where neither does.
+    expect(await plan(3, { title: "로그인 버그", name: "amber-heron" })).toMatchObject({ branch: "owlery/amber-heron", worktree: join(root, "project", "amber-heron") });
+    const name = generateName(() => 0.5);
+    expect(await plan(4, { title: "" })).toMatchObject({ branch: `owlery/${name}`, worktree: join(root, "project", name) });
+    expect(held()).toEqual(before);
+    expect((await (await client(url)).message("ready")).workItems).toHaveLength(1);
+    expect(c.messages.filter((m) => m.type === "inbox")).toHaveLength(1);
+  });
+
+  it("lists in a plan the local branches, the checkout's first, and the remote's branches without its HEAD entry and without a name a local branch bears, each newest commit first, with the remote's default branch as the default base", async () => {
+    const { repo, origin, root } = clone();
+    // Every dated commit is older than the first one, which the clock dated.
+    const T = 1_000_000_000;
+    git(origin, "branch", "--quiet", "shadow");
+    git(origin, "checkout", "--quiet", "-b", "older");
+    commitFile(origin, "older.txt", T + 100);
+    git(origin, "checkout", "--quiet", "-b", "remote-only", "main");
+    commitFile(origin, "remote-only.txt", T + 200);
+    git(origin, "checkout", "--quiet", "main");
+    git(repo, "fetch", "--quiet", "origin");
+    git(repo, "checkout", "--quiet", "-b", "recent");
+    commitFile(repo, "recent.txt", T + 300);
+    git(repo, "checkout", "--quiet", "-b", "feature", "main");
+    commitFile(repo, "feature.txt", T + 50);
+    git(repo, "branch", "--quiet", "origin/shadow");
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "planWorkItem", requestId: 1, repo, title: "Listed" });
+    expect(await c.message("workItemPlan")).toEqual({
+      type: "workItemPlan",
+      requestId: 1,
+      branch: "owlery/listed",
+      worktree: join(root, "project", "listed"),
+      localBases: ["feature", "main", "recent", "origin/shadow"],
+      remoteBases: ["origin/main", "origin/remote-only", "origin/older"],
+      defaultBase: "origin/main",
+    });
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it("answers a plan in a folder outside any git repository, and one whose fields are not the protocol's, with an error", async () => {
+    const { base, repo, root } = repository();
+    const folder = join(base, "plain");
+    mkdirSync(folder);
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    const refused = async (requestId: number, fields: object) => {
+      c.send({ type: "planWorkItem", requestId, ...fields });
+      return await c.message("error", (m) => m.requestId === requestId);
+    };
+    expect(await refused(8, { repo: folder, title: "Anything" })).toEqual({ type: "error", requestId: 8, message: `${folder} is not inside a git repository` });
+    expect((await refused(9, { repo, title: 7 })).message).toBe("a work item needs a repository folder and a title");
+    expect((await refused(10, { repo, title: "Named", name: 7 })).message).toBe("a work item's name, where one is sent, is a string");
+    expect(c.messages.some((m) => m.type === "workItemPlan")).toBe(false);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it("answers a plan while a creation is still under way", async () => {
+    const { repo, root, base } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    const held = heldGit(base);
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Slow", kind: "shell", cols: 80, rows: 24 });
+    c.send({ type: "planWorkItem", requestId: 2, repo, title: "Meanwhile" });
+    expect(await c.message("workItemPlan")).toMatchObject({ requestId: 2, branch: "owlery/meanwhile" });
+    expect(c.messages.some((m) => m.type === "workItemCreated")).toBe(false);
+    held.release();
+    await c.message("workItemCreated");
+  });
+
   it("answers a folder outside any git repository with an error, and creates no branch, folder, list entry or pane", async () => {
     const { base, root } = repository();
     const folder = join(base, "plain");
@@ -398,6 +594,9 @@ describe("work items", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 4, repo, title: 7, kind: "shell", cols: 80, rows: 24 });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 4, message: "a work item needs a repository folder and a title" });
+    expect(existsSync(root)).toBe(false);
+    c.send({ type: "createWorkItem", requestId: 6, repo, title: "Named", name: 7, kind: "shell", cols: 80, rows: 24 });
+    expect(await c.message("error", (m) => m.requestId === 6)).toEqual({ type: "error", requestId: 6, message: "a work item's name, where one is sent, is a string" });
     expect(existsSync(root)).toBe(false);
     c.send({ type: "createWorkItem", requestId: 5, repo, title: "After", kind: "shell", cols: 80, rows: 24 });
     await c.message("workItemCreated", (m) => m.requestId === 5);
@@ -952,9 +1151,31 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => counts(m).join() === "0,3");
   });
 
+  it("tells every client how far a work item's branch is ahead of a remote's branch: by its own commit, by none once a fetch brought that commit to the remote's branch, and by no count once a fetch pruned it", async () => {
+    const { repo, origin, root } = clone();
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead of the remote", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    expect([workItem.baseBranch, workItem.aheadOfBase]).toEqual(["origin/main", 0]);
+    const counts = (m: Inbox) => [m.workItems[0]?.baseBranch, m.workItems[0]?.aheadOfBase, m.workItems[0]?.newCommits].join();
+    commit(workItem.worktree, "own.txt");
+    await c.message("inbox", (m) => counts(m) === "origin/main,1,1");
+    git(origin, "pull", "--quiet", "--ff-only", repo, workItem.branch);
+    git(repo, "fetch", "--quiet", "origin");
+    await c.message("inbox", (m) => counts(m) === "origin/main,0,1");
+    git(origin, "checkout", "--quiet", "-b", "renamed");
+    git(origin, "branch", "--quiet", "-D", "main");
+    git(repo, "fetch", "--quiet", "--prune", "origin");
+    await c.message("inbox", (m) => counts(m) === "origin/main,,1");
+  });
+
   it("gives a work item cut from no branch, and one whose base branch is gone, no count of commits ahead", async () => {
     const { repo, root } = repository();
     git(repo, "checkout", "--quiet", "--detach");
+    // No local branch and no remote: the repository has no default base.
+    git(repo, "branch", "--quiet", "-D", "main");
     const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
     await c.message("ready");
@@ -966,7 +1187,7 @@ describe("the inbox", () => {
     const cut = (await c.message("workItemCreated", (m) => m.requestId === 2)).workItem;
     expect([cut.baseBranch, cut.aheadOfBase]).toEqual(["feature", 0]);
     commit(detached.worktree, "one.txt");
-    git(repo, "checkout", "--quiet", "main");
+    git(repo, "checkout", "--quiet", "--detach");
     git(repo, "branch", "--quiet", "-D", "feature");
     const inbox = await c.message("inbox", (m) => m.workItems[1]?.aheadOfBase === null && m.workItems[0]?.newCommits === 1);
     expect(inbox.workItems.map((w) => [w.baseBranch, w.aheadOfBase, w.newCommits])).toEqual([[null, null, 1], ["feature", null, 0]]);

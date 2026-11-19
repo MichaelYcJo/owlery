@@ -1235,6 +1235,11 @@ describe("ahead", () => {
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 0, newCommits: 0 })).toEqual({ sentence: "0 commits ahead of main", fact: "main · 0 ahead" });
   });
 
+  it("prints a base that is a remote's branch as it is stored, with the remote's name", () => {
+    expect(ahead({ ...LOGIN, baseBranch: "origin/main", aheadOfBase: 1, newCommits: 1 })).toEqual({ sentence: "1 commit ahead of origin/main", fact: "origin/main · 1 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: "origin/main", aheadOfBase: 6, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of origin/main", fact: "origin/main · 6 ahead" });
+  });
+
   it("counts the commits the base branch does not hold, and not the commits since the cut, which hold the base's own once the base was merged in", () => {
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 2, newCommits: 9 })).toEqual({ sentence: "2 commits ahead of main", fact: "main · 2 ahead" });
     // The base took the branch: ahead by none, though the branch holds as many commits since its cut as before.

@@ -11,7 +11,7 @@ import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { LastLook } from "./last-look";
 import { type StoredWorkItem, WorkItemList } from "./work-items";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, worktreesRoot } from "./worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
 const STATE_TEXT_CHARS = 2000;
@@ -22,6 +22,12 @@ function cutText(text: string | null): string | null {
   const last = text.charCodeAt(STATE_TEXT_CHARS - 1);
   // A character outside the basic plane is two of a string's, and the first of the two alone is no character.
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
+}
+
+/** Refuses the fields that name a work item, in a creation and in a plan, where they are not the protocol's. An empty title is one of the protocol's. */
+function checkNaming(message: { repo: unknown; title: unknown; name?: unknown }): void {
+  if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
+  if (message.name !== undefined && typeof message.name !== "string") throw new Error("a work item's name, where one is sent, is a string");
 }
 
 /** How long a pane's silent start lasts where the options name no time. */
@@ -47,6 +53,8 @@ export interface DaemonOptions {
   runDir?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
+  /** The source of randomness a work item nobody named is named from; `Math.random` when absent. */
+  random?: () => number;
   /** The clock a work item's `createdAt`, a headless session's `startedAt`, a look's `at` and a session's `stateSince` are read from. */
   now?: () => number;
   /** How long the daemon waits between two reads of the work items' new commits, apart from the read each hello starts. */
@@ -98,7 +106,7 @@ export class Daemon {
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly workItems: WorkItemList;
   private readonly lastLook: LastLook;
-  // Creations run one after another, so two of one title never pick the same branch and folder.
+  // Creations run one after another, so two of one title never pick the same branch and folder. A plan creates nothing and does not wait behind them.
   private creating: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
@@ -249,9 +257,12 @@ export class Daemon {
       case "createWorkItem": {
         const create = async (): Promise<void> => {
           try {
-            if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
-            const place = await createWorktree({ folder: message.repo, title: message.title, root: this.options.worktreesRoot ?? worktreesRoot(process.env) });
-            const stored = this.workItems.add({ title: message.title, ...place });
+            checkNaming(message);
+            // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
+            if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
+            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random });
+            // A work item nobody named is called what its branch and its folder are, the number they got among it.
+            const stored = this.workItems.add({ title: message.title.trim() || basename(place.worktree), ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.id, 0);
             if (place.baseBranch !== null) this.aheadCounts.set(stored.id, 0);
@@ -265,6 +276,20 @@ export class Daemon {
           }
         };
         this.creating = this.creating.then(create);
+        return;
+      }
+      case "planWorkItem": {
+        const plan = async (): Promise<void> => {
+          try {
+            checkNaming(message);
+            const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random });
+            this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A plan is a read, so it is answered while a creation is under way and can name what that creation is about to take.
+        void plan();
         return;
       }
       case "attach": {
