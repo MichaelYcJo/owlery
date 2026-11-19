@@ -70,6 +70,11 @@ and the live one of them with the highest id comes in front, or the one of them 
   });
 ```
 
+```seal
+verdict: fixed 08bc078
+answer: The finding holds, and the snippet is applied as written, after it was read against `view.ts#paneInFront` and `view.ts#stageOf`: `paneInFront` sorts its tabs by id and gives the live one with the highest id, or the highest id where none is alive, and `stageOf` hands it the four most recently in front where the first of `recent` is closed, so "with the highest id" is the tree's choice in each rewritten statement. `08bc078` holds the docstring of `view.ts#recentKept`, the comment at `work-item-view.ts:212`, and the name and the two comments of the case at `view.test.ts:500-507`; no expectation and no code changes. `8e1b5b8` holds the two sentences of `trail/phases/phase-4.md:23` and the clause in the row of `gaps.md:18`, and adds this pass's run to the row of `gaps.md:12`. `frame/design.md:131` is not the pass's to write, and its three sentences are handed to the orchestrator to fold as the snippet gives them. The lines the finding leaves are left. `node scripts/test-in-electron.mjs test/view.test.ts` from `apps/desktop` exited 0 at `8e1b5b8` with 1 file and 169 passed (`fix-7/narrow.txt` in the pass's scratch), `executed`. No case is new, so none was owed a red run. The pass started the app zero times.
+```
+
 ## Confirmations
 
 ```seal
