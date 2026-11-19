@@ -17,7 +17,7 @@ export function buildApp(): void {
   execFileSync(process.execPath, ["build.mjs"], { cwd: APP_DIR, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "pipe" });
 }
 
-/** A port the system gave as free at this moment, so two worktrees can run the suite at once. */
+/** A port the system gave as free at this moment, so two worktrees that run the suite at once do not meet on one. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
@@ -58,6 +58,7 @@ export class BuiltApp {
   private readonly pending = new Map<number, Pending>();
   private daemon: number | undefined;
   private stopped: Promise<number[]> | undefined;
+  private focused = false;
 
   private constructor(
     private readonly child: ChildProcess,
@@ -79,14 +80,19 @@ export class BuiltApp {
    * Starts the app built in `dist/` and waits for its window's page. `env`
    * is added to the suite's own environment. The user data folder is a new
    * one under the system's temporary folder, so nothing is read from or
-   * written to the person's own.
+   * written to the person's own. The app starts in the background, with
+   * `OWLERY_BACKGROUND` set to `1`, so its window takes neither the system's
+   * focus nor the person's keyboard. A caller that opens the app for a person
+   * to type in passes `keepBackground`, and the variable stays as the
+   * caller's own environment has it.
    */
-  static async start(env: Record<string, string>): Promise<BuiltApp> {
+  static async start(env: Record<string, string>, { keepBackground = false } = {}): Promise<BuiltApp> {
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
     const port = await freePort();
     const appEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
     // Without the variable the suite's binary starts as the app.
     delete appEnv.ELECTRON_RUN_AS_NODE;
+    if (!keepBackground) appEnv.OWLERY_BACKGROUND = "1";
     const child = spawn(process.execPath, [APP_DIR, `--remote-debugging-port=${port}`, `--user-data-dir=${userData}`], { env: appEnv, stdio: "ignore" });
     try {
       const socket = new WebSocket(await pageSocket(port));
@@ -94,13 +100,25 @@ export class BuiltApp {
         socket.addEventListener("open", () => resolve(), { once: true });
         socket.addEventListener("error", () => reject(new Error("the debugging port refused the session")), { once: true });
       });
-      return new BuiltApp(child, socket, userData);
+      const started = new BuiltApp(child, socket, userData);
+      started.focused = await started.evaluate<boolean>("document.hasFocus()");
+      return started;
     } catch (error) {
       child.kill("SIGTERM");
       if (child.pid !== undefined) for (const pid of await untilGone([child.pid], 10_000)) process.kill(pid, "SIGKILL");
       rmSync(userData, { recursive: true, force: true });
       throw error;
     }
+  }
+
+  /** What `document.hasFocus()` answered when the session opened, before anything emulated the focus. */
+  get focusedAtStart(): boolean {
+    return this.focused;
+  }
+
+  /** The app's process id. */
+  get pid(): number {
+    return this.child.pid as number;
   }
 
   /** One call of the debugging port, answered with its result. */

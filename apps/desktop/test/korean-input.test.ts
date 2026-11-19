@@ -41,7 +41,7 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
     repository = temporaryRepository("korean-input");
     const receivedFile = join(repository.base, "received");
     app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: repository.root, OWLERY_RECEIVER_FILE: receivedFile });
-    // The window the case starts may not have the system's focus.
+    // The app starts in the background, and the page of a window without the system's focus reports none.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     await openReceiverPane(app, repository.repo, receivedFile);
     received = new Received(receivedFile);
@@ -56,23 +56,16 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
   /**
    * Types a line with `type`, which ends it with Enter, and reads what the
    * receiver was handed for it. It fails with the line and both byte strings
-   * in hex. Where something outside the window ended a composition while the
-   * line was typed, the line was not typed as written: its bytes are dropped
-   * and it is typed again, three times at most. Nothing else types a line
-   * twice.
+   * in hex. A line is typed once. Where a composition of the line was ended
+   * by something outside the window, the failing line says so.
    */
   async function deliver(line: Line, type: (typing: Typing) => Promise<void>): Promise<void> {
     const expected = Buffer.from(`${line.text}\r`, "utf8");
-    for (let attempt = 1; ; attempt += 1) {
-      const typing = await Typing.start(app);
-      await type(typing);
-      const got = await received.next(expected.length);
-      const outside = await typing.endedFromOutside();
-      if (outside && attempt < 3) continue;
-      const taken = outside ? ", and in each of three attempts a composition ended that no step ended: something keeps taking the system's focus from the window" : "";
-      expect(got.toString("hex"), `the line "${line.text}": expected ${expected.toString("hex")}, received ${got.toString("hex") || "nothing"}${taken}`).toBe(expected.toString("hex"));
-      return;
-    }
+    const typing = await Typing.start(app);
+    await type(typing);
+    const got = await received.next(expected.length);
+    const outside = (await typing.endedFromOutside()) ? ", and something outside the window ended a composition of the line" : "";
+    expect(got.toString("hex"), `the line "${line.text}": expected ${expected.toString("hex")}, received ${got.toString("hex") || "nothing"}${outside}`).toBe(expected.toString("hex"));
   }
 
   // The first whole syllable the first line composes. Every step after it, up to its commit, leaves it uncommitted.
@@ -84,6 +77,12 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
 
   it("opens one pane through the form, of the shell kind", async () => {
     expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#tabs .tab .label")].map((label) => label.textContent)`)).toEqual(["Shell 1"]);
+  });
+
+  it("stays in the background: no Dock icon, and no focus of the system's", () => {
+    // `UIElement` is the system's type for an app with no Dock icon, which a start does not bring to the front.
+    expect(execFileSync("lsappinfo", ["info", "-only", "ApplicationType", String(app.pid)], { encoding: "utf8" }).trim()).toBe('"ApplicationType"="UIElement"');
+    expect(app.focusedAtStart).toBe(false);
   });
 
   it("gives the new pane the keyboard, which the case never does", async () => {
@@ -108,16 +107,15 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
     await deliver(line, (typing) => typing.replay([...line.steps, ...ENTER]));
   });
 
-  it("types a line again where a composition ended that no step ended", async () => {
-    let attempts = 0;
-    await deliver(first, async (typing) => {
-      attempts += 1;
-      await typing.replay(upToSyllable);
-      // What another app taking the system's focus does to the pane: the composing syllable is committed where it stands, and the page sees no blur.
-      if (attempts === 1) await app.cdp("Input.insertText", { text: syllable });
-      await typing.replay(afterSyllable);
-    });
-    expect(attempts).toBe(2);
+  it("names a composition that something outside the window ended, and types the line once", async () => {
+    const typing = await Typing.start(app);
+    await typing.replay(upToSyllable);
+    // What reaches the pane where the system ends a composition: the composing syllable is committed where it stands, by no step, and the page sees no blur.
+    await app.cdp("Input.insertText", { text: syllable });
+    await typing.replay(afterSyllable);
+    // The line's bytes are read so that no later reading holds them.
+    await received.next(Buffer.byteLength(`${first.text}\r`));
+    expect(await typing.endedFromOutside()).toBe(true);
   });
 
   it("does not take a composition the window's own code ended for one ended from outside", async () => {

@@ -118,11 +118,11 @@ export class Typing {
   /**
    * True where something outside the window ended a composition of this
    * line: one was found ended that no step ended, and the textarea kept the
-   * keyboard inside the window all along. That is what another app taking
-   * the system's focus does. The composing syllable is committed where it
-   * stands, the page sees no blur, and the pane's process receives other
-   * bytes than were typed. A composition that ended with a blur was ended by
-   * the window's own code, and is not this.
+   * keyboard inside the window all along. A window that holds the system's
+   * focus and loses it to another app shows this: the composing syllable is
+   * committed where it stands, the page sees no blur, and the pane's process
+   * receives other bytes than were typed. A composition that ended with a
+   * blur was ended by the window's own code, and is not this.
    */
   async endedFromOutside(): Promise<boolean> {
     return this.ended && (await this.app.evaluate<number>("window.__koreanInput.blurred")) === 0;
