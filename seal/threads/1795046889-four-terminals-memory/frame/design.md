@@ -67,6 +67,7 @@ What reading and probes gave, each labelled:
 4. **A pane shown again draws its output once.** Where a pane leaves the stage and returns before the first replay arrived, two replays are on their way. The window writes the last one it asked for and no other, and drops output that arrives before it, as `work-item-view.ts#write` drops it for one replay today.
 5. **An exited pane keeps its tab and its last screen without the window holding a terminal for it.**
    - When a session's process exits, the daemon appends the line `[process exited with code <N>]`, on a line of its own, to the session's kept output and sends it as `output` to the clients that receive the session. A replay of an exited session therefore ends with it. The window writes nothing of its own at `exit`.
+   - A pane a client closed while its process ran gets no exit line: it is on no list, and its end is told to nobody.
    - The tabs of a work item's view are its sessions as the daemon lists them, alive or exited, in the order of their ids. An exited pane shows a tab after a reload as well, where today it has none unless the window holds its terminal, and its close control takes it off the daemon's lists.
    - A replay opens at the start of a line. Where `OutputBuffer` drops old output, it also drops the rest of the line the cut falls in, so what it keeps never opens inside an escape sequence that stands on one line. Where what it keeps holds no line break, the cut stays where the count of characters puts it.
 6. **The measurement is in the tree and starts the app through `BuiltApp.start`.** It is run as `pnpm run measure:memory` from `apps/desktop`, which sets `OWLERY_MEASURE_MEMORY=1` and runs `test/memory.test.ts` in Electron's Node, as `korean:typed` runs the typed run. It is macOS's alone, as v0.1 is. Without the variable the file runs the cases of its own functions and starts no app, so `pnpm run check` and the `Broad gate` take no measurement.
@@ -123,7 +124,7 @@ In `apps/desktop/src/shared/protocol.ts`:
 - Client: new `{ type: "detach"; id: number }`. It has no answer.
 - `exit` stays as it is. The window reads it for nothing it draws.
 
-In `apps/desktop/src/daemon/`: `daemon.ts` handles `detach` by taking the session out of the set of that client (`Daemon#clients`), and at a process's exit appends the exit line through the path a pane's own output takes, in `Daemon#startSession`, where the exit also clears issue #23's `silentStart`. `buffer.ts#append` drops to the next line break after a cut. Their cases go in `apps/desktop/test/daemon.test.ts`, where the buffer's and the replay's cases are.
+In `apps/desktop/src/daemon/`: `daemon.ts` handles `detach` by taking the session out of the set of that client (`Daemon#clients`), and at a process's exit appends the exit line through the path a pane's own output takes, in `Daemon#startSession`, where the exit also clears issue #23's `silentStart`. `buffer.ts#append` drops the rest of the line a cut falls in, through its line break, and drops nothing more where the cut falls at a line's start. Their cases go in `apps/desktop/test/daemon.test.ts`, where the buffer's and the replay's cases are.
 
 In `apps/desktop/src/renderer/`:
 
