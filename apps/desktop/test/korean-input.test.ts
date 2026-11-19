@@ -284,7 +284,9 @@ describe.skipIf(TYPED)("the typed run, without a person", () => {
   });
 
   it("reads the versions a typed run is recorded with", () => {
-    expect(versions(new Date(2026, 10, 20))).toEqual({ date: "2026-11-20", macos: expect.stringMatching(/^\d+\.\d+/), electron: process.versions.electron, xterm: "6.0.0" });
+    // The version `package.json` pins, which is exact, so an upgrade of `@xterm/xterm` moves both sides of the comparison.
+    const pinned = (JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { dependencies: Record<string, string> }).dependencies["@xterm/xterm"];
+    expect(versions(new Date(2026, 10, 20))).toEqual({ date: "2026-11-20", macos: expect.stringMatching(/^\d+\.\d+/), electron: process.versions.electron, xterm: pinned });
   });
 
   it("reads a typed line once its Enter arrived, and what there is where none does", async () => {
