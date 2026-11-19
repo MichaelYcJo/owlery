@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /**
  * The Claude Code hook events Owlery listens to: the inbox reads session state
@@ -35,8 +35,11 @@ export interface HookSettings {
 // The hook sends the pane's id and the event's JSON to Owlery's socket with the
 // macOS `nc`, and always exits 0, so a session goes on when Owlery is not there.
 // The pane and the socket come from the pane's environment, so one file serves
-// every pane.
-const RELAY = `{ printf '%s\\n' "$OWLERY_PANE_ID"; cat; } | /usr/bin/nc -U -w 2 "$OWLERY_HOOK_SOCKET" >/dev/null 2>&1 || true`;
+// every pane. `nc` is given the socket's name from inside the socket's folder,
+// because macOS refuses a socket path over 104 bytes and a run folder can be
+// longer than that. Where the folder is gone `nc` does not run, so the event
+// reaches no socket of the same name in the session's own folder.
+const RELAY = `{ printf '%s\\n' "$OWLERY_PANE_ID"; cat; } | { cd "\${OWLERY_HOOK_SOCKET%/*}" && /usr/bin/nc -U -w 2 "\${OWLERY_HOOK_SOCKET##*/}"; } >/dev/null 2>&1 || true`;
 
 /** The settings Owlery passes to the `claude` it launches. They add to the user's own settings and change none. */
 export function hookSettings(): HookSettings {
@@ -51,6 +54,21 @@ export function writeHookSettings(dir: string): string {
   const file = join(dir, "claude-hooks.json");
   writeFileSync(file, JSON.stringify(hookSettings(), null, 2), { mode: 0o600 });
   return file;
+}
+
+/**
+ * Runs `act` with the process's working directory moved into `dir`, and moves
+ * it back before returning, whether `act` returned or threw. Nothing else runs
+ * in between: `act` is synchronous, and the daemon runs on one thread.
+ */
+function inside(dir: string, act: () => void): void {
+  const back = process.cwd();
+  process.chdir(dir);
+  try {
+    act();
+  } finally {
+    process.chdir(back);
+  }
 }
 
 function shellQuote(value: string): string {
@@ -93,6 +111,12 @@ export class HookServer {
     readonly socketPath: string,
   ) {}
 
+  /**
+   * Listens at `socketPath`, an absolute path of any length the file system takes.
+   * macOS refuses a socket path over 104 bytes, counted on the string the system is
+   * given, so the socket is bound by its file name from inside its folder. Node binds
+   * during the call of `listen`, so the working directory is moved for that call alone.
+   */
   static listen(socketPath: string): Promise<HookServer> {
     if (existsSync(socketPath)) rmSync(socketPath);
     const server = createServer();
@@ -100,10 +124,12 @@ export class HookServer {
     server.on("connection", (socket) => hooks.accept(socket));
     return new Promise((resolve, reject) => {
       server.once("error", reject);
-      server.listen(socketPath, () => {
-        chmodSync(socketPath, 0o600);
-        resolve(hooks);
-      });
+      inside(dirname(socketPath), () =>
+        server.listen(basename(socketPath), () => {
+          chmodSync(socketPath, 0o600);
+          resolve(hooks);
+        }),
+      );
     });
   }
 
@@ -111,8 +137,14 @@ export class HookServer {
     this.listeners.push(listener);
   }
 
+  /**
+   * Stops listening and removes the socket file. Node removes it during the call of
+   * `close`, by the name the server was bound with, so the call is made from inside the
+   * socket's folder: made from anywhere else it would leave the socket and remove a file
+   * of that name from the working directory.
+   */
   close(): Promise<void> {
-    return new Promise((resolve) => this.server.close(() => resolve()));
+    return new Promise((resolve) => inside(dirname(this.socketPath), () => this.server.close(() => resolve())));
   }
 
   private accept(socket: Socket): void {

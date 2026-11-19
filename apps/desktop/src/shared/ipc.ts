@@ -11,9 +11,14 @@ export interface DaemonConnection {
   token: string;
 }
 
+/** Why no daemon could be reached, as a sentence the window shows as it is. */
+export interface DaemonFailure {
+  error: string;
+}
+
 export interface OwleryApi {
-  /** Finds or starts the daemon and returns how to reach it. */
-  daemon(): Promise<DaemonConnection>;
+  /** Finds or starts the daemon and returns how to reach it, or why it could not be started. */
+  daemon(): Promise<DaemonConnection | DaemonFailure>;
   /** Opens the native folder dialog and returns the folder chosen, or null where none was. */
   pickFolder(): Promise<string | null>;
 }

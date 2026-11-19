@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { Channel, type DaemonConnection } from "../shared/ipc";
+import { Channel, type DaemonConnection, type DaemonFailure } from "../shared/ipc";
 import { ensureDaemon } from "./daemon-client";
 import { pickFolder } from "./pick-folder";
 
@@ -30,9 +30,14 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
-  ipcMain.handle(Channel.daemon, async (): Promise<DaemonConnection> => {
-    const { port, token } = await ensureDaemon(runDir, join(__dirname, "daemon.js"));
-    return { url: `ws://127.0.0.1:${port}`, token };
+  ipcMain.handle(Channel.daemon, async (): Promise<DaemonConnection | DaemonFailure> => {
+    try {
+      const { port, token } = await ensureDaemon(runDir, join(__dirname, "daemon.js"));
+      return { url: `ws://127.0.0.1:${port}`, token };
+    } catch (error) {
+      // Answered, not rejected: Electron puts its own words in front of a rejected request's message.
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
   });
   ipcMain.handle(Channel.pickFolder, (event): Promise<string | null> => {
     // The dialog is a sheet of the window that asked, where that window is still there.

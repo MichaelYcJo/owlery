@@ -66,4 +66,8 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void stop(0));
 }
 
-void main();
+main().catch((error: unknown) => {
+  // The message alone, in one line: the app shows the log's last line to the person as why the daemon did not start.
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
