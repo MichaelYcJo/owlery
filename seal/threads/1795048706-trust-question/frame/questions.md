@@ -8,7 +8,11 @@ Judgments the ticket (#23) left open that the tree or a probe answered. None is 
 - How the daemon learns of the wait without reading the screen: `frame/plan.md` *Alternatives considered*, the first row, and the rows on `~/.claude.json` and on the pane's output.
 - Whether the protocol gains a state: `frame/plan.md` *Alternatives considered*, the row that replaces the structure.
 - Whether the window changes: `frame/design.md` *Grounding*, the bullet "The window already shows `waiting` and notifies for it".
-- How this work meets issues #18 and #9: `frame/plan.md` *Overlap with the release*.
+- How this work meets issue #9, and what issues #18 and #19 left under it once they merged: `frame/plan.md` *Overlap with the release*.
+- What a pane made `waiting` by silence carries beside its state, and how the window shows it: `frame/design.md` *Grounding*, the bullets "A state carries three more fields since pull request #37" and "The window already shows `waiting` and notifies for it".
+- How the real question is run with no window: `frame/design.md` *Grounding*, the bullet "The built daemon runs with no window", and scenario 1.
+
+One scenario is not run and is no row, because no answer to it changes what is built: scenario 8, the drawn window, needs the app's window, which no agent opens. `frame/design.md` names the orchestrator as its answerer.
 
 One assumption is written down and not asked, because another answer changes one number and nothing else that is built: the silent start lasts 10 seconds (`frame/design.md` *Scope* item 2, with its grounds).
 
