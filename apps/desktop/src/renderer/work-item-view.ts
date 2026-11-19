@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
-import { askButton, headlessLines, paneTabs, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
+import { askButton, headlessLines, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
 interface Screen {
@@ -29,7 +29,7 @@ const awaited = new Map<number, number>();
 const replayed = new Set<number>();
 // The pane in front of the view on screen, which has the keyboard. No pane is in front on another screen.
 let front: number | undefined;
-// The panes that were in front in each work item's view since the window loaded, the most recent first.
+// The panes that were in front in each work item's view since the window loaded, the most recent first. A closed pane stays only where it is the first.
 const recent = new Map<number, number[]>();
 // Whether "Side by side" is pressed: the window's own state, one for every view, off at each load.
 let sideBySide = false;
@@ -201,7 +201,7 @@ export function onStage(pane: number): boolean {
   return screenOf(pane) !== undefined;
 }
 
-/** Takes back the screen of each pane the daemon no longer lists, and awaits no replay of it. */
+/** Takes back the screen of each pane the daemon no longer lists, awaits no replay of it, and counts it no longer among the panes that were in front, unless it was the last one. */
 export function dropClosed(listed: ReadonlySet<number>): void {
   for (const screen of pool) {
     const pane = screen.turns.pane;
@@ -209,7 +209,8 @@ export function dropClosed(listed: ReadonlySet<number>): void {
     if (front === pane) front = undefined;
     giveBack(screen);
   }
-  for (const [workItemId, panes] of recent) recent.set(workItemId, panes.filter((pane) => listed.has(pane)));
+  // The closed pane that was in front stays as the last in front, so the most recent live pane follows it (./view, `recentKept`).
+  for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
   for (const pane of [...replayed]) if (!listed.has(pane)) replayed.delete(pane);
 }

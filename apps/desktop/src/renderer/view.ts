@@ -564,6 +564,18 @@ export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[],
   return { front, shown: ids.filter((id) => top.includes(id)) };
 }
 
+/**
+ * The panes that were in front in a view, the most recent first, once the
+ * daemon lists only `listed`. A pane it no longer lists leaves, except the
+ * most recent one: that one stays as the pane last in front, so `paneInFront`
+ * finds it is no tab and gives the most recent live pane, as the window did
+ * before the stage held several panes. Were it taken out, the pane in front
+ * before it would come in front, an exited one included.
+ */
+export function recentKept(recent: readonly number[], listed: ReadonlySet<number>): number[] {
+  return recent.filter((pane, place) => place === 0 || listed.has(pane));
+}
+
 /** Whether the window tells a pane's process the size of the pane's screen: only where the daemon lists the pane with its process running. The pseudo-terminal of a process that exited is closed, and a daemon built before it ignored such a size failed on it. */
 export function tellsSize(sessions: readonly SessionInfo[], pane: number): boolean {
   return sessions.some((session) => session.id === pane && session.alive);

@@ -33,6 +33,7 @@ import {
   notificationFor,
   paneInFront,
   paneTabs,
+  recentKept,
   replayStep,
   screenMoves,
   screenTurns,
@@ -497,6 +498,20 @@ describe("stageOf", () => {
 
   it("counts a pane no longer among the tabs as never in front, and a pane named twice once", () => {
     expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true)).toEqual({ front: 6, shown: [1, 2, 3, 6] });
+  });
+});
+
+describe("recentKept", () => {
+  it("keeps a closed pane that was the most recent, so the most recent live pane comes in front and not the pane in front before it", () => {
+    // Panes 1 and 3 run and pane 2 has exited. Pane 2 was in front, then pane 3, which is closed.
+    const kept = recentKept([3, 2, 1], new Set([1, 2]));
+    expect(kept).toEqual([3, 2, 1]);
+    expect(stageOf([session(1), session(2, { alive: false })], kept, false)).toEqual({ front: 1, shown: [1] });
+  });
+
+  it("takes out every other pane the daemon no longer lists", () => {
+    expect(recentKept([3, 9, 2, 8, 1], new Set([1, 2, 3]))).toEqual([3, 2, 1]);
+    expect(recentKept([], new Set([1]))).toEqual([]);
   });
 });
 
