@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { themeChoice } from "../shared/appearance";
 import { Channel, type DaemonConnection, type DaemonFailure } from "../shared/ipc";
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
-import { startsInBackground } from "./background";
+import { quitsWithLastWindow, takeBackground } from "./background";
 import { ensureDaemon } from "./daemon-client";
 import { pickFolder } from "./pick-folder";
 
@@ -14,7 +14,8 @@ import { pickFolder } from "./pick-folder";
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
 // A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard.
-const background = startsInBackground(process.env);
+// The variable leaves the environment here, so the daemon and the panes' processes start without it.
+const background = takeBackground(process.env);
 // Set before the app is ready, so the start does not make it the front app. On macOS the app then has no Dock icon and no menu bar.
 if (background && process.platform === "darwin") app.setActivationPolicy("accessory");
 
@@ -77,5 +78,5 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   // The sessions stay in the daemon.
-  if (process.platform !== "darwin") app.quit();
+  if (quitsWithLastWindow(process.platform, background)) app.quit();
 });
