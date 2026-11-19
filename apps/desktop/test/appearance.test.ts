@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -78,6 +78,24 @@ describe("the theme's file", () => {
     expect(readdirSync(dir)).toEqual(["appearance.json"]);
     expect(statSync(join(dir, "appearance.json")).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(join(dir, "appearance.json"), "utf8"))).toEqual({ theme: "letter" });
+  });
+
+  it("throws where the rename fails, and removes the partial file it wrote", () => {
+    const dir = userData();
+    // A folder stands where the file goes, so the partial file is written and its rename refused.
+    mkdirSync(join(dir, "appearance.json"));
+    expect(() => writeAppearance(dir, "letter")).toThrow(/rename/);
+    expect(readdirSync(dir)).toEqual(["appearance.json"]);
+    expect(statSync(join(dir, "appearance.json")).isDirectory()).toBe(true);
+  });
+
+  it("throws where the write fails, and leaves no partial file", () => {
+    const dir = userData();
+    const partial = `appearance.json.${process.pid}`;
+    // A file the user may not write stands at the partial file's path, so the write is refused at its open and the file is still there after it.
+    writeFileSync(join(dir, partial), "", { mode: 0o400 });
+    expect(() => writeAppearance(dir, "letter")).toThrow(/EACCES.*open/);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it("gives Night desk where the file is not JSON, holds no theme or holds one the app does not know", () => {

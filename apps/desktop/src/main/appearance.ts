@@ -2,7 +2,7 @@
 // the app's user data folder, so a window opens in the theme it was left in.
 // It is this client's own appearance and not the daemon's state. Nothing
 // here is Electron's, so the cases run without it.
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { themeChoice, themeFor, type Theme, type ThemeChoice } from "../shared/appearance";
 
@@ -24,13 +24,22 @@ export function readAppearance(userData: string): ThemeChoice {
   }
 }
 
-/** Saves a choice, as the daemon writes its list of work items: to a partial file it then renames, readable by the user alone. */
+/** Saves a choice, as the daemon writes its list of work items: to a partial file it then renames, readable by the user alone. A save that fails throws what refused it, after removing the partial file. */
 export function writeAppearance(userData: string, choice: ThemeChoice): void {
   const file = join(userData, FILE);
   const partial = `${file}.${process.pid}`;
-  writeFileSync(partial, JSON.stringify({ theme: choice }), { mode: 0o600 });
-  // A window that loads meanwhile never reads a half-written file.
-  renameSync(partial, file);
+  try {
+    writeFileSync(partial, JSON.stringify({ theme: choice }), { mode: 0o600 });
+    // A window that loads meanwhile never reads a half-written file.
+    renameSync(partial, file);
+  } catch (error) {
+    try {
+      rmSync(partial, { force: true });
+    } catch {
+      // The caller is told why the save failed, not why its partial file could not be removed.
+    }
+    throw error;
+  }
 }
 
 /** The ground a window opens on, so it does not flash another theme's colour before its page is drawn. */
