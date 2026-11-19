@@ -598,17 +598,21 @@ describe("screenTurns", () => {
     expect(sent).toEqual([[5, "c"]]);
   });
 
-  it("sends a pane no answer to what it printed in an earlier turn on the screen, where it took the screen again before the terminal drew that", () => {
+  it("sends a pane no answer to what it or another pane printed in an earlier turn on the screen, where it took the screen again before the terminal drew that", () => {
     const { turns, sent, draws } = screen();
     turns.take(4);
     draws();
     turns.write("where?", true);
     turns.giveBack();
     turns.take(5);
+    turns.write("which?", true);
     turns.giveBack();
     turns.take(4);
     draws();
     expect(sent).toEqual([]);
+    turns.write("what?", true);
+    draws();
+    expect(sent).toEqual([[4, "answer to what?"]]);
   });
 
   it("sends nothing while the terminal draws a piece whose answers are not sent, and sends again once it is drawn", () => {
