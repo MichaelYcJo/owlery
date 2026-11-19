@@ -2,13 +2,13 @@
 
 ## What this phase found
 
-**The frame holds, with two sentences of it built otherwise.** Every path `frame/plan.md` *Phases* row 2 and `frame/design.md` *Scope* items 9 to 11 name was opened at `ad909e5`: `apps/desktop/test/korean-pane.ts#Typing.replay`, `apps/desktop/test/built-app.ts#BuiltApp.start` with `keepBackground`, `apps/desktop/scripts/test-in-electron.mjs`, which hands its arguments to vitest, and the fixture. Each is where the frame says. The two departures are the next two paragraphs.
+**The frame holds, with two sentences of it built otherwise.** Every path `frame/plan.md` *Phases* row 2 and `frame/design.md` *Scope* items 9 to 11 name was opened at `6ca6d38`: `apps/desktop/test/korean-pane.ts#Typing.replay`, `apps/desktop/test/built-app.ts#BuiltApp.start` with `keepBackground`, `apps/desktop/scripts/test-in-electron.mjs`, which hands its arguments to vitest, and the fixture. Each is where the frame says. The two departures are the next two paragraphs.
 
 **A typed line's steps hold its Enter, and the case adds Enter to an assumed line alone.** `frame/design.md` *Data & interfaces* says "Every line ends with Enter, which the case and the typed run add". Built to that, a recording would lose where the person's Enter fell against the last syllable's commit, and the replay would put Enter after the commit for every line. That order is what `frame/questions.md` Q1 asks of the typed run, and *Scope* item 10 says the case replays what a person's typing produced. So `stepsOf` keeps the recorded Enter in its place, and `korean-pane.ts#withEnter` gives a line's steps with the Enter that ends it: a line of `source: "typed"` as recorded, an assumed line with `ENTER` added. Judged against `frame/design.md` *Scope* item 10 and `frame/questions.md` Q1.
 
 **The typed run sets focus emulation while it fills the form, and switches it off before the first line.** *Scope* item 9 says the typed run "does not set focus emulation: the person's click gives the pane the keyboard". The form is filled through the debugging port, with `Input.insertText` into the field in front, and the page of a window without the system's focus reports none (`frame/design.md` *Grounding*, probe 5). The phase's one start of `korean:typed` runs under `OWLERY_BACKGROUND=1`, where the window never holds the focus, so without emulation that start would not reach the bar. With emulation the path to the pane is the one the case took in every run under the switch. The run switches emulation off once the pane is open, so the person's typing goes through the focus the system gives. Judged against *Scope* items 7 and 9.
 
-- `executed`, at `4cfa8c8`: in that start the page read `document.hasFocus()` true after the switch-off, in a window the system had not given the focus. The front app was the owner's, and the app's type read `UIElement`. Why the page still reported the focus was not found. `gaps.md` holds the row.
+- `executed`, at `0ddacf7`: in that start the page read `document.hasFocus()` true after the switch-off, in a window the system had not given the focus. The front app was the owner's, and the app's type read `UIElement`. Why the page still reported the focus was not found. `gaps.md` holds the row.
 
 **The typed run's decisions are functions that need no app, and its loop is the one part no case runs.** `korean-pane.ts` holds `stepsOf`, `typedTwice`, `fixtureAfter`, `formatFixture`, `verdicts`, `versions`, `barText` and `withEnter`, each with a case under "the typed run, without a person" in `apps/desktop/test/korean-input.test.ts`. The loop in the case "receives every line a person types as typed" joins them to the app: it shows the bar, waits for a line, records, replays and writes the fixture. That loop ran once, up to its first bar, and what follows the bar waits for the owner (`gaps.md`). The frame's file table gives the typed run to `korean-input.test.ts` and the recorder to `korean-pane.ts`, and the functions went beside the recorder so that the test file holds cases alone.
 
@@ -22,7 +22,7 @@
 - **`typedRun` holds `date`, `macos`, `electron`, `xterm` and `replayDiffers`**, the last a list of `{ text, received }` with the replay's bytes in hex. The macOS version is read from `sw_vers -productVersion`.
 - **The bar stands at the window's lower edge and lets a click through.** Its text names the line's place, its text and its keys, and says that the terminal shows nothing of what is typed: the receiver's terminal has no echo, so a person sees the composing syllable alone.
 - **The file runs as the typed run or as the replayed case, never both.** `describe.runIf` and `describe.skipIf` read `OWLERY_KOREAN_TYPED`, which the script `korean:typed` sets.
-- **`readLines` left `korean-pane.ts` for `readFixture`**, which also returns `typedRun`. The test file was its one reader, and `git grep readLines` prints nothing at `4cfa8c8`. `frame/design.md` *Removes* does not name it.
+- **`readLines` left `korean-pane.ts` for `readFixture`**, which also returns `typedRun`. The test file was its one reader, and `git grep readLines` prints nothing at `0ddacf7`. `frame/design.md` *Removes* does not name it.
 
 **A run that Ctrl-C ends has to stop the daemon in the handler of the signal.** `frame/design.md` scenario 6 asks that the command, stopped at its first line, leaves no process. The daemon is started detached, so the signal does not reach it, and vitest exits at SIGINT without running a `finally` or an `afterAll`.
 
@@ -32,7 +32,7 @@
 
 **Scenario 6's case replays the fixture's first line, "한글".** The frame leaves the line open. `read`: a line whose syllables are parted by Space alone could pass with no `compositionend` recorded, because the terminal sends a composing text itself at a plain key's press (`frame/design.md` *Grounding*, the bullet on `CompositionHelper.ts`). "한글" commits "한" at the press of the next syllable's first consonant, and without that commit the next composing text replaces it. The red below shows that reading for "한글". No run showed the other half.
 
-**Seen red.** The outputs are in this phase's scratch. Each `seal mutate` ran at `4cfa8c8`.
+**Seen red.** The outputs are in this phase's scratch. Each `seal mutate` ran at `0ddacf7`.
 
 | Case | How it was shown red | What the failing line said |
 |---|---|---|
@@ -50,20 +50,20 @@
 | "names the line, its keys and its place in the bar" | `seal mutate`: the words of a second showing taken out | the second text read as the first |
 | "ends processes at once, one that its parent has not read yet among them, and kills one that stays" | `seal mutate`, three times in `built-app.ts`: an ended child read as running; no kill; no request to end | `expected [ <pid> ] to deeply equal []`, each time |
 
-The 17 mutants that need no app ran in two calls, one per file, and then once each, so that each failing line could be read: the call with several mutants prints the verdicts alone (`mut-pane-pure.txt`, `mut-app-pure.txt`, `mut-each.txt`). Before the code existed, the file failed to load on `readFixture is not a function` (`red-pure.txt`), which shows no case red by itself. The case on the typed line's wait was committed at `0c36926` with its Enter appended 300 ms after the start, where a reading that did not wait would still have held it. It was changed at `4cfa8c8` to 800 ms before its mutant ran.
+The 17 mutants that need no app ran in two calls, one per file, and then once each, so that each failing line could be read: the call with several mutants prints the verdicts alone (`mut-pane-pure.txt`, `mut-app-pure.txt`, `mut-each.txt`). Before the code existed, the file failed to load on `readFixture is not a function` (`red-pure.txt`), which shows no case red by itself. The case on the typed line's wait was committed at `f77c8b8` with its Enter appended 300 ms after the start, where a reading that did not wait would still have held it. It was changed at `0ddacf7` to 800 ms before its mutant ran.
 
-**The start of `korean:typed`.** `executed`, once, at `4cfa8c8`: `pnpm --filter @owlery/desktop run korean:typed` with `OWLERY_BACKGROUND=1` and `TMPDIR=/private/tmp/claude-501` in its environment, in a session of its own. The outputs are under `typed/` in this phase's scratch.
+**The start of `korean:typed`.** `executed`, once, at `0ddacf7`: `pnpm --filter @owlery/desktop run korean:typed` with `OWLERY_BACKGROUND=1` and `TMPDIR=/private/tmp/claude-501` in its environment, in a session of its own. The outputs are under `typed/` in this phase's scratch.
 
 - The probe `test_tmp_bar.mjs`, run once through a second session of the debugging port, read the bar: "Line 1 of 10. Click the terminal, then type 한글 (keys: g k s r m f) and press Enter. The terminal shows nothing of what you type." The work item's view was in front with the one tab "Shell 1", the pane's textarea was the focused element, and the recorder was attached (`bar.json`).
 - The receiver's file held no byte. The app, the daemon and the receiver were running, as process ids 43520, 43561 and 43655.
 - SIGINT sent to the command's process group, which is what Ctrl-C sends, ended the command. 0.4 s later none of the three processes and no process of the group was listed, both folders were gone, `git status` was clean, so the fixture was not written, and `~/.owlery` did not exist.
 
-**Scenario 5.** `git diff --stat c128acb..HEAD -- apps/desktop/src apps/desktop/build.mjs apps/desktop/scripts` at `4cfa8c8` names `apps/desktop/src/main/background.ts` and `apps/desktop/src/main/main.ts` and no other file. The phase changed no file of the app.
+**Scenario 5.** `git diff --stat 7159499..HEAD -- apps/desktop/src apps/desktop/build.mjs apps/desktop/scripts` at `0ddacf7`, run again after the rebase onto `7159499`, names `apps/desktop/src/main/background.ts` and `apps/desktop/src/main/main.ts` and no other file. The phase changed no file of the app.
 
 **Scenario 4, listed once more.** The names in `/private/tmp/claude-501` were the same before and after the *Phase boundary* run (`before2.txt`, `after2.txt`), `~/.owlery` did not exist, and `pgrep -fl 'owlery-app-|receiver.sh'` printed nothing after it.
 
-**The *Phase boundary* set** was `pnpm run test korean-input background.test`, run once at `4cfa8c8` under `OWLERY_BACKGROUND=1`: 2 files, 37 cases passing and 1 skipped, the typed run (`boundary2.txt`). `git grep` over `apps/desktop/test` and `apps/desktop/scripts` finds no other test file that reads a path the phase changed.
+**The *Phase boundary* set** was `pnpm run test korean-input background.test`, run once at `0ddacf7` under `OWLERY_BACKGROUND=1`: 2 files, 37 cases passing and 1 skipped, the typed run (`boundary2.txt`). `git grep` over `apps/desktop/test` and `apps/desktop/scripts` finds no other test file that reads a path the phase changed.
 
 **The typecheck.** `tsc --noEmit` with the options of `apps/desktop/tsconfig.json`, over `test/korean-input.test.ts`, `test/korean-pane.ts` and `test/built-app.ts`, exited 0 before the first commit (`tsc-files.txt`). Before that the builder ran `npx tsc --noEmit` over the whole app once, which is the broad gate's to run. It exited 0 at the working tree of that moment, and it is no result of the gate.
 
-**Starts of the app.** Five, each with `OWLERY_BACKGROUND=1`: one for the first run of the whole file before `0c36926`, two for the baseline and the mutant of scenario 6's red, one for `korean:typed`, and one for the *Phase boundary* set. No start needed the window in front.
+**Starts of the app.** Five, each with `OWLERY_BACKGROUND=1`: one for the first run of the whole file before `f77c8b8`, two for the baseline and the mutant of scenario 6's red, one for `korean:typed`, and one for the *Phase boundary* set. No start needed the window in front.
