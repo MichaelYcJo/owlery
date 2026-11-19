@@ -288,7 +288,7 @@ For item 23, in phase 5:
 The decisions are functions of `apps/desktop/src/renderer/view.ts`, with cases in `apps/desktop/test/view.test.ts`. `renderer.ts` draws what they return.
 
 - `inboxLine`: unchanged. The preview, the view, the sidebar and `changesSince` call it as the line does.
-- `lineText(workItem, session)`, new: the second row's text of *Scope* item 2. `stateSays(session, paneKinds)`, new: the head and the text of *Scope* items 4 and 23, "Asks to use" among them. `ahead(workItem)` and `ageOf(at, now)`, new: the words of the base and of an age.
+- `lineText(workItem, session, searching)`, new: the second row's text of *Scope* item 2, as `{ says, text }`; under a search it is the branch. `stateSays(session, paneKinds)`, new: the head and the text of *Scope* items 4 and 23, "Asks to use" among them; the text of a pane that does not wait stands under "said". `ahead(workItem)`, new: the base's words as `{ sentence, fact }`, the preview's sentence and the view's fact. `ageOf(at, now)`, new: the words of an age, and every time the window shows, a commit's and a work item's start among them, is an age. The functions phase 7 added beyond these, and the `session` a `Change` carries, are in `trail/phases/phase-7.md`, read as this section's continuation like `phase-6.md`.
 - `sidebarTree(workItems, sessions, paneKinds)`, new: the repositories of *Scope* item 20 with their work items and counts. `historyLines(entries)`, new: the lines of *Scope* item 22 in their order.
 - `matchWorkItems(entries, query, state)` and `markRanges(text, query)`, new: the work items *Scope* item 21 leaves, and the places of the letters that match.
 - `summaryControls(changes)`, new: the main control and the second of *Scope* item 19.
