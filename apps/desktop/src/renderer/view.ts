@@ -327,9 +327,10 @@ export function moveSelection(ids: readonly number[], selected: number | undefin
 }
 
 /**
- * What a key does on the inbox screen, or null where the window leaves it
- * alone. J and K are read by their place on the keyboard, so they act under
- * any input source. No key is read while another screen is in front, a
+ * What a key does on a screen that holds a list, the inbox screen or the
+ * history screen, or null where the window leaves it alone. J and K are read
+ * by their place on the keyboard, so they act under any input source. No key
+ * is read while a screen the window does not name as one is in front, a
  * dialog is open, the focus is in a field or a modifier key is held. Enter
  * on a control is that control's own press.
  */
