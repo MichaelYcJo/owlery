@@ -15,7 +15,7 @@ import type { HeadlessInfo, ServerMessage } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
-/** A session whose agent has said nothing yet, or whose kind reports no state. */
+/** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
 const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null };
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
