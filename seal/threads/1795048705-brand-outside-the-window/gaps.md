@@ -13,9 +13,9 @@
 
 ## Not done
 
-The simpler drawing shows nowhere. The second half of the issue's first *Done when* line, "the simpler drawing at 32 pixels and under", is not built: under `electron .` the Dock takes one image and draws it at every size, and Electron loads no `.icns` at run time (`frame/design.md` *Scope* item 12). `app-icon-small.svg` is committed and `TRADEMARKS.md` names its sizes. The owner answered `frame/questions.md` Q4 with this: the packaging of the app, issue #78 in release 0.1.0, draws it into the icon file.
+The simpler drawing shows nowhere, and the issue does not ask this work to show it. The issue's *Done when* line on the simpler drawing asks that it is committed beside the full one and that `TRADEMARKS.md` names its sizes, and both hold: `apps/desktop/assets/icon/app-icon-small.svg` is committed, and its entry in `TRADEMARKS.md` says it is the drawing for 32 pixels and under. Showing it was within reach only by packaging the app: under `electron .` the Dock takes one image and draws it at every size, and Electron loads no `.icns` at run time. The packaging of the app, issue #78 in release 0.1.0, draws it into the icon file, as the issue's body and the answer to `frame/questions.md` Q4 say.
 
-`docs/name.md` keeps its open row on the emblem in this pull request. The operations of `frame/design.md` *Rule changes* settle it, and the settle of release 0.0.1 writes them (issue #25), so the third line of the issue's *Done when* holds after that settle.
+`docs/name.md` keeps its open row on the emblem in this pull request. The operations of `frame/design.md` *Rule changes* settle it, and the settle of release 0.0.1 writes them (issue #25), so the issue's *Done when* line on `docs/name.md` and `docs/name.ko.md` holds after that settle.
 
 The READMEs claim no minimum Node.js version. No document of the tree names one, and one run with 26.13.1 cannot give a minimum (`frame/design.md` *Scope* item 6).
 
