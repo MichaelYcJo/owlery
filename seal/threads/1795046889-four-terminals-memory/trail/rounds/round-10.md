@@ -35,6 +35,11 @@ seal/threads/1795046889-four-terminals-memory/frame/design.md:55, after the sent
 A pane this window starts counts as in front in its view from the daemon's answer, as a pressed tab does, even where the view is off the screen when the answer arrives.
 ```
 
+```seal
+verdict: fixed c1fe8a4
+answer: The finding holds, and the definition was at fault. The orchestrator added the snippet's sentence to `frame/design.md` *Scope* item 1 word for word, after the definition of the stage order, and changed no code, as `frame/plan.md` *Judgments of the run* last row judged. `changelog.md` stays as it is: it is a person's account, and a person makes this input only against a daemon too busy to answer `start` before the view leaves the screen. The docstring of `takeStarted` stays, read under the added sentence. Only the work item's records changed, so the sealer reads this fix.
+```
+
 ## Confirmations
 
 ```seal
