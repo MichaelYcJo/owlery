@@ -70,7 +70,7 @@ Phase 1 starts from `2a45d69`, where this branch holds `release/v0.0.1` with iss
 | 1 | `frame/design.md` *Scope* items 1 to 12, 14 and 15, in the present palette held as the custom properties of item 13, and every row of `## Removes` | Scenarios 3, 5 and 9 as cases, each seen red before its code; scenarios 1, 2, 4 to 9 and 15 in the drive; scenarios 10 to 14 and 16 executed |`88a8f93` |
 | 2 | *Scope* items 13 and 17, and what direction B moves in items 2 to 5, 9 and 15, less the dot's ring and the sentences of item 19; the row of `## Removes` on the editor's palette | Scenario 18 as cases, each seen red before its code, and in the drive; scenario 3 as cases, with the changed words seen red; scenario 17 for the inbox screen and the view; scenarios 13, 14, 23 and 24 executed; the drive of scenarios 1, 2, 4, 7 and 9 again, since the layout moved |`f25ccdf` |
 | 3 | *Scope* item 18 | Scenario 19 as cases, each seen red before its code; scenario 14 executed, its files read against `frame/design.md` *Data & interfaces* |`24c2204` |
-| 4 | *Scope* item 19, and of item 18 the window's half and the daemon's read of the counts before `ready` | Scenarios 20 and 25 as cases, each seen red before its code; scenarios 21 and 22 in the drive; scenario 17 for the summary screen; scenarios 13, 14 and 23 executed; the drive of scenario 1 again | |
+| 4 | *Scope* item 19, and of item 18 the window's half and the daemon's read of the counts before `ready` | Scenarios 20 and 25 as cases, each seen red before its code; scenarios 21 and 22 in the drive; scenario 17 for the summary screen; scenarios 13, 14 and 23 executed; the drive of scenario 1 again |`c23a1aa` |
 
 ## Overlap with the release
 
