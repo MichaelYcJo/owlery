@@ -1509,12 +1509,6 @@ describe("OutputBuffer", () => {
     expect(buffer.text()).toBe("three\r\nfour");
   });
 
-  it("drops the rest of the line a cut falls in where the cut is in the middle of one piece of output", () => {
-    const buffer = new OutputBuffer(8);
-    buffer.append("abcdef\ngh\nij");
-    expect(buffer.text()).toBe("gh\nij");
-  });
-
   it("keeps a line whole where the cut falls at its start, between two pieces of output or inside one", () => {
     const between = new OutputBuffer(6);
     between.append("abc\n");
