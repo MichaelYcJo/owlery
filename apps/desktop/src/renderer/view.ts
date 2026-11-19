@@ -528,9 +528,9 @@ export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): 
 
 /**
  * The pane in front when a view shows `tabs`: the one that was `last` in
- * front in that view where it is still a tab, and otherwise the most recent
- * live pane, or the most recent tab where none is alive. Nothing where there
- * is no tab.
+ * front in that view where it is still a tab, and otherwise the live pane
+ * with the highest id, or the tab with the highest id where none is alive.
+ * Nothing where there is no tab.
  */
 export function paneInFront(tabs: readonly SessionInfo[], last: number | undefined): number | undefined {
   if (tabs.some((tab) => tab.id === last)) return last;
@@ -548,7 +548,7 @@ export const STAGE_PANES = 4;
  * is `paneInFront`'s for the first of them. Where "Side by side" is not
  * pressed, it is alone on the stage. Where it is pressed, the stage holds up
  * to `STAGE_PANES` panes: the one in front, then the ones most recently in
- * front, then the tabs that were never in front, the most recent first. A
+ * front, then the tabs that were never in front, the highest id first. A
  * pressed tab is the most recent, so it takes the place of the shown pane
  * least recently in front. A closed pane that `recentKept` left first takes
  * no place: the stage keeps the four most recently in front, and the pane in

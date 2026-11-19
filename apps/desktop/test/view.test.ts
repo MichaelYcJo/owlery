@@ -449,13 +449,13 @@ describe("paneInFront", () => {
     expect(paneInFront([session(2, { alive: false }), session(6)], 2)).toBe(2);
   });
 
-  it("gives the most recent live pane where the one last in front is no longer a tab, or none was", () => {
+  it("gives the live pane with the highest id where the one last in front is no longer a tab, or none was", () => {
     const tabs = [session(2), session(6), session(7, { alive: false })];
     expect(paneInFront(tabs, 9)).toBe(6);
     expect(paneInFront(tabs, undefined)).toBe(6);
   });
 
-  it("gives the most recent tab where none is alive", () => {
+  it("gives the tab with the highest id where none is alive", () => {
     expect(paneInFront([session(2, { alive: false }), session(3, { alive: false })], undefined)).toBe(3);
   });
 
@@ -470,7 +470,7 @@ describe("stageOf", () => {
 
   it("puts the pane in front alone on the stage where \"Side by side\" is not pressed, and nothing where the view has no tab", () => {
     expect(stageOf([session(2), session(4), session(6)], [4, 6], false)).toEqual({ front: 4, shown: [4] });
-    // Pane 9 was in front and is closed, so the most recent live pane of the view follows it, whichever were in front before.
+    // Pane 9 was in front and is closed, so the live pane of the view with the highest id follows it, whichever were in front before.
     expect(stageOf(six, [9, 2, 1, 3, 4], false)).toEqual({ front: 6, shown: [6] });
     expect(stageOf([], [4], false)).toEqual({ front: undefined, shown: [] });
     expect(stageOf([], [4], true)).toEqual({ front: undefined, shown: [] });
@@ -488,11 +488,11 @@ describe("stageOf", () => {
     expect(stageOf(six, [1, 3, 5, 2, 6], true)).toEqual({ front: 1, shown: [1, 2, 3, 5] });
   });
 
-  it("fills the stage with the tabs that were never in front, the most recent first, after the ones that were", () => {
-    // After a load no pane was in front, so the most recent live pane is.
+  it("fills the stage with the tabs that were never in front, the highest id first, after the ones that were", () => {
+    // After a load no pane was in front, so the live pane with the highest id is.
     expect(stageOf(six, [], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
     expect(stageOf(six, [2], true)).toEqual({ front: 2, shown: [2, 4, 5, 6] });
-    // No pane was in front and the four most recent tabs have exited, so the live pane is in front and on the stage.
+    // No pane was in front and the four tabs with the highest ids have exited, so the live pane is in front and on the stage.
     const oneLive = [session(1), session(2, { alive: false }), session(3, { alive: false }), session(4, { alive: false }), session(5, { alive: false })];
     expect(stageOf(oneLive, [], true)).toEqual({ front: 1, shown: [1, 3, 4, 5] });
   });
@@ -509,7 +509,7 @@ describe("stageOf", () => {
 });
 
 describe("recentKept", () => {
-  it("keeps a closed pane that was the most recent, so the most recent live pane comes in front and not the pane in front before it", () => {
+  it("keeps a closed pane that was the most recent, so the live pane with the highest id comes in front and not the pane in front before it", () => {
     // Panes 1 and 3 run and pane 2 has exited. Pane 2 was in front, then pane 3, which is closed.
     const kept = recentKept([3, 2, 1], new Set([1, 2]));
     expect(kept).toEqual([3, 2, 1]);
