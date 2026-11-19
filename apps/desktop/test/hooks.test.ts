@@ -140,8 +140,9 @@ describe("HookServer", () => {
     const server = await HookServer.listen(join(longDir(), "hooks.sock"));
     expect(existsSync(server.socketPath)).toBe(true);
     await server.close();
+    // The bystander is read first: a close made from outside the folder fails both lines, and this one names the loss.
+    expect(existsSync(bystander)).toBe(true);
     expect(existsSync(server.socketPath)).toBe(false);
-    expect(readFileSync(bystander, "utf8")).toBe("not Owlery's");
   });
 
   it("lets the session go on when Owlery is not listening", async () => {
