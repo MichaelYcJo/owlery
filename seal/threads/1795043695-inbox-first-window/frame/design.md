@@ -279,7 +279,7 @@ For item 23, in phase 5:
 - `apps/desktop/src/daemon/worktrees.ts` gains the reads of a branch's head, its commits, its changes and how far it is ahead of its base (`aheadOf`), and `createWorktree` gives the base branch. `work-items.ts` keeps `baseBranch` in `work-items.json` and reads an entry without it as `null`. `last-look.ts` reads and copies the new fields.
 - The cases are in `apps/desktop/test/daemon.test.ts`, `test/worktrees.test.ts`, `test/work-items.test.ts` and `test/last-look.test.ts`, and a case file for the function of `agent-events.ts`.
 
-`apps/desktop/src/main/main.ts` hides the title bar, keeps the theme's file and opens the window on the saved theme's ground (*Scope* items 13 and 24). `apps/desktop/src/shared/ipc.ts` gains the channels by which the page reads the saved choice and saves a new one, and `src/preload/preload.ts` offers them to the page. The file is `appearance.json` in the app's user data folder, written as `work-items.json` is written.
+`apps/desktop/src/main/main.ts` hides the title bar, keeps the theme's file and opens the window on the saved theme's ground (*Scope* items 13 and 24). `apps/desktop/src/shared/ipc.ts` gains the channels by which the page reads the saved choice and saves a new one, and `src/preload/preload.ts` offers them to the page. The file is `appearance.json` in the app's user data folder, written as `work-items.json` is written, to a partial file it then renames, except that a save that fails removes its partial file (*Scope* item 24).
 
 `apps/desktop/src/renderer/themes.css` is new and `build.mjs` copies it into `dist/` beside the page, with `assets/seals/owl.svg`. `apps/desktop/test/themes.test.ts` is new and reads `themes.css` and `index.html` as text (scenarios 31 and 32).
 
