@@ -1,20 +1,15 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
-import type { AgentState, HeadlessInfo, HeadlessState, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
 
-/**
- * A tab's label: the pane's kind, as the daemon labels it, and id, after the
- * title of the work item the pane runs in where the window holds that work item.
- */
-export function tabLabel(session: SessionInfo, workItems: readonly WorkItem[], paneKinds: readonly PaneKindInfo[]): string {
+/** A tab's label: the pane's kind, as the daemon labels it, and its id. The work item's title is the view's header's to say. */
+export function tabLabel(session: SessionInfo, paneKinds: readonly PaneKindInfo[]): string {
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
-  const pane = `${kind ? kind.label : session.kind} ${session.id}`;
-  const workItem = workItems.find((item) => item.id === session.workItemId);
-  return workItem ? `${workItem.title} · ${pane}` : pane;
+  return `${kind ? kind.label : session.kind} ${session.id}`;
 }
 
-/** The first kind of pane that reports its agent's state: the one a new work item and an inbox line open. */
+/** The first kind of pane that reports its agent's state: the one the "New work item" form starts on. */
 export function agentKind(paneKinds: readonly PaneKindInfo[]): PaneKind | undefined {
   return paneKinds.find((offered) => offered.reportsState)?.kind;
 }
@@ -22,6 +17,11 @@ export function agentKind(paneKinds: readonly PaneKindInfo[]): PaneKind | undefi
 /** The work item's panes whose process runs, the most recent first. */
 function livePanes(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
   return sessions.filter((session) => session.workItemId === workItem.id && session.alive).sort((a, b) => b.id - a.id);
+}
+
+/** The pane a work item's line reads its state from: its most recent live pane of a kind that reports state, or nothing where it has none. */
+export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): SessionInfo | undefined {
+  return livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
 }
 
 export interface InboxLine {
@@ -39,7 +39,7 @@ export interface InboxLine {
  * last state and is passed over, because nothing will change that state again.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
-  const reporting = livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
+  const reporting = lineSession(workItem, sessions, paneKinds);
   const count = workItem.newCommits ?? 0;
   return {
     title: workItem.title,
@@ -49,15 +49,494 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   };
 }
 
+/** A work item as the lists and the sidebar show it: with its line, and the pane the line reads its state from. */
+export interface Entry {
+  workItem: WorkItem;
+  line: InboxLine;
+  session: SessionInfo | undefined;
+}
+
+/** Every work item with its line and that line's pane, in the order the daemon lists them. */
+export function workItemEntries(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Entry[] {
+  return workItems.map((workItem) => ({ workItem, line: inboxLine(workItem, sessions, paneKinds), session: lineSession(workItem, sessions, paneKinds) }));
+}
+
+/** The agent states in the order a person must act on them, which is the order of the inbox's sentence and of its groups. */
+const STATES_BY_URGENCY: readonly AgentState[] = ["waiting", "working", "finished"];
+
+/** Each agent state as the inbox's sentence says it, after its count. */
+const STATE_IN_SENTENCE: Record<AgentState, string> = { waiting: "waiting for you", working: "working", finished: "finished" };
+
 /**
- * What a click on a work item's line does: shows its most recent live pane,
- * or starts a pane of the first kind that reports state where it has none.
+ * The inbox's sentence: how many work items are in each agent state, as in
+ * "1 waiting for you, 2 working". A state no line is in is left out, and the
+ * sentence is empty where no line has a state.
  */
-export function paneToOpen(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): { show: number } | { start: PaneKind } | undefined {
-  const live = livePanes(workItem, sessions)[0];
-  if (live) return { show: live.id };
-  const kind = agentKind(paneKinds);
-  return kind ? { start: kind } : undefined;
+export function inboxSummary(lines: readonly InboxLine[]): string {
+  return STATES_BY_URGENCY.map((state) => ({ state, count: lines.filter((line) => line.state === state).length }))
+    .filter(({ count }) => count > 0)
+    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state]}`)
+    .join(", ");
+}
+
+/** A line's state in words: the heading of its group in the inbox, which the preview and a view say as well, with the state's age. */
+export function stateHeading(state: AgentState | null): string {
+  if (state === null) return "No agent";
+  return { waiting: "Waiting for you", working: "Working", finished: "Finished" }[state];
+}
+
+export interface InboxGroup<Entry> {
+  /** The state of every line of the group, or null for the lines with no state. */
+  state: AgentState | null;
+  heading: string;
+  entries: Entry[];
+}
+
+/**
+ * The inbox's lines in their groups: the states in the order a person must
+ * act on them, then the lines with no state. A group no line is in is left
+ * out, and inside a group the lines keep the order they were given in.
+ */
+export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly Entry[]): InboxGroup<Entry>[] {
+  return [...STATES_BY_URGENCY, null]
+    .map((state) => ({ state, heading: stateHeading(state), entries: entries.filter((entry) => entry.line.state === state) }))
+    .filter((group) => group.entries.length > 0);
+}
+
+/** A repository's name: the one the daemon sends, or the last part of its folder for a daemon of an earlier build, which sends none. */
+export function repoNameOf(workItem: WorkItem): string {
+  return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
+}
+
+export interface SidebarRepository {
+  /** The repository's folder, which tells two repositories of one name apart. */
+  repo: string;
+  name: string;
+  /** How many work items are listed under it: those the search and the filter leave. */
+  count: number;
+  /** Its work items, each with the places of its title that match what is typed. */
+  entries: (Entry & { marks: [number, number][] })[];
+}
+
+/**
+ * The sidebar's repositories: each repository that has a work item the
+ * search and the filter leave, in the order of its first such work item,
+ * with those work items in the order given. A repository is its folder, so
+ * two of one name are two.
+ */
+export function sidebarTree(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
+  const tree: SidebarRepository[] = [];
+  for (const entry of matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state)) {
+    let repository = tree.find((held) => held.repo === entry.workItem.repo);
+    if (!repository) {
+      repository = { repo: entry.workItem.repo, name: repoNameOf(entry.workItem), count: 0, entries: [] };
+      tree.push(repository);
+    }
+    repository.entries.push({ ...entry, marks: markRanges(entry.line.title, query) });
+    repository.count = repository.entries.length;
+  }
+  return tree;
+}
+
+/**
+ * The history screen's lines: the work items whose agent finished, the one
+ * that finished last first. Two that finished at one time keep the order
+ * given, and one whose time the daemon did not send stands last.
+ */
+export function historyLines<E extends { line: InboxLine; session: SessionInfo | undefined }>(entries: readonly E[]): E[] {
+  const since = (entry: E) => entry.session?.stateSince ?? Number.NEGATIVE_INFINITY;
+  return entries.filter((entry) => entry.line.state === "finished").sort((a, b) => (since(a) === since(b) ? 0 : since(b) > since(a) ? 1 : -1));
+}
+
+/**
+ * The places in `text` where what is typed stands, in any case of letters:
+ * each a start and an end, in order, and none over another. Nothing where
+ * nothing is typed.
+ */
+export function markRanges(text: string, query: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  if (query === "") return ranges;
+  const typed = query.toLowerCase();
+  for (let at = 0; at + query.length <= text.length; ) {
+    if (text.slice(at, at + query.length).toLowerCase() === typed) {
+      ranges.push([at, at + query.length]);
+      at += query.length;
+    } else {
+      at += 1;
+    }
+  }
+  return ranges;
+}
+
+/** What the filter shows: every state, one agent state, or the work items with no state. */
+export type StateFilter = "all" | AgentState | "none";
+
+/** The filter's choices: "All", and the heading of each of the inbox's groups, in their order. */
+export function filterChoices(): { value: StateFilter; label: string }[] {
+  return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) }))];
+}
+
+/**
+ * The work items a search and a filter leave, in the order given: those
+ * whose title, branch or repository's name holds what is typed, and whose
+ * line is in the state chosen.
+ */
+export function matchWorkItems<E extends { workItem: WorkItem; line: InboxLine }>(entries: readonly E[], query: string, state: StateFilter): E[] {
+  return entries.filter(({ workItem, line }) => {
+    if (state !== "all" && (line.state ?? "none") !== state) return false;
+    return query === "" || [workItem.title, workItem.branch, repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
+  });
+}
+
+/** How many work items a search leaves, of how many, as the search field says it. */
+export function matchCount(matched: number, total: number): string {
+  return `${matched} of ${total}`;
+}
+
+/** The same in words, as the head of a list says it. */
+export function matchSentence(matched: number, total: number, query: string): string {
+  return `${matchCount(matched, total)} ${total === 1 ? "work item matches" : "work items match"} "${query}" in title, branch or repository`;
+}
+
+/**
+ * What a list says in place of its lines, `total` being the screen's work
+ * items and `shown` the ones a search and a filter leave: nothing where it
+ * has a line.
+ */
+export function emptyList(screen: "inbox" | "history", total: number, shown: number): string {
+  if (shown > 0) return "";
+  if (total > 0) return "No work item matches.";
+  return screen === "inbox" ? "No work items yet." : "Nothing has finished yet.";
+}
+
+export interface Change {
+  workItem: WorkItem;
+  /** The work item's line as the lists now give it. */
+  line: InboxLine;
+  /** The pane that line reads its state from, whose time is the age the summary's line says. */
+  session: SessionInfo | undefined;
+  /** What changed, opening with the present state. */
+  sentence: string;
+}
+
+/** Each agent state as a change's sentence opens with it. */
+const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Waits for you.", working: "Is working.", finished: "Finished." };
+
+/**
+ * The work items that changed since the person last looked, in the order of
+ * the inbox's groups: one whose line differs in the state or in the count of
+ * new commits from its line in the look, and one the look does not hold. A
+ * count the daemon gave on one side alone says nothing of a change. Each side
+ * is read through `inboxLine` with its own sessions, and no session of one is
+ * matched to a session of the other: a session's id starts again with the
+ * daemon, and a work item's id does not.
+ */
+export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
+  const changes = workItems.flatMap((workItem): Change[] => {
+    const line = inboxLine(workItem, sessions, paneKinds);
+    const said = [line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
+    const before = look.workItems.find((item) => item.id === workItem.id);
+    if (!before) {
+      said.push("New since you were last here.");
+    } else {
+      const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
+      if (rise === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
+      if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
+    }
+    return [{ workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" ") }];
+  });
+  return inboxGroups(changes).flatMap((group) => group.entries);
+}
+
+/**
+ * The summary screen's sentence: the changed work items counted by their
+ * present state, as the inbox's sentence counts every work item, or how many
+ * changed where none of them has a state.
+ */
+export function summarySentence(changes: readonly { line: InboxLine }[]): string {
+  return inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+}
+
+/**
+ * What stands in the place of the summary's sentence: the sentence where a
+ * work item changed, and otherwise why the screen holds no line.
+ */
+export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine }[]): string {
+  if (!hasLook) return "No earlier look is recorded.";
+  return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
+}
+
+/** How many work items changed, as the sidebar says it beside "Summary": nothing where none did. */
+export function summaryCount(changed: number): string {
+  return changed > 0 ? `${changed} new` : "";
+}
+
+export interface SummaryControls {
+  /** The control Enter presses: it opens the view of a work item, or the inbox. */
+  main: { label: string; opens: number | "inbox" };
+  second: { label: string; opens: "inbox" } | null;
+  hint: string;
+}
+
+/**
+ * The summary screen's controls. Where a changed work item waits, the main
+ * one opens the first that waits and the inbox stands beside it; otherwise
+ * the inbox is the main control and the only one.
+ */
+export function summaryControls(changes: readonly { workItem: WorkItem; line: InboxLine }[]): SummaryControls {
+  const inbox = { label: "Open the inbox", opens: "inbox" as const };
+  const waits = changes.find((change) => change.line.state === "waiting");
+  if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
+  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that waits." };
+}
+
+/** The status line where the window has nothing else to say: that the daemon runs, and how many agents do, an agent being a live pane of a kind that reports its state. */
+export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): string {
+  const agents = sessions.filter((session) => session.alive && paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState)).length;
+  return `Daemon running, ${agents === 0 ? "no agent" : agents === 1 ? "1 agent" : `${agents} agents`}`;
+}
+
+/** What the status line tells once `taken` is taken back: nothing where it still told `taken`, and any other notice as it stands. */
+export function noticeWithout(notice: string, taken: string): string {
+  return notice === taken ? "" : notice;
+}
+
+/**
+ * How long ago a time is, `at` and `now` being times in milliseconds: in
+ * minutes under an hour, in hours and minutes under a day, and in days from
+ * then on. Nothing where there is no time, as for a pane with no state and
+ * for a daemon of an earlier build, which sends none.
+ */
+export function ageOf(at: number | null | undefined, now: number): string {
+  if (at == null) return "";
+  const minutes = Math.floor((now - at) / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (minutes < 1) return "less than a minute";
+  if (hours < 1) return `${minutes} min`;
+  if (days < 1) return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
+/** When the person was last here, in the words of an age. */
+export function lastHere(at: number, now: number): string {
+  return `You were last here ${ageOf(at, now)} ago.`;
+}
+
+/** A state in its heading's words and how long it has lasted, as in "Waiting for you, 12 min": the state alone where it has no time. */
+export function stateWithAge(state: AgentState | null, since: number | null | undefined, now: number): string {
+  const age = ageOf(since, now);
+  return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
+}
+
+/** What a pane's state carried, as a person reads it: its text, or for a pane that waits with a tool's name and no text, which tool it asks for. */
+function saidBy(session: SessionInfo | undefined): string | null {
+  if (!session || session.state === null) return null;
+  if (session.stateText) return session.stateText;
+  return session.state === "waiting" && session.stateTool ? `Asks to use ${session.stateTool}` : null;
+}
+
+/**
+ * What the agent of a work item's line says, under its head: the label of
+ * the pane's kind and "asks" while the agent waits, "said" otherwise.
+ * Nothing where the state carried neither a text nor, for a pane that waits,
+ * a tool's name.
+ */
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string } | null {
+  const text = saidBy(session);
+  if (!session || text === null) return null;
+  const kind = paneKinds.find((offered) => offered.kind === session.kind);
+  return { head: `${kind ? kind.label : session.kind} ${session.state === "waiting" ? "asks" : "said"}`, text };
+}
+
+/**
+ * The text of a line's second row, and which of the three it is: what the
+ * agent's state carried, otherwise the newest commit's subject, otherwise
+ * the branch. While a search is typed it is the branch, where the letters
+ * that match are marked.
+ */
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "state" | "commit" | "branch"; text: string } {
+  const said = searching ? null : saidBy(session);
+  if (said !== null) return { says: "state", text: said };
+  const newest = searching ? undefined : workItem.commits?.[0];
+  return newest ? { says: "commit", text: newest.subject } : { says: "branch", text: workItem.branch };
+}
+
+/**
+ * How many commits a work item's branch gained since the person last looked:
+ * its count now less its count in the look, and all of them for a work item
+ * the look does not hold. None where no look is recorded, and where the
+ * daemon gave no count on either side.
+ */
+export function gainedSince(workItem: WorkItem, look: Look | null): number {
+  if (!look || workItem.newCommits === null) return 0;
+  const before = look.workItems.find((item) => item.id === workItem.id);
+  if (!before) return workItem.newCommits;
+  return before.newCommits === null ? 0 : Math.max(0, workItem.newCommits - before.newCommits);
+}
+
+/** A line's badge: the commits its branch gained since the look, as in "3 new", or nothing where it gained none. */
+export function lineBadge(workItem: WorkItem, look: Look | null): string {
+  const gained = gainedSince(workItem, look);
+  return gained > 0 ? `${gained} new` : "";
+}
+
+/**
+ * How far a work item's branch is ahead of its base: as the preview's
+ * sentence, "6 commits ahead of main", and as the base's fact in a view,
+ * "main · 6 ahead". The count is of the commits the base branch does not
+ * hold. Where no base branch is recorded it is left out, and the count is of
+ * the commits since the branch was cut. The count is left out where the
+ * daemon read none.
+ */
+export function ahead(workItem: WorkItem): { sentence: string; fact: string } {
+  const base = workItem.baseBranch ?? null;
+  const count = (base === null ? workItem.newCommits : workItem.aheadOfBase) ?? null;
+  const sentence = count === null ? "" : `${count} ${count === 1 ? "commit" : "commits"} ahead${base === null ? "" : ` of ${base}`}`;
+  const fact = [base, count === null ? null : `${count} ahead`].filter((part) => part !== null).join(" · ");
+  return { sentence, fact: fact || "Not recorded" };
+}
+
+/** The lines added and removed, as in "+12 \u22123", or nothing where git counted none, as for a binary file. */
+export function lineCounts(added: number | null, removed: number | null): string {
+  return added === null || removed === null ? "" : `+${added} \u2212${removed}`;
+}
+
+/** How many more of something there are than are listed, or what to say of none listed at all; nothing where every one is listed. */
+function listFoot(listed: number, total: number | null, one: string, many: string, none: string): string {
+  if (listed === 0 && !total) return none;
+  const more = (total ?? listed) - listed;
+  return more > 0 ? `${more} more ${more === 1 ? one : many}` : "";
+}
+
+export interface CommitLine {
+  hash: string;
+  subject: string;
+  /** The lines the commit added and removed. */
+  counts: string;
+  age: string;
+  /** Whether the branch gained the commit since the person last looked. */
+  gained: boolean;
+}
+
+/**
+ * A work item's commits as the preview and a view list them, newest first:
+ * the first `gained` of them are the ones the branch gained since the look.
+ * The foot says how many more the branch holds than the daemon sent, or that
+ * it holds none. Nothing where the daemon read no commits.
+ */
+export function commitLines(workItem: WorkItem, gained: number, now: number): { lines: CommitLine[]; foot: string } | null {
+  const commits = workItem.commits ?? null;
+  if (commits === null) return null;
+  return {
+    lines: commits.map((commit, at) => ({ hash: commit.hash, subject: commit.subject, counts: lineCounts(commit.added, commit.removed), age: ageOf(commit.at, now), gained: at < gained })),
+    foot: listFoot(commits.length, workItem.newCommits, "commit", "commits", "No commit yet."),
+  };
+}
+
+/**
+ * The files a work item's branch changed, each with its lines, under the
+ * count of all of them and the sums of their lines. The foot says how many
+ * more there are than the daemon sent, or that there is none. Nothing where
+ * the daemon read no changes.
+ */
+export function fileLines(workItem: WorkItem): { sum: string; lines: { path: string; counts: string }[]; foot: string } | null {
+  const changes = workItem.changes ?? null;
+  if (changes === null) return null;
+  return {
+    sum: changes.files === 0 ? "" : `${changes.files} ${changes.files === 1 ? "file" : "files"}, ${lineCounts(changes.added, changes.removed)}`,
+    lines: changes.list.map((file: FileChange) => ({ path: file.path, counts: lineCounts(file.added, file.removed) })),
+    foot: listFoot(changes.list.length, changes.files, "file", "files", "No file changed yet."),
+  };
+}
+
+/** The facts of a view's right column, in their order: the agent, which is the label of the kind of the pane the state is read from, when the work item was started, its base and its worktree. */
+export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now: number): { label: string; value: string }[] {
+  const kind = paneKinds.find((offered) => offered.kind === entry.session?.kind);
+  return [
+    { label: "Agent", value: kind ? kind.label : "None" },
+    { label: "Started", value: `${ageOf(entry.workItem.createdAt, now)} ago` },
+    { label: "Base", value: ahead(entry.workItem).fact },
+    { label: "Worktree", value: entry.workItem.worktree },
+  ];
+}
+
+/** The keys a list says under its preview: the two that move through it, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
+export function keyHints(screen: "inbox" | "history", mac: boolean): string[] {
+  return [`J K move through the ${screen}`, `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
+}
+
+/**
+ * The work item whose line is selected, `ids` being the work items in the
+ * order their lines are displayed: the one that was `selected` while it is
+ * listed, and otherwise the first line's. Nothing where the inbox has no line.
+ */
+export function selectedLine(ids: readonly number[], selected: number | undefined): number | undefined {
+  return selected !== undefined && ids.includes(selected) ? selected : ids[0];
+}
+
+/** The work item selected after a key moved the selection one line, which stops at each end of the list. */
+export function moveSelection(ids: readonly number[], selected: number | undefined, key: "next" | "previous"): number | undefined {
+  const from = selectedLine(ids, selected);
+  if (from === undefined) return undefined;
+  const at = ids.indexOf(from) + (key === "next" ? 1 : -1);
+  return ids[Math.min(Math.max(at, 0), ids.length - 1)];
+}
+
+/**
+ * What a key does on a screen that holds a list, the inbox screen or the
+ * history screen, or null where the window leaves it alone. J and K are read
+ * by their place on the keyboard, so they act under any input source. No key
+ * is read while a screen the window does not name as one is in front, a
+ * dialog is open, the focus is in a field or a modifier key is held. Enter
+ * on a control is that control's own press.
+ */
+export function inboxKey(
+  key: { code: string; modified: boolean },
+  where: { inboxInFront: boolean; dialogOpen: boolean; inField: boolean; onControl: boolean },
+): "next" | "previous" | "open" | null {
+  if (!where.inboxInFront || where.dialogOpen || where.inField || key.modified) return null;
+  if (key.code === "KeyJ") return "next";
+  if (key.code === "KeyK") return "previous";
+  if (key.code === "Enter" && !where.onControl) return "open";
+  return null;
+}
+
+/**
+ * What a key pressed with the Command key does on every screen, or null
+ * where the window leaves it alone: K puts the focus in the search field,
+ * and N opens the "New work item" form. The Control key stands for the
+ * Command key where the keyboard has none. The key is read by its place on
+ * the keyboard, and not while a dialog is open or another modifier key is
+ * held as well.
+ */
+export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | "new" | null {
+  const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
+  if (!command || key.alt || key.shift || where.dialogOpen) return null;
+  if (key.code === "KeyK") return "search";
+  return key.code === "KeyN" ? "new" : null;
+}
+
+/**
+ * The tabs of a work item's view, in the order of the panes' ids: its panes
+ * whose process runs, and those whose terminal this window holds, `held`
+ * being their ids. An exited pane the window holds keeps its tab and its last
+ * screen until it is closed; one it does not hold has nothing to show.
+ */
+export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[], held: ReadonlySet<number>): SessionInfo[] {
+  return sessions.filter((session) => session.workItemId === workItem.id && (session.alive || held.has(session.id))).sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The pane in front when a view shows `tabs`: the one that was `last` in
+ * front in that view where it is still a tab, and otherwise the most recent
+ * live pane, or the most recent tab where none is alive. Nothing where there
+ * is no tab.
+ */
+export function paneInFront(tabs: readonly SessionInfo[], last: number | undefined): number | undefined {
+  if (tabs.some((tab) => tab.id === last)) return last;
+  const recent = [...tabs].sort((a, b) => b.id - a.id);
+  return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
 }
 
 /**
@@ -76,13 +555,13 @@ export function notificationFor(
   if (session.state !== "waiting" && session.state !== "finished") return null;
   const workItem = workItems.find((item) => item.id === session.workItemId);
   return {
-    title: workItem ? workItem.title : tabLabel(session, workItems, paneKinds),
+    title: workItem ? workItem.title : tabLabel(session, paneKinds),
     body: session.state === "waiting" ? "Waiting for you" : "Finished",
   };
 }
 
 /**
- * The folder and the title the "+ Work item" form sends, or why it sends
+ * The folder and the title the "New work item" form sends, or why it sends
  * nothing. An empty folder is refused here because the daemon would run git
  * with it in the daemon's own folder.
  */
@@ -94,22 +573,11 @@ export function workItemFields(repo: string, title: string): { repo: string; tit
 }
 
 /**
- * The work item the pane in front runs in, which is where "Ask" asks. Nothing
- * where no pane is in front, the pane was opened without a work item, or the
- * window does not hold the pane or its work item.
+ * Whether the "Ask" button of a work item's view can be pressed, and its
+ * title: where it asks, or why it cannot. The daemon refuses a prompt of
+ * white space.
  */
-export function workItemInFront(front: number | undefined, sessions: readonly SessionInfo[], workItems: readonly WorkItem[]): WorkItem | undefined {
-  const pane = sessions.find((session) => session.id === front);
-  return pane ? workItems.find((item) => item.id === pane.workItemId) : undefined;
-}
-
-/**
- * Whether the "Ask" button can be pressed, and its title: where it asks, or
- * why it cannot. A headless session runs in a work item's worktree alone, and
- * the daemon refuses a prompt of white space.
- */
-export function askButton(prompt: string, workItem: WorkItem | undefined): { enabled: boolean; title: string } {
-  if (!workItem) return { enabled: false, title: "Bring a work item's pane to the front to ask in it." };
+export function askButton(prompt: string, workItem: WorkItem): { enabled: boolean; title: string } {
   if (!prompt.trim()) return { enabled: false, title: "Type what to ask." };
   return { enabled: true, title: `Ask in ${workItem.title}` };
 }
@@ -127,9 +595,10 @@ export interface HeadlessLine {
   text: string;
 }
 
-/** The lines of the headless sessions, the most recent first, so the one just asked sits under the field. */
-export function headlessLines(held: readonly HeadlessInfo[]): HeadlessLine[] {
-  return [...held]
+/** The lines of one work item's headless sessions, the most recent first, so the one just asked sits under the field. */
+export function headlessLines(held: readonly HeadlessInfo[], workItemId: number): HeadlessLine[] {
+  return held
+    .filter((info) => info.workItemId === workItemId)
     .sort((a, b) => b.id - a.id)
     .map((info) => ({ id: info.id, prompt: info.prompt, state: info.state, text: info.state === "failed" ? (info.error ?? "") : info.answer }));
 }

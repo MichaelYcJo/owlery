@@ -1,94 +1,493 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="night-desk">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:*" />
     <title>Owlery</title>
     <link rel="stylesheet" href="./renderer.css" />
+    <link rel="stylesheet" href="./themes.css" />
     <style>
-      html, body { margin: 0; height: 100%; background: #1e1e1e; color: #d4d4d4; font: 12px -apple-system, sans-serif; }
-      body { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr) 260px; height: 100vh; overflow: hidden; }
-      #bar { grid-column: 1 / 3; display: flex; gap: 4px; padding: 6px 8px; background: #252526; align-items: center; }
-      #bar button { background: #333; color: inherit; border: 1px solid #444; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
-      #pane-kinds { display: contents; }
-      #tabs { display: flex; gap: 4px; margin-left: 8px; min-width: 0; }
-      #tabs .tab { display: flex; min-width: 0; }
-      #tabs .tab .label { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px 0 0 4px; }
-      #tabs .tab .close { border-left: 0; border-radius: 0 4px 4px 0; padding: 3px 6px; color: #999; }
-      #tabs .tab .close:hover { color: #fff; }
-      #tabs .tab.active button { background: #0e639c; border-color: #0e639c; }
-      #status { margin-left: auto; color: #e2c08d; }
-      #stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
-      .pane { position: absolute; inset: 8px; }
-      #side { border-left: 1px solid #333; overflow: auto; padding: 6px 8px; min-height: 0; }
-      #side h2 { font-size: 11px; text-transform: uppercase; color: #888; margin: 4px 0 6px; }
-      #inbox { list-style: none; margin: 0 0 12px; padding: 0; }
-      #inbox li { border-bottom: 1px solid #2a2a2a; }
-      #inbox button { display: block; width: 100%; padding: 4px 2px; background: none; color: inherit; border: 0; font: inherit; text-align: left; cursor: pointer; }
-      #inbox button:hover { background: #2a2d2e; }
-      #inbox .row { display: flex; gap: 6px; align-items: baseline; }
-      #inbox .title, #inbox .branch { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      #inbox .branch, #inbox .commits { color: #888; font-size: 11px; }
-      #inbox .state.working { color: #75beff; }
-      #inbox .state.waiting { color: #e2c08d; }
-      #inbox .state.finished { color: #89d185; }
-      #inbox:empty::after { content: "None yet"; color: #666; }
-      #ask-form { display: flex; gap: 6px; margin: 0 0 6px; }
-      #ask-form input { flex: 1; min-width: 0; background: #1e1e1e; color: #d4d4d4; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; font: inherit; }
-      #ask-form button { background: #0e639c; color: inherit; border: 1px solid #0e639c; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
-      #ask-form button:disabled { opacity: 0.5; cursor: default; }
-      #headless { list-style: none; margin: 0 0 12px; padding: 0; }
-      #headless li { padding: 4px 2px; border-bottom: 1px solid #2a2a2a; }
-      #headless .row { display: flex; gap: 6px; align-items: baseline; }
+      /* The layout: the widths, the heights, the spacing and the sizes of the type, which no theme changes. Every colour, typeface, texture, radius and shadow is a property of the theme in use, in themes.css, and no rule here names a colour. */
+      :root {
+        --size-caption: 11px;
+        --size-second: 12px;
+        --size-text: 13px;
+        --size-head: 15px;
+        --size-said: 20px;
+        --size-title: 20px;
+        --size-sentence: 34px;
+        --size-terminal: 12px;
+        --tracking-title: -0.01em;
+        /* The weight of a changed work item's title. It sets the width of a title's box, so it is the layout's and no theme's. */
+        --weight-changed: 650;
+        --space-1: 2px;
+        --space-2: 4px;
+        --space-3: 6px;
+        --space-4: 8px;
+        --space-5: 12px;
+        --space-6: 16px;
+        --space-7: 20px;
+        --space-8: 24px;
+        --space-9: 28px;
+        --space-10: 36px;
+        --space-11: 44px;
+        --titlebar-height: 44px;
+        --sidebar-width: 256px;
+        --sidebar-line: 28px;
+        --icon-button: 24px;
+        --icon: 16px;
+        --control-height: 28px;
+        --head-height: 52px;
+        --tabs-height: 34px;
+        --strip-height: 24px;
+        --group-height: 30px;
+        --line-height: 46px;
+        --detail-line: 26px;
+        --summary-line-height: 38px;
+        --summary-title: 300px;
+        --list-width: 404px;
+        --facts-width: 420px;
+        --fact-label: 76px;
+        --said-height: 260px;
+        --dialog-width: 460px;
+        --tab-width: 240px;
+        --dot: 6px;
+        --seal-size-line: 18px;
+        --seal-size: 64px;
+        --seal-size-large: 112px;
+        --motion: 120ms;
+      }
+      html { color-scheme: var(--scheme); }
+      html, body { margin: 0; height: 100%; background: var(--ground); color: var(--ink); font: var(--size-text) / 1.38 var(--font-ui); -webkit-font-smoothing: antialiased; }
+      body { display: flex; height: 100vh; overflow: hidden; cursor: default; }
+      /* A screen that is not in front carries `hidden`, whatever its own display is. */
+      [hidden] { display: none !important; }
+      button { border: 0; background: none; font: inherit; color: inherit; cursor: default; }
+      button:disabled { opacity: 0.45; }
+      h1, h2, h3, p, ul, dl { margin: 0; padding: 0; font-size: inherit; font-weight: inherit; }
+      ul { list-style: none; }
+      /* The keyboard's focus is a ring, on every control. */
+      button:focus, input:focus, select:focus { outline: none; }
+      button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+      .screen { flex: 1; min-width: 0; min-height: 0; }
+      /* A control keeps its words on one line, whatever stands beside it. A colour or a ground changes over a moment where the pointer comes over it, and at once otherwise. */
+      .primary, .quiet { flex: none; display: inline-flex; align-items: center; gap: var(--space-3); box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-5); border-radius: var(--radius-control); box-shadow: var(--control-edge); font-size: var(--size-text); white-space: nowrap; }
+      .primary { background: var(--main); color: var(--on-main); font-weight: 600; }
+      .primary:hover:enabled { background: var(--main-hover); transition: background-color var(--motion); }
+      .primary:active:enabled { background: var(--main-pressed); }
+      .quiet { background: var(--control); font-weight: 500; }
+      .quiet:hover:enabled { background: var(--control-hover); transition: background-color var(--motion); }
+      .quiet:active:enabled { background: var(--control-pressed); }
+      /* A label of a part: a sentence's letters, small and heavy, in the muted ink. */
+      .caption { font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
+      .hint { font-size: var(--size-caption); color: var(--ink-faint); }
+      .head { font-family: var(--font-title); font-size: var(--size-head); font-weight: 600; line-height: 1.2; letter-spacing: var(--tracking-title); color: var(--ink-strong); }
+      /* A title is in the plain ink, and in the strong ink at the heavier weight where its work item changed since the person last looked. */
+      .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 500; }
+      .title.changed { color: var(--ink-strong); font-weight: var(--weight-changed); }
+      /* The letters of a title or a branch that match what is typed in the search field. */
+      mark { border-radius: var(--radius-mark); background: var(--mark); box-shadow: var(--mark-edge); color: inherit; }
+      .count, .age { flex: none; font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+      /* How many commits a branch gained since the person last looked. */
+      .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
+      .badge:empty { display: none; }
+      .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); }
+      .icon-button:hover { background: var(--hover); color: var(--ink); transition: background-color var(--motion), color var(--motion); }
+      .icon-button:active { background: var(--pressed); }
+      .icon-button.on { color: var(--ink-strong); }
+      /* An icon is a line of 1.5 pixels in the colour of the words beside it. */
+      svg.icon, .state-icon svg { flex: none; display: block; width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+      /* The sidebar's filter and the theme's control are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
+      .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; }
+      .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and nothing else. */
+      .branch { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
+      /* A state's colour, which its icon and its words take. */
+      .state.waiting { --state: var(--state-waiting); }
+      .state.working { --state: var(--state-working); }
+      .state.finished { --state: var(--state-finished); }
+      .state.no-agent { --state: var(--state-no-agent); }
+      .state.failed { --state: var(--state-failed); }
+      .state { color: var(--state, inherit); }
+      /* A state's icon: a speech mark for waiting, a ring that turns for working, a check in a circle for finished, a crescent for no agent, and a triangle for a failure. */
+      .state-icon { flex: none; display: block; width: var(--icon); height: var(--icon); }
+      .state-icon .track { opacity: 0.28; }
+      .state-icon .turn { transform-origin: 8px 8px; animation: turn 1.1s linear infinite; }
+      @keyframes turn { to { transform: rotate(360deg); } }
+      .state-words { display: flex; align-items: center; gap: var(--space-3); font-size: var(--size-second); font-weight: 600; }
+
+      /* The seal's place. Before a seal it is blank: a disc on a line, and in the preview and a view the seal's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
+      .seal { position: relative; flex: none; display: block; box-sizing: border-box; width: var(--seal-size-line); height: var(--seal-size-line); border-radius: 50%; }
+      .seal[data-seal="none"] { background: var(--seal-blank-ground); box-shadow: var(--seal-blank-edge); }
+      .seal.drawn { width: var(--seal-size); height: var(--seal-size); border-radius: 0; }
+      .seal.drawn.large { width: var(--seal-size-large); height: var(--seal-size-large); }
+      .seal.drawn[data-seal="none"] { background: none; box-shadow: none; filter: var(--seal-blank-light); }
+      .seal.drawn[data-seal="none"]::before, .seal.drawn[data-seal="none"]::after { content: ""; position: absolute; inset: 0; -webkit-mask: url("./owl.svg") center / contain no-repeat; mask: url("./owl.svg") center / contain no-repeat; }
+      /* The drawing's outline holds the blank's ground, and its light parts, read as a mask laid twice, the owl's tone. */
+      .seal.drawn[data-seal="none"]::before { background: var(--seal-blank-ground); }
+      .seal.drawn[data-seal="none"]::after { background: var(--seal-blank-owl); -webkit-mask-image: url("./owl.svg"), url("./owl.svg"); mask-image: url("./owl.svg"), url("./owl.svg"); mask-mode: luminance; }
+      /* A sealed place shows the wax seal as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size. Nothing sets it before a work item can be sealed. */
+      .seal[data-seal="sealed"] { background: url("./owl-icon-cream.svg") center / contain no-repeat; filter: var(--seal-light); }
+      .seal.drawn[data-seal="sealed"] { background-image: url("./owl.svg"); }
+      .seal-slot { flex: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
+
+      /* What the preview and a view's right column say of a work item alike: what its agent says, its commits and its changed files. */
+      .detail { display: flex; flex-direction: column; gap: var(--space-6); }
+      .detail section { display: flex; flex-direction: column; min-width: 0; }
+      .detail h3 { display: flex; align-items: center; gap: var(--space-4); margin-bottom: 3px; padding-bottom: var(--space-3); border-bottom: 1px solid var(--rule); }
+      .detail h3 .sum { font-weight: 500; color: var(--ink-faint); }
+      .detail .foot { padding-top: var(--space-3); }
+      /* The agent's own words, as plain text with its line breaks kept, on a card. A text longer than its place scrolls inside it. */
+      .detail .says { padding: 14px var(--space-6) var(--space-5); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge); }
+      .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
+      .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-serif); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .commit { display: grid; grid-template-columns: var(--dot) auto minmax(0, 1fr) auto auto; grid-template-areas: "gained hash subject counts age"; column-gap: var(--space-4); align-items: center; min-height: var(--detail-line); font-size: var(--size-second); }
+      .commit .gained { grid-area: gained; }
+      /* The dot before a commit the branch gained since the person last looked. */
+      .commit .gained.new { width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--ink-strong); }
+      .commit .hash { grid-area: hash; }
+      .commit .subject { grid-area: subject; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+      .commit .counts { grid-area: counts; }
+      .commit .age { grid-area: age; }
+      .hash, .counts, .path, .sum-lines { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+      .counts { display: inline-flex; gap: var(--space-3); }
+      .added { color: var(--added); }
+      .removed { color: var(--removed); }
+      .file { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); min-height: var(--detail-line); }
+      .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
+      .file .counts { flex: none; }
+
+      #sidebar { flex: none; display: flex; flex-direction: column; box-sizing: border-box; width: var(--sidebar-width); min-height: 0; border-right: 1px solid var(--rule); background: var(--ground-side); }
+      /* As high as the hidden title bar: it holds the window's traffic lights on macOS, drags the window and holds nothing else. */
+      #sidebar-top { flex: none; height: var(--titlebar-height); -webkit-app-region: drag; }
+      #search { position: relative; flex: none; display: flex; align-items: center; margin: 0 10px var(--space-4); color: var(--ink-faint); }
+      #search > svg { position: absolute; left: var(--space-4); pointer-events: none; }
+      #search-field { flex: 1; min-width: 0; height: var(--sidebar-line); padding: 0 84px 0 31px; }
+      #search-aside { position: absolute; right: var(--space-3); display: flex; align-items: center; gap: var(--space-3); pointer-events: none; }
+      /* The key that puts the keyboard in the field. */
+      #search-key:not(:empty) { display: inline-flex; align-items: center; height: 18px; padding: 0 var(--space-2); border-radius: var(--radius-chip); background: var(--badge); color: var(--ink-muted); }
+      #sidebar-nav { flex: none; display: flex; flex-direction: column; padding: 0 10px; }
+      .side-item { display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; width: 100%; height: var(--sidebar-line); padding: 0 var(--space-4); border-radius: var(--radius-line); color: var(--ink); text-align: left; }
+      .side-item:hover { background: var(--hover); transition: background-color var(--motion); }
+      .side-item:active { background: var(--pressed); }
+      .side-item[aria-current] { background: var(--selected); box-shadow: var(--selected-edge); }
+      /* The item of what is in front keeps its ground under the pointer and answers the press. */
+      .side-item[aria-current]:active { background: var(--pressed); }
+      .side-item > svg.icon { color: var(--ink-muted); }
+      .side-item .word, .side-item .title { flex: 1 1 auto; }
+      .side-item .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* Where a work item's title and its state's age do not both fit, the age gives way first, down to the width of a short one. */
+      .side-item .age { flex: 0 100000 auto; min-width: var(--space-10); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+      .side-item .age:empty { min-width: 0; }
+      #repositories-head { flex: none; display: flex; align-items: center; gap: 1px; height: 32px; margin-top: 9px; padding: 3px 10px 0 18px; border-top: 1px solid var(--rule); }
+      #repositories-head h2 { flex: 1; color: var(--ink-faint); }
+      #bell-count { font-weight: 600; color: var(--ink); }
+      #bell-count:empty { display: none; }
+      /* The dot on the bell where a work item waits, in the strong ink. */
+      #bell.ringing::after { content: ""; position: absolute; left: 14px; top: 3px; width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--ink-strong); box-shadow: var(--dot-edge); }
+      #repositories { flex: 1; display: flex; flex-direction: column; gap: var(--space-1); min-height: 0; overflow: auto; padding: 0 10px var(--space-4); }
+      .repository .fold { gap: var(--space-3); font-weight: 600; }
+      .repository .fold svg.icon { width: var(--space-5); height: var(--space-5); color: var(--ink-faint); }
+      .repository .fold[aria-expanded="false"] svg.icon { transform: rotate(-90deg); }
+      .repository li .side-item { padding-left: 26px; }
+      /* The foot: the status line, and the control that chooses the theme, which is its icon with the choices laid over it as the filter's are. */
+      #sidebar-foot { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: var(--sidebar-line); padding: var(--space-3) 10px 10px 18px; }
+      #status { flex: 1; min-width: 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      /* What the window has to tell: that it is reconnecting, or a request the daemon refused. */
+      #status.notice { color: var(--state-failed); }
+      #status:empty::before { content: "\00a0"; }
+
+      #summary-screen { display: flex; flex-direction: column; box-sizing: border-box; overflow: auto; padding: var(--space-11) var(--space-10) 0; }
+      #summary-head { display: flex; flex-direction: column-reverse; gap: var(--space-4); }
+      /* The summary's sentence is the largest text of the screen, in the serif typeface. */
+      #summary-sentence { font-family: var(--font-serif); font-size: var(--size-sentence); font-weight: var(--weight-said); line-height: 1.15; letter-spacing: var(--tracking-title); color: var(--ink-strong); }
+      #summary-last-here { font-size: var(--size-second); color: var(--ink-muted); }
+      #summary-lines { display: flex; flex-direction: column; margin-top: var(--space-8); border-top: 1px solid var(--rule); }
+      #summary-lines button { display: grid; grid-template-columns: var(--icon) minmax(0, var(--summary-title)) minmax(0, 1fr) auto var(--seal-size-line); column-gap: var(--space-5); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border-bottom: 1px solid var(--rule-soft); text-align: left; }
+      #summary-lines button:hover { background: var(--hover); transition: background-color var(--motion); }
+      #summary-lines button:active { background: var(--pressed); }
+      #summary-lines .title { color: var(--ink-strong); font-weight: var(--weight-changed); }
+      #summary-lines .change { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); }
+      #summary-foot { display: flex; align-items: center; gap: var(--space-4); min-height: 60px; margin-top: var(--space-6); }
+
+      /* The inbox screen and the history screen: a list of lines and the preview of the selected one. */
+      .list-screen { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+      .list { display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border-right: 1px solid var(--rule); }
+      .list-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) 14px var(--space-4) 18px; border-bottom: 1px solid var(--rule); }
+      .list-head .words { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+      .list-head .hint { color: var(--ink-muted); }
+      .list-head select { flex: none; height: var(--control-height); font-size: var(--size-second); }
+      .lines { flex: 1; min-height: 0; overflow: auto; padding-bottom: var(--space-4); }
+      .lines h2 { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--group-height); padding: 0 18px 5px; }
+      .lines h2 .word { color: var(--ink-muted); }
+      .lines h2 .count { font-weight: 500; }
+      .lines ul { display: flex; flex-direction: column; padding: 0 var(--space-4); }
+      /* A line is two rows: the state's icon, the title and the state's age, and under them one text, the badge and the seal's place. */
+      .line { display: flex; flex-direction: column; justify-content: center; gap: 1px; box-sizing: border-box; width: 100%; height: var(--line-height); padding: 0 10px; border-radius: var(--radius-line); text-align: left; }
+      /* The pointer over a line gives it a ground and selects nothing. */
+      .line:hover { background: var(--hover); transition: background-color var(--motion); }
+      .line:active { background: var(--pressed); }
+      .line.selected { background: var(--selected); box-shadow: var(--selected-edge); }
+      /* The selected line keeps its ground under the pointer and answers the press. */
+      .line.selected:active { background: var(--pressed); }
+      .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+      .line .first { height: 18px; }
+      .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
+      .line .title { flex: 1; }
+      /* The second row's text is the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
+      .line .says { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink-muted); }
+      .line .says.branch { font-size: var(--size-caption); }
+      .list-empty { padding: 18px; color: var(--ink-muted); }
+      /* The preview's body scrolls under its heading, and its foot stays in place. */
+      .preview { display: flex; flex-direction: column; box-sizing: border-box; min-width: 0; min-height: 0; }
+      .preview-content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+      .preview-body { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); min-height: 0; overflow: auto; padding: var(--space-7) var(--space-9); }
+      .preview-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-8); }
+      .preview-heading { flex: 1; display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+      .preview-title { font-family: var(--font-title); font-size: var(--size-title); font-weight: var(--weight-title); line-height: 1.2; letter-spacing: var(--tracking-title); color: var(--ink-strong); overflow-wrap: anywhere; }
+      .preview-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) 14px; font-size: var(--size-second); color: var(--ink-muted); }
+      .preview-facts .branch { color: var(--ink); }
+      /* In the preview the commits and the changed files stand side by side where both fit. */
+      .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
+      .preview .detail .says { grid-column: 1 / -1; }
+      .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
+      .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
+
+      #work-item-view { display: grid; grid-template-columns: minmax(0, 1fr) var(--facts-width); grid-template-rows: minmax(0, 1fr); }
+      #view-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+      #view-header { flex: none; display: flex; flex-direction: column; justify-content: center; gap: var(--space-1); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) 18px; border-bottom: 1px solid var(--rule); }
+      #view-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #pane-area { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+      #pane-bar { flex: none; display: flex; align-items: stretch; justify-content: space-between; gap: var(--space-5); height: var(--tabs-height); padding: 0 10px; border-bottom: 1px solid var(--rule); }
+      #tabs { display: flex; min-width: 0; overflow-x: auto; }
+      #pane-buttons { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+      #pane-bar button { color: var(--ink-muted); font-size: var(--size-second); }
+      #pane-buttons button { height: var(--icon-button); padding: 0 var(--space-4); border-radius: var(--radius-control); }
+      #pane-bar button:hover { color: var(--ink); transition: color var(--motion); }
+      #pane-buttons button:hover { background: var(--hover); transition: background-color var(--motion), color var(--motion); }
+      #pane-buttons button:active { background: var(--pressed); }
+      /* The tab in front stands on the terminal's ground. */
+      #tabs .tab { flex: none; display: flex; align-items: stretch; }
+      #tabs .tab:hover { background: var(--hover); transition: background-color var(--motion); }
+      #tabs .tab.active { background: var(--terminal-ground); box-shadow: var(--tab-edge); }
+      #tabs .tab .label { max-width: var(--tab-width); padding: 0 var(--space-2) 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #tabs .tab.active .label { color: var(--terminal-strong); font-weight: 600; }
+      #tabs .tab .close { padding: 0 var(--space-4) 0 var(--space-2); color: var(--ink-faint); }
+      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. On the tab in front the close control takes the terminal's inks, since that tab stands on the terminal's ground. */
+      #tabs .tab:not(.active):active { background: var(--pressed); }
+      #tabs .tab .close:hover { color: var(--ink); }
+      #tabs .tab .close:active { color: var(--ink-strong); }
+      #tabs .tab.active .close:hover { color: var(--terminal-ink); }
+      #tabs .tab.active .close:active { color: var(--terminal-strong); }
+      #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
+      #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
+      .pane { position: absolute; inset: var(--space-5) 18px 10px; }
+      /* The strip under the terminal: its size, the worktree's folder, and the state with its age. */
+      #view-strip { flex: none; display: flex; align-items: center; gap: var(--space-6); box-sizing: border-box; height: var(--strip-height); padding: 0 14px; border-top: 1px solid var(--rule); }
+      #strip-size, #strip-state { flex: none; }
+      #strip-worktree { flex: 1; color: var(--ink-faint); }
+      /* The right column: what it says of the work item scrolls, and the "Ask" section and the seal's place stay at its foot. */
+      #view-facts { display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border-left: 1px solid var(--rule); background: var(--texture), var(--ground-column); }
+      #view-scroll { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); min-height: 0; overflow: auto; padding: var(--space-6); }
+      #view-head { display: flex; flex-direction: column; gap: var(--space-2); }
+      #view-facts-title { overflow-wrap: anywhere; }
+      #view-fact-list { display: grid; grid-template-columns: var(--fact-label) minmax(0, 1fr); column-gap: 10px; align-items: start; font-size: var(--size-second); }
+      #view-fact-list dt { color: var(--ink-faint); }
+      #view-fact-list dt, #view-fact-list dd { box-sizing: border-box; min-height: var(--detail-line); padding: var(--space-2) 0; }
+      #view-fact-list dd { margin: 0; overflow-wrap: anywhere; }
+      /* In the column a commit is its time, its subject and its hash on one row, and its lines under the subject. */
+      #view-facts .commit { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "subject hash age" "counts counts counts"; padding: var(--space-2) 0; }
+      #view-facts .commit .gained { display: none; }
+      #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
+      #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
+      #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
+
+      #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
+      #ask-form { flex: none; display: flex; gap: var(--space-3); }
+      #ask-form input { flex: 1; min-width: 0; }
+      #headless { min-height: 0; overflow: auto; font-size: var(--size-second); }
+      #headless li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
+      #headless li:last-child { border-bottom: 0; }
+      #headless .row { display: flex; gap: var(--space-3); align-items: center; }
       #headless .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-      #headless .answer { display: block; margin-top: 2px; color: #aaa; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      #headless .state.working { color: #75beff; }
-      #headless .state.finished { color: #89d185; }
-      #headless .state.failed { color: #f48771; }
-      #headless:empty::after { content: "Nothing asked yet"; color: #666; }
-      #events { list-style: none; margin: 0; padding: 0; font-family: Menlo, monospace; font-size: 11px; }
-      #events li { padding: 2px 0; border-bottom: 1px solid #2a2a2a; white-space: nowrap; }
-      #work-item-dialog { background: #252526; color: inherit; border: 1px solid #444; border-radius: 6px; padding: 14px 16px; width: 420px; }
-      #work-item-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
-      #work-item-dialog h2 { font-size: 13px; margin: 0 0 10px; }
-      #work-item-dialog label { display: block; margin-bottom: 10px; color: #aaa; }
-      #work-item-dialog .row { display: flex; gap: 6px; margin-top: 4px; }
-      #work-item-dialog .row.end { justify-content: flex-end; }
-      #work-item-dialog input, #work-item-dialog select { flex: 1; min-width: 0; background: #1e1e1e; color: #d4d4d4; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; font: inherit; }
-      #work-item-dialog button { background: #333; color: inherit; border: 1px solid #444; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
-      #work-item-dialog button[type="submit"] { background: #0e639c; border-color: #0e639c; }
-      #work-item-dialog button:disabled { opacity: 0.5; cursor: default; }
-      #work-item-error { color: #f48771; min-height: 1.3em; margin: 0 0 8px; overflow-wrap: anywhere; }
+      #headless .state { font-size: var(--size-caption); }
+      #headless .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }
+
+      input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
+      input::placeholder { color: var(--ink-faint); }
+
+      #work-item-dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
+      #work-item-dialog::backdrop { background: var(--backdrop); }
+      #work-item-dialog h2 { margin-bottom: var(--space-6); }
+      #work-item-dialog label { display: block; margin-bottom: var(--space-5); font-size: var(--size-second); color: var(--ink-muted); }
+      #work-item-dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
+      #work-item-dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
+      #work-item-dialog input, #work-item-dialog select { flex: 1; min-width: 0; font-size: var(--size-text); }
+      #work-item-error { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
+
+      /* Under the system's setting for less motion nothing moves and the working icon stands. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      }
     </style>
   </head>
   <body>
-    <div id="bar">
-      <span id="pane-kinds"></span>
-      <button id="new-work-item">+ Work item</button>
-      <div id="tabs"></div>
-      <span id="status"></span>
-    </div>
-    <div id="stage"></div>
-    <aside id="side">
-      <h2>Inbox</h2>
-      <ul id="inbox"></ul>
-      <h2>Ask</h2>
-      <form id="ask-form">
-        <input id="ask-prompt" autocomplete="off" aria-label="What to ask in the work item of the pane in front" />
-        <button type="submit" id="ask-submit">Ask</button>
-      </form>
-      <ul id="headless"></ul>
-      <h2>Hook events</h2>
-      <ol id="events"></ol>
-    </aside>
+    <!-- The sidebar stands at the left of every screen, and is displayed before the daemon's `ready` arrives. -->
+    <nav id="sidebar" aria-label="Owlery">
+      <div id="sidebar-top"></div>
+      <div id="search">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4" /><path d="M10 10l3.5 3.5" /></svg>
+        <input id="search-field" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search the work items by title, branch or repository" />
+        <span id="search-aside" class="hint">
+          <span id="search-count"></span>
+          <span id="search-key"></span>
+        </span>
+      </div>
+      <ul id="sidebar-nav">
+        <li>
+          <button id="nav-inbox" class="side-item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 9.5l1.8-6h8.4l1.8 6v3H2z" /><path d="M2 9.5h3.5a2.5 2.5 0 0 0 5 0H14" /></svg><span class="word">Inbox</span><span id="nav-inbox-count" class="count"></span></button>
+        </li>
+        <li>
+          <button id="nav-summary" class="side-item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6" /></svg><span class="word">Summary</span><span id="nav-summary-count" class="count"></span></button>
+        </li>
+        <li>
+          <button id="nav-history" class="side-item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 8a5.4 5.4 0 1 0 1.7-3.9" /><path d="M2.3 2.6v2.7h2.7" /><path d="M8 5.2V8l2 1.3" /></svg><span class="word">History</span></button>
+        </li>
+      </ul>
+      <div id="repositories-head">
+        <h2 class="caption">Repositories</h2>
+        <button id="bell" class="icon-button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z" /><path d="M6.8 14h2.4" /></svg>
+          <span id="bell-count" class="count"></span>
+        </button>
+        <label id="sidebar-filter-control" class="icon-button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
+          <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state"></select>
+        </label>
+        <button id="add-repository" class="icon-button" title="Add a repository" aria-label="Add a repository">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 4.3a1 1 0 0 1 1-1h3l1.4 1.5h6a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z" /><path d="M8 7.3v3.4M6.3 9h3.4" /></svg>
+        </button>
+        <button id="new-work-item" class="icon-button" title="New work item" aria-label="New work item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg></button>
+      </div>
+      <div id="repositories"></div>
+      <div id="sidebar-foot">
+        <p id="status" role="status"></p>
+        <label id="theme-control" class="icon-button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" /><path d="M8 2.5v11M8 5.5h4.6M8 8h5.5M8 10.5h4.6" /></svg>
+          <select id="theme" aria-label="Theme"></select>
+        </label>
+      </div>
+    </nav>
+    <!-- No screen is in front until the daemon's `ready` says which one opens. -->
+    <main id="summary-screen" class="screen" hidden>
+      <div id="summary-head">
+        <h1 id="summary-sentence"></h1>
+        <p id="summary-last-here" class="hint"></p>
+      </div>
+      <ul id="summary-lines"></ul>
+      <div id="summary-foot">
+        <button id="summary-main" class="primary"></button>
+        <button id="summary-second" class="quiet" hidden></button>
+        <span id="summary-hint" class="hint"></span>
+      </div>
+    </main>
+    <!-- The inbox screen and the history screen are each a copy of the list screen below, whose parts take the screen's name before their own as their ids. -->
+    <main id="inbox-screen" class="screen list-screen" hidden></main>
+    <main id="history-screen" class="screen list-screen" hidden></main>
+    <template id="list-screen">
+      <section data-part="list" class="list">
+        <div data-part="head" class="list-head">
+          <div class="words">
+            <h1 data-part="word" class="head"></h1>
+            <p data-part="summary" class="hint" hidden></p>
+            <p data-part="last-here" class="hint" hidden></p>
+            <p data-part="match" class="hint" hidden></p>
+          </div>
+          <select data-part="filter" class="filter" aria-label="Show the work items of one state"></select>
+        </div>
+        <p data-part="empty" class="list-empty" hidden></p>
+        <div data-part="lines" class="lines"></div>
+      </section>
+      <section data-part="preview" class="preview" aria-label="The selected work item">
+        <div data-part="preview-content" class="preview-content" hidden>
+          <div class="preview-body">
+            <div class="preview-top">
+              <div class="preview-heading">
+                <span data-part="preview-state" class="state-words"></span>
+                <h2 data-part="preview-title" class="preview-title"></h2>
+                <p class="preview-facts">
+                  <span data-part="preview-branch" class="branch"></span>
+                  <span data-part="preview-ahead"></span>
+                  <span data-part="preview-repo"></span>
+                </p>
+              </div>
+              <span class="seal-slot"><span data-part="preview-seal"></span>No seal yet</span>
+            </div>
+            <div data-part="preview-detail" class="detail"></div>
+          </div>
+          <div class="preview-foot">
+            <button data-part="open-work-item" class="primary">Open the work item</button>
+            <span data-part="preview-keys" class="hint keys"></span>
+          </div>
+        </div>
+      </section>
+    </template>
+    <main id="work-item-view" class="screen" hidden>
+      <div id="view-main">
+        <header id="view-header">
+          <h1 id="view-title" class="head"></h1>
+          <span id="view-branch" class="branch"></span>
+        </header>
+        <section id="pane-area" aria-label="Panes">
+          <div id="pane-bar">
+            <div id="tabs"></div>
+            <div id="pane-buttons"></div>
+          </div>
+          <p id="no-panes" hidden>No pane is open in this work item.</p>
+          <div id="stage"></div>
+          <p id="view-strip" class="hint">
+            <span id="strip-size"></span>
+            <span id="strip-worktree" class="path"></span>
+            <span id="strip-state"></span>
+          </p>
+        </section>
+      </div>
+      <aside id="view-facts">
+        <div id="view-scroll">
+          <div id="view-head">
+            <span id="view-repo" class="caption"></span>
+            <h2 id="view-facts-title" class="head"></h2>
+            <span id="view-state" class="state-words"></span>
+          </div>
+          <dl id="view-fact-list"></dl>
+          <div id="view-detail" class="detail"></div>
+        </div>
+        <section id="ask">
+          <h2 class="caption">Ask</h2>
+          <form id="ask-form">
+            <input id="ask-prompt" autocomplete="off" aria-label="What to ask in this work item" />
+            <button type="submit" id="ask-submit" class="quiet">Ask</button>
+          </form>
+          <ul id="headless"></ul>
+        </section>
+        <section id="view-seal">
+          <span id="view-seal-place"></span>
+          <span class="words">
+            <span class="name head">No seal yet</span>
+            <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
+          </span>
+        </section>
+      </aside>
+    </main>
     <dialog id="work-item-dialog">
       <form id="work-item-form">
-        <h2>New work item</h2>
+        <h2 class="head">New work item</h2>
         <label>
           Repository folder
           <span class="row">
             <input id="work-item-repo" spellcheck="false" autocomplete="off" />
-            <button type="button" id="work-item-browse">Browse…</button>
+            <button type="button" id="work-item-browse" class="quiet">Browse…</button>
           </span>
         </label>
         <label>
@@ -103,8 +502,8 @@
         </label>
         <p id="work-item-error" role="alert"></p>
         <div class="row end">
-          <button type="button" id="work-item-cancel">Cancel</button>
-          <button type="submit" id="work-item-create">Create</button>
+          <button type="button" id="work-item-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="work-item-create" class="primary">Create</button>
         </div>
       </form>
     </dialog>

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,6 +15,12 @@ import type { HeadlessInfo, ServerMessage } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
+/** A session whose agent has said nothing yet, or whose kind reports no state. */
+const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null };
+/** What a branch just cut holds since its base. */
+const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
+const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "id", "newCommits", "repo", "repoName", "title", "worktree"];
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -70,6 +76,39 @@ async function client(url: string, token: string | null = TOKEN) {
   };
 }
 
+/**
+ * Puts a `git` before the real one on the path the daemon runs git from: it
+ * notes its first argument, waits `seconds`, and runs the real one. The cases'
+ * own git goes through it too, until `stop`.
+ */
+function watchedGit(base: string, seconds = 0): { calls: (command: string) => number; stop: () => void } {
+  const bin = join(base, "bin");
+  const noted = join(base, "git-calls.txt");
+  const path = process.env.PATH ?? "";
+  mkdirSync(bin);
+  writeFileSync(join(bin, "git"), `#!/bin/sh\necho "$1" >> '${noted}'\nsleep ${seconds}\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+  process.env.PATH = `${bin}:${path}`;
+  const stop = (): void => {
+    process.env.PATH = path;
+  };
+  cleanups.push(stop);
+  return {
+    calls: (command) => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line === command).length : 0),
+    stop,
+  };
+}
+
+/** A run folder that lists one work item, made before the daemon that reads it, whose branch holds one new commit. */
+async function runFolderWithWorkItem(made: { repo: string; root: string; base: string }, title: string) {
+  const runDir = join(made.base, "run");
+  mkdirSync(runDir);
+  const place = await createWorktree({ folder: made.repo, title, root: made.root });
+  git(place.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
+  const workItem = { id: 1, title, createdAt: 1, ...place };
+  writeFileSync(join(runDir, "work-items.json"), JSON.stringify([workItem]));
+  return { runDir, workItem };
+}
+
 describe("the daemon's local server", () => {
   it("listens on the loopback address only", async () => {
     const { daemon: d } = await daemon();
@@ -123,7 +162,7 @@ describe("sessions", () => {
     await new Promise((r) => setTimeout(r, 500));
     const second = await client(url);
     const ready = await second.message("ready");
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, state: null }]);
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE }]);
     second.send({ type: "attach", id: session.id });
     const replay = await second.message("replay");
     expect(replay.data).toContain("first");
@@ -170,7 +209,7 @@ describe("sessions", () => {
     const exit = await c.message("exit");
     expect(exit).toEqual({ type: "exit", id: session.id, exitCode: 3 });
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: null, state: null }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: null, ...NO_STATE }]);
   });
 
   it("gives each session's process the pane's id and the hook socket", async () => {
@@ -209,8 +248,9 @@ describe("work items", () => {
     const created = await c.message("workItemCreated", (m) => m.requestId === 3);
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repo, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, newCommits: 0 });
-    expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, state: null });
+    // The repository's HEAD is on `main`, and its folder is named `project`.
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repo, repoName: "project", branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
     // The creating client receives the pane's output, as with a pane it started.
@@ -223,22 +263,37 @@ describe("work items", () => {
 
   it("carries only the fields the protocol names, none of them a vendor's", async () => {
     const { repo, root } = repository();
-    const { url } = await daemon({ worktreesRoot: root });
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Keys", kind: "shell", cols: 80, rows: 24 });
     const created = await c.message("workItemCreated");
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
-    expect(Object.keys(created.workItem).sort()).toEqual(["baseCommit", "branch", "createdAt", "id", "newCommits", "repo", "title", "worktree"]);
-    expect(Object.keys(created.session).sort()).toEqual(["alive", "id", "kind", "state", "workItemId"]);
+    expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
+    expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
+    expect(Object.keys(created.workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
+    // A commit, so that the lists carry one and a changed file.
+    writeFileSync(join(created.workItem.worktree, "one.txt"), "one\n");
+    git(created.workItem.worktree, "add", "one.txt");
+    git(created.workItem.worktree, "commit", "--quiet", "-m", "add one");
+    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
+    // A look, so that `ready` carries one; the `attach` after it is answered once the daemon has handled both.
+    c.send({ type: "looked" });
+    c.send({ type: "attach", id: created.session.id });
+    await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["headless", "paneKinds", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["headless", "lastLook", "paneKinds", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["kind", "label", "reportsState"]);
-    const inbox = await c.message("inbox");
     expect(Object.keys(inbox).sort()).toEqual(["sessions", "type", "workItems"]);
-    expect(Object.keys(inbox.workItems[0]!).sort()).toEqual(["baseCommit", "branch", "createdAt", "id", "newCommits", "repo", "title", "worktree"]);
-    expect(Object.keys(inbox.sessions[0]!).sort()).toEqual(["alive", "id", "kind", "state", "workItemId"]);
-    expect(Object.keys(ready.workItems[0]!).sort()).toEqual(["baseCommit", "branch", "createdAt", "id", "newCommits", "repo", "title", "worktree"]);
+    for (const lists of [inbox, ready, ready.lastLook!]) {
+      expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
+      const workItem = lists.workItems[0]!;
+      expect(Object.keys(workItem).sort()).toEqual(WORK_ITEM_FIELDS);
+      expect(Object.keys(workItem.commits![0]!).sort()).toEqual(["added", "at", "hash", "removed", "subject"]);
+      expect(Object.keys(workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
+      expect(Object.keys(workItem.changes!.list[0]!).sort()).toEqual(["added", "path", "removed"]);
+    }
   });
 
   it("gives a second work item of the same title a branch and a folder ending in -2, though both are asked at once", async () => {
@@ -293,13 +348,16 @@ describe("work items", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Outlives the daemon", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
+    git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
+    git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "two");
     await first.close();
     expect(statSync(join(runDir, "work-items.json")).mode & 0o777).toBe(0o600);
 
     const { url } = await daemon({ runDir, worktreesRoot: root });
     const ready = await (await client(url)).message("ready");
-    // The count is read again by the daemon that starts, so `ready` carries none yet.
-    expect(ready.workItems).toEqual([{ ...workItem, newCommits: null }]);
+    // The daemon that starts holds no count, and reads each before it answers its first hello.
+    expect(ready.workItems).toEqual([{ ...workItem, aheadOfBase: 2, newCommits: 2, commits: [expect.objectContaining({ subject: "two" }), expect.objectContaining({ subject: "one" })] }]);
+    expect(ready.workItems[0]).toMatchObject({ repoName: "project", baseBranch: "main" });
     // Sessions do not outlive the daemon.
     expect(ready.sessions).toEqual([]);
   });
@@ -313,7 +371,7 @@ describe("work items", () => {
     const { workItem } = await c.message("workItemCreated");
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     const { session } = await c.message("started", (m) => m.requestId === 2);
-    expect(session).toEqual({ id: session.id, kind: "shell", alive: true, workItemId: workItem.id, state: null });
+    expect(session).toEqual({ id: session.id, kind: "shell", alive: true, workItemId: workItem.id, ...NO_STATE });
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
   });
 
@@ -416,7 +474,7 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     d.agentEvent(session.id, "Stop", {});
     const last = await c.message("inbox", (m) => stateOf(m, session.id) === "finished");
-    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "finished" }]);
+    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
     expect(last.workItems).toEqual([workItem]);
   });
 
@@ -461,7 +519,78 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.socket.close();
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, state: "waiting" }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
+  });
+
+  it("carries with a session's state the time it began, and the tool or the text the event that began it carried, until the state changes", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemon({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE });
+    /** The session as a client that says hello now is given it. */
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash", tool_input: { command: "ls" } });
+    const waiting = { ...session, state: "waiting", stateSince: 100, stateText: null, stateTool: "Bash" };
+    expect(await listed()).toEqual(waiting);
+    // The inbox that tells of the state carries the same.
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+    clock = 200;
+    d.agentEvent(session.id, "Stop", { last_assistant_message: "The form is in src/form.ts." });
+    expect(await listed()).toEqual({ ...session, state: "finished", stateSince: 200, stateText: "The form is in src/form.ts.", stateTool: null });
+    clock = 300;
+    d.agentEvent(session.id, "UserPromptSubmit", { prompt: "Go on." });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null });
+    clock = 400;
+    d.agentEvent(session.id, "Notification", { message: "The agent is waiting for your input" });
+    expect(await listed()).toEqual({ ...session, state: "waiting", stateSince: 400, stateText: "The agent is waiting for your input", stateTool: null });
+    clock = 500;
+    d.agentEvent(session.id, "SessionStart", {});
+    expect(await listed()).toEqual({ ...session, ...NO_STATE });
+  });
+
+  it("keeps 2000 characters of a state's text, and cuts inside no character", async () => {
+    const { daemon: d, url } = await daemon();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    const text = async () => (await (await client(url)).message("ready")).sessions[0]?.stateText;
+    d.agentEvent(session.id, "Stop", { last_assistant_message: "x".repeat(2000) });
+    expect(await text()).toBe("x".repeat(2000));
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    d.agentEvent(session.id, "Stop", { last_assistant_message: `${"x".repeat(2000)}y` });
+    expect(await text()).toBe("x".repeat(2000));
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    // An owl is two characters of a text, and the cut would fall between them.
+    d.agentEvent(session.id, "Stop", { last_assistant_message: `${"x".repeat(1999)}\u{1F989} and more` });
+    expect(await text()).toBe("x".repeat(1999));
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    d.agentEvent(session.id, "Stop", { last_assistant_message: `${"x".repeat(1998)}\u{1F989} and more` });
+    expect(await text()).toBe(`${"x".repeat(1998)}\u{1F989}`);
+  });
+
+  it("keeps what the event that began a state said: a later event that leaves the state as it was changes neither its time, its text nor its tool", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemon({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
+    clock = 200;
+    d.agentEvent(session.id, "Notification", { message: "The agent needs your permission to use Bash" });
+    expect(await listed()).toEqual({ ...session, state: "waiting", stateSince: 100, stateText: null, stateTool: "Bash" });
+    clock = 300;
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    clock = 400;
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Read" });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null });
+    // One inbox for the pane's start and one per state.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "waiting", "working"]);
   });
 
   it("tells every client of a work item one of them creates, of a pane one starts, and of a state that changes", async () => {
@@ -510,7 +639,7 @@ describe("the inbox", () => {
     d.agentEvent(session.id, "PermissionRequest", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.send({ type: "input", id: session.id, data: "go\n" });
-    const ended = { id: session.id, kind: "claude", alive: false, workItemId: null, state: "waiting" };
+    const ended = { id: session.id, kind: "claude", alive: false, workItemId: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null };
     for (const each of [c, bystander]) expect((await each.message("inbox", (m) => m.sessions[0]?.alive === false)).sessions).toEqual([ended]);
   });
 
@@ -563,20 +692,121 @@ describe("the inbox", () => {
     expect((await (await client(url)).message("ready")).sessions).toEqual([]);
   });
 
-  it("shows a commit made in a work item's worktree as one new commit, and no agent state for its shell pane", async () => {
+  it("shows a commit made in a work item's worktree as one new commit, with its hash, its subject, its time, its lines and the file it changed, and no agent state for its shell pane", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, commitPollMs: 40 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Committed to", kind: "shell", cols: 80, rows: 24 });
     const { workItem, session } = await c.message("workItemCreated");
-    expect(workItem.newCommits).toBe(0);
+    expect(workItem).toMatchObject(NOTHING_NEW);
+    /** The newest commit of the worktree's branch, as the daemon lists one that adds a file of one line. */
+    const newest = (subject: string) => ({ hash: git(workItem.worktree, "rev-parse", "--short", "HEAD").trim(), subject, at: Number(git(workItem.worktree, "log", "-1", "--format=%ct").trim()) * 1000, added: 1, removed: 0 });
     commit(workItem.worktree, "one.txt");
+    const one = newest("add one.txt");
     const inbox = await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
-    expect(inbox.workItems).toEqual([{ ...workItem, newCommits: 1 }]);
+    expect(inbox.workItems).toEqual([{ ...workItem, aheadOfBase: 1, newCommits: 1, commits: [one], changes: { files: 1, added: 1, removed: 0, list: [{ path: "one.txt", added: 1, removed: 0 }] } }]);
     expect(inbox.sessions).toEqual([{ ...session, state: null }]);
     commit(workItem.worktree, "two.txt");
-    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 2);
+    const two = newest("add two.txt");
+    const later = await c.message("inbox", (m) => m.workItems[0]?.newCommits === 2);
+    // Newest first.
+    expect(later.workItems[0]?.commits).toEqual([two, one]);
+    expect(later.workItems[0]?.changes).toEqual({ files: 2, added: 2, removed: 0, list: [{ path: "one.txt", added: 1, removed: 0 }, { path: "two.txt", added: 1, removed: 0 }] });
+  });
+
+  it("asks git for a branch's log and diff only where its head moved since it last read them, and tells every client of a head that moved though the count stayed", async () => {
+    const { repo, root, base } = repository();
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Amended", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    const watched = watchedGit(base);
+    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the cut, and for the commits ahead of the base branch. */
+    const threeReads = async (): Promise<void> => {
+      const reads = watched.calls("rev-list");
+      await c.until(() => (watched.calls("rev-list") >= reads + 6 ? true : undefined));
+    };
+    // The branch was just cut, and its head is where the creation left it.
+    await threeReads();
+    expect([watched.calls("log"), watched.calls("diff")]).toEqual([0, 0]);
+    commit(workItem.worktree, "one.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.commits?.[0]?.subject === "add one.txt");
+    await threeReads();
+    expect([watched.calls("log"), watched.calls("diff")]).toEqual([1, 1]);
+    git(workItem.worktree, "commit", "--quiet", "--amend", "-m", "add one, said better");
+    const amended = await c.message("inbox", (m) => m.workItems[0]?.commits?.[0]?.subject === "add one, said better");
+    expect(amended.workItems[0]).toMatchObject({ newCommits: 1, commits: [{ subject: "add one, said better", added: 1, removed: 0 }] });
+    await threeReads();
+    expect([watched.calls("log"), watched.calls("diff")]).toEqual([2, 2]);
+    // One for the creation, one for the commit and one for the amended one.
+    expect(inboxes(c).map((m) => m.workItems[0]?.commits?.[0]?.subject)).toEqual([undefined, "add one.txt", "add one, said better"]);
+  });
+
+  it("tells every client how far a work item's branch is ahead of its base branch: not by the commits the base gained and the branch merged in, and by none once the base holds the branch", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    expect([workItem.baseBranch, workItem.aheadOfBase]).toEqual(["main", 0]);
+    const counts = (m: Inbox) => [m.workItems[0]?.aheadOfBase, m.workItems[0]?.newCommits];
+    commit(workItem.worktree, "own.txt");
+    await c.message("inbox", (m) => counts(m).join() === "1,1");
+    commit(repo, "on-main.txt");
+    git(workItem.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
+    // Three commits since the cut: the branch's own, the base's and the merge. The base holds its own.
+    await c.message("inbox", (m) => counts(m).join() === "2,3");
+    git(repo, "merge", "--quiet", "--ff-only", workItem.branch);
+    // The branch's head and its count stay, and the inbox is for the base that moved.
+    await c.message("inbox", (m) => counts(m).join() === "0,3");
+  });
+
+  it("gives a work item cut from no branch, and one whose base branch is gone, no count of commits ahead", async () => {
+    const { repo, root } = repository();
+    git(repo, "checkout", "--quiet", "--detach");
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "From a commit", kind: "shell", cols: 80, rows: 24 });
+    const detached = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    expect([detached.baseBranch, detached.aheadOfBase]).toEqual([null, null]);
+    git(repo, "checkout", "--quiet", "-b", "feature");
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "From a feature", kind: "shell", cols: 80, rows: 24 });
+    const cut = (await c.message("workItemCreated", (m) => m.requestId === 2)).workItem;
+    expect([cut.baseBranch, cut.aheadOfBase]).toEqual(["feature", 0]);
+    commit(detached.worktree, "one.txt");
+    git(repo, "checkout", "--quiet", "main");
+    git(repo, "branch", "--quiet", "-D", "feature");
+    const inbox = await c.message("inbox", (m) => m.workItems[1]?.aheadOfBase === null && m.workItems[0]?.newCommits === 1);
+    expect(inbox.workItems.map((w) => [w.baseBranch, w.aheadOfBase, w.newCommits])).toEqual([[null, null, 1], ["feature", null, 0]]);
+  });
+
+  it("lists the 20 newest of a work item's commits, beside the count of all of them", async () => {
+    const made = repository();
+    const { runDir, workItem } = await runFolderWithWorkItem(made, "Long");
+    for (let n = 2; n <= 25; n++) git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", `commit ${n}`);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000 });
+    const listed = (await (await client(url)).message("ready")).workItems[0];
+    expect(listed?.newCommits).toBe(25);
+    expect(listed?.commits?.map((each) => each.subject)).toEqual(Array.from({ length: 20 }, (_, i) => `commit ${25 - i}`));
+  });
+
+  it("gives a work item whose branch is gone no count, no commits and no changes", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Removed", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    commit(workItem.worktree, "one.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
+    git(repo, "worktree", "remove", "--force", workItem.worktree);
+    git(repo, "branch", "--quiet", "-D", workItem.branch);
+    const gone = await c.message("inbox", (m) => m.workItems[0]?.newCommits === null);
+    expect(gone.workItems).toEqual([{ ...workItem, aheadOfBase: null, newCommits: null, commits: null, changes: null }]);
   });
 
   it("sends no inbox while the counts stay as they were", async () => {
@@ -593,37 +823,73 @@ describe("the inbox", () => {
     expect(inboxes(c).map((m) => m.workItems[0]?.newCommits)).toEqual([0, 1]);
   });
 
-  it("reads the counts only while a client is connected, and again once one connects", async () => {
-    const { repo, root } = repository();
-    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+  it("reads no count while no client is connected, and reads them at the next hello, so its `ready` carries the commits made meanwhile", async () => {
+    const { repo, root, base } = repository();
+    // The wait is long, so that the first run of the watched git, which the system checks, ends inside it.
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20, readyWaitMs: 5000 });
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Unwatched", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await first.message("workItemCreated");
     first.socket.close();
     await pause(100);
+    const watched = watchedGit(base);
     commit(workItem.worktree, "one.txt");
+    expect(watched.calls("commit")).toBe(1);
+    // Ten intervals and more with nobody connected, and the pane still alive.
     await pause(200);
+    expect(watched.calls("rev-list")).toBe(0);
     const second = await client(url);
-    // Nothing read the branch while nobody was connected, so `ready` carries the count last read.
-    expect((await second.message("ready")).workItems[0]?.newCommits).toBe(0);
-    await second.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    expect((await second.message("ready")).workItems[0]?.newCommits).toBe(1);
   });
 
-  it("reads the counts at most once per interval, however often clients come and go", async () => {
+  it("reads the counts between two hellos at most once per interval, and tells the other clients, in an inbox, of a count a hello's read changed", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, commitPollMs: 60_000 });
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Read once", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await first.message("workItemCreated");
-    first.socket.close();
-    await pause(100);
     commit(workItem.worktree, "one.txt");
-    const second = await client(url);
-    await second.message("ready");
     await pause(300);
-    expect(inboxes(second)).toEqual([]);
+    // The creation's inbox alone: the interval is not over, so nothing read the commit.
+    expect(inboxes(first).map((m) => m.workItems[0]?.newCommits)).toEqual([0]);
+    const second = await client(url);
+    expect((await second.message("ready")).workItems[0]?.newCommits).toBe(1);
+    await first.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    await pause(100);
+    // The client that said hello has the count in its `ready`, and is sent no inbox for it, before or after.
+    expect(second.messages.map((m) => m.type)).toEqual(["ready"]);
+  });
+
+  it("sends `ready` with the counts it holds where the read takes longer than its wait, and the read's counts in an inbox after it", async () => {
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Slow to count");
+    watchedGit(made.base, 1);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 50, commitPollMs: 60_000 });
+    const c = await client(url);
+    // A daemon that just started holds no count.
+    expect((await c.message("ready")).workItems[0]?.newCommits).toBeNull();
+    expect((await c.message("inbox")).workItems[0]?.newCommits).toBe(1);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+  });
+
+  it("handles nothing of a client that left before its `ready`: a pane it asked for is not started", async () => {
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Left early");
+    // The read takes long enough for the client to ask and leave before it ends, and the wait is longer still.
+    const watched = watchedGit(made.base, 0.2);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000 });
+    const c = await client(url);
+    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.socket.close();
+    await c.until(() => c.closed());
+    watched.stop();
+    // The hello of the next client is answered after the read the first one started.
+    const ready = await (await client(url)).message("ready");
+    expect(ready.workItems[0]?.newCommits).toBe(1);
+    expect(ready.sessions).toEqual([]);
+    expect(c.messages).toEqual([]);
   });
 
   it("gives a work item from before the base commit was recorded no count, beside one that has it", async () => {
@@ -638,9 +904,143 @@ describe("the inbox", () => {
     writeFileSync(join(runDir, "work-items.json"), JSON.stringify([{ id: 1, title: "Before", createdAt: 1, ...old }, { id: 2, title: "After", createdAt: 2, ...after }]));
     const { url } = await daemon({ runDir, worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
-    expect((await c.message("ready")).workItems.map((w) => [w.baseCommit, w.newCommits])).toEqual([[null, null], [after.baseCommit, null]]);
-    const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 1);
-    expect(inbox.workItems[0]).toMatchObject({ id: 1, baseCommit: null, newCommits: null });
+    expect((await c.message("ready")).workItems.map((w) => [w.baseCommit, w.newCommits, w.commits?.length ?? null, w.changes?.files ?? null])).toEqual([[null, null, null, null], [after.baseCommit, 1, 1, 1]]);
+    commit(after.worktree, "again.txt");
+    const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 2);
+    expect(inbox.workItems[0]).toMatchObject({ id: 1, baseCommit: null, newCommits: null, commits: null, changes: null });
+  });
+});
+
+describe("the last look", () => {
+  type Client = Awaited<ReturnType<typeof client>>;
+  const stateOf = (m: Extract<ServerMessage, { type: "inbox" }>, id: number) => m.sessions.find((s) => s.id === id)?.state;
+
+  function repository() {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  /**
+   * Sends `looked`, which has no answer, and after it a start the daemon
+   * refuses: the refusal arrives once the daemon has handled both, and starts nothing.
+   */
+  let refused = 900;
+  async function looked(c: Client): Promise<void> {
+    const requestId = refused++;
+    c.send({ type: "looked" });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+    await c.message("error", (m) => m.requestId === requestId);
+  }
+
+  /** The look a client that says hello now is given. */
+  const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
+
+  it("gives a client no look where no client ever sent `looked`", async () => {
+    const { url } = await daemon();
+    expect((await (await client(url)).message("ready")).lastLook).toBeNull();
+    expect(await lookNow(url)).toBeNull();
+  });
+
+  it("keeps the time and both lists of the moment a client sends `looked`, and gives them to a client that connects afterwards", async () => {
+    const { repo, root } = repository();
+    const { daemon: d, url } = await daemon({ worktreesRoot: root, now: () => 1234 });
+    const c = await client(url);
+    expect((await c.message("ready")).lastLook).toBeNull();
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Looked at", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await c.message("inbox", (m) => stateOf(m, session.id) === "working");
+    await looked(c);
+    // The agent goes on after the look, and the look stays as it was taken.
+    d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
+    await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
+    const ready = await (await client(url)).message("ready");
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash" }]);
+  });
+
+  it("replaces the look with the one of a later `looked`, from whichever client", async () => {
+    let clock = 100;
+    const { url } = await daemon({ now: () => clock });
+    const one = await client(url);
+    await one.message("ready");
+    await looked(one);
+    expect(await lookNow(url)).toEqual({ at: 100, sessions: [], workItems: [] });
+    const two = await client(url);
+    await two.message("ready");
+    two.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await two.message("started");
+    clock = 200;
+    await looked(two);
+    expect(await lookNow(url)).toEqual({ at: 200, sessions: [session], workItems: [] });
+  });
+
+  it("tells a client of the look only in its `ready`: a `looked` is answered with nothing and sent to nobody", async () => {
+    const { url } = await daemon();
+    const one = await client(url);
+    const other = await client(url);
+    await one.message("ready");
+    await other.message("ready");
+    await looked(one);
+    expect(one.messages.map((m) => m.type)).toEqual(["ready", "error"]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready"]);
+  });
+
+  it("handles what a client sends after its hello only once its `ready` is sent: a look sent at once is taken after the counts were read, and is not the look that `ready` carries", async () => {
+    const made = repository();
+    const { runDir, workItem } = await runFolderWithWorkItem(made, "Looked at early");
+    // The read takes long enough for both messages to arrive before it ends, and the wait is longer still.
+    watchedGit(made.base, 0.2);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000, now: () => 1234 });
+    const c = await client(url);
+    c.send({ type: "looked" });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, workItemId: 999 });
+    const ready = await c.message("ready");
+    expect(ready.lastLook).toBeNull();
+    expect(ready.workItems[0]?.newCommits).toBe(1);
+    await c.message("error", (m) => m.requestId === 7);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
+    // The look holds the work item as it is sent, the commit read at the hello among it.
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoName: "project", aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+  });
+
+  it("gives after a restart the look taken before it, from a file the user alone can read", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const first = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, roleAdapter: fakeAdapter(), commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), runDir, worktreesRoot: root, now: () => 1234 });
+    const c = await client(`ws://127.0.0.1:${await first.listen(0)}`);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Outlives the daemon", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    first.agentEvent(session.id, "UserPromptSubmit", {});
+    await c.message("inbox", (m) => stateOf(m, session.id) === "working");
+    await looked(c);
+    await first.close();
+    expect(statSync(join(runDir, "last-look.json")).mode & 0o777).toBe(0o600);
+
+    const { url } = await daemon({ runDir, worktreesRoot: root, now: () => 5678 });
+    const ready = await (await client(url)).message("ready");
+    // The look keeps the session it was taken with, which the daemon that starts no longer holds.
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
+    expect(ready.sessions).toEqual([]);
+  });
+
+  it("stays up and holds the look where its run folder cannot be written, and says so in its log", async () => {
+    const { base } = repository();
+    const said: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void said.push(args);
+    cleanups.push(() => {
+      console.error = error;
+    });
+    const { url } = await daemon({ runDir: join(base, "removed"), now: () => 1234 });
+    const c = await client(url);
+    await c.message("ready");
+    await looked(c);
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [] });
+    expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the last look was not written: /)]);
   });
 });
 
@@ -934,6 +1334,16 @@ describe("discovery", () => {
     const file = writeDiscovery(dir, { port: 4321, token: TOKEN, pid: 99 });
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(readDiscovery(dir)).toEqual({ port: 4321, token: TOKEN, pid: 99 });
+  });
+
+  it("throws where the rename fails, and removes the partial file it wrote", () => {
+    const dir = mkdtempSync(join(tmpdir(), "owlery-discovery-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    // A folder stands where the file goes, so the partial file is written and its rename refused.
+    mkdirSync(join(dir, "daemon.json"));
+    expect(() => writeDiscovery(dir, { port: 4321, token: TOKEN, pid: 99 })).toThrow(/rename/);
+    expect(readdirSync(dir)).toEqual(["daemon.json"]);
+    expect(statSync(join(dir, "daemon.json")).isDirectory()).toBe(true);
   });
 
   it("reads nothing where no daemon has written", () => {

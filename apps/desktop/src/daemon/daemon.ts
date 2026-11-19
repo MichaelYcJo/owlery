@@ -1,15 +1,28 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { basename } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type ClientMessage, type HeadlessInfo, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
-import { agentEventFor } from "./agent-events";
+import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
-import { WorkItemList } from "./work-items";
-import { createWorktree, newCommits, worktreesRoot } from "./worktrees";
+import { LastLook } from "./last-look";
+import { type StoredWorkItem, WorkItemList } from "./work-items";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, worktreesRoot } from "./worktrees";
+
+/** How much of a state's text the daemon keeps. */
+const STATE_TEXT_CHARS = 2000;
+
+/** The first `STATE_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
+function cutText(text: string | null): string | null {
+  if (text === null || text.length <= STATE_TEXT_CHARS) return text;
+  const last = text.charCodeAt(STATE_TEXT_CHARS - 1);
+  // A character outside the basic plane is two of a string's, and the first of the two alone is no character.
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
+}
 
 export interface PaneCommand {
   command: string;
@@ -27,14 +40,16 @@ export interface DaemonOptions {
   roleAdapter: RoleAdapter;
   /** Where a pane opened without a work item runs. */
   cwd?: string;
-  /** Where the list of work items is kept, in `work-items.json`; without it the list is in memory alone. */
+  /** Where the list of work items is kept, in `work-items.json`, and the last look, in `last-look.json`; without it both are in memory alone. */
   runDir?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
-  /** The clock a work item's `createdAt` and a headless session's `startedAt` are read from. */
+  /** The clock a work item's `createdAt`, a headless session's `startedAt`, a look's `at` and a session's `stateSince` are read from. */
   now?: () => number;
-  /** How long the daemon waits between two reads of the work items' new commits. */
+  /** How long the daemon waits between two reads of the work items' new commits, apart from the read each hello starts. */
   commitPollMs?: number;
+  /** How long a hello's answer waits for the read of the work items' new commits. It stays under the second the app gives a daemon to answer (`answers` of src/main/daemon-client.ts). */
+  readyWaitMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -66,6 +81,8 @@ export class Daemon {
   private readonly sessions = new Map<number, Session>();
   // Each client, with the sessions whose output it receives: the ones it opened or attached.
   private readonly clients = new Map<WebSocket, Set<number>>();
+  // The clients that said hello and were not yet sent `ready`. Nothing is sent to one before its `ready`, which carries the lists whole.
+  private readonly greeting = new Set<WebSocket>();
   private server: WebSocketServer | undefined;
   private nextId = 1;
   // The headless sessions, by an id counted apart from the panes'. They live in memory alone.
@@ -73,17 +90,24 @@ export class Daemon {
   private nextHeadlessId = 1;
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly workItems: WorkItemList;
+  private readonly lastLook: LastLook;
   // Creations run one after another, so two of one title never pick the same branch and folder.
   private creating: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
+  // How many commits each work item's branch was last read to hold that its base branch does not, by the work item's id.
+  private readonly aheadCounts = new Map<number, number | null>();
+  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
+  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
-  private readingCommits = false;
+  // The read of the counts under way, which a hello that arrives meanwhile waits on.
+  private readingCommits: Promise<void> | undefined;
   private closed = false;
 
   constructor(private readonly options: DaemonOptions) {
     this.workItems = new WorkItemList(options.runDir, options.now);
+    this.lastLook = new LastLook(options.runDir);
   }
 
   listen(port: number): Promise<number> {
@@ -105,7 +129,9 @@ export class Daemon {
 
   /**
    * Delivers an agent's event for a pane to every client, as a neutral event,
-   * and keeps the state it leaves the pane's session in.
+   * and keeps the state it leaves the pane's session in, with the time the
+   * state began and what the event that began it said. An event that leaves
+   * the state as it was changes none of them.
    */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const event = agentEventFor(hookName);
@@ -116,7 +142,11 @@ export class Daemon {
     if (!session || !this.reportsState(session.info.kind)) return;
     const state = agentStateAfter(event);
     if (state === session.info.state) return;
+    const said = agentSaid(hookName, payload);
     session.info.state = state;
+    session.info.stateSince = state === null ? null : (this.options.now ?? Date.now)();
+    session.info.stateText = cutText(said.text);
+    session.info.stateTool = said.tool;
     this.broadcastInbox();
   }
 
@@ -132,6 +162,8 @@ export class Daemon {
 
   private accept(socket: WebSocket): void {
     let authorized = false;
+    // What the client sent between its hello and its `ready`, in the order it arrived.
+    const early: ClientMessage[] = [];
     const helloTimer = setTimeout(() => socket.close(UNAUTHORIZED, "unauthorized"), this.options.helloTimeoutMs ?? 2000);
     socket.on("message", (raw) => {
       let message: ClientMessage;
@@ -149,19 +181,42 @@ export class Daemon {
         }
         authorized = true;
         this.clients.set(socket, new Set());
+        this.greeting.add(socket);
         this.checkIdle();
-        this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList() });
-        this.scheduleCommitRead();
+        void this.greet(socket, early);
         return;
       }
-      this.handle(socket, message);
+      if (this.greeting.has(socket)) early.push(message);
+      else this.handle(socket, message);
     });
     socket.on("close", () => {
       clearTimeout(helloTimer);
       this.clients.delete(socket);
+      this.greeting.delete(socket);
       this.checkIdle();
     });
     socket.on("error", () => socket.terminate());
+  }
+
+  /**
+   * Answers a hello. The counts of new commits are read from git first, so
+   * `ready` carries the commits that landed while no client was connected and
+   * a daemon that just started sends counts. Where the read takes longer than
+   * the wait, `ready` carries the counts the daemon holds and the read's
+   * result follows in an inbox. What the client sent meanwhile is handled
+   * after its `ready`.
+   */
+  private async greet(socket: WebSocket, early: ClientMessage[]): Promise<void> {
+    let waitTimer: NodeJS.Timeout | undefined;
+    const waited = new Promise<void>((resolve) => {
+      waitTimer = setTimeout(resolve, this.options.readyWaitMs ?? 500);
+    });
+    await Promise.race([this.readCommitsNow(), waited]);
+    clearTimeout(waitTimer);
+    // The client left, or the daemon closed, while the counts were read.
+    if (!this.greeting.delete(socket)) return;
+    this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
+    for (const message of early) this.handle(socket, message);
   }
 
   private handle(socket: WebSocket, message: ClientMessage): void {
@@ -185,9 +240,11 @@ export class Daemon {
             if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
             const place = await createWorktree({ folder: message.repo, title: message.title, root: this.options.worktreesRoot ?? worktreesRoot(process.env) });
             const stored = this.workItems.add({ title: message.title, ...place });
-            // The branch was cut at its base commit a moment ago.
+            // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.id, 0);
-            const workItem: WorkItem = { ...stored, newCommits: 0 };
+            if (place.baseBranch !== null) this.aheadCounts.set(stored.id, 0);
+            this.branches.set(stored.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
+            const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
             this.broadcastInbox();
@@ -235,6 +292,16 @@ export class Daemon {
         this.send(socket, { type: "asked", requestId: message.requestId, headless: session.info });
         this.headlessChanged(session);
         this.startHeadless(session, worktree);
+        return;
+      }
+      case "looked": {
+        // No client is told: the look reaches a client in its `ready`, and an inbox sent here would redraw every window as one loses focus.
+        try {
+          this.lastLook.record((this.options.now ?? Date.now)(), this.sessionList(), this.workItemList());
+        } catch (error) {
+          // The message has no answer to carry an error, and the look is held in memory whether or not it was written.
+          console.error(`the last look was not written: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return;
       }
       case "input":
@@ -320,7 +387,7 @@ export class Daemon {
       rows: pane.rows,
       env: { ...process.env, ...env },
     });
-    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
+    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
     this.sessions.set(id, session);
     terminal.onData((data) => {
       session.output.append(data);
@@ -360,7 +427,13 @@ export class Daemon {
   }
 
   private workItemList(): WorkItem[] {
-    return this.workItems.all().map((item) => ({ ...item, newCommits: this.commitCounts.get(item.id) ?? null }));
+    return this.workItems.all().map((item) => this.workItemOf(item));
+  }
+
+  /** A work item as a client is sent it: with its repository's name, and with what was last read of its branch. */
+  private workItemOf(item: StoredWorkItem): WorkItem {
+    const read = this.branches.get(item.id);
+    return { ...item, repoName: basename(item.repo), aheadOfBase: this.aheadCounts.get(item.id) ?? null, newCommits: this.commitCounts.get(item.id) ?? null, commits: read?.commits ?? null, changes: read?.changes ?? null };
   }
 
   /** Sends every client the whole of both lists, after either changed. */
@@ -369,9 +442,10 @@ export class Daemon {
   }
 
   /**
-   * Arranges the next read of the work items' new commits, at once where the
-   * last one is an interval old. The reads follow one another while a client
-   * is connected, and the next client to connect starts them again.
+   * Arranges the next read of the work items' new commits, an interval after
+   * the last one where none is arranged yet. The reads follow one another
+   * while a client is connected, and the hello of the next client to connect
+   * starts them again.
    */
   private scheduleCommitRead(): void {
     if (this.closed || this.commitTimer !== undefined || this.readingCommits) return;
@@ -381,26 +455,56 @@ export class Daemon {
       this.commitTimer = undefined;
       // Nobody reads the counts while no client is connected.
       if (this.clients.size === 0) return;
-      this.commitsReadAt = Date.now();
-      this.readingCommits = true;
-      void this.readCommits().finally(() => {
-        this.readingCommits = false;
-        this.scheduleCommitRead();
-      });
+      void this.readCommitsNow();
     }, wait);
   }
 
-  /** Reads each work item's new commits from git, and tells every client where a count changed. */
+  /** Reads the counts now, or gives the read under way: one read runs at a time. */
+  private readCommitsNow(): Promise<void> {
+    if (this.readingCommits) return this.readingCommits;
+    this.commitsReadAt = Date.now();
+    const reading = this.readCommits().finally(() => {
+      this.readingCommits = undefined;
+      this.scheduleCommitRead();
+    });
+    this.readingCommits = reading;
+    return reading;
+  }
+
+  /**
+   * Reads each work item's new commits from git, and tells every client where
+   * a count changed or a branch's head moved. How far a branch is ahead of its
+   * base branch is counted at every read, since the base moves by itself. The
+   * commits and the changed files are read only where the head is another
+   * commit than the one they were last read at.
+   */
   private async readCommits(): Promise<void> {
     let changed = false;
     await Promise.all(
       this.workItems.all().map(async (item) => {
         // A work item from before the base commit was recorded has nothing to count from.
-        if (item.baseCommit === null) return;
-        const count = await newCommits(item.repo, item.branch, item.baseCommit);
-        if (count === (this.commitCounts.get(item.id) ?? null)) return;
-        this.commitCounts.set(item.id, count);
+        const { baseCommit } = item;
+        if (baseCommit === null) return;
+        const [count, head] = await Promise.all([newCommits(item.repo, item.branch, baseCommit), branchHead(item.repo, item.branch)]);
+        if (count !== (this.commitCounts.get(item.id) ?? null)) {
+          this.commitCounts.set(item.id, count);
+          changed = true;
+        }
+        const ahead = item.baseBranch === null || head === null ? null : await aheadOf(item.repo, item.baseBranch, head);
+        if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
+          this.aheadCounts.set(item.id, ahead);
+          changed = true;
+        }
+        if (head === (this.branches.get(item.id)?.head ?? null)) return;
         changed = true;
+        if (head === null) {
+          // The branch is gone, and what was read of it with it.
+          this.branches.delete(item.id);
+          return;
+        }
+        // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
+        const [commits, changes] = await Promise.all([branchCommits(item.repo, baseCommit, head), branchChanges(item.repo, baseCommit, head)]);
+        this.branches.set(item.id, { head, commits, changes });
       }),
     );
     if (changed) this.broadcastInbox();
@@ -412,7 +516,7 @@ export class Daemon {
 
   private broadcast(message: ServerMessage): void {
     const text = JSON.stringify(message);
-    for (const client of this.clients.keys()) client.send(text);
+    for (const client of this.clients.keys()) if (!this.greeting.has(client)) client.send(text);
   }
 
   private sendOutput(id: number, data: string): void {

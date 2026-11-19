@@ -26,6 +26,36 @@ export interface PaneKindInfo {
   reportsState: boolean;
 }
 
+/** One commit of a work item's branch. */
+export interface CommitInfo {
+  /** The commit's hash as git shortens it. */
+  hash: string;
+  subject: string;
+  /** When the commit was made, as the committer's clock had it. */
+  at: number;
+  /** The lines the commit added and removed, over the files git counts lines of; both null where it changed files and git counts lines of none of them, as for binary files. A merge's lines are those it brought onto the branch: its difference from its first parent. */
+  added: number | null;
+  removed: number | null;
+}
+
+/** One file a work item's branch changed. A file that was moved is two: one removed, one added. */
+export interface FileChange {
+  /** The file's path from the top of the repository. */
+  path: string;
+  /** Null where git counts no lines of the file, as for a binary file. */
+  added: number | null;
+  removed: number | null;
+}
+
+/** What a work item's branch changed since `baseCommit`: the count of the files and the sums of their lines, and the first of the files. */
+export interface Changes {
+  files: number;
+  added: number;
+  removed: number;
+  /** 50 files at most, in git's order of paths. */
+  list: FileChange[];
+}
+
 /**
  * One piece of work, in a worktree of its own: `repo` is the repository's
  * top-level folder, `branch` the branch cut for it, `worktree` its folder.
@@ -34,13 +64,23 @@ export interface WorkItem {
   id: number;
   title: string;
   repo: string;
+  /** The last part of `repo`, which a person reads as the repository's name. */
+  repoName: string;
   branch: string;
   worktree: string;
   createdAt: number;
   /** The commit the branch was cut at, or null for a work item made before this was recorded. */
   baseCommit: string | null;
-  /** How many commits the branch holds after `baseCommit`, or null where the daemon has read none. */
+  /** The branch the repository's HEAD was on when the branch was cut, or null where it was on none and for a work item made before this was recorded. */
+  baseBranch: string | null;
+  /** How many commits the branch holds that `baseBranch` does not hold, or null where no base branch is recorded, that branch is gone, or the daemon has read none. A base merged into the branch adds none of its own, and a branch its base took is ahead by none. */
+  aheadOfBase: number | null;
+  /** How many commits the branch holds after `baseCommit`, the base's own among them once the base was merged in, or null where the daemon has read none. */
   newCommits: number | null;
+  /** The commits the branch holds after `baseCommit`, newest first, 20 at most, or null where the daemon has read none. */
+  commits: CommitInfo[] | null;
+  /** Null where the daemon has read none. */
+  changes: Changes | null;
 }
 
 export interface SessionInfo {
@@ -51,6 +91,23 @@ export interface SessionInfo {
   workItemId: number | null;
   /** Null until the agent's first event, and always for a kind that reports no state. An exited session keeps its last. */
   state: AgentState | null;
+  /** The daemon's clock when the session entered `state`, or null where it has none. */
+  stateSince: number | null;
+  /** The text the event that began `state` carried: what the agent last said or what it tells the person, 2000 characters of it at most. Null where the event carried none. */
+  stateText: string | null;
+  /** The name of the tool the event that began `state` asks for. Null where the event named none. */
+  stateTool: string | null;
+}
+
+/**
+ * When a person last looked, and what the daemon listed then: `at` is the
+ * time, and the two lists are as an `inbox` sent at that moment would carry
+ * them. The daemon keeps one, for whichever client sent `looked` last.
+ */
+export interface Look {
+  at: number;
+  sessions: SessionInfo[];
+  workItems: WorkItem[];
 }
 
 /** What a headless session is doing: `working` until its result, then `finished`, or `failed` where it gave none or an error. */
@@ -83,11 +140,14 @@ export type ClientMessage =
   | { type: "close"; id: number }
   // Starts a headless session that answers `prompt` in the work item's worktree.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string }
+  // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
+  | { type: "looked" }
   | { type: "input"; id: number; data: string }
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  | { type: "ready"; sessions: SessionInfo[]; workItems: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[] }
+  // `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`.
+  | { type: "ready"; sessions: SessionInfo[]; workItems: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null }
   // The whole of both lists, sent to every client whenever either changes.
   | { type: "inbox"; sessions: SessionInfo[]; workItems: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }

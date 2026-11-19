@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,7 +15,7 @@ function runDir(): string {
   return dir;
 }
 
-const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40) };
+const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
 
 describe("WorkItemList", () => {
   it("gives each work item the next id and the time it was made", () => {
@@ -52,6 +52,15 @@ describe("WorkItemList", () => {
     expect(new WorkItemList(dir).all()).toEqual([{ ...before, baseCommit: null }]);
   });
 
+  it("reads a work item written before the base branch was recorded with none, and keeps one that was cut from no branch", () => {
+    const dir = runDir();
+    const { baseBranch: _none, ...before } = { id: 1, ...PLACE, createdAt: 1 };
+    writeFileSync(join(dir, "work-items.json"), JSON.stringify([before, { ...before, id: 2, baseBranch: null }]));
+    expect(new WorkItemList(dir).all()).toEqual([{ ...before, baseBranch: null }, { ...before, id: 2, baseBranch: null }]);
+    const cut = new WorkItemList(dir).add({ ...PLACE, baseBranch: null });
+    expect(new WorkItemList(dir).get(cut.id)).toEqual(cut);
+  });
+
   it("starts empty where the file is not a list of work items", () => {
     const dir = runDir();
     writeFileSync(join(dir, "work-items.json"), "{ not json");
@@ -60,6 +69,17 @@ describe("WorkItemList", () => {
     expect(new WorkItemList(dir).all()).toEqual([]);
     writeFileSync(join(dir, "work-items.json"), JSON.stringify([{ id: 1, ...PLACE, createdAt: 1, baseCommit: 7 }]));
     expect(new WorkItemList(dir).all()).toEqual([]);
+    writeFileSync(join(dir, "work-items.json"), JSON.stringify([{ id: 1, ...PLACE, createdAt: 1, baseBranch: 7 }]));
+    expect(new WorkItemList(dir).all()).toEqual([]);
+  });
+
+  it("throws where the rename fails, and removes the partial file it wrote", () => {
+    const dir = runDir();
+    // A folder stands where the file goes, so the partial file is written and its rename refused.
+    mkdirSync(join(dir, "work-items.json"));
+    expect(() => new WorkItemList(dir).add(PLACE)).toThrow(/rename/);
+    expect(readdirSync(dir)).toEqual(["work-items.json"]);
+    expect(statSync(join(dir, "work-items.json")).isDirectory()).toBe(true);
   });
 
   it("keeps the list in memory alone where it is given no run directory", () => {

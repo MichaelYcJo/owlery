@@ -1,9 +1,17 @@
-import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+// The window: its connection to the daemon, which of its four screens is in
+// front, the keys it reads, and the "New work item" form. The theme and its
+// control are ./theme. The sidebar, the
+// list with its preview, a work item's view and the summary are a module
+// each, and what each says and decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
-import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, PaneKindInfo, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
-import { agentKind, askButton, headlessLines, inboxLine, notificationFor, paneToOpen, tabLabel, withHeadless, workItemFields, workItemInFront } from "./view";
+import type { AgentState, ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import { listScreen, type ListScreen } from "./list";
+import { byId, connected, connectedBy, held, request, send } from "./shared";
+import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from "./sidebar";
+import { initSummary, pressMain, showSummary } from "./summary";
+import { initTheme } from "./theme";
+import { agentKind, changesSince, commandKey, inboxKey, notificationFor, workItemFields, type StateFilter } from "./view";
+import { dropClosed, enterView, initView, leaveView, paneOnScreen, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -11,256 +19,149 @@ declare global {
   }
 }
 
-interface Pane {
-  id: number;
-  term: Terminal;
-  fit: FitAddon;
-  element: HTMLElement;
-  tab: HTMLElement;
-}
+// The Command key's place is the Control key's where the keyboard has none.
+const MAC = navigator.platform.startsWith("Mac");
 
-type Parts = Pick<Pane, "term" | "fit" | "element">;
-
-const panes = new Map<number, Pane>();
-// The terminal prepared for each request the daemon has not answered yet.
-const pending = new Map<number, Parts>();
-// The kinds of pane the daemon offers, as `ready` listed them: the buttons, the form's choice and the tab labels come from here.
-let paneKinds: PaneKindInfo[] = [];
-// The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`, and a work item this window created since.
-let sessions: SessionInfo[] = [];
-let workItems: WorkItem[] = [];
-// The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since.
-let headless: HeadlessInfo[] = [];
-let active: Pane | undefined;
-let nextRequest = 1;
-// The request the "+ Work item" form is waiting on.
+// The screen in front. None is before the daemon's `ready`, and it is kept nowhere else, so a reload opens on the summary or on the inbox.
+let front: Front = null;
+// The request the "New work item" form is waiting on.
 let formRequest: number | undefined;
-// The request the "Ask" field is waiting on: the field keeps its prompt until the daemon has taken it.
-let askRequest: number | undefined;
-let socket: WebSocket | undefined;
 
-const tabs = document.getElementById("tabs") as HTMLElement;
-const stage = document.getElementById("stage") as HTMLElement;
-const events = document.getElementById("events") as HTMLOListElement;
-const status = document.getElementById("status") as HTMLElement;
-const kindButtons = document.getElementById("pane-kinds") as HTMLElement;
-const inbox = document.getElementById("inbox") as HTMLUListElement;
-const workItemDialog = document.getElementById("work-item-dialog") as HTMLDialogElement;
-const workItemForm = document.getElementById("work-item-form") as HTMLFormElement;
-const repoField = document.getElementById("work-item-repo") as HTMLInputElement;
-const titleField = document.getElementById("work-item-title") as HTMLInputElement;
-const kindField = document.getElementById("work-item-kind") as HTMLSelectElement;
-const formError = document.getElementById("work-item-error") as HTMLElement;
-const createButton = document.getElementById("work-item-create") as HTMLButtonElement;
-const askForm = document.getElementById("ask-form") as HTMLFormElement;
-const askField = document.getElementById("ask-prompt") as HTMLInputElement;
-const askSubmit = document.getElementById("ask-submit") as HTMLButtonElement;
-const headlessList = document.getElementById("headless") as HTMLUListElement;
+const screens: Record<Exclude<Front, null>, HTMLElement> = {
+  summary: byId("summary-screen"),
+  inbox: byId("inbox-screen"),
+  history: byId("history-screen"),
+  view: byId("work-item-view"),
+};
+const workItemDialog = byId<HTMLDialogElement>("work-item-dialog");
+const workItemForm = byId<HTMLFormElement>("work-item-form");
+const repoField = byId<HTMLInputElement>("work-item-repo");
+const titleField = byId<HTMLInputElement>("work-item-title");
+const kindField = byId<HTMLSelectElement>("work-item-kind");
+const formError = byId("work-item-error");
+const createButton = byId<HTMLButtonElement>("work-item-create");
 
-function send(message: ClientMessage): void {
-  socket?.send(JSON.stringify(message));
+const lists: Record<"inbox" | "history", ListScreen> = {
+  inbox: listScreen("inbox", { openView, filter }, MAC),
+  history: listScreen("history", { openView, filter }, MAC),
+};
+
+/** The list on screen, where the inbox screen or the history screen is in front. */
+function listInFront(): ListScreen | undefined {
+  return front === "inbox" || front === "history" ? lists[front] : undefined;
 }
 
-function newTerminal(): Parts {
-  const element = document.createElement("div");
-  element.className = "pane";
-  stage.appendChild(element);
-  const term = new Terminal({
-    // The UI keeps 1,000 lines; older output stays with the daemon (docs/architecture.md, Memory design).
-    scrollback: 1000,
-    // Nerd Fonts first, so the icons of common shell prompts draw; then Korean fallbacks.
-    fontFamily:
-      '"MesloLGS NF", "MesloLGS Nerd Font", "JetBrainsMono Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", Menlo, "D2Coding", "Apple SD Gothic Neo", monospace',
-    fontSize: 13,
-    cursorBlink: true,
-    macOptionIsMeta: true,
-    allowProposedApi: true,
-  });
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-  term.open(element);
-  try {
-    const webgl = new WebglAddon();
-    // On a lost GPU context the pane falls back to the DOM renderer.
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch {
-    // No WebGL: the DOM renderer stays.
-  }
-  fit.fit();
-  return { term, fit, element };
+/** Shows one of the four screens beside the sidebar, hides the other three, and has the sidebar mark it. */
+function bringToFront(screen: Exclude<Front, null>): void {
+  front = screen;
+  for (const [name, element] of Object.entries(screens)) element.hidden = name !== screen;
+  showSidebar(front);
 }
 
-/** Sets the "Ask" button for the pane in front and the field as they are now. */
-function showAsk(): void {
-  const button = askButton(askField.value, workItemInFront(active?.id, sessions, workItems));
-  askSubmit.disabled = !button.enabled;
-  askSubmit.title = button.title;
+/** Puts a work item's view in front: of any screen, the view of another work item among them. */
+function openView(workItemId: number): void {
+  enterView(workItemId);
+  bringToFront("view");
+  showView();
 }
 
-function show(pane: Pane): void {
-  for (const other of panes.values()) {
-    other.element.hidden = other !== pane;
-    other.tab.classList.toggle("active", other === pane);
-  }
-  active = pane;
-  showAsk();
-  pane.fit.fit();
-  pane.term.focus();
+/** Puts the inbox screen or the history screen in front. A work item whose view the person leaves is the selected one, and the keyboard is on its line. */
+function openList(screen: "inbox" | "history"): void {
+  const left = leaveView();
+  bringToFront(screen);
+  lists[screen].show();
+  if (left === undefined) return;
+  lists[screen].select(left);
+  lists[screen].focusLine(lists[screen].selected());
 }
 
-function adopt(info: SessionInfo, parts: Parts): Pane {
-  const tab = document.createElement("span");
-  tab.className = "tab";
-  const label = document.createElement("button");
-  label.className = "label";
-  label.textContent = tabLabel(info, workItems, paneKinds);
-  // A long title is cut in the tab, and whole here.
-  label.title = label.textContent;
-  const close = document.createElement("button");
-  close.className = "close";
-  close.textContent = "×";
-  close.title = `Close ${label.textContent}`;
-  tab.append(label, close);
-  const pane: Pane = { id: info.id, ...parts, tab };
-  label.addEventListener("click", () => show(pane));
-  // The daemon ends the process and takes the session off its lists; the tab goes at the `inbox` that follows.
-  close.addEventListener("click", () => send({ type: "close", id: info.id }));
-  tabs.appendChild(tab);
-  panes.set(info.id, pane);
-  parts.term.onData((data) => send({ type: "input", id: info.id, data }));
-  parts.term.onResize(({ cols, rows }) => send({ type: "resize", id: info.id, cols, rows }));
-  show(pane);
-  return pane;
+/** Puts the summary screen in front, with the changes of this load. */
+function openSummary(): void {
+  leaveView();
+  bringToFront("summary");
+  showSummary();
 }
 
-/** Takes a live session the window holds no terminal for, with the output it printed so far. */
-function attach(info: SessionInfo): Pane {
-  const pane = adopt(info, newTerminal());
-  send({ type: "resize", id: info.id, cols: pane.term.cols, rows: pane.term.rows });
-  send({ type: "attach", id: info.id });
-  return pane;
+function openScreen(screen: "summary" | "inbox" | "history"): void {
+  // The sidebar is displayed before the daemon's `ready`, and no screen is.
+  if (!held.ready) return;
+  if (screen === "summary") openSummary();
+  else openList(screen);
 }
 
-/** Drops the tab and the terminal of a session the daemon no longer lists. */
-function remove(pane: Pane): void {
-  panes.delete(pane.id);
-  pane.term.dispose();
-  pane.element.remove();
-  pane.tab.remove();
-  if (active !== pane) return;
-  active = undefined;
-  const next = [...panes.values()].pop();
-  if (next) show(next);
-  else showAsk();
+/** Draws again what the search and the filter narrow: the sidebar's work items and the list in front. */
+function showNarrowed(): void {
+  showSidebar();
+  listInFront()?.show();
 }
 
-function start(kind: PaneKind, workItemId?: number): void {
-  const parts = newTerminal();
-  const requestId = nextRequest++;
-  pending.set(requestId, parts);
-  send({ type: "start", kind, cols: parts.term.cols, rows: parts.term.rows, requestId, ...(workItemId === undefined ? {} : { workItemId }) });
+function filter(state: StateFilter): void {
+  held.filter = state;
+  showNarrowed();
 }
 
-/** Builds, once per connection, the "+" button of each kind the daemon offers and the form's choice among them. */
-function showPaneKinds(): void {
-  kindButtons.replaceChildren(
-    ...paneKinds.map(({ kind, label }) => {
-      const button = document.createElement("button");
-      button.textContent = `+ ${label}`;
-      button.addEventListener("click", () => start(kind));
-      return button;
-    }),
+/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, and N opens the "New work item" form. */
+function onCommandKey(event: KeyboardEvent): void {
+  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: workItemDialog.open });
+  if (key === null) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (key === "search") focusSearch();
+  else openWorkItemForm();
+}
+
+/**
+ * Acts on a key of a list. On the inbox screen and the history screen J and K
+ * move the selection and Enter opens the selected work item's view. On the
+ * summary screen Enter presses the main control, read under the same
+ * conditions, and J and K do nothing.
+ */
+function onKey(event: KeyboardEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  const key = inboxKey(
+    { code: event.code, modified: event.ctrlKey || event.metaKey || event.altKey || event.shiftKey },
+    {
+      inboxInFront: front === "summary" || front === "inbox" || front === "history",
+      dialogOpen: workItemDialog.open,
+      inField: target?.closest("input, textarea, select, [contenteditable]") != null,
+      onControl: target?.closest("button, a") != null,
+    },
   );
-  // The form starts on the kind an inbox line opens.
-  const preferred = agentKind(paneKinds);
-  kindField.replaceChildren(...paneKinds.map(({ kind, label }) => new Option(label, kind, kind === preferred, kind === preferred)));
-}
-
-function part(className: string, text: string): HTMLElement {
-  const element = document.createElement("span");
-  element.className = className;
-  element.textContent = text;
-  return element;
-}
-
-function row(...parts: HTMLElement[]): HTMLElement {
-  const element = document.createElement("span");
-  element.className = "row";
-  element.append(...parts);
-  return element;
-}
-
-function openWorkItem(workItem: WorkItem): void {
-  const open = paneToOpen(workItem, sessions, paneKinds);
-  if (!open) return;
-  if ("start" in open) {
-    start(open.start, workItem.id);
+  if (key === null) return;
+  if (front === "summary") {
+    if (key !== "open") return;
+    event.preventDefault();
+    pressMain();
     return;
   }
-  // A pane another client opened has no terminal here until its line is clicked.
-  const info = sessions.find((session) => session.id === open.show);
-  const pane = panes.get(open.show) ?? (info && attach(info));
-  if (pane) show(pane);
+  const list = listInFront();
+  if (!list) return;
+  event.preventDefault();
+  if (key !== "open") list.move(key);
+  else if (list.selected() !== undefined) openView(list.selected() as number);
 }
 
-function showInbox(): void {
-  inbox.replaceChildren(
-    ...workItems.map((workItem) => {
-      const line = inboxLine(workItem, sessions, paneKinds);
-      const button = document.createElement("button");
-      button.title = workItem.worktree;
-      button.append(
-        row(part("title", line.title), part(`state ${line.state ?? ""}`, line.state ?? "")),
-        row(part("branch", line.branch), part("commits", line.commits)),
-      );
-      button.addEventListener("click", () => openWorkItem(workItem));
-      const item = document.createElement("li");
-      item.append(button);
-      return item;
-    }),
-  );
-}
-
-function showHeadless(): void {
-  headlessList.replaceChildren(
-    ...headlessLines(headless).map((line) => {
-      const item = document.createElement("li");
-      // The answer is plain text, never markup, and its line breaks are kept by the style.
-      item.append(row(part("prompt", line.prompt), part(`state ${line.state}`, line.state)), part("answer", line.text));
-      return item;
-    }),
-  );
-}
-
-/** Asks the field's prompt in the work item of the pane in front. */
-function ask(): void {
-  const workItem = workItemInFront(active?.id, sessions, workItems);
-  // One ask per answer: a second press before the daemon has taken the first would ask the same prompt twice.
-  if (askRequest !== undefined || !workItem || !askButton(askField.value, workItem).enabled) return;
-  askRequest = nextRequest++;
-  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value });
-}
-
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, drops the closed panes, and redraws the lines. */
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, drops the closed panes, and redraws the sidebar and the screen in front. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): void {
-  const before = new Map<number, AgentState | null>(sessions.map((session) => [session.id, session.state]));
-  sessions = next.sessions;
-  workItems = next.workItems;
-  for (const session of sessions) {
-    const inFront = active?.id === session.id && document.hasFocus();
-    const notification = notificationFor(before.get(session.id) ?? null, session, inFront, workItems, paneKinds);
+  const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
+  held.sessions = next.sessions;
+  held.workItems = next.workItems;
+  for (const session of held.sessions) {
+    const inFront = paneOnScreen() === session.id && document.hasFocus();
+    const notification = notificationFor(before.get(session.id) ?? null, session, inFront, held.workItems, held.paneKinds);
     if (notification) new Notification(notification.title, { body: notification.body });
   }
-  const listed = new Set(sessions.map((session) => session.id));
-  for (const pane of [...panes.values()]) if (!listed.has(pane.id)) remove(pane);
-  showInbox();
-  // The pane in front may have gained its place in the lists, or lost its work item's line.
-  showAsk();
+  dropClosed(new Set(held.sessions.map((session) => session.id)));
+  showSidebar();
+  listInFront()?.show();
+  if (front === "view") showView();
 }
 
-function openWorkItemForm(): void {
+/** Opens the "New work item" form, with `folder` as its repository where one is given. Before the daemon's `ready` the form has no kind of pane to offer, so it does not open. */
+function openWorkItemForm(folder?: string): void {
+  if (!held.ready || workItemDialog.open) return;
   // The folder stays from the last time, because the next work item is often of the same repository.
+  if (folder !== undefined) repoField.value = folder;
   titleField.value = "";
   formError.textContent = "";
   createButton.disabled = false;
@@ -274,141 +175,154 @@ function createWorkItem(): void {
     formError.textContent = fields.error;
     return;
   }
-  const kind = paneKinds.find((offered) => offered.kind === kindField.value);
+  const kind = held.paneKinds.find((offered) => offered.kind === kindField.value);
   if (!kind) return;
-  const parts = newTerminal();
-  const requestId = nextRequest++;
-  pending.set(requestId, parts);
+  const requestId = request();
   formRequest = requestId;
   formError.textContent = "";
   // One creation per answer: the button stays off until the daemon answers.
   createButton.disabled = true;
-  send({
-    type: "createWorkItem",
-    requestId,
-    ...fields,
-    kind: kind.kind,
-    cols: parts.term.cols,
-    rows: parts.term.rows,
-  });
+  send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize() });
 }
 
 function onMessage(message: ServerMessage): void {
   switch (message.type) {
     case "ready": {
-      // Before the tabs, which are labelled from the lists. No notification: these are the states as the window finds them.
-      paneKinds = message.paneKinds;
-      sessions = message.sessions;
-      workItems = message.workItems;
-      headless = message.headless;
-      showPaneKinds();
-      showInbox();
-      showHeadless();
-      // Sessions that outlived the last window come back with the output they printed meanwhile.
-      const alive = sessions.filter((s) => s.alive);
-      for (const info of alive) attach(info);
-      // A window with no pane opens one of the first kind the daemon offers.
-      const first = paneKinds[0];
-      if (alive.length === 0 && first) start(first.kind);
+      // The states as the window finds them, so no notification. Nothing is attached and nothing started.
+      held.ready = true;
+      held.paneKinds = message.paneKinds;
+      held.sessions = message.sessions;
+      held.workItems = message.workItems;
+      held.headless = message.headless;
+      // A daemon of an earlier build sends no look.
+      held.lastLook = message.lastLook ?? null;
+      // The counts of this `ready` were read from git at this window's hello, so the changes are worked out here, once.
+      held.changes = held.lastLook ? changesSince(held.lastLook, held.workItems, held.sessions, held.paneKinds) : [];
+      showPaneButtons();
+      // The form's choice among the kinds of pane, the first that reports its agent's state chosen.
+      const preferred = agentKind(held.paneKinds);
+      kindField.replaceChildren(...held.paneKinds.map(({ kind, label }) => new Option(label, kind, kind === preferred, kind === preferred)));
+      // The app opens on the summary where a work item changed since the person last looked, and on the inbox otherwise.
+      if (held.changes.length > 0) openSummary();
+      else openList("inbox");
       return;
     }
     case "inbox":
       takeLists(message);
       return;
-    case "started": {
-      const parts = pending.get(message.requestId);
-      pending.delete(message.requestId);
-      status.textContent = "";
-      if (parts) adopt(message.session, parts);
+    case "started":
+      tell("");
+      takeStarted(message.session);
       return;
-    }
     case "workItemCreated": {
-      // The tab is labelled from the list, and the `inbox` that carries the new work item comes after this answer.
-      workItems = [...workItems, message.workItem];
-      const parts = pending.get(message.requestId);
-      pending.delete(message.requestId);
-      status.textContent = "";
+      // The view is drawn from the list, and the `inbox` that carries the new work item comes after this answer.
+      if (!held.workItems.some((known) => known.id === message.workItem.id)) held.workItems = [...held.workItems, message.workItem];
+      tell("");
       if (message.requestId === formRequest) {
         formRequest = undefined;
         // Closed before the pane is shown, so the keyboard goes to the pane.
         if (workItemDialog.open) workItemDialog.close();
       }
-      if (parts) adopt(message.session, parts);
+      takeStarted(message.session);
+      openView(message.workItem.id);
       return;
     }
     case "asked":
-      // The daemon took the prompt, so the field is free for the next one.
-      if (message.requestId === askRequest) {
-        askRequest = undefined;
-        askField.value = "";
-        showAsk();
-      }
-      headless = withHeadless(headless, message.headless);
-      showHeadless();
+      takeHeadless(message.headless, message.requestId);
       return;
     case "headless":
-      headless = withHeadless(headless, message.headless);
-      showHeadless();
+      takeHeadless(message.headless);
       return;
-    case "error": {
-      // Nothing was created or started, so the terminal prepared for the request goes.
-      if (message.requestId === askRequest) askRequest = undefined;
-      const parts = pending.get(message.requestId);
-      pending.delete(message.requestId);
-      parts?.term.dispose();
-      parts?.element.remove();
+    case "error":
+      // Nothing was created or started.
+      requestRefused(message.requestId);
       if (message.requestId === formRequest && workItemDialog.open) {
         formRequest = undefined;
         formError.textContent = message.message;
         createButton.disabled = false;
       } else {
-        status.textContent = message.message;
+        tell(message.message);
       }
       return;
-    }
     case "replay":
     case "output":
-      panes.get(message.id)?.term.write(message.data);
+      write(message.id, message.type, message.data);
       return;
     case "exit":
-      panes.get(message.id)?.term.write(`\r\n[process exited with code ${message.exitCode}]\r\n`);
+      write(message.id, "exit", `\r\n[process exited with code ${message.exitCode}]\r\n`);
       return;
-    case "agent": {
-      const item = document.createElement("li");
-      const tool = message.tool ? ` ${message.tool}` : "";
-      item.textContent = `${new Date(message.at).toLocaleTimeString()}  pane ${message.id}  ${message.event}${tool}`;
-      events.prepend(item);
-      while (events.children.length > 200) events.lastElementChild?.remove();
+    case "agent":
+      // The window draws nothing for a hook event. Its state arrives in the lists of the `inbox` that follows.
       return;
-    }
   }
+}
+
+/** Tells the daemon that the person looked at what the window shows, as the window stops being in front of them. The daemon keeps the look. */
+function looked(): void {
+  if (connected()) send({ type: "looked" });
 }
 
 async function connect(): Promise<void> {
   const answer = await window.owlery.daemon();
   if ("error" in answer) {
     // No daemon to reach: the status line says why, and stays until the person starts the app again.
-    status.textContent = answer.error;
+    tell(answer.error);
     return;
   }
   const { url, token } = answer;
   const ws = new WebSocket(url);
-  socket = ws;
+  connectedBy(ws);
   ws.addEventListener("open", () => {
-    status.textContent = "";
+    tell("");
     ws.send(JSON.stringify({ type: "hello", token } satisfies ClientMessage));
   });
   ws.addEventListener("message", (event) => onMessage(JSON.parse(String(event.data)) as ServerMessage));
   ws.addEventListener("close", () => {
-    // The daemon went away: reload, which finds or starts it again.
-    status.textContent = "Reconnecting to the daemon…";
+    // The daemon went away: reload, which finds or starts it again and opens as any load does.
+    tell("Reconnecting to the daemon…");
     setTimeout(() => window.location.reload(), 1000);
   });
 }
 
-document.getElementById("new-work-item")?.addEventListener("click", openWorkItemForm);
-document.getElementById("work-item-cancel")?.addEventListener("click", () => workItemDialog.close());
-document.getElementById("work-item-browse")?.addEventListener("click", () => {
+initSidebar(
+  {
+    openScreen,
+    openView,
+    openForm: openWorkItemForm,
+    pickFolder: () => window.owlery.pickFolder(),
+    search(query) {
+      held.query = query;
+      showNarrowed();
+    },
+    filter,
+    leaveSearch() {
+      const list = listInFront();
+      if (list) list.focusLine(list.selected());
+      // Where no list is in front the keyboard leaves the field for the page.
+      if (document.activeElement === byId("search-field")) byId("search-field").blur();
+    },
+  },
+  MAC,
+);
+initSummary({ openInbox: () => openList("inbox"), openView });
+initView(() => openList("inbox"));
+const THEME_NOT_SAVED = "The theme could not be saved.";
+initTheme(window.owlery.appearance, {
+  save: (choice) => window.owlery.saveAppearance(choice),
+  changed: showTerminalColours,
+  saved: () => untell(THEME_NOT_SAVED),
+  notSaved: () => tell(THEME_NOT_SAVED),
+});
+// The keys pressed with the Command key are read before a terminal that has the focus reads them.
+document.addEventListener("keydown", onCommandKey, { capture: true });
+document.addEventListener("keydown", onKey);
+window.addEventListener("blur", looked);
+window.addEventListener("pagehide", looked);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) looked();
+});
+byId("work-item-cancel").addEventListener("click", () => workItemDialog.close());
+byId("work-item-browse").addEventListener("click", () => {
   void window.owlery.pickFolder().then((folder) => {
     if (folder) repoField.value = folder;
   });
@@ -417,12 +331,5 @@ workItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
   createWorkItem();
 });
-askField.addEventListener("input", showAsk);
-askForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  ask();
-});
-showAsk();
-new ResizeObserver(() => active?.fit.fit()).observe(stage);
 
 void connect();

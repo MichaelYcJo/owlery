@@ -1,14 +1,15 @@
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkItem } from "../shared/protocol";
+import { writeWholeFile } from "./whole-file";
 
 const FILE = "work-items.json";
 
-/** A work item as the list keeps it: without the count of new commits, which the daemon reads from git. */
-export type StoredWorkItem = Omit<WorkItem, "newCommits">;
+/** A work item as the list keeps it: without what the daemon reads from git at each read, and without the name its repository's folder gives. */
+export type StoredWorkItem = Omit<WorkItem, "repoName" | "aheadOfBase" | "newCommits" | "commits" | "changes">;
 
-/** An entry of the file. One written before the base commit was recorded has no `baseCommit`. */
-function isStored(value: unknown): value is Omit<StoredWorkItem, "baseCommit"> & { baseCommit?: string | null } {
+/** An entry of the file. One written before the base commit was recorded has no `baseCommit`, and one written before the base branch was has no `baseBranch`. */
+function isStored(value: unknown): value is Omit<StoredWorkItem, "baseCommit" | "baseBranch"> & { baseCommit?: string | null; baseBranch?: string | null } {
   const item = value as Partial<StoredWorkItem> | null;
   return (
     typeof item === "object" &&
@@ -19,7 +20,8 @@ function isStored(value: unknown): value is Omit<StoredWorkItem, "baseCommit"> &
     typeof item.branch === "string" &&
     typeof item.worktree === "string" &&
     typeof item.createdAt === "number" &&
-    (item.baseCommit === undefined || item.baseCommit === null || typeof item.baseCommit === "string")
+    (item.baseCommit === undefined || item.baseCommit === null || typeof item.baseCommit === "string") &&
+    (item.baseBranch === undefined || item.baseBranch === null || typeof item.baseBranch === "string")
   );
 }
 
@@ -43,7 +45,7 @@ export class WorkItemList {
       const value: unknown = JSON.parse(readFileSync(this.file, "utf8"));
       if (Array.isArray(value) && value.every(isStored)) {
         // Only the fields of a work item, whatever else the file's entries carry.
-        for (const { id, title, repo, branch, worktree, createdAt, baseCommit } of value) this.items.push({ id, title, repo, branch, worktree, createdAt, baseCommit: baseCommit ?? null });
+        for (const { id, title, repo, branch, worktree, createdAt, baseCommit, baseBranch } of value) this.items.push({ id, title, repo, branch, worktree, createdAt, baseCommit: baseCommit ?? null, baseBranch: baseBranch ?? null });
       }
     } catch {
       // No daemon has written here, or the file is not ours.
@@ -58,9 +60,9 @@ export class WorkItemList {
     return this.items.find((item) => item.id === id);
   }
 
-  add(place: Pick<StoredWorkItem, "title" | "repo" | "branch" | "worktree" | "baseCommit">): StoredWorkItem {
+  add(place: Pick<StoredWorkItem, "title" | "repo" | "branch" | "worktree" | "baseCommit" | "baseBranch">): StoredWorkItem {
     const id = this.items.reduce((highest, item) => Math.max(highest, item.id), 0) + 1;
-    const item: StoredWorkItem = { id, title: place.title, repo: place.repo, branch: place.branch, worktree: place.worktree, createdAt: this.now(), baseCommit: place.baseCommit };
+    const item: StoredWorkItem = { id, title: place.title, repo: place.repo, branch: place.branch, worktree: place.worktree, createdAt: this.now(), baseCommit: place.baseCommit, baseBranch: place.baseBranch };
     this.items.push(item);
     this.write();
     return item;
@@ -68,9 +70,7 @@ export class WorkItemList {
 
   private write(): void {
     if (this.file === undefined) return;
-    const partial = `${this.file}.${process.pid}`;
-    writeFileSync(partial, JSON.stringify(this.items), { mode: 0o600 });
-    // A daemon that starts meanwhile never reads a half-written file.
-    renameSync(partial, this.file);
+    // A daemon that starts meanwhile never reads a half-written file, and a write that fails removes its partial file.
+    writeWholeFile(this.file, JSON.stringify(this.items));
   }
 }

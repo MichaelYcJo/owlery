@@ -1,21 +1,27 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { themeChoice } from "../shared/appearance";
 import { Channel, type DaemonConnection, type DaemonFailure } from "../shared/ipc";
+import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { ensureDaemon } from "./daemon-client";
 import { pickFolder } from "./pick-folder";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
-// over WebSocket. The main process finds or starts it, and opens the folder
-// dialog the window asks for.
-const runDir = join(app.getPath("userData"), "run");
+// over WebSocket. The main process finds or starts it, opens the folder
+// dialog the window asks for, and keeps the theme a person chose.
+const userData = app.getPath("userData");
+const runDir = join(userData, "run");
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1100,
-    height: 720,
+    // The size the screens are drawn for, on the ground of the theme the window was left in, so it does not flash another colour before its page is drawn.
+    width: 1440,
+    height: 900,
     title: "Owlery",
-    backgroundColor: "#1e1e1e",
+    // The title bar is hidden and inset: on macOS the traffic lights stand inside the sidebar, whose top drags the window.
+    titleBarStyle: "hiddenInset",
+    backgroundColor: groundAtStart(readAppearance(userData), nativeTheme.shouldUseDarkColors),
     webPreferences: {
       preload: join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -43,6 +49,11 @@ app.whenReady().then(() => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return pickFolder((options) => (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)));
   });
+  // The saved choice is read from its file at every load, so a window that reloads opens in the theme the person last chose.
+  ipcMain.on(Channel.appearance, (event) => {
+    event.returnValue = readAppearance(userData);
+  });
+  ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, themeChoice(choice)));
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

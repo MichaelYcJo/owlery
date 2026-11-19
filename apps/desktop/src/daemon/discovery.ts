@@ -1,5 +1,6 @@
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeWholeFile } from "./whole-file";
 
 /** Where a client finds the running daemon: its port, the token it asks for, its process. */
 export interface Discovery {
@@ -10,13 +11,10 @@ export interface Discovery {
 
 const FILE = "daemon.json";
 
-/** Writes the discovery file, readable by the user alone, and returns its path. */
+/** Writes the discovery file, readable by the user alone and never half-written where a client reads it, and returns its path. A write that fails throws what refused it, after removing its partial file. */
 export function writeDiscovery(dir: string, discovery: Discovery): string {
   const file = join(dir, FILE);
-  const partial = `${file}.${process.pid}`;
-  writeFileSync(partial, JSON.stringify(discovery), { mode: 0o600 });
-  // A client never reads a half-written file.
-  renameSync(partial, file);
+  writeWholeFile(file, JSON.stringify(discovery));
   return file;
 }
 
