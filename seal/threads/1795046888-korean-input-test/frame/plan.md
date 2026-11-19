@@ -57,7 +57,7 @@ Issue #18 merged into `release/v0.0.1` as `c128acb`, and this branch was rebased
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 8, 12, 14 and 15, with every line of the fixture written by hand as `source: "assumed"` | Scenarios 1 to 3 and 8 to 10 as cases, each seen red as its row states, scenario 8 by no start of its own, and where `trail/phases/phase-1.md` *Seen red* already shows one red at a commit of this branch it is not shown again; scenario 4 read by the case and listed once by the builder; scenario 5 executed. Every start of the app the phase makes sets `OWLERY_BACKGROUND=1`, and a red that needs the app, such as a mutation of the window's code, is shown under it | `1b5ef35` |
-| 2 | *Scope* items 9 to 11, and the script entry of `apps/desktop/package.json` | Scenario 6 as a case, seen red as its row states, and its one start of `korean:typed`, made with `OWLERY_BACKGROUND=1` in the command's environment; scenario 5 executed. Scenario 7 is the owner's, and the phase writes its row into `gaps.md` | |
+| 2 | *Scope* items 9 to 11, and the script entry of `apps/desktop/package.json` | Scenario 6 as a case, seen red as its row states, and its one start of `korean:typed`, made with `OWLERY_BACKGROUND=1` in the command's environment; scenario 5 executed. Scenario 7 is the owner's, and the phase writes its row into `gaps.md` | `4cfa8c8` |
 
 ## Overlap with the release
 
