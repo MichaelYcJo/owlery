@@ -38,6 +38,7 @@ import {
   screenTurns,
   selectedLine,
   sidebarTree,
+  stageOf,
   stateHeading,
   stateSays,
   stateWithAge,
@@ -46,6 +47,7 @@ import {
   summaryHead,
   summarySentence,
   tabLabel,
+  tellsSize,
   viewFacts,
   withHeadless,
   workItemEntries,
@@ -459,6 +461,53 @@ describe("paneInFront", () => {
   it("gives nothing where there is no tab", () => {
     expect(paneInFront([], 4)).toBeUndefined();
     expect(paneInFront([], undefined)).toBeUndefined();
+  });
+});
+
+describe("stageOf", () => {
+  const six = [session(1), session(2), session(3), session(4), session(5), session(6)];
+
+  it("puts the pane in front alone on the stage where \"Side by side\" is not pressed, and nothing where the view has no tab", () => {
+    expect(stageOf([session(2), session(4), session(6)], [4, 6], false)).toEqual({ front: 4, shown: [4] });
+    expect(stageOf([], [4], false)).toEqual({ front: undefined, shown: [] });
+    expect(stageOf([], [4], true)).toEqual({ front: undefined, shown: [] });
+  });
+
+  it("puts every pane of a view of up to four tabs on the stage where \"Side by side\" is pressed, in the tabs' order, the one last in front having the keyboard", () => {
+    expect(stageOf([session(2), session(4)], [4, 2], true)).toEqual({ front: 4, shown: [2, 4] });
+    expect(stageOf([session(2), session(4), session(6)], [4], true)).toEqual({ front: 4, shown: [2, 4, 6] });
+    expect(stageOf([session(2), session(4), session(6), session(7)], [6, 2, 7, 4], true)).toEqual({ front: 6, shown: [2, 4, 6, 7] });
+    expect(stageOf([session(2)], [2], true)).toEqual({ front: 2, shown: [2] });
+  });
+
+  it("puts the four panes most recently in front on the stage of a view with more tabs, in the tabs' order", () => {
+    expect(stageOf(six, [3, 5, 2, 6, 1, 4], true)).toEqual({ front: 3, shown: [2, 3, 5, 6] });
+  });
+
+  it("puts a pressed tab that was not shown in place of the shown pane least recently in front", () => {
+    // Panes 3, 5, 2 and 6 are on the stage, and the tab of pane 1 is pressed.
+    expect(stageOf(six, [1, 3, 5, 2, 6], true)).toEqual({ front: 1, shown: [1, 2, 3, 5] });
+  });
+
+  it("fills the stage with the tabs that were never in front, the most recent first, after the ones that were", () => {
+    // After a load no pane was in front, so the most recent live pane is.
+    expect(stageOf(six, [], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
+    expect(stageOf(six, [2], true)).toEqual({ front: 2, shown: [2, 4, 5, 6] });
+  });
+
+  it("counts a pane no longer among the tabs as never in front, and a pane named twice once", () => {
+    expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true)).toEqual({ front: 6, shown: [1, 2, 3, 6] });
+  });
+});
+
+describe("tellsSize", () => {
+  it("tells a size to a pane whose process runs", () => {
+    expect(tellsSize([session(2), session(3, { alive: false })], 2)).toBe(true);
+  });
+
+  it("tells no size to a pane whose process exited, or to a pane the daemon does not list", () => {
+    expect(tellsSize([session(2), session(3, { alive: false })], 3)).toBe(false);
+    expect(tellsSize([session(2)], 5)).toBe(false);
   });
 });
 

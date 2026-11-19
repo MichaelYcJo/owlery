@@ -1,5 +1,5 @@
-// A work item's view: its header, its tabs with the terminal of the one in
-// front and the strip under it, and its right column, which says what the
+// A work item's view: its header, its tabs with the terminals of the panes
+// on the stage and the strip under them, and its right column, which says what the
 // daemon sends of the work item above the "Ask" section and the seal's
 // place. The pool of terminal screens the window holds lives here.
 import { FitAddon } from "@xterm/addon-fit";
@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
-import { askButton, headlessLines, paneInFront, paneTabs, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stateWithAge, tabLabel, viewFacts, withHeadless } from "./view";
+import { askButton, headlessLines, paneTabs, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
 interface Screen {
@@ -27,10 +27,12 @@ const pool: Screen[] = [];
 const awaited = new Map<number, number>();
 // The panes whose output this window has drawn from a replay once since it loaded.
 const replayed = new Set<number>();
-// The pane in front of the view on screen. No pane is in front on another screen.
+// The pane in front of the view on screen, which has the keyboard. No pane is in front on another screen.
 let front: number | undefined;
-// The pane last in front in each work item's view since the window loaded.
-const lastInFront = new Map<number, number>();
+// The panes that were in front in each work item's view since the window loaded, the most recent first.
+const recent = new Map<number, number[]>();
+// Whether "Side by side" is pressed: the window's own state, one for every view, off at each load.
+let sideBySide = false;
 // The work item whose view the "Ask" field's prompt was typed in.
 let askingIn: number | undefined;
 // The request the "Ask" field is waiting on: the field keeps its prompt until the daemon has taken it.
@@ -52,6 +54,7 @@ const tabs = byId("tabs");
 const paneButtons = byId("pane-buttons");
 const noPanes = byId("no-panes");
 const stage = byId("stage");
+const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
 const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
@@ -77,6 +80,11 @@ export function showTerminalColours(): void {
   for (const screen of pool) screen.term.options.theme = terminalColours();
 }
 
+/** Notes that a pane is in front in its work item's view, so it is the most recent of that view. */
+function broughtToFront(workItemId: number, pane: number): void {
+  recent.set(workItemId, [pane, ...(recent.get(workItemId) ?? []).filter((id) => id !== pane)]);
+}
+
 /** The screen a pane is on, or nothing for a pane that is not on the stage. */
 function screenOf(pane: number | undefined): Screen | undefined {
   return pane === undefined ? undefined : pool.find((screen) => screen.turns.pane === pane);
@@ -86,9 +94,10 @@ function screenOf(pane: number | undefined): Screen | undefined {
  * Adds a screen to the pool, for a pane that comes onto the stage where no
  * screen is free. The view is on screen then, so the terminal opens in an
  * element that is displayed. Each size the screen takes goes to the pane
- * that holds it at that moment, and a free screen sends nothing. What a
- * person types and what the terminal answers go where the screen's turns
- * say (./view, `screenTurns`).
+ * that holds it at that moment where that pane's process runs, and a free
+ * screen sends nothing. What a person types and what the terminal answers
+ * go where the screen's turns say (./view, `screenTurns`). A press inside
+ * the screen gives its pane the keyboard, so that pane is in front.
  */
 function newScreen(): Screen {
   const element = document.createElement("div");
@@ -124,25 +133,30 @@ function newScreen(): Screen {
   });
   term.onResize(({ cols, rows }) => {
     if (turns.pane === undefined) return;
-    send({ type: "resize", id: turns.pane, cols, rows });
+    if (tellsSize(held.sessions, turns.pane)) send({ type: "resize", id: turns.pane, cols, rows });
     showSize();
+  });
+  element.addEventListener("focusin", () => {
+    if (turns.pane === undefined || turns.pane === front || held.viewing === undefined) return;
+    broughtToFront(held.viewing, turns.pane);
+    showView();
   });
   pool.push(screen);
   return screen;
 }
 
 /**
- * Puts a pane on a free screen, as it comes onto the stage: the screen is
- * shown and fitted to the stage, the process is told the size, and the
- * window asks for the pane's output so far, which is written into the
- * emptied terminal when it arrives.
+ * Puts a pane on a free screen that stands at its place on the stage: the
+ * screen is fitted to that place, the process is told the size where it
+ * runs, and the window asks for the pane's output so far, which is written
+ * into the emptied terminal when it arrives.
  */
 function take(screen: Screen, pane: number): void {
-  screen.element.hidden = false;
   // Fitted while the screen is still free, so the size is sent once, below, whether or not the fit changed it.
   screen.fit.fit();
   screen.turns.take(pane);
-  send({ type: "resize", id: pane, cols: screen.term.cols, rows: screen.term.rows });
+  // An exited pane's pseudo-terminal is closed, and a daemon an earlier build left running fails on a size sent for it.
+  if (tellsSize(held.sessions, pane)) send({ type: "resize", id: pane, cols: screen.term.cols, rows: screen.term.rows });
   // The replay holds everything the pane printed, a pane this window started a moment ago included.
   awaited.set(pane, (awaited.get(pane) ?? 0) + 1);
   send({ type: "attach", id: pane });
@@ -156,19 +170,35 @@ function giveBack(screen: Screen): void {
   screen.element.hidden = true;
 }
 
-/** Has the stage show `shown` and no other pane: a pane that left gives its screen back, and a pane that came takes a free screen, or a new one where none is free. */
+/**
+ * Has the stage show `shown`, in that order, and no other pane: a pane that
+ * left gives its screen back, and a pane that came takes a free screen, or a
+ * new one where none is free. Each screen stands at its pane's place among
+ * the tiles before it is fitted, and a screen whose pane stays is fitted
+ * again, since its tile may have changed its size.
+ */
 function stageShows(shown: readonly number[]): void {
   const moves = screenMoves(
     pool.map((screen) => screen.turns.pane),
     shown,
   );
   for (const { screen } of moves.back) giveBack(pool[screen] as Screen);
-  for (const { screen, pane } of moves.taken) take(pool[screen] ?? newScreen(), pane);
+  const taken = moves.taken.map(({ screen, pane }) => ({ screen: pool[screen] ?? newScreen(), pane }));
+  // The page's style reads both: how many tiles the stage holds, and which of them a screen is.
+  stage.dataset.tiles = String(shown.length);
+  const placed = (screen: Screen, pane: number): void => {
+    screen.element.dataset.tile = String(shown.indexOf(pane) + 1);
+    screen.element.hidden = false;
+  };
+  for (const screen of pool) if (screen.turns.pane !== undefined) placed(screen, screen.turns.pane);
+  for (const { screen, pane } of taken) placed(screen, pane);
+  for (const screen of pool) if (screen.turns.pane !== undefined) screen.fit.fit();
+  for (const { screen, pane } of taken) take(screen, pane);
 }
 
-/** The pane in front of the view on screen, or nothing on another screen. */
-export function paneOnScreen(): number | undefined {
-  return front;
+/** Whether a pane is on the stage of the view on screen. No pane is on another screen. */
+export function onStage(pane: number): boolean {
+  return screenOf(pane) !== undefined;
 }
 
 /** Takes back the screen of each pane the daemon no longer lists, and awaits no replay of it. */
@@ -179,6 +209,7 @@ export function dropClosed(listed: ReadonlySet<number>): void {
     if (front === pane) front = undefined;
     giveBack(screen);
   }
+  for (const [workItemId, panes] of recent) recent.set(workItemId, panes.filter((pane) => listed.has(pane)));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
   for (const pane of [...replayed]) if (!listed.has(pane)) replayed.delete(pane);
 }
@@ -235,9 +266,10 @@ function showAskSection(): void {
   );
 }
 
-function tabElement(session: SessionInfo, active: boolean): HTMLElement {
+/** A pane's tab, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. */
+function tabElement(session: SessionInfo, active: boolean, shown: boolean): HTMLElement {
   const tab = document.createElement("span");
-  tab.className = active ? "tab active" : "tab";
+  tab.className = `tab${shown ? " shown" : ""}${active ? " active" : ""}`;
   const label = document.createElement("button");
   label.className = "label";
   label.textContent = tabLabel(session, held.paneKinds);
@@ -247,7 +279,7 @@ function tabElement(session: SessionInfo, active: boolean): HTMLElement {
   close.title = `Close ${label.textContent}`;
   label.addEventListener("click", () => {
     if (held.viewing === undefined) return;
-    lastInFront.set(held.viewing, session.id);
+    broughtToFront(held.viewing, session.id);
     showView();
   });
   // The daemon ends the process and takes the session off its lists; the tab goes at the `inbox` that follows.
@@ -258,8 +290,10 @@ function tabElement(session: SessionInfo, active: boolean): HTMLElement {
 
 /**
  * Draws the view of the work item on screen: its header, its tabs, the
- * pane of the tab in front on a screen of the pool with the strip under it,
- * its right column and its "Ask" section. It starts no process.
+ * panes on the stage, each on a screen of the pool, with the strip under
+ * them, its right column and its "Ask" section. The stage holds the pane in
+ * front, or up to four panes as tiles where "Side by side" is pressed. It
+ * starts no process.
  */
 export function showView(): void {
   const entry = entries().find((listed) => listed.workItem.id === held.viewing);
@@ -288,16 +322,15 @@ export function showView(): void {
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
   stripState.className = `state ${stateClass(line.state)}`;
-  const shown = paneTabs(workItem, held.sessions);
-  const target = paneInFront(shown, lastInFront.get(workItem.id));
-  tabs.replaceChildren(...shown.map((session) => tabElement(session, session.id === target)));
-  noPanes.hidden = shown.length > 0;
-  // One pane is on the stage: the one in front.
-  stageShows(target === undefined ? [] : [target]);
+  const listed = paneTabs(workItem, held.sessions);
+  const { front: target, shown } = stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
+  tabs.replaceChildren(...listed.map((session) => tabElement(session, session.id === target, shown.includes(session.id))));
+  noPanes.hidden = listed.length > 0;
+  stageShows(shown);
   if (target !== front) {
     front = target;
     if (target !== undefined) {
-      lastInFront.set(workItem.id, target);
+      broughtToFront(workItem.id, target);
       screenOf(target)?.term.focus();
     }
   }
@@ -328,7 +361,7 @@ export function takeStarted(session: SessionInfo): void {
   // The `inbox` that lists the pane comes after the answer that carries it.
   if (!held.sessions.some((known) => known.id === session.id)) held.sessions = [...held.sessions, session];
   if (session.workItemId === null) return;
-  lastInFront.set(session.workItemId, session.id);
+  broughtToFront(session.workItemId, session.id);
   if (held.viewing === session.workItemId) showView();
 }
 
@@ -395,6 +428,14 @@ export function initView(onLeave: () => void): void {
   askForm.addEventListener("submit", (event) => {
     event.preventDefault();
     ask();
+  });
+  sideBySideButton.addEventListener("click", () => {
+    sideBySide = !sideBySide;
+    sideBySideButton.setAttribute("aria-pressed", String(sideBySide));
+    if (held.viewing === undefined) return;
+    showView();
+    // The press took the keyboard to the button, and it goes back to the pane in front.
+    screenOf(front)?.term.focus();
   });
   new ResizeObserver(() => {
     // Every screen on the stage is fitted, and each fit that changes a size tells its pane's process.

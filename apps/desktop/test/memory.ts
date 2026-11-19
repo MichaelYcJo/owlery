@@ -33,9 +33,14 @@ export type Start = "agent" | "person";
 /**
  * `inbox`: the app as it opens, no view opened. `one`: one pane on the
  * stage. `eight-in-turn`: eight panes in two work items, each put in front
- * once, the last one left on the stage.
+ * once, the last one left on the stage. `four`: four panes of one work item
+ * side by side. `four-dom`: `four` with WebGL refused to the page's
+ * canvases, so that the app's own fallback keeps the DOM renderer.
+ * `four-after-eight`: the panes of `eight-in-turn` each shown once, then the
+ * four of the second work item side by side. `inbox-after-four`: `four`,
+ * then the inbox screen in front.
  */
-export const SCENARIOS = ["inbox", "one", "eight-in-turn"] as const;
+export const SCENARIOS = ["inbox", "one", "eight-in-turn", "four", "four-dom", "four-after-eight", "inbox-after-four"] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
 export interface ProcessRow {
@@ -170,19 +175,45 @@ export function planOf(env: NodeJS.ProcessEnv): { scenarios: Scenario[]; runs: n
   return { scenarios: names as Scenario[], runs: Number(runs) };
 }
 
+/** What the window measured at a run's last sample, in pixels of the page's layout. */
+export interface Layout {
+  /** The window's width and height, and the stage's. A stage that is not displayed is 0 by 0. */
+  window: [number, number];
+  stage: [number, number];
+  /** The width and height of the element each terminal on the stage is fitted to, in the tabs' order. */
+  terminals: [number, number][];
+  /** The columns and rows the strip under the stage names: those of the terminal in front. Empty where no terminal is. */
+  size: string;
+  /** The device's pixels to one pixel of the layout. */
+  scale: number;
+}
+
 /** One launch of the app for one scenario, and what was read of it. */
 export interface Run {
   scenario: Scenario;
   run: number;
   start: Start;
   samples: Sample[];
+  layout: Layout;
+}
+
+/** The line over the tables: the day, the versions, and the commit of the tree the app was built from. */
+export function heading(day: { date: string; macos: string; electron: string; xterm: string }, tree: { commit: string; changed: boolean }): string {
+  return `Measured ${day.date} on macOS ${day.macos}, Electron ${day.electron}, xterm.js ${day.xterm}, at commit ${tree.commit}${tree.changed ? " with changes under apps/desktop that are not committed" : ""}.`;
+}
+
+/** The commit the tree stands at, and whether the app's folder holds changes that commit does not. */
+export function treeNow(): { commit: string; changed: boolean } {
+  const git = (...args: string[]): string => execFileSync("git", args, { cwd: join(__dirname, ".."), encoding: "utf8" }).trim();
+  return { commit: git("rev-parse", "--short", "HEAD"), changed: git("status", "--porcelain", "--", ".") !== "" };
 }
 
 /**
  * What the measurement prints: one row per run with its samples, one row per
- * run with its last sample by the kind of its processes, and what the words
- * of the tables mean. A run that is thrown away has one row, which says why
- * and holds no number.
+ * run with its last sample by the kind of its processes, one row per run
+ * with the sizes of the window and of the terminals on its stage, and what
+ * the words of the tables mean. A run that is thrown away has one row, which
+ * says why and holds no number.
  */
 export function tables(runs: readonly Run[]): string {
   const mb = (bytes: number): string => (bytes / MB).toFixed(1);
@@ -217,8 +248,16 @@ export function tables(runs: readonly Run[]): string {
       return row([scenario, run, ...KINDS.map((kind) => mb(sample.byKind[kind])), mb(sample.app)]);
     }),
     "",
+    row(["Scenario", "Run", "Window, px", "Stage, px", "Each terminal on the stage, px", "Columns \u00d7 rows of the terminal in front", "Device pixels to a px"]),
+    "|---|---|---|---|---|---|---|",
+    ...kept.map(({ scenario, run, layout }) => {
+      const by = ([width, height]: [number, number]): string => `${width} by ${height}`;
+      return row([scenario, run, by(layout.window), by(layout.stage), layout.terminals.map(by).join(", ") || "none", layout.size || "none", layout.scale]);
+    }),
+    "",
     "A start `agent` is made under `OWLERY_BACKGROUND=1`, with the page told that it has the focus. A start `person` is the app as it ships, with the system's focus.",
     "1 MB is 1,048,576 bytes. The app itself is the main process, every process below it and the daemon. The panes' processes are the ones below the daemon.",
+    "A px is a pixel of the page's layout. A terminal's size is that of the element it is fitted to.",
   ].join("\n");
 }
 
@@ -264,6 +303,27 @@ const PAGE_READ = `(async () => {
     displayed: terminals.filter((terminal) => terminal.getClientRects().length > 0).length,
     canvases: document.querySelectorAll("#stage canvas").length,
   };
+})()`;
+
+/** Read in the page at a run's last sample: the sizes of the window, of the stage and of the element each terminal on the stage is fitted to. */
+const LAYOUT_READ = `(() => {
+  const size = (element) => { const box = element.getBoundingClientRect(); return [Math.round(box.width * 10) / 10, Math.round(box.height * 10) / 10]; };
+  const stage = document.getElementById("stage");
+  const shown = [...stage.querySelectorAll(".pane:not([hidden])")].filter((pane) => pane.getClientRects().length > 0);
+  shown.sort((a, b) => Number(a.dataset.tile) - Number(b.dataset.tile));
+  return {
+    window: [window.innerWidth, window.innerHeight],
+    stage: size(stage),
+    terminals: shown.map(size),
+    size: shown.length > 0 ? document.getElementById("strip-size").textContent : "",
+    scale: window.devicePixelRatio,
+  };
+})()`;
+
+/** Refuses WebGL to every canvas the page makes from here on, so a terminal made after it keeps the DOM renderer through the app's own fallback. */
+const REFUSE_WEBGL = `(() => {
+  const real = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (kind, ...rest) { return String(kind).startsWith("webgl") ? null : real.call(this, kind, ...rest); };
 })()`;
 
 /** The pane processes the daemon runs now: the printers, without the `sleep` each starts between its lines. */
@@ -324,24 +384,61 @@ async function addPane(app: BuiltApp, tabs: number): Promise<void> {
   await untilInFront(app, tabs);
 }
 
+type Step = (app: BuiltApp, repo: string, started: (panes: number) => Promise<void>) => Promise<number>;
+
+/** Makes `items` work items of four shell panes each, every pane in front once, as it starts. The last one is left on the stage. */
+async function fourPanesEach(app: BuiltApp, repo: string, started: (panes: number) => Promise<void>, items: number): Promise<number> {
+  for (let item = 0; item < items; item += 1) {
+    await openWorkItem(app, repo, `Memory ${item + 1}`);
+    await started(item * 4 + 1);
+    for (const tab of [2, 3, 4]) {
+      await addPane(app, tab);
+      await started(item * 4 + tab);
+    }
+  }
+  return items * 4;
+}
+
+/** Presses "Side by side" in the view on screen, and waits for its four panes as tiles, each with a terminal that is displayed. */
+async function sideBySide(app: BuiltApp): Promise<void> {
+  await app.click("#side-by-side");
+  await app.until(
+    `document.getElementById("side-by-side").getAttribute("aria-pressed") === "true" && document.getElementById("stage").dataset.tiles === "4" && [...document.querySelectorAll("#stage .xterm")].filter((terminal) => terminal.getClientRects().length > 0).length === 4`,
+    "four terminals side by side",
+  );
+}
+
+const four: Step = async (app, repo, started) => {
+  const panes = await fourPanesEach(app, repo, started, 1);
+  await sideBySide(app);
+  return panes;
+};
+
 /** A scenario's steps on the window as it opened, answered with the count of panes they leave running. */
-const STEPS: Record<Scenario, (app: BuiltApp, repo: string, started: (panes: number) => Promise<void>) => Promise<number>> = {
+const STEPS: Record<Scenario, Step> = {
   inbox: async () => 0,
   one: async (app, repo, started) => {
     await openWorkItem(app, repo, "Memory 1");
     await started(1);
     return 1;
   },
-  "eight-in-turn": async (app, repo, started) => {
-    for (const item of [0, 1]) {
-      await openWorkItem(app, repo, `Memory ${item + 1}`);
-      await started(item * 4 + 1);
-      for (const tab of [2, 3, 4]) {
-        await addPane(app, tab);
-        await started(item * 4 + tab);
-      }
-    }
-    return 8;
+  "eight-in-turn": (app, repo, started) => fourPanesEach(app, repo, started, 2),
+  four,
+  "four-dom": async (app, repo, started) => {
+    // No terminal is made before a pane comes onto the stage, so every terminal of the run is made after this.
+    await app.evaluate(REFUSE_WEBGL);
+    return four(app, repo, started);
+  },
+  "four-after-eight": async (app, repo, started) => {
+    const panes = await fourPanesEach(app, repo, started, 2);
+    await sideBySide(app);
+    return panes;
+  },
+  "inbox-after-four": async (app, repo, started) => {
+    const panes = await four(app, repo, started);
+    await app.click("#nav-inbox");
+    await app.until(`document.getElementById("inbox-screen").hidden === false && document.getElementById("work-item-view").hidden`, "the inbox screen in front");
+    return panes;
   },
 };
 
@@ -374,6 +471,7 @@ export async function measure(scenario: Scenario, run: number, start: Start): Pr
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, interrupted);
   process.once("exit", end);
   const samples: Sample[] = [];
+  let layout: Layout = { window: [0, 0], stage: [0, 0], terminals: [], size: "", scale: 0 };
   let left: number[] = [];
   try {
     app = await BuiltApp.start({ SHELL: PRINTER, OWLERY_WORKTREES: repository.root }, { keepBackground: start === "person" });
@@ -397,6 +495,7 @@ export async function measure(scenario: Scenario, run: number, start: Start): Pr
       if (missing !== null) throw new Error(missing);
       samples.push({ at, ...sums(split, bytes), ...(await page) });
     }
+    layout = await started.evaluate<Layout>(LAYOUT_READ);
     const running = printers(started.pid, serving).length;
     if (running !== count) throw new Error(`${running} of the scenario's ${count} panes still printed at the last sample`);
   } finally {
@@ -408,5 +507,5 @@ export async function measure(scenario: Scenario, run: number, start: Start): Pr
     endNow(left, 2_000);
     repository.remove();
   }
-  return { scenario, run, start, samples, left };
+  return { scenario, run, start, samples, layout, left };
 }

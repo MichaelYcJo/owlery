@@ -262,26 +262,42 @@
       #tabs { display: flex; min-width: 0; overflow-x: auto; }
       #pane-buttons { flex: none; display: flex; align-items: center; gap: var(--space-2); }
       #pane-bar button { color: var(--ink-muted); font-size: var(--size-second); }
-      #pane-buttons button { height: var(--icon-button); padding: 0 var(--space-4); border-radius: var(--radius-control); }
+      #pane-buttons button, #side-by-side { height: var(--icon-button); padding: 0 var(--space-4); border-radius: var(--radius-control); }
+      /* "Side by side" stands at the right, before the buttons that open a pane, and stays pressed while the stage shows tiles. */
+      #side-by-side { flex: none; align-self: center; margin-left: auto; }
       #pane-bar button:hover { color: var(--ink); transition: color var(--motion); }
-      #pane-buttons button:hover { background: var(--hover); transition: background-color var(--motion), color var(--motion); }
-      #pane-buttons button:active { background: var(--pressed); }
-      /* The tab in front stands on the terminal's ground. */
+      #pane-buttons button:hover, #side-by-side:hover { background: var(--hover); transition: background-color var(--motion), color var(--motion); }
+      #pane-buttons button:active, #side-by-side:active, #side-by-side[aria-pressed="true"] { background: var(--pressed); }
+      #side-by-side[aria-pressed="true"] { color: var(--ink-strong); }
+      /* The tab of each pane on the stage stands on the terminal's ground. The tab in front, whose pane has the keyboard, has its edge and the strong ink as well. */
       #tabs .tab { flex: none; display: flex; align-items: stretch; }
       #tabs .tab:hover { background: var(--hover); transition: background-color var(--motion); }
-      #tabs .tab.active { background: var(--terminal-ground); box-shadow: var(--tab-edge); }
+      #tabs .tab.shown { background: var(--terminal-ground); }
+      #tabs .tab.shown .label { color: var(--terminal-ink); }
+      #tabs .tab.active { box-shadow: var(--tab-edge); }
       #tabs .tab .label { max-width: var(--tab-width); padding: 0 var(--space-2) 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #tabs .tab.active .label { color: var(--terminal-strong); font-weight: 600; }
       #tabs .tab .close { padding: 0 var(--space-4) 0 var(--space-2); color: var(--ink-faint); }
-      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. On the tab in front the close control takes the terminal's inks, since that tab stands on the terminal's ground. */
+      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. On the tab of a pane on the stage the close control takes the terminal's inks, since that tab stands on the terminal's ground. */
       #tabs .tab:not(.active):active { background: var(--pressed); }
       #tabs .tab .close:hover { color: var(--ink); }
       #tabs .tab .close:active { color: var(--ink-strong); }
-      #tabs .tab.active .close:hover { color: var(--terminal-ink); }
-      #tabs .tab.active .close:active { color: var(--terminal-strong); }
+      #tabs .tab.shown .close:hover { color: var(--terminal-ink); }
+      #tabs .tab.shown .close:active { color: var(--terminal-strong); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
       .pane { position: absolute; inset: var(--space-5) 18px 10px; }
+      /* "Side by side": the stage's panes are tiles in two columns, in the tabs' order, with two rows from the third pane on. The third of three spans both columns. A rule stands between the tiles. */
+      #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
+      #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) .pane { position: relative; inset: auto; min-width: 0; min-height: 0; margin: 7px var(--space-5); }
+      .pane[data-tile="1"] { order: 1; }
+      .pane[data-tile="2"] { order: 2; }
+      .pane[data-tile="3"] { order: 3; }
+      .pane[data-tile="4"] { order: 4; }
+      #stage[data-tiles="3"] .pane[data-tile="3"] { grid-column: 1 / -1; }
+      #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"])::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--rule); }
+      #stage[data-tiles="3"]::before { bottom: 50%; }
+      #stage:is([data-tiles="3"], [data-tiles="4"])::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--rule); }
       /* The strip under the terminal: its size, the worktree's folder, and the state with its age. */
       #view-strip { flex: none; display: flex; align-items: center; gap: var(--space-6); box-sizing: border-box; height: var(--strip-height); padding: 0 14px; border-top: 1px solid var(--rule); }
       #strip-size, #strip-state { flex: none; }
@@ -442,6 +458,7 @@
         <section id="pane-area" aria-label="Panes">
           <div id="pane-bar">
             <div id="tabs"></div>
+            <button id="side-by-side" aria-pressed="false" title="Show up to four of this work item's panes at once">Side by side</button>
             <div id="pane-buttons"></div>
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>

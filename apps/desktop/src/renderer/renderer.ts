@@ -11,7 +11,7 @@ import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from 
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import { agentKind, changesSince, commandKey, inboxKey, notificationFor, workItemFields, type StateFilter } from "./view";
-import { detachUnshown, dropClosed, enterView, initView, leaveView, paneOnScreen, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -147,7 +147,8 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): vo
   held.sessions = next.sessions;
   held.workItems = next.workItems;
   for (const session of held.sessions) {
-    const inFront = paneOnScreen() === session.id && document.hasFocus();
+    // A pane on the stage of a focused window is one the person is looking at, whether or not it has the keyboard.
+    const inFront = onStage(session.id) && document.hasFocus();
     const notification = notificationFor(before.get(session.id) ?? null, session, inFront, held.workItems, held.paneKinds);
     if (notification) new Notification(notification.title, { body: notification.body });
   }

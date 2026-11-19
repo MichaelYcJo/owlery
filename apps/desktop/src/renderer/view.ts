@@ -538,6 +538,37 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
   return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
 }
 
+/** The most panes a work item's view shows at once: the count the 500 MB target is measured at (docs/architecture.md, Memory design). */
+export const STAGE_PANES = 4;
+
+/**
+ * The panes on the stage of a view that shows `tabs`, in the tabs' order,
+ * and the one of them in front, which has the keyboard. `recent` is the panes
+ * that were in front in that view, the most recent first. The pane in front
+ * is `paneInFront`'s for the first of them. Where "Side by side" is not
+ * pressed, it is alone on the stage. Where it is pressed, the stage holds up
+ * to `STAGE_PANES` panes: the one in front, then the ones most recently in
+ * front, then the tabs that were never in front, the most recent first. A
+ * pressed tab is the most recent, so it takes the place of the shown pane
+ * least recently in front.
+ */
+export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean): { front: number | undefined; shown: number[] } {
+  const front = paneInFront(tabs, recent[0]);
+  if (front === undefined) return { front, shown: [] };
+  if (!sideBySide) return { front, shown: [front] };
+  const ids = tabs.map((tab) => tab.id);
+  const never = ids.filter((id) => !recent.includes(id)).sort((a, b) => b - a);
+  // A set keeps each pane at the first place it is named.
+  const ranked = [...new Set([front, ...recent.filter((id) => ids.includes(id)), ...never])];
+  const top = ranked.slice(0, STAGE_PANES);
+  return { front, shown: ids.filter((id) => top.includes(id)) };
+}
+
+/** Whether the window tells a pane's process the size of the pane's screen: only where the daemon lists the pane with its process running. The pseudo-terminal of a process that exited is closed, and a daemon built before it ignored such a size failed on it. */
+export function tellsSize(sessions: readonly SessionInfo[], pane: number): boolean {
+  return sessions.some((session) => session.id === pane && session.alive);
+}
+
 /** A screen of the pool, by its place there, and a pane. */
 export interface ScreenAndPane {
   screen: number;

@@ -8,6 +8,7 @@ import { buildApp } from "./built-app";
 import { versions } from "./korean-pane";
 import {
   footprints,
+  heading,
   measure,
   planOf,
   PRINTER,
@@ -19,6 +20,7 @@ import {
   sums,
   tables,
   thrownAway,
+  treeNow,
   unread,
 } from "./memory";
 
@@ -180,7 +182,7 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
   });
 
   it("measures every scenario three times where the environment names neither", () => {
-    expect(planOf({})).toEqual({ scenarios: ["inbox", "one", "eight-in-turn"], runs: 3 });
+    expect(planOf({})).toEqual({ scenarios: ["inbox", "one", "eight-in-turn", "four", "four-dom", "four-after-eight", "inbox-after-four"], runs: 3 });
   });
 
   it("measures the scenarios and the count of runs the environment names, in the order it names them", () => {
@@ -188,7 +190,7 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
   });
 
   it("refuses a scenario it does not have, and names the ones it has", () => {
-    expect(() => planOf({ OWLERY_MEMORY_SCENARIOS: "one,nine" })).toThrow('OWLERY_MEMORY_SCENARIOS names "nine". The scenarios are inbox, one, eight-in-turn.');
+    expect(() => planOf({ OWLERY_MEMORY_SCENARIOS: "one,nine" })).toThrow('OWLERY_MEMORY_SCENARIOS names "nine". The scenarios are inbox, one, eight-in-turn, four, four-dom, four-after-eight, inbox-after-four.');
   });
 
   it("refuses a count of runs that is no whole number above zero", () => {
@@ -206,13 +208,20 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
     scenario: "one",
     run: 2,
     start: "agent",
+    layout: { window: [1440, 900], stage: [764, 789], terminals: [[728, 767]], size: "102 \u00d7 54", scale: 2 },
     samples: [
       at(20, { app: mb(457.04), panes: mb(1.3) }),
       at(25, { app: mb(462.26), panes: mb(1.34), frames: 62 }),
       at(30, { app: mb(461), panes: mb(1.3), byKind: { main: mb(64), renderer: mb(65), gpu: mb(306), utility: mb(8), daemon: mb(18), other: 0 } }),
     ],
   };
-  const hidden: Run = { scenario: "inbox", run: 1, start: "person", samples: [at(20), at(25, { visibility: "hidden" }), at(30)] };
+  const hidden: Run = { scenario: "inbox", run: 1, start: "person", layout: { window: [1440, 900], stage: [0, 0], terminals: [], size: "", scale: 2 }, samples: [at(20), at(25, { visibility: "hidden" }), at(30)] };
+  const tiles: Run = {
+    ...kept,
+    scenario: "four",
+    run: 1,
+    layout: { window: [1440, 900], stage: [764, 789], terminals: [[358, 380.5], [358, 380.5], [358, 380.5], [358, 380.5]], size: "49 \u00d7 27", scale: 2 },
+  };
 
   it("prints one row for a run, its three samples in one cell and its highest beside them", () => {
     expect(tables([kept]).split("\n").slice(0, 3)).toEqual([
@@ -234,13 +243,36 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
     const lines = tables([hidden, kept]).split("\n");
     expect(lines[2]).toBe("| inbox | 1 | person | thrown away: the page was hidden at 25 s | | | | | | |");
     expect(lines.filter((line) => line.startsWith("| inbox |"))).toHaveLength(1);
-    expect(lines.filter((line) => line.startsWith("| one |"))).toHaveLength(2);
+    // A kept run has a row in each of the three tables.
+    expect(lines.filter((line) => line.startsWith("| one |"))).toHaveLength(3);
   });
 
-  it("says under the tables what each kind of start is, and what 1 MB is", () => {
-    expect(tables([kept]).split("\n").slice(8)).toEqual([
+  it("prints for each kept run the window's size, the stage's, each terminal's on the stage, and the columns and rows of the terminal in front", () => {
+    expect(tables([hidden, kept, tiles]).split("\n").slice(11, 16)).toEqual([
+      "| Scenario | Run | Window, px | Stage, px | Each terminal on the stage, px | Columns \u00d7 rows of the terminal in front | Device pixels to a px |",
+      "|---|---|---|---|---|---|---|",
+      "| one | 2 | 1440 by 900 | 764 by 789 | 728 by 767 | 102 \u00d7 54 | 2 |",
+      "| four | 1 | 1440 by 900 | 764 by 789 | 358 by 380.5, 358 by 380.5, 358 by 380.5, 358 by 380.5 | 49 \u00d7 27 | 2 |",
+      "",
+    ]);
+  });
+
+  it("prints for a run with no terminal on the stage that it has none", () => {
+    const inbox: Run = { ...hidden, samples: kept.samples };
+    expect(tables([inbox]).split("\n")[10]).toBe("| inbox | 1 | 1440 by 900 | 0 by 0 | none | none | 2 |");
+  });
+
+  it("says over the tables the day, the versions and the commit of the tree it built, and whether that tree held changes the commit does not", () => {
+    const day = { date: "2026-11-19", macos: "26.5", electron: "45.3.3", xterm: "6.0.0" };
+    expect(heading(day, { commit: "742407c", changed: false })).toBe("Measured 2026-11-19 on macOS 26.5, Electron 45.3.3, xterm.js 6.0.0, at commit 742407c.");
+    expect(heading(day, { commit: "742407c", changed: true })).toBe("Measured 2026-11-19 on macOS 26.5, Electron 45.3.3, xterm.js 6.0.0, at commit 742407c with changes under apps/desktop that are not committed.");
+  });
+
+  it("says under the tables what each kind of start is, what 1 MB is, and what a px is", () => {
+    expect(tables([kept]).split("\n").slice(12)).toEqual([
       "A start `agent` is made under `OWLERY_BACKGROUND=1`, with the page told that it has the focus. A start `person` is the app as it ships, with the system's focus.",
       "1 MB is 1,048,576 bytes. The app itself is the main process, every process below it and the daemon. The panes' processes are the ones below the daemon.",
+      "A px is a pixel of the page's layout. A terminal's size is that of the element it is fitted to.",
     ]);
   });
 
@@ -260,15 +292,21 @@ describe.runIf(MEASURE)("the memory measurement", () => {
     buildApp();
   }, 120_000);
 
+  // The tree as the build read it, so the line over the tables names what was measured though the tree changes during the run.
+  let tree = { commit: "", changed: false };
+
+  beforeAll(() => {
+    tree = treeNow();
+  });
+
   afterAll(() => {
-    const { date, macos, electron, xterm } = versions(new Date());
     // Written to the run's own output: the suite's runner shows nothing a case or a hook hands to `console.log`.
-    process.stdout.write(`\nMeasured ${date} on macOS ${macos}, Electron ${electron}, xterm.js ${xterm}.\n\n${tables(runs)}\n\n`);
+    process.stdout.write(`\n${heading(versions(new Date()), tree)}\n\n${tables(runs)}\n\n`);
   });
 
   const launches = plan.scenarios.flatMap((scenario) => Array.from({ length: plan.runs }, (_, index) => ({ scenario, run: index + 1 })));
 
-  // A launch waits 30 seconds after its last step, and the last scenario makes eight panes before that.
+  // A launch waits 30 seconds after its last step, and a scenario makes up to eight panes before that.
   it.each(launches)("measures $scenario, run $run", { timeout: 300_000 }, async ({ scenario, run }) => {
     const measured = await measure(scenario, run, start);
     runs.push(measured);
