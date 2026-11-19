@@ -68,3 +68,4 @@ A release gains one step for a person: `pnpm --filter @owlery/desktop run korean
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
 | 2026-11-19 | The crafter of every phase runs on Fable 5.2, and the sealer on Opus 5.5 | The owner chose Fable for the work that runs beside #18 ("병렬로 할만하거있으면 fable로 진행해", `routing.md`); a builder on another model than the sealer's | `docs/product.md` *The seal belongs to the product and looks the same everywhere* |
+| 2026-11-19 | This work merges before #9, after #18, as this frame's *Overlap with the release* states; #9's frame, which wrote the other order, now agrees | #9's reason for the other order assumed this test might be typed by a person before its pull request; this frame builds an automated case and leaves the typed run to the release | `frame/plan.md` *Overlap with the release*; `docs/roadmap.md` *Releases and the tracker* |
