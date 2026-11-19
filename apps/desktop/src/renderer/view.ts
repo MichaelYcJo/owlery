@@ -544,15 +544,19 @@ export const STAGE_PANES = 4;
 /**
  * The panes on the stage of a view that shows `tabs`, in the tabs' order,
  * and the one of them in front, which has the keyboard. `recent` is the panes
- * that were in front in that view, the most recent first. The pane in front
- * is `paneInFront`'s for the first of them. Where "Side by side" is not
- * pressed, it is alone on the stage. Where it is pressed, the stage holds up
- * to `STAGE_PANES` panes: the one in front, then the ones most recently in
- * front, then the tabs that were never in front, the highest id first. A
- * pressed tab is the most recent, so it takes the place of the shown pane
- * least recently in front. A closed pane that `recentKept` left first takes
- * no place: the stage keeps the four most recently in front, and the pane in
- * front is `paneInFront`'s among those four.
+ * that were in front in that view, the most recent first. The view's stage
+ * order is the panes of `recent` that are still tabs, in that order, and
+ * then the tabs that are not in `recent`, which were never in front, the
+ * highest id first. The pane in front is `paneInFront`'s for the first of
+ * `recent`. Where "Side by side" is not pressed, it is alone on the stage.
+ * Where it is pressed, the stage holds up to `STAGE_PANES` panes: the one in
+ * front, then the panes of the stage order. A pressed tab is the first of
+ * `recent`, so it takes the place of the shown pane last in the stage order.
+ * A closed pane that `recentKept` left first takes no place: the stage holds
+ * the first `STAGE_PANES` panes of the stage order, and the pane in front is
+ * `paneInFront`'s among them. Where fewer than `STAGE_PANES` of the tabs
+ * were in front, tabs never in front are among them, and one of those can
+ * be the pane in front.
  */
 export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean): { front: number | undefined; shown: number[] } {
   const ids = tabs.map((tab) => tab.id);
@@ -573,10 +577,11 @@ export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[],
  * daemon lists only `listed`. A pane it no longer lists leaves, except the
  * first one: that one stays as the pane last in front, so `paneInFront`
  * finds it is no tab and gives the live pane with the highest id, which
- * `stageOf` takes from the four most recently in front where "Side by side"
- * is pressed, or the one of those four with the highest id where none of
- * them runs. Were it taken out, the pane in front before it would come in
- * front, an exited one included.
+ * `stageOf` takes from the first `STAGE_PANES` panes of its stage order
+ * where "Side by side" is pressed, tabs never in front among them where
+ * fewer of the tabs were in front, or the one of those panes with the
+ * highest id where none of them runs. Were it taken out, the pane in front
+ * before it would come in front, an exited one included.
  */
 export function recentKept(recent: readonly number[], listed: ReadonlySet<number>): number[] {
   return recent.filter((pane, place) => place === 0 || listed.has(pane));

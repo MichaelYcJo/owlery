@@ -209,7 +209,7 @@ export function dropClosed(listed: ReadonlySet<number>): void {
     if (front === pane) front = undefined;
     giveBack(screen);
   }
-  // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one of the four most recently in front with the highest id, or the one of the four with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
+  // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first four panes of the stage order, which hold tabs never in front where fewer than four of the tabs were in front, or the one of the four with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
   for (const pane of [...replayed]) if (!listed.has(pane)) replayed.delete(pane);

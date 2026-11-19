@@ -483,7 +483,7 @@ describe("stageOf", () => {
     expect(stageOf([session(2)], [2], true)).toEqual({ front: 2, shown: [2] });
   });
 
-  it("puts the four panes most recently in front on the stage of a view with more tabs, in the tabs' order, so a pressed tab that was not shown takes the place of the shown pane least recently in front", () => {
+  it("puts the pane in front and then the panes of the stage order, up to four, on the stage of a view with more tabs, in the tabs' order, so a pressed tab that was not shown takes the place of the shown pane last in the stage order", () => {
     // Panes 3, 5, 2 and 6 are on the stage, and the tab of pane 1 is pressed.
     expect(stageOf(six, [1, 3, 5, 2, 6], true)).toEqual({ front: 1, shown: [1, 2, 3, 5] });
   });
@@ -497,7 +497,7 @@ describe("stageOf", () => {
     expect(stageOf(oneLive, [], true)).toEqual({ front: 1, shown: [1, 3, 4, 5] });
   });
 
-  it("gives a pane no longer among the tabs no place on the stage, so where the pane in front closed the four most recently in front stay and the live one of them with the highest id has the keyboard, or the one of them with the highest id where none runs, and counts a pane named twice once", () => {
+  it("gives a pane no longer among the tabs no place on the stage, so where the pane in front closed the first four panes of the stage order stand on the stage, tabs never in front among them where fewer than four of the tabs were in front, and the live one of the four with the highest id has the keyboard, or the one of them with the highest id where none runs, and counts a pane named twice once", () => {
     expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
     // Pane 4 has exited, so pane 3, the live one of the four with the highest id, has the keyboard, and not pane 2, the last in front before pane 9.
     const exited = [session(1), session(2), session(3), session(4, { alive: false }), session(5), session(6)];
@@ -505,6 +505,10 @@ describe("stageOf", () => {
     // Panes 1 to 4 have exited, so pane 4, the highest id of the four, has the keyboard, and not pane 1, the last in front before pane 9, nor panes 5 and 6, which run off the stage.
     const fourExited = [session(1, { alive: false }), session(2, { alive: false }), session(3, { alive: false }), session(4, { alive: false }), session(5), session(6)];
     expect(stageOf(fourExited, [9, 1, 2, 3, 4], true)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
+    // Only pane 6 was in front besides pane 2, which closed, so pane 3, never in front and not on the stage before, takes pane 2's place, and where pane 6 has exited pane 5, never in front, has the keyboard.
+    const twoInFront = [session(1), session(3), session(4), session(5), session(6)];
+    expect(stageOf(twoInFront, [2, 6], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
+    expect(stageOf([session(1), session(3), session(4), session(5), session(6, { alive: false })], [2, 6], true)).toEqual({ front: 5, shown: [3, 4, 5, 6] });
   });
 });
 
