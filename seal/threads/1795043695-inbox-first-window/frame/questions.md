@@ -17,6 +17,7 @@ Judgments the ticket (#18) left open that the tree answered. None is a question 
 - Whether the window loads direction B's typefaces: `frame/plan.md` *Alternatives considered*, the row on Google Fonts.
 - Where the record of the person's last look is kept: `frame/design.md` *Grounding*, the row on the phone's clause, and `frame/plan.md` *Alternatives considered*, the rows on `localStorage` and on the daemon.
 - Whether the daemon or the window works out what changed: `frame/plan.md` *Alternatives considered*, the row on the daemon sending the changes.
+- How the summary meets a daemon started again, or one that had no client: `frame/design.md` *Grounding*, the bullets of the fold at `edb2a28`, and `frame/plan.md` *Alternatives considered*, the three rows on the counts of new commits.
 - What of issue #22 milestone 1 can show: `frame/design.md` *Scope* items 16 and 19, and `frame/plan.md` *Overlap with the release*, the row of issue #22.
 
 These assumptions are written down and not asked, because either answer of each changes a line or two of the build:
