@@ -58,6 +58,11 @@ and the most recent live one of them comes in front, or the most recent of them 
   });
 ```
 
+```seal
+verdict: fixed 5115065
+answer: The finding holds, and the snippet is applied as written, after it was read against `frame/design.md` *Scope* item 1 and `view.ts#stageOf`: item 1 names the four for the stage and the pane in front stands on it, so the code stays and the edge is stated. `5115065` holds the case's new name and its third expectation, the comment at `work-item-view.ts:212`, and one sentence the finding did not name, the docstring of `view.ts#recentKept`, which said `stageOf` takes the most recent live pane from the four and now adds the most recent of them where none runs. `1e2801d` holds the sentence added to `trail/phases/phase-4.md:23` and the clause in the row of `gaps.md:18`, and adds this pass's run to the row of `gaps.md:12`. The new expectation was seen red after the commit: `seal mutate` wrote the round's mutant into `stageOf`, every tab as the candidates where none of the four runs, and one case failed, at `view.test.ts:507`, on `expected { front: 6, shown: [ 1, 2, 3, 6 ] } to deeply equal { front: 4, shown: [ 1, 2, 3, 4 ] }`, with 168 passing. `node scripts/test-in-electron.mjs test/view.test.ts` at `1e2801d` exited 0 with 169 passed. The sentence at `frame/design.md:131` is not this pass's to write and went to the orchestrator in the hand-back, as the finding gives it. No `tsc` ran and the app was started zero times.
+```
+
 ## Confirmations
 
 ```seal
