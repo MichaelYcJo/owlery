@@ -309,7 +309,7 @@ export function requestRefused(requestId: number): void {
 }
 
 /** Writes what a pane printed into its terminal, where the window holds one. */
-export function write(id: number, kind: "replay" | "output" | "exit", data: string): void {
+export function write(id: number, kind: "replay" | "output", data: string): void {
   const pane = panes.get(id);
   if (!pane) return;
   if (kind === "replay") pane.awaitingReplay = false;

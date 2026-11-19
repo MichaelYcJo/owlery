@@ -249,7 +249,7 @@ function onMessage(message: ServerMessage): void {
       write(message.id, message.type, message.data);
       return;
     case "exit":
-      write(message.id, "exit", `\r\n[process exited with code ${message.exitCode}]\r\n`);
+      // The window draws nothing for it: the session's output ends with the exit line, and the `inbox` that follows lists the pane as ended.
       return;
     case "agent":
       // The window draws nothing for a hook event. Its state arrives in the lists of the `inbox` that follows.

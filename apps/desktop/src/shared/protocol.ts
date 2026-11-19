@@ -135,7 +135,10 @@ export type ClientMessage =
   | { type: "hello"; token: string }
   | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId?: number }
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; kind: PaneKind; cols: number; rows: number }
+  // Asks for the session's kept output as a `replay`, and for its output after that.
   | { type: "attach"; id: number }
+  // Ends this client's receiving of the session's output until it attaches again. The session and its process are untouched, and the daemon answers nothing.
+  | { type: "detach"; id: number }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
   // Starts a headless session that answers `prompt` in the work item's worktree.
@@ -161,6 +164,7 @@ export type ServerMessage =
   | { type: "error"; requestId: number; message: string }
   | { type: "output"; id: number; data: string }
   | { type: "replay"; id: number; data: string }
+  // The session's process ended. The session's output already ends with the line that says so, which the daemon wrote.
   | { type: "exit"; id: number; exitCode: number }
   | { type: "agent"; id: number; event: AgentEvent; tool: string | null; at: number };
 
