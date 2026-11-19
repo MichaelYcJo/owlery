@@ -7,17 +7,15 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
-import { askButton, headlessLines, paneInFront, paneTabs, replayStep, repoNameOf, screenMoves, stateWithAge, tabLabel, viewFacts, withHeadless } from "./view";
+import { askButton, headlessLines, paneInFront, paneTabs, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stateWithAge, tabLabel, viewFacts, withHeadless } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
 interface Screen {
   term: Terminal;
   fit: FitAddon;
   element: HTMLElement;
-  /** The pane on the screen, or nothing while the screen is free. */
-  pane: number | undefined;
-  /** The replays the terminal is drawing whose answers are not sent. */
-  muted: number;
+  /** The pane on the screen, and the pane that what the terminal hands the window goes to. */
+  turns: ScreenTurns;
 }
 
 // The size a pane's process starts at where no terminal is on screen to measure: xterm's own default.
@@ -81,15 +79,16 @@ export function showTerminalColours(): void {
 
 /** The screen a pane is on, or nothing for a pane that is not on the stage. */
 function screenOf(pane: number | undefined): Screen | undefined {
-  return pane === undefined ? undefined : pool.find((screen) => screen.pane === pane);
+  return pane === undefined ? undefined : pool.find((screen) => screen.turns.pane === pane);
 }
 
 /**
  * Adds a screen to the pool, for a pane that comes onto the stage where no
  * screen is free. The view is on screen then, so the terminal opens in an
- * element that is displayed. What a person types into the screen, and each
- * size it takes, goes to the pane that holds it at that moment, and a free
- * screen sends nothing.
+ * element that is displayed. Each size the screen takes goes to the pane
+ * that holds it at that moment, and a free screen sends nothing. What a
+ * person types and what the terminal answers go where the screen's turns
+ * say (./view, `screenTurns`).
  */
 function newScreen(): Screen {
   const element = document.createElement("div");
@@ -116,14 +115,16 @@ function newScreen(): Screen {
   } catch {
     // No WebGL: the DOM renderer stays.
   }
-  const screen: Screen = { term, fit, element, pane: undefined, muted: 0 };
+  const turns = screenTurns(term);
+  const screen: Screen = { term, fit, element, turns };
   // What a person types and what the terminal answers a program's question with arrive here alike.
   term.onData((data) => {
-    if (screen.pane !== undefined && screen.muted === 0) send({ type: "input", id: screen.pane, data });
+    const id = turns.receiver();
+    if (id !== undefined) send({ type: "input", id, data });
   });
   term.onResize(({ cols, rows }) => {
-    if (screen.pane === undefined) return;
-    send({ type: "resize", id: screen.pane, cols, rows });
+    if (turns.pane === undefined) return;
+    send({ type: "resize", id: turns.pane, cols, rows });
     showSize();
   });
   pool.push(screen);
@@ -140,7 +141,7 @@ function take(screen: Screen, pane: number): void {
   screen.element.hidden = false;
   // Fitted while the screen is still free, so the size is sent once, below, whether or not the fit changed it.
   screen.fit.fit();
-  screen.pane = pane;
+  screen.turns.take(pane);
   send({ type: "resize", id: pane, cols: screen.term.cols, rows: screen.term.rows });
   // The replay holds everything the pane printed, a pane this window started a moment ago included.
   awaited.set(pane, (awaited.get(pane) ?? 0) + 1);
@@ -149,18 +150,16 @@ function take(screen: Screen, pane: number): void {
 
 /** Takes a screen back from the pane on it, as the pane leaves the stage: the daemon is told to send this window no more of the pane's output, and the screen is emptied and hidden. */
 function giveBack(screen: Screen): void {
-  if (screen.pane === undefined) return;
-  send({ type: "detach", id: screen.pane });
-  screen.pane = undefined;
-  // The terminal draws what it is handed later, in order. The reset is handed to it the same way, so what it has still to draw of this pane is drawn before the reset and not into the next pane's screen.
-  screen.term.write("\u001bc");
+  if (screen.turns.pane === undefined) return;
+  send({ type: "detach", id: screen.turns.pane });
+  screen.turns.giveBack();
   screen.element.hidden = true;
 }
 
 /** Has the stage show `shown` and no other pane: a pane that left gives its screen back, and a pane that came takes a free screen, or a new one where none is free. */
 function stageShows(shown: readonly number[]): void {
   const moves = screenMoves(
-    pool.map((screen) => screen.pane),
+    pool.map((screen) => screen.turns.pane),
     shown,
   );
   for (const { screen } of moves.back) giveBack(pool[screen] as Screen);
@@ -175,8 +174,9 @@ export function paneOnScreen(): number | undefined {
 /** Takes back the screen of each pane the daemon no longer lists, and awaits no replay of it. */
 export function dropClosed(listed: ReadonlySet<number>): void {
   for (const screen of pool) {
-    if (screen.pane === undefined || listed.has(screen.pane)) continue;
-    if (front === screen.pane) front = undefined;
+    const pane = screen.turns.pane;
+    if (pane === undefined || listed.has(pane)) continue;
+    if (front === pane) front = undefined;
     giveBack(screen);
   }
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
@@ -379,16 +379,10 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   else awaited.delete(id);
   const screen = screenOf(id);
   if (!step.write || !screen) return;
-  if (kind === "output" || !replayed.has(id)) {
-    if (kind === "replay") replayed.add(id);
-    screen.term.write(data);
-    return;
-  }
-  // Muted until the terminal has drawn this replay. What a person types in that moment is not sent either.
-  screen.muted += 1;
-  screen.term.write(data, () => {
-    screen.muted -= 1;
-  });
+  // The screen sends nothing until the terminal has drawn a later replay. What a person types in that moment is not sent either.
+  const answered = kind === "output" || !replayed.has(id);
+  if (kind === "replay") replayed.add(id);
+  screen.turns.write(data, answered);
 }
 
 export function initView(onLeave: () => void): void {
@@ -404,6 +398,6 @@ export function initView(onLeave: () => void): void {
   });
   new ResizeObserver(() => {
     // Every screen on the stage is fitted, and each fit that changes a size tells its pane's process.
-    for (const screen of pool) if (screen.pane !== undefined) screen.fit.fit();
+    for (const screen of pool) if (screen.turns.pane !== undefined) screen.fit.fit();
   }).observe(stage);
 }

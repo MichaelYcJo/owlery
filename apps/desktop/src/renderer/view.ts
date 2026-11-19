@@ -580,6 +580,75 @@ export function replayStep(awaited: number, kind: "replay" | "output"): { awaite
   return { awaited: Math.max(0, awaited - 1), write: awaited === 1 };
 }
 
+/** What a screen's turns need of its terminal: a piece it is handed is drawn later, in the order the pieces were handed, and `drawn` runs once the terminal has drawn that piece. */
+export interface TerminalWrites {
+  write(data: string, drawn?: () => void): void;
+}
+
+/** Whose a terminal screen is: the pane on it, and the pane that what its terminal hands the window goes to. */
+export interface ScreenTurns {
+  /** The pane on the screen, or nothing while the screen is free. */
+  readonly pane: number | undefined;
+  /** Puts `pane` on the screen. */
+  take(pane: number): void;
+  /** Takes the screen back from the pane on it, and empties the terminal after what it has still to draw. */
+  giveBack(): void;
+  /** Hands the terminal what the pane on the screen printed. Where `answered` is false, nothing is sent until the terminal has drawn it. */
+  write(data: string, answered: boolean): void;
+  /** The pane that what the terminal hands the window now goes to, or nothing where it is sent to nobody. */
+  receiver(): number | undefined;
+}
+
+/**
+ * The turns of the panes on one terminal screen, kept in the order of the
+ * terminal's writes. A terminal hands the window what a person types and
+ * what it answers a program's question with through one path. A person's
+ * keys arrive at once. An answer arrives when the terminal draws the
+ * question, which can be after the screen passed to another pane. So nothing
+ * is sent until the terminal has drawn everything it was handed before the
+ * pane on the screen took it, and what a person types in that span is not
+ * sent either. Nothing is sent while the terminal draws a piece written
+ * with `answered` false, and nothing from a free screen.
+ */
+export function screenTurns(term: TerminalWrites): ScreenTurns {
+  let pane: number | undefined;
+  // The turns the screen has had, and the turn whose output the terminal has reached.
+  let turn = 0;
+  let reached = 0;
+  // The pieces the terminal is drawing whose answers are not sent.
+  let muted = 0;
+  return {
+    get pane() {
+      return pane;
+    },
+    take(next) {
+      pane = next;
+      turn += 1;
+      const taken = turn;
+      // An empty piece is drawn in its place among the others, so its callback runs once the terminal has drawn everything handed to it before this turn.
+      term.write("", () => {
+        reached = taken;
+      });
+    },
+    giveBack() {
+      pane = undefined;
+      // The reset is handed to the terminal as output is, so what it has still to draw of the pane that leaves is drawn before the reset and not into the next pane's screen.
+      term.write("\u001bc");
+    },
+    write(data, answered) {
+      if (answered) {
+        term.write(data);
+        return;
+      }
+      muted += 1;
+      term.write(data, () => {
+        muted -= 1;
+      });
+    },
+    receiver: () => (reached === turn && muted === 0 ? pane : undefined),
+  };
+}
+
 /**
  * The notification for a session whose state was `previous`, or null where
  * none is shown: one is shown when the state becomes waiting or finished, and

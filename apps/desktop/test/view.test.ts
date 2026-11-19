@@ -35,6 +35,7 @@ import {
   paneTabs,
   replayStep,
   screenMoves,
+  screenTurns,
   selectedLine,
   sidebarTree,
   stateHeading,
@@ -511,6 +512,125 @@ describe("replayStep", () => {
 
   it("writes no replay the window did not ask for", () => {
     expect(replayStep(0, "replay")).toEqual({ awaited: 0, write: false });
+  });
+});
+
+describe("screenTurns", () => {
+  /**
+   * A terminal as xterm.js is one: it draws what it was handed later, in
+   * order, and runs a piece's callback once the piece is drawn. A piece that
+   * holds "?" is a question a program asks, which the terminal answers while
+   * it draws it. `sent` is each answer and each key with the pane it went to.
+   */
+  function screen() {
+    const handed: { data: string; drawn?: () => void }[] = [];
+    const sent: [number, string][] = [];
+    const turns = screenTurns({ write: (data, drawn) => handed.push({ data, drawn }) });
+    const hands = (data: string): void => {
+      const to = turns.receiver();
+      if (to !== undefined) sent.push([to, data]);
+    };
+    return {
+      turns,
+      sent,
+      /** What the terminal has still to draw. */
+      waiting: () => handed.map((piece) => piece.data),
+      /** A person presses a key in the terminal. */
+      types: hands,
+      /** The terminal draws the next `count` pieces, or all of them. */
+      draws(count = handed.length): void {
+        for (const piece of handed.splice(0, count)) {
+          if (piece.data.includes("?")) hands(`answer to ${piece.data}`);
+          piece.drawn?.();
+        }
+      },
+    };
+  }
+
+  it("sends what a person types and what the terminal answers to the pane on the screen, and nothing from a free screen", () => {
+    const { turns, sent, types, draws } = screen();
+    types("a");
+    turns.take(4);
+    draws();
+    expect(turns.pane).toBe(4);
+    types("b");
+    turns.write("where?", true);
+    draws();
+    turns.giveBack();
+    expect(turns.pane).toBeUndefined();
+    types("c");
+    draws();
+    types("d");
+    expect(sent).toEqual([
+      [4, "b"],
+      [4, "answer to where?"],
+    ]);
+  });
+
+  it("sends no pane the answer to a question of the pane that held the screen before it, which the terminal draws after the screen passed on", () => {
+    const { turns, sent, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("where?", true);
+    // The press that hands the screen from pane 4 to pane 5 comes before the terminal has drawn pane 4's question.
+    turns.giveBack();
+    turns.take(5);
+    draws();
+    expect(sent).toEqual([]);
+    turns.write("which?", true);
+    draws();
+    expect(sent).toEqual([[5, "answer to which?"]]);
+  });
+
+  it("sends nothing a person types until the terminal has drawn what it was handed before the pane on the screen took it", () => {
+    const { turns, sent, types, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("a long piece", true);
+    turns.giveBack();
+    turns.take(5);
+    types("a");
+    // The piece of pane 4 and the reset are drawn, and the screen has not reached pane 5's turn yet.
+    draws(2);
+    types("b");
+    draws();
+    types("c");
+    expect(sent).toEqual([[5, "c"]]);
+  });
+
+  it("sends a pane no answer to what it printed in an earlier turn on the screen, where it took the screen again before the terminal drew that", () => {
+    const { turns, sent, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("where?", true);
+    turns.giveBack();
+    turns.take(5);
+    turns.giveBack();
+    turns.take(4);
+    draws();
+    expect(sent).toEqual([]);
+  });
+
+  it("sends nothing while the terminal draws a piece whose answers are not sent, and sends again once it is drawn", () => {
+    const { turns, sent, types, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("where?", false);
+    types("a");
+    draws();
+    types("b");
+    expect(sent).toEqual([[4, "b"]]);
+  });
+
+  it("empties the terminal after what the pane that leaves has still to draw, and before what the next pane prints", () => {
+    const { turns, waiting, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("of pane 4", true);
+    turns.giveBack();
+    turns.take(5);
+    turns.write("of pane 5", true);
+    expect(waiting()).toEqual(["of pane 4", "\u001bc", "", "of pane 5"]);
   });
 });
 
