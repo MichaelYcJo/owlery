@@ -1504,7 +1504,7 @@ describe("OutputBuffer", () => {
   it("opens at the first character after a line break once it dropped old output, so at no escape sequence's middle", () => {
     const buffer = new OutputBuffer(16);
     buffer.append("one\r\n\u001b[31mtwo\u001b[0m\r\n");
-    // The count of characters puts the cut inside the colour sequence that opens the second line.
+    // The first piece is already over the size and loses its first line. The second puts the cut inside `\u001b[0m`, the colour sequence that closes the line `two`.
     buffer.append("three\r\nfour");
     expect(buffer.text()).toBe("three\r\nfour");
   });
