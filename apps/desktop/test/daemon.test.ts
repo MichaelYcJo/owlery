@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,6 +67,28 @@ async function client(url: string, token: string | null = TOKEN) {
     until,
     message: <K extends ServerMessage["type"]>(type: K, where: (m: Extract<ServerMessage, { type: K }>) => boolean = () => true) =>
       until(() => messages.find((m): m is Extract<ServerMessage, { type: K }> => m.type === type && where(m as Extract<ServerMessage, { type: K }>))),
+  };
+}
+
+/**
+ * Puts a `git` before the real one on the path the daemon runs git from: it
+ * notes its first argument, waits `seconds`, and runs the real one. The cases'
+ * own git goes through it too, until `stop`.
+ */
+function watchedGit(base: string, seconds = 0): { calls: (command: string) => number; stop: () => void } {
+  const bin = join(base, "bin");
+  const noted = join(base, "git-calls.txt");
+  const path = process.env.PATH ?? "";
+  mkdirSync(bin);
+  writeFileSync(join(bin, "git"), `#!/bin/sh\necho "$1" >> '${noted}'\nsleep ${seconds}\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+  process.env.PATH = `${bin}:${path}`;
+  const stop = (): void => {
+    process.env.PATH = path;
+  };
+  cleanups.push(stop);
+  return {
+    calls: (command) => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line === command).length : 0),
+    stop,
   };
 }
 
@@ -300,13 +322,15 @@ describe("work items", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Outlives the daemon", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
+    git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
+    git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "two");
     await first.close();
     expect(statSync(join(runDir, "work-items.json")).mode & 0o777).toBe(0o600);
 
     const { url } = await daemon({ runDir, worktreesRoot: root });
     const ready = await (await client(url)).message("ready");
-    // The count is read again by the daemon that starts, so `ready` carries none yet.
-    expect(ready.workItems).toEqual([{ ...workItem, newCommits: null }]);
+    // The daemon that starts holds no count, and reads each before it answers its first hello.
+    expect(ready.workItems).toEqual([{ ...workItem, newCommits: 2 }]);
     // Sessions do not outlive the daemon.
     expect(ready.sessions).toEqual([]);
   });
@@ -600,37 +624,59 @@ describe("the inbox", () => {
     expect(inboxes(c).map((m) => m.workItems[0]?.newCommits)).toEqual([0, 1]);
   });
 
-  it("reads the counts only while a client is connected, and again once one connects", async () => {
-    const { repo, root } = repository();
-    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+  it("reads no count while no client is connected, and reads them at the next hello, so its `ready` carries the commits made meanwhile", async () => {
+    const { repo, root, base } = repository();
+    // The wait is long, so that the first run of the watched git, which the system checks, ends inside it.
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20, readyWaitMs: 5000 });
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Unwatched", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await first.message("workItemCreated");
     first.socket.close();
     await pause(100);
+    const watched = watchedGit(base);
     commit(workItem.worktree, "one.txt");
+    expect(watched.calls("commit")).toBe(1);
+    // Ten intervals and more with nobody connected, and the pane still alive.
     await pause(200);
+    expect(watched.calls("rev-list")).toBe(0);
     const second = await client(url);
-    // Nothing read the branch while nobody was connected, so `ready` carries the count last read.
-    expect((await second.message("ready")).workItems[0]?.newCommits).toBe(0);
-    await second.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    expect((await second.message("ready")).workItems[0]?.newCommits).toBe(1);
   });
 
-  it("reads the counts at most once per interval, however often clients come and go", async () => {
+  it("reads the counts between two hellos at most once per interval, and tells the other clients, in an inbox, of a count a hello's read changed", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, commitPollMs: 60_000 });
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Read once", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await first.message("workItemCreated");
-    first.socket.close();
-    await pause(100);
     commit(workItem.worktree, "one.txt");
-    const second = await client(url);
-    await second.message("ready");
     await pause(300);
-    expect(inboxes(second)).toEqual([]);
+    // The creation's inbox alone: the interval is not over, so nothing read the commit.
+    expect(inboxes(first).map((m) => m.workItems[0]?.newCommits)).toEqual([0]);
+    const second = await client(url);
+    expect((await second.message("ready")).workItems[0]?.newCommits).toBe(1);
+    await first.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    await pause(100);
+    // The client that said hello has the count in its `ready`, and is sent no inbox for it, before or after.
+    expect(second.messages.map((m) => m.type)).toEqual(["ready"]);
+  });
+
+  it("sends `ready` with the counts it holds where the read takes longer than its wait, and the read's counts in an inbox after it", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const made = await createWorktree({ folder: repo, title: "Slow to count", root });
+    commit(made.worktree, "one.txt");
+    writeFileSync(join(runDir, "work-items.json"), JSON.stringify([{ id: 1, title: "Slow to count", createdAt: 1, ...made }]));
+    watchedGit(base, 0.3);
+    const { url } = await daemon({ runDir, worktreesRoot: root, readyWaitMs: 50, commitPollMs: 60_000 });
+    const c = await client(url);
+    // A daemon that just started holds no count.
+    expect((await c.message("ready")).workItems[0]?.newCommits).toBeNull();
+    expect((await c.message("inbox")).workItems[0]?.newCommits).toBe(1);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
   });
 
   it("gives a work item from before the base commit was recorded no count, beside one that has it", async () => {
@@ -645,8 +691,9 @@ describe("the inbox", () => {
     writeFileSync(join(runDir, "work-items.json"), JSON.stringify([{ id: 1, title: "Before", createdAt: 1, ...old }, { id: 2, title: "After", createdAt: 2, ...after }]));
     const { url } = await daemon({ runDir, worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
-    expect((await c.message("ready")).workItems.map((w) => [w.baseCommit, w.newCommits])).toEqual([[null, null], [after.baseCommit, null]]);
-    const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 1);
+    expect((await c.message("ready")).workItems.map((w) => [w.baseCommit, w.newCommits])).toEqual([[null, null], [after.baseCommit, 1]]);
+    commit(after.worktree, "again.txt");
+    const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 2);
     expect(inbox.workItems[0]).toMatchObject({ id: 1, baseCommit: null, newCommits: null });
   });
 });
@@ -725,6 +772,28 @@ describe("the last look", () => {
     await looked(one);
     expect(one.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     expect(other.messages.map((m) => m.type)).toEqual(["ready"]);
+  });
+
+  it("handles what a client sends after its hello only once its `ready` is sent: a look sent at once is taken after the counts were read, and is not the look that `ready` carries", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const made = await createWorktree({ folder: repo, title: "Looked at early", root });
+    git(made.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
+    const workItem = { id: 1, title: "Looked at early", createdAt: 1, ...made };
+    writeFileSync(join(runDir, "work-items.json"), JSON.stringify([workItem]));
+    // The read takes long enough for both messages to arrive before it ends, and the wait is longer still.
+    watchedGit(base, 0.2);
+    const { url } = await daemon({ runDir, worktreesRoot: root, readyWaitMs: 5000, now: () => 1234 });
+    const c = await client(url);
+    c.send({ type: "looked" });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, workItemId: 999 });
+    const ready = await c.message("ready");
+    expect(ready.lastLook).toBeNull();
+    expect(ready.workItems[0]?.newCommits).toBe(1);
+    await c.message("error", (m) => m.requestId === 7);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, newCommits: 1 }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {

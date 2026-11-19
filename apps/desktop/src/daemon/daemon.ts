@@ -34,8 +34,10 @@ export interface DaemonOptions {
   worktreesRoot?: string;
   /** The clock a work item's `createdAt`, a headless session's `startedAt` and a look's `at` are read from. */
   now?: () => number;
-  /** How long the daemon waits between two reads of the work items' new commits. */
+  /** How long the daemon waits between two reads of the work items' new commits, apart from the read each hello starts. */
   commitPollMs?: number;
+  /** How long a hello's answer waits for the read of the work items' new commits. It stays under the second the app gives a daemon to answer (`answers` of src/main/daemon-client.ts). */
+  readyWaitMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -67,6 +69,8 @@ export class Daemon {
   private readonly sessions = new Map<number, Session>();
   // Each client, with the sessions whose output it receives: the ones it opened or attached.
   private readonly clients = new Map<WebSocket, Set<number>>();
+  // The clients that said hello and were not yet sent `ready`. Nothing is sent to one before its `ready`, which carries the lists whole.
+  private readonly greeting = new Set<WebSocket>();
   private server: WebSocketServer | undefined;
   private nextId = 1;
   // The headless sessions, by an id counted apart from the panes'. They live in memory alone.
@@ -81,7 +85,8 @@ export class Daemon {
   private readonly commitCounts = new Map<number, number | null>();
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
-  private readingCommits = false;
+  // The read of the counts under way, which a hello that arrives meanwhile waits on.
+  private readingCommits: Promise<void> | undefined;
   private closed = false;
 
   constructor(private readonly options: DaemonOptions) {
@@ -135,6 +140,8 @@ export class Daemon {
 
   private accept(socket: WebSocket): void {
     let authorized = false;
+    // What the client sent between its hello and its `ready`, in the order it arrived.
+    const early: ClientMessage[] = [];
     const helloTimer = setTimeout(() => socket.close(UNAUTHORIZED, "unauthorized"), this.options.helloTimeoutMs ?? 2000);
     socket.on("message", (raw) => {
       let message: ClientMessage;
@@ -152,19 +159,42 @@ export class Daemon {
         }
         authorized = true;
         this.clients.set(socket, new Set());
+        this.greeting.add(socket);
         this.checkIdle();
-        this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
-        this.scheduleCommitRead();
+        void this.greet(socket, early);
         return;
       }
-      this.handle(socket, message);
+      if (this.greeting.has(socket)) early.push(message);
+      else this.handle(socket, message);
     });
     socket.on("close", () => {
       clearTimeout(helloTimer);
       this.clients.delete(socket);
+      this.greeting.delete(socket);
       this.checkIdle();
     });
     socket.on("error", () => socket.terminate());
+  }
+
+  /**
+   * Answers a hello. The counts of new commits are read from git first, so
+   * `ready` carries the commits that landed while no client was connected and
+   * a daemon that just started sends counts. Where the read takes longer than
+   * the wait, `ready` carries the counts the daemon holds and the read's
+   * result follows in an inbox. What the client sent meanwhile is handled
+   * after its `ready`.
+   */
+  private async greet(socket: WebSocket, early: ClientMessage[]): Promise<void> {
+    let waitTimer: NodeJS.Timeout | undefined;
+    const waited = new Promise<void>((resolve) => {
+      waitTimer = setTimeout(resolve, this.options.readyWaitMs ?? 500);
+    });
+    await Promise.race([this.readCommitsNow(), waited]);
+    clearTimeout(waitTimer);
+    // The client left, or the daemon closed, while the counts were read.
+    if (!this.greeting.delete(socket)) return;
+    this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
+    for (const message of early) this.handle(socket, message);
   }
 
   private handle(socket: WebSocket, message: ClientMessage): void {
@@ -382,9 +412,9 @@ export class Daemon {
   }
 
   /**
-   * Arranges the next read of the work items' new commits, at once where the
-   * last one is an interval old. The reads follow one another while a client
-   * is connected, and the next client to connect starts them again.
+   * Arranges the next read of the work items' new commits, an interval after
+   * the last one. The reads follow one another while a client is connected,
+   * and the hello of the next client to connect starts them again.
    */
   private scheduleCommitRead(): void {
     if (this.closed || this.commitTimer !== undefined || this.readingCommits) return;
@@ -394,13 +424,22 @@ export class Daemon {
       this.commitTimer = undefined;
       // Nobody reads the counts while no client is connected.
       if (this.clients.size === 0) return;
-      this.commitsReadAt = Date.now();
-      this.readingCommits = true;
-      void this.readCommits().finally(() => {
-        this.readingCommits = false;
-        this.scheduleCommitRead();
-      });
+      void this.readCommitsNow();
     }, wait);
+  }
+
+  /** Reads the counts now, or gives the read under way: one read runs at a time. The next one is an interval after this one. */
+  private readCommitsNow(): Promise<void> {
+    if (this.readingCommits) return this.readingCommits;
+    clearTimeout(this.commitTimer);
+    this.commitTimer = undefined;
+    this.commitsReadAt = Date.now();
+    const reading = this.readCommits().finally(() => {
+      this.readingCommits = undefined;
+      this.scheduleCommitRead();
+    });
+    this.readingCommits = reading;
+    return reading;
   }
 
   /** Reads each work item's new commits from git, and tells every client where a count changed. */
@@ -425,7 +464,7 @@ export class Daemon {
 
   private broadcast(message: ServerMessage): void {
     const text = JSON.stringify(message);
-    for (const client of this.clients.keys()) client.send(text);
+    for (const client of this.clients.keys()) if (!this.greeting.has(client)) client.send(text);
   }
 
   private sendOutput(id: number, data: string): void {

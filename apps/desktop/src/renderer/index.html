@@ -6,7 +6,7 @@
     <title>Owlery</title>
     <link rel="stylesheet" href="./renderer.css" />
     <style>
-      /* The look: the colours, the typefaces, the sizes and the spacing of both screens are these properties and nothing else. A typeface that is not installed gives way to the next one named. */
+      /* The look: the colours, the typefaces, the sizes and the spacing of the three screens are these properties and nothing else. A typeface that is not installed gives way to the next one named. */
       :root {
         --bg: #0f1218;
         --raised: #131720;
@@ -40,6 +40,7 @@
         --size-view-title: 24px;
         --size-preview-title: 28px;
         --size-sentence: 30px;
+        --size-summary: 60px;
         --size-terminal: 13px;
         --tracking-label: 0.06em;
         --tracking-title: -0.01em;
@@ -60,6 +61,8 @@
         --control-height: 44px;
         --field-height: 36px;
         --line-height: 68px;
+        --summary-line-height: 72px;
+        --change-width: 400px;
         --list-width: 620px;
         --nav-width: 272px;
         --facts-width: 328px;
@@ -93,19 +96,33 @@
       .state.no-agent { --state: var(--no-agent); }
       .state.failed { --state: var(--failed); }
       .state { color: var(--state, inherit); }
-      .dot { flex: none; width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--state); }
+      .dot { flex: none; box-sizing: border-box; width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--state); }
+      /* The dot of a line whose work item did not change since the person last looked: a ring. */
+      .dot.unchanged { border: 2px solid var(--text-muted); background: none; }
       /* The seal's place of a work item with no seal: a ring the style draws, with no image in it. */
       .seal.unsealed { flex: none; display: block; box-sizing: border-box; width: var(--seal-size); height: var(--seal-size); border-radius: 50%; border: 1.5px dashed var(--unsealed); }
       .seal.large { width: var(--seal-size-large); height: var(--seal-size-large); }
 
-      #inbox-screen { display: flex; flex-direction: column; }
       .bar { flex: none; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box; height: var(--bar-height); padding: 0 var(--space-8); border-bottom: 1px solid var(--rule); }
       .brand { display: flex; align-items: center; gap: var(--space-5); }
       .brand .emblem { width: 32px; height: 32px; }
       .brand .name { font-family: var(--font-display); font-size: var(--size-name); font-weight: 600; }
-      #inbox-body { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); }
+      #summary-screen { display: flex; flex-direction: column; gap: var(--space-9); box-sizing: border-box; overflow: auto; padding: var(--space-10) var(--space-11); }
+      #summary-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-10); }
+      #summary-sentence { font-family: var(--font-display); font-size: var(--size-summary); font-weight: 600; line-height: 64px; letter-spacing: var(--tracking-title); }
+      #summary-last-here { flex: none; margin-bottom: var(--space-2); font-size: var(--size-text); }
+      #summary-lines { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
+      #summary-lines button { display: grid; grid-template-columns: minmax(0, 1fr) var(--change-width) auto; column-gap: var(--space-7); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border: 0; border-bottom: 1px solid var(--rule); background: none; text-align: left; }
+      #summary-lines .text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+      #summary-lines .title { font-size: var(--size-line); font-weight: 600; }
+      #summary-lines .branch { font-size: var(--size-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #summary-lines .change { font-size: var(--size-control); line-height: 20px; }
+      #summary-foot { display: flex; align-items: center; gap: var(--space-6); }
+
+      #inbox-screen { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
       #inbox-list { display: flex; flex-direction: column; gap: var(--space-7); box-sizing: border-box; min-height: 0; overflow: auto; padding: var(--space-9) var(--space-6) var(--space-7) var(--space-8); border-right: 1px solid var(--rule); }
-      #inbox-summary { padding: 0 var(--space-4); font-family: var(--font-display); font-size: var(--size-sentence); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); }
+      #inbox-head { display: flex; flex-direction: column; gap: var(--space-4); padding: 0 var(--space-4); }
+      #inbox-summary { font-family: var(--font-display); font-size: var(--size-sentence); font-weight: 600; line-height: 36px; letter-spacing: var(--tracking-title); }
       #inbox { display: flex; flex-direction: column; gap: var(--space-1); }
       #inbox h2 { padding: 18px var(--space-4) var(--space-3); }
       #inbox h2:first-child { padding-top: var(--space-3); }
@@ -118,6 +135,8 @@
       .line .branch { font-size: inherit; }
       .line .commits:not(:empty)::before { content: " · "; }
       #inbox-empty { padding: 0 var(--space-4); color: var(--text-muted); }
+      #inbox-last-here { font-size: var(--size-text); }
+      #inbox-legend { margin-top: auto; padding: 0 var(--space-4); }
       #preview { box-sizing: border-box; min-width: 0; min-height: 0; overflow: auto; padding: var(--space-10) var(--space-11); background: var(--raised); }
       #preview-content { display: flex; flex-direction: column; gap: var(--space-9); min-height: 100%; }
       #preview-heading { display: flex; flex-direction: column; gap: var(--space-5); }
@@ -187,38 +206,53 @@
     </style>
   </head>
   <body>
-    <main id="inbox-screen" class="screen">
-      <header class="bar">
-        <span class="brand">
-          <img class="emblem" src="./owl-icon-cream.svg" alt="" />
-          <span class="name">Owlery</span>
-        </span>
-        <button id="new-work-item" class="primary">New work item</button>
-      </header>
-      <div id="inbox-body">
-        <section id="inbox-list" aria-label="Inbox">
-          <h1 id="inbox-summary" hidden></h1>
-          <div id="inbox"></div>
-          <p id="inbox-empty" hidden>No work items yet.</p>
-        </section>
-        <section id="preview" aria-label="The selected work item">
-          <div id="preview-content" hidden>
-            <div id="preview-heading">
-              <span id="preview-state" class="caption state"></span>
-              <h2 id="preview-title"></h2>
-              <span id="preview-branch" class="branch"></span>
-            </div>
-            <div id="preview-facts">
-              <span id="preview-seal"></span>
-              <span id="preview-commits" class="caption"></span>
-            </div>
-            <div id="preview-foot">
-              <button id="open-work-item" class="quiet">Open the work item <span aria-hidden="true">›</span></button>
-              <span class="hint">Enter opens it. J and K move through the inbox.</span>
-            </div>
-          </div>
-        </section>
+    <!-- The bar of the summary screen and of the inbox screen. A work item's view has none. -->
+    <header id="bar" class="bar">
+      <span class="brand">
+        <img class="emblem" src="./owl-icon-cream.svg" alt="" />
+        <span class="name">Owlery</span>
+      </span>
+      <button id="new-work-item" class="primary">New work item</button>
+    </header>
+    <!-- No screen is in front until the daemon's `ready` says which one opens. -->
+    <main id="summary-screen" class="screen" hidden>
+      <div id="summary-head">
+        <h1 id="summary-sentence"></h1>
+        <p id="summary-last-here" class="hint"></p>
       </div>
+      <ul id="summary-lines"></ul>
+      <div id="summary-foot">
+        <button id="open-inbox" class="primary">Open the inbox</button>
+        <span class="hint">Enter opens it.</span>
+      </div>
+    </main>
+    <main id="inbox-screen" class="screen" hidden>
+      <section id="inbox-list" aria-label="Inbox">
+        <div id="inbox-head" hidden>
+          <h1 id="inbox-summary" hidden></h1>
+          <p id="inbox-last-here" class="hint" hidden></p>
+        </div>
+        <div id="inbox"></div>
+        <p id="inbox-empty" hidden>No work items yet.</p>
+        <p id="inbox-legend" class="hint" hidden>A filled dot marks what changed since you were last here.</p>
+      </section>
+      <section id="preview" aria-label="The selected work item">
+        <div id="preview-content" hidden>
+          <div id="preview-heading">
+            <span id="preview-state" class="caption state"></span>
+            <h2 id="preview-title"></h2>
+            <span id="preview-branch" class="branch"></span>
+          </div>
+          <div id="preview-facts">
+            <span id="preview-seal"></span>
+            <span id="preview-commits" class="caption"></span>
+          </div>
+          <div id="preview-foot">
+            <button id="open-work-item" class="quiet">Open the work item <span aria-hidden="true">›</span></button>
+            <span class="hint">Enter opens it. J and K move through the inbox.</span>
+          </div>
+        </div>
+      </section>
     </main>
     <main id="work-item-view" class="screen" hidden>
       <nav id="view-nav" aria-label="Inbox">

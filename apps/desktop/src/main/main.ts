@@ -12,7 +12,7 @@ const runDir = join(app.getPath("userData"), "run");
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    // The size the two screens are drawn for, on the ground the page's style gives them (`--bg` of src/renderer/index.html).
+    // The size the screens are drawn for, on the ground the page's style gives them (`--bg` of src/renderer/index.html).
     width: 1440,
     height: 900,
     title: "Owlery",

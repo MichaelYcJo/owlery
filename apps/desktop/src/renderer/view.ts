@@ -1,7 +1,7 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
-import type { AgentState, HeadlessInfo, HeadlessState, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
 
 /** A tab's label: the pane's kind, as the daemon labels it, and its id. The work item's title is the view's header's to say. */
 export function tabLabel(session: SessionInfo, paneKinds: readonly PaneKindInfo[]): string {
@@ -84,6 +84,69 @@ export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly
   return [...STATES_BY_URGENCY, null]
     .map((state) => ({ state, heading: stateHeading(state), entries: entries.filter((entry) => entry.line.state === state) }))
     .filter((group) => group.entries.length > 0);
+}
+
+export interface Change {
+  workItem: WorkItem;
+  /** The work item's line as the lists now give it. */
+  line: InboxLine;
+  /** What changed, opening with the present state. */
+  sentence: string;
+}
+
+/** Each agent state as a change's sentence opens with it. */
+const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Waits for you.", working: "Is working.", finished: "Finished." };
+
+/**
+ * The work items that changed since the person last looked, in the order of
+ * the inbox's groups: one whose line differs in the state or in the count of
+ * new commits from its line in the look, and one the look does not hold. A
+ * count the daemon gave on one side alone says nothing of a change. Each side
+ * is read through `inboxLine` with its own sessions, and no session of one is
+ * matched to a session of the other: a session's id starts again with the
+ * daemon, and a work item's id does not.
+ */
+export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
+  const changes = workItems.flatMap((workItem): Change[] => {
+    const line = inboxLine(workItem, sessions, paneKinds);
+    const said = [line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
+    const before = look.workItems.find((item) => item.id === workItem.id);
+    if (!before) {
+      said.push("New since you were last here.");
+    } else {
+      const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
+      if (rise === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
+      if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
+    }
+    return [{ workItem, line, sentence: said.join(" ") }];
+  });
+  return inboxGroups(changes).flatMap((group) => group.entries);
+}
+
+/**
+ * The summary screen's sentence: the changed work items counted by their
+ * present state, as the inbox's sentence counts every work item, or how many
+ * changed where none of them has a state.
+ */
+export function summarySentence(changes: readonly { line: InboxLine }[]): string {
+  return inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+}
+
+/**
+ * When the person was last here, `at` and `now` being times in milliseconds:
+ * in minutes under an hour, in hours and minutes under a day, and in days
+ * from then on.
+ */
+export function lastHere(at: number, now: number): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  let ago: string;
+  if (minutes < 1) ago = "less than a minute";
+  else if (hours < 1) ago = `${minutes} min`;
+  else if (days < 1) ago = minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
+  else ago = `${days} ${days === 1 ? "day" : "days"}`;
+  return `You were last here ${ago} ago.`;
 }
 
 /**

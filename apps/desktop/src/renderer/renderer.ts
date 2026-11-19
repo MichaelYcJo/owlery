@@ -2,24 +2,28 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { OwleryApi } from "../shared/ipc";
-import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, PaneKindInfo, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, ClientMessage, HeadlessInfo, Look, PaneKind, PaneKindInfo, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import {
   agentKind,
   askButton,
+  changesSince,
   headlessLines,
   inboxGroups,
   inboxKey,
   inboxLine,
   inboxSummary,
+  lastHere,
   moveSelection,
   notificationFor,
   paneInFront,
   paneTabs,
   selectedLine,
   stateHeading,
+  summarySentence,
   tabLabel,
   withHeadless,
   workItemFields,
+  type Change,
   type InboxLine,
 } from "./view";
 
@@ -51,12 +55,16 @@ let sessions: SessionInfo[] = [];
 let workItems: WorkItem[] = [];
 // The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since.
 let headless: HeadlessInfo[] = [];
-// The work item whose view is on screen, or nothing while the inbox screen is. It is kept nowhere else, so a reload opens on the inbox.
+// The look the daemon held when this window said hello, or null where no person looked before. The window keeps none of its own.
+let lastLook: Look | null = null;
+// The work items that changed since that look, worked out once, at `ready`, and held until the next load.
+let changed: ReadonlySet<number> = new Set();
+// The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox.
 let viewing: number | undefined;
 // The work items in the order the inbox displays their lines, and the one whose line is selected: the preview shows it, and J, K and Enter act on it.
 let displayed: number[] = [];
 let selected: number | undefined;
-// The pane in front of the view on screen. No pane is in front on the inbox screen.
+// The pane in front of the view on screen. No pane is in front on the summary screen or on the inbox screen.
 let front: number | undefined;
 // The pane last in front in each work item's view since the window loaded.
 const lastInFront = new Map<number, number>();
@@ -69,8 +77,17 @@ let formRequest: number | undefined;
 let askRequest: number | undefined;
 let socket: WebSocket | undefined;
 
+const bar = document.getElementById("bar") as HTMLElement;
+const summaryScreen = document.getElementById("summary-screen") as HTMLElement;
+const summaryHeading = document.getElementById("summary-sentence") as HTMLElement;
+const summaryLastHere = document.getElementById("summary-last-here") as HTMLElement;
+const summaryLines = document.getElementById("summary-lines") as HTMLUListElement;
+const openInbox = document.getElementById("open-inbox") as HTMLButtonElement;
 const inboxScreen = document.getElementById("inbox-screen") as HTMLElement;
+const inboxHead = document.getElementById("inbox-head") as HTMLElement;
 const summary = document.getElementById("inbox-summary") as HTMLElement;
+const inboxLastHere = document.getElementById("inbox-last-here") as HTMLElement;
+const inboxLegend = document.getElementById("inbox-legend") as HTMLElement;
 const inbox = document.getElementById("inbox") as HTMLElement;
 const inboxEmpty = document.getElementById("inbox-empty") as HTMLElement;
 const previewContent = document.getElementById("preview-content") as HTMLElement;
@@ -215,12 +232,19 @@ function sealPlace(large = false): HTMLElement {
   return ring;
 }
 
-/** A state's dot, which says the state in its colour and, to a pointer and a screen reader, in the words of its heading. */
-function dot(state: AgentState | null): HTMLElement {
-  const element = part(`dot state ${stateClass(state)}`, "");
+/**
+ * A state's dot, which says the state in its colour and, to a pointer and a
+ * screen reader, in the words of its heading. On a line of the inbox, where a
+ * look is recorded, `changedSince` says whether the work item changed since:
+ * the dot is filled where it did and a ring where it did not, and its words
+ * say which.
+ */
+function dot(state: AgentState | null, changedSince?: boolean): HTMLElement {
+  const element = part(`dot state ${stateClass(state)}${changedSince === false ? " unchanged" : ""}`, "");
+  const words = changedSince === undefined ? stateHeading(state) : `${stateHeading(state)}, ${changedSince ? "changed" : "not changed"} since you were last here`;
   element.setAttribute("role", "img");
-  element.setAttribute("aria-label", stateHeading(state));
-  element.title = stateHeading(state);
+  element.setAttribute("aria-label", words);
+  element.title = words;
   return element;
 }
 
@@ -267,7 +291,7 @@ function lineElement(workItem: WorkItem, line: InboxLine): HTMLElement {
   const meta = part("meta", "");
   meta.append(part("branch", line.branch), part("commits", line.commits));
   text.append(part("title", line.title), meta);
-  button.append(dot(line.state), text, sealPlace());
+  button.append(dot(line.state, lastLook ? changed.has(workItem.id) : undefined), text, sealPlace());
   button.addEventListener("click", () => openView(workItem.id));
   // The keyboard's place on a line is the selection, so the preview shows the line a person tabbed to.
   button.addEventListener("focus", () => {
@@ -296,9 +320,9 @@ function navElement(workItem: WorkItem, line: InboxLine): HTMLElement {
 }
 
 /**
- * Draws what both screens say of every work item: the inbox's sentence, the
- * lines in their groups with the selected one marked, the preview, and the
- * list at the left of a view.
+ * Draws what the inbox screen and a view say of every work item: the inbox's
+ * sentence, when the person was last here, the lines in their groups with the
+ * selected one marked, the preview, and the list at the left of a view.
  */
 function showInbox(): void {
   const entries = workItems.map((workItem) => ({ workItem, line: inboxLine(workItem, sessions, paneKinds) }));
@@ -308,7 +332,12 @@ function showInbox(): void {
     element.textContent = sentence;
     element.hidden = sentence === "";
   }
+  inboxLastHere.textContent = lastLook ? lastHere(lastLook.at, Date.now()) : "";
+  inboxLastHere.hidden = !lastLook;
+  inboxHead.hidden = summary.hidden && inboxLastHere.hidden;
   inboxEmpty.hidden = entries.length > 0;
+  // The dots mark a change only where a look is recorded to measure it from.
+  inboxLegend.hidden = !lastLook || entries.length === 0;
   inbox.replaceChildren(
     ...groups.flatMap((group) => {
       const heading = document.createElement("h2");
@@ -404,15 +433,46 @@ function showView(): void {
   showAskSection();
 }
 
-/** Puts a work item's view in front: of the inbox screen, or of the view of another work item. */
+/** Shows one of the three screens and hides the other two. The bar is the summary screen's and the inbox screen's. */
+function bringToFront(screen: HTMLElement): void {
+  for (const each of [summaryScreen, inboxScreen, view]) each.hidden = each !== screen;
+  bar.hidden = screen === view;
+}
+
+/**
+ * Puts the summary screen in front: what changed since the person last
+ * looked, in one sentence and one line per changed work item. It is drawn
+ * once, from the changes worked out at `ready`, and holds no terminal.
+ */
+function showSummaryScreen(changes: readonly Change[], look: Look): void {
+  summaryHeading.textContent = summarySentence(changes);
+  summaryLastHere.textContent = lastHere(look.at, Date.now());
+  summaryLines.replaceChildren(
+    ...changes.map(({ workItem, line, sentence }) => {
+      const button = document.createElement("button");
+      button.dataset.workItem = String(workItem.id);
+      const text = part("text", "");
+      text.append(part("title", line.title), part("branch", line.branch));
+      button.append(text, part("change", sentence), sealPlace());
+      button.addEventListener("click", () => openView(workItem.id));
+      const item = document.createElement("li");
+      item.append(button);
+      return item;
+    }),
+  );
+  bringToFront(summaryScreen);
+  // The keyboard starts on the one step to the inbox.
+  openInbox.focus();
+}
+
+/** Puts a work item's view in front: of the summary screen, of the inbox screen, or of the view of another work item. */
 function openView(workItemId: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
   viewing = workItemId;
   front = undefined;
-  inboxScreen.hidden = true;
-  view.hidden = false;
+  bringToFront(view);
   // The list at the left marks the view on screen.
   showInbox();
   showView();
@@ -423,27 +483,37 @@ function showInboxScreen(): void {
   const left = viewing;
   viewing = undefined;
   front = undefined;
-  view.hidden = true;
-  inboxScreen.hidden = false;
+  bringToFront(inboxScreen);
   if (left === undefined) return;
   // The work item the person left is the selected one, and the keyboard stays on its line.
   select(selectedLine(displayed, left));
   lineButton(left)?.focus();
 }
 
-/** Acts on a key of the inbox screen: J and K move the selection, and Enter opens the selected work item's view. */
+/**
+ * Acts on a key of the inbox screen: J and K move the selection, and Enter
+ * opens the selected work item's view. On the summary screen Enter opens the
+ * inbox, read under the same conditions, and J and K do nothing.
+ */
 function onKey(event: KeyboardEvent): void {
   const target = event.target instanceof Element ? event.target : null;
+  const onSummary = !summaryScreen.hidden;
   const key = inboxKey(
     { code: event.code, modified: event.ctrlKey || event.metaKey || event.altKey || event.shiftKey },
     {
-      inboxInFront: !inboxScreen.hidden,
+      inboxInFront: onSummary || !inboxScreen.hidden,
       dialogOpen: workItemDialog.open,
       inField: target?.closest("input, textarea, select, [contenteditable]") != null,
       onControl: target?.closest("button, a") != null,
     },
   );
   if (key === null) return;
+  if (onSummary) {
+    if (key !== "open") return;
+    event.preventDefault();
+    showInboxScreen();
+    return;
+  }
   event.preventDefault();
   if (key === "open") {
     if (selected !== undefined) openView(selected);
@@ -520,15 +590,24 @@ function createWorkItem(): void {
 
 function onMessage(message: ServerMessage): void {
   switch (message.type) {
-    case "ready":
-      // The states as the window finds them, so no notification. Nothing is attached and nothing started: the app opens on the inbox.
+    case "ready": {
+      // The states as the window finds them, so no notification. Nothing is attached and nothing started.
       paneKinds = message.paneKinds;
       sessions = message.sessions;
       workItems = message.workItems;
       headless = message.headless;
+      // A daemon of an earlier build sends no look.
+      lastLook = message.lastLook ?? null;
+      // The counts of this `ready` were read from git at this window's hello, so the changes are worked out here, once.
+      const changes = lastLook ? changesSince(lastLook, workItems, sessions, paneKinds) : [];
+      changed = new Set(changes.map((change) => change.workItem.id));
       showPaneKinds();
       showInbox();
+      // The app opens on the summary where a work item changed since the person last looked, and on the inbox otherwise.
+      if (lastLook && changes.length > 0) showSummaryScreen(changes, lastLook);
+      else showInboxScreen();
       return;
+    }
     case "inbox":
       takeLists(message);
       return;
@@ -595,6 +674,11 @@ function onMessage(message: ServerMessage): void {
   }
 }
 
+/** Tells the daemon that the person looked at what the window shows, as the window stops being in front of them. The daemon keeps the look. */
+function looked(): void {
+  if (socket?.readyState === WebSocket.OPEN) send({ type: "looked" });
+}
+
 async function connect(): Promise<void> {
   const { url, token } = await window.owlery.daemon();
   const ws = new WebSocket(url);
@@ -605,7 +689,7 @@ async function connect(): Promise<void> {
   });
   ws.addEventListener("message", (event) => onMessage(JSON.parse(String(event.data)) as ServerMessage));
   ws.addEventListener("close", () => {
-    // The daemon went away: reload, which finds or starts it again and opens on the inbox.
+    // The daemon went away: reload, which finds or starts it again and opens as any load does.
     status.textContent = "Reconnecting to the daemon…";
     setTimeout(() => window.location.reload(), 1000);
   });
@@ -616,6 +700,12 @@ document.getElementById("view-seal-place")?.replaceWith(sealPlace(true));
 document.addEventListener("keydown", onKey);
 document.getElementById("open-work-item")?.addEventListener("click", () => {
   if (selected !== undefined) openView(selected);
+});
+openInbox.addEventListener("click", showInboxScreen);
+window.addEventListener("blur", looked);
+window.addEventListener("pagehide", looked);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) looked();
 });
 document.getElementById("new-work-item")?.addEventListener("click", openWorkItemForm);
 document.getElementById("back-to-inbox")?.addEventListener("click", showInboxScreen);

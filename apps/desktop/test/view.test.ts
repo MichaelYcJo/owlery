@@ -2,23 +2,26 @@ import { describe, expect, it } from "vitest";
 import {
   agentKind,
   askButton,
+  changesSince,
   headlessLines,
   inboxGroups,
   inboxKey,
   inboxLine,
   inboxSummary,
+  lastHere,
   moveSelection,
   notificationFor,
   paneInFront,
   paneTabs,
   selectedLine,
   stateHeading,
+  summarySentence,
   tabLabel,
   withHeadless,
   workItemFields,
   type InboxLine,
 } from "../src/renderer/view";
-import type { HeadlessInfo, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -238,6 +241,125 @@ describe("inboxKey", () => {
     expect(inboxKey(plain("Enter"), onControl)).toBeNull();
     expect(inboxKey(plain("KeyJ"), onControl)).toBe("next");
     expect(inboxKey(plain("KeyK"), onControl)).toBe("previous");
+  });
+});
+
+describe("changesSince", () => {
+  function look(workItems: WorkItem[], sessions: SessionInfo[] = []): Look {
+    return { at: 1000, sessions, workItems };
+  }
+
+  it("gives a work item whose state and count of new commits both moved, with its present line and what changed in one sentence", () => {
+    const before = look([{ ...LOGIN, newCommits: 1 }], [session(3, { state: "working" })]);
+    const now = { ...LOGIN, newCommits: 3 };
+    const changes = changesSince(before, [now], [session(3, { state: "waiting" })], KINDS);
+    expect(changes).toEqual([
+      { workItem: now, line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "3 new commits" }, sentence: "Waits for you. 2 new commits since you were last here." },
+    ]);
+    expect(summarySentence(changes)).toBe("1 waiting for you");
+  });
+
+  it("gives no change where the lists are as the look holds them", () => {
+    const workItems = [{ ...LOGIN, newCommits: 2 }, { ...SEARCH, newCommits: 0 }];
+    const sessions = [session(3, { state: "working" }), session(4, { kind: "shell", workItemId: 2 })];
+    expect(changesSince(look(workItems, sessions), workItems, sessions, KINDS)).toEqual([]);
+  });
+
+  it("says a work item the look does not hold is new, and names no rise for it", () => {
+    const changes = changesSince(look([{ ...LOGIN, newCommits: 0 }]), [{ ...LOGIN, newCommits: 0 }, { ...SEARCH, newCommits: 2 }], [session(5, { workItemId: 2, state: "finished" })], KINDS);
+    expect(changes.map((change) => [change.workItem.id, change.sentence])).toEqual([[2, "Finished. New since you were last here."]]);
+  });
+
+  it("opens the sentence with the present state, in the words of each state and of none", () => {
+    const before = look([LOGIN]);
+    const sentence = (state: SessionInfo["state"]) => changesSince(before, [LOGIN], [session(3, { state })], KINDS)[0]?.sentence;
+    expect(sentence("waiting")).toBe("Waits for you.");
+    expect(sentence("working")).toBe("Is working.");
+    expect(sentence("finished")).toBe("Finished.");
+    // The agent's pane went away since the look.
+    expect(changesSince(look([LOGIN], [session(3, { state: "working" })]), [LOGIN], [], KINDS)[0]?.sentence).toBe("No agent is running.");
+  });
+
+  it("says the rise of the new commits, of one and of several, where the state stayed", () => {
+    const before = look([{ ...LOGIN, newCommits: 2 }, { ...SEARCH, newCommits: 0 }]);
+    const changes = changesSince(before, [{ ...LOGIN, newCommits: 3 }, { ...SEARCH, newCommits: 4 }], [], KINDS);
+    expect(changes.map((change) => change.sentence)).toEqual(["No agent is running. 1 new commit since you were last here.", "No agent is running. 4 new commits since you were last here."]);
+  });
+
+  it("gives a work item whose count fell as changed, and names no rise", () => {
+    const changes = changesSince(look([{ ...LOGIN, newCommits: 3 }]), [{ ...LOGIN, newCommits: 1 }], [], KINDS);
+    expect(changes.map((change) => change.sentence)).toEqual(["No agent is running."]);
+  });
+
+  it("reads a count the daemon did not give, in the look or now, as no difference in the count", () => {
+    const sessions = [session(3, { state: "working" })];
+    expect(changesSince(look([{ ...LOGIN, newCommits: 3 }], sessions), [{ ...LOGIN, newCommits: null }], sessions, KINDS)).toEqual([]);
+    expect(changesSince(look([{ ...LOGIN, newCommits: null }], sessions), [{ ...LOGIN, newCommits: 3 }], sessions, KINDS)).toEqual([]);
+    // The state still counts, and no rise is named beside it.
+    const waits = changesSince(look([{ ...LOGIN, newCommits: null }], sessions), [{ ...LOGIN, newCommits: 3 }], [session(3, { state: "waiting" })], KINDS);
+    expect(waits.map((change) => change.sentence)).toEqual(["Waits for you."]);
+  });
+
+  it("matches no session of the look to a present session: the same id is another pane after the daemon started again", () => {
+    const before = look([LOGIN, SEARCH], [session(1, { workItemId: 1, state: "working" })]);
+    const changes = changesSince(before, [LOGIN, SEARCH], [session(1, { workItemId: 2, state: "waiting" })], KINDS);
+    expect(changes.map((change) => [change.workItem.id, change.sentence])).toEqual([
+      [2, "Waits for you."],
+      [1, "No agent is running."],
+    ]);
+  });
+
+  it("puts the changes in the order a person acts on them, the ones with no state last, and keeps the given order inside a state", () => {
+    const third: WorkItem = { ...LOGIN, id: 3, title: "Third" };
+    const fourth: WorkItem = { ...LOGIN, id: 4, title: "Fourth" };
+    const sessions = [session(5, { workItemId: 2, state: "finished" }), session(6, { workItemId: 3, state: "waiting" }), session(7, { workItemId: 4, state: "waiting" })];
+    const changes = changesSince(look([]), [LOGIN, SEARCH, third, fourth], sessions, KINDS);
+    expect(changes.map((change) => change.workItem.id)).toEqual([3, 4, 2, 1]);
+  });
+});
+
+describe("summarySentence", () => {
+  function change(state: InboxLine["state"]): { line: InboxLine } {
+    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" } };
+  }
+
+  it("counts the changed work items by their present state, in the inbox's order and words, and leaves out the ones with no state", () => {
+    expect(summarySentence([change("finished"), change("waiting"), change(null)])).toBe("1 waiting for you, 1 finished");
+    expect(summarySentence([change("working"), change("working")])).toBe("2 working");
+  });
+
+  it("says how many work items changed where none of them has a state", () => {
+    expect(summarySentence([change(null)])).toBe("1 work item changed");
+    expect(summarySentence([change(null), change(null)])).toBe("2 work items changed");
+  });
+});
+
+describe("lastHere", () => {
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+  const at = 1_000_000_000;
+
+  it("says how long ago the person was last here, in hours and minutes", () => {
+    expect(lastHere(at, at + 2 * HOUR + 40 * MINUTE)).toBe("You were last here 2 h 40 min ago.");
+    expect(lastHere(at, at + 2 * HOUR + 40 * MINUTE + 59_000)).toBe("You were last here 2 h 40 min ago.");
+  });
+
+  it("says minutes alone under an hour, and hours alone where no minute is over", () => {
+    expect(lastHere(at, at + 12 * MINUTE)).toBe("You were last here 12 min ago.");
+    expect(lastHere(at, at + 59 * MINUTE + 59_000)).toBe("You were last here 59 min ago.");
+    expect(lastHere(at, at + 3 * HOUR)).toBe("You were last here 3 h ago.");
+  });
+
+  it("says less than a minute under one, and for a look the clock puts after now", () => {
+    expect(lastHere(at, at + 59_000)).toBe("You were last here less than a minute ago.");
+    expect(lastHere(at, at)).toBe("You were last here less than a minute ago.");
+    expect(lastHere(at, at - 5 * MINUTE)).toBe("You were last here less than a minute ago.");
+  });
+
+  it("says days from a day on, one and several", () => {
+    expect(lastHere(at, at + 23 * HOUR + 59 * MINUTE)).toBe("You were last here 23 h 59 min ago.");
+    expect(lastHere(at, at + 24 * HOUR)).toBe("You were last here 1 day ago.");
+    expect(lastHere(at, at + 71 * HOUR)).toBe("You were last here 2 days ago.");
   });
 });
 
