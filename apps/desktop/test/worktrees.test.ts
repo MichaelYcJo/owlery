@@ -218,9 +218,14 @@ describe("what a branch holds since its base", () => {
     const one = commitAll(made.worktree, "add one");
     writeFileSync(join(made.worktree, "one.txt"), "a\nB\n");
     writeFileSync(join(made.worktree, "two.txt"), "two\n");
-    const two = commitAll(made.worktree, "change one: and add two");
+    // A subject that holds the character the daemon parts git's fields with.
+    const two = commitAll(made.worktree, "change one\x1fand add two");
+    // A moved file is one removed and one added, as the changed files count it.
+    git(made.worktree, "mv", "one.txt", "moved.txt");
+    const three = commitAll(made.worktree, "move one");
     expect(await branchCommits(made.repo, made.baseCommit, await made.head())).toEqual([
-      { ...two, subject: "change one: and add two", added: 2, removed: 2 },
+      { ...three, subject: "move one", added: 2, removed: 2 },
+      { ...two, subject: "change one\x1fand add two", added: 2, removed: 2 },
       { ...one, subject: "add one", added: 3, removed: 0 },
     ]);
   });

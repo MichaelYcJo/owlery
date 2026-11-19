@@ -114,7 +114,7 @@ export async function newCommits(repo: string, branch: string, baseCommit: strin
 /** The commit the branch points at, read in the repository, or null where the branch or the repository is gone. */
 export async function branchHead(repo: string, branch: string): Promise<string | null> {
   try {
-    return (await git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`])).trim() || null;
+    return (await git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])).trim();
   } catch {
     return null;
   }
@@ -137,8 +137,8 @@ function numstat(line: string): { added: number | null; removed: number | null; 
 export async function branchCommits(repo: string, baseCommit: string, head: string): Promise<CommitInfo[] | null> {
   let log: string;
   try {
-    // Each commit opens with a NUL, so a subject is told from the counts under it whatever it holds.
-    log = await git(repo, ["log", "--no-show-signature", "--no-renames", "--numstat", `--max-count=${COMMITS_LISTED}`, "--format=%x00%h%x1f%ct%x1f%s", `${baseCommit}..${head}`, "--"]);
+    // Each commit opens with a NUL, so a commit's first line is told from the counts under it, and from whatever git prints before a commit.
+    log = await git(repo, ["log", "--no-renames", "--numstat", `--max-count=${COMMITS_LISTED}`, "--format=%x00%h%x1f%ct%x1f%s", `${baseCommit}..${head}`, "--"]);
   } catch {
     return null;
   }

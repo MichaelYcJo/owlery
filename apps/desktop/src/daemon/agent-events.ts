@@ -18,7 +18,7 @@ export function agentEventFor(hookName: string): AgentEvent | undefined {
 }
 
 /** The field of a Claude Code hook's input that holds what a person reads of the event: a text, or the name of a tool. */
-const CLAUDE_CODE_SAID: Record<string, { text?: string; tool?: string }> = {
+const CLAUDE_CODE_SAID: Record<string, { text?: string; tool?: string } | undefined> = {
   PermissionRequest: { tool: "tool_name" },
   Notification: { text: "message" },
   Stop: { text: "last_assistant_message" },
@@ -31,7 +31,7 @@ const CLAUDE_CODE_SAID: Record<string, { text?: string; tool?: string }> = {
  * says neither.
  */
 export function agentSaid(hookName: string, payload: Record<string, unknown>): { text: string | null; tool: string | null } {
-  const fields = Object.hasOwn(CLAUDE_CODE_SAID, hookName) ? CLAUDE_CODE_SAID[hookName] : undefined;
+  const fields = CLAUDE_CODE_SAID[hookName];
   const read = (field: string | undefined): string | null => {
     const value = field === undefined ? undefined : payload[field];
     return typeof value === "string" && value.trim() !== "" ? value : null;
