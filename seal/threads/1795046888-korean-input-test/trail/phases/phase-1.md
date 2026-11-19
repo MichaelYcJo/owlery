@@ -4,13 +4,13 @@
 
 **The phase was built in two parts, around one fold of the frame.** The first part ended at `bdaf5b0` with the case committed and the phase open, on the finding of the next paragraph. The owner then chose a switch in the app, the framer folded it at `bca24bf`, and the second part built the switch and closed the phase at `99f668a`.
 
-**Without the switch, the app's window takes the system's focus at every start, and that breaks the case on a machine a person is working at.** Measured in the first part, at the trees of `c350028` to `0b04f2c`, with no `OWLERY_BACKGROUND`. Judged against `frame/plan.md` *Technical context*, "The failure scenario of the chosen approach", as it stood at `fa2d82a`.
+**Without the switch, the app's window takes the system's focus at every start, and that breaks the case on a machine a person is working at.** Measured in the first part, at the patches of `c350028` to `0b04f2c` on `c128acb`, with no `OWLERY_BACKGROUND`. Judged against `frame/plan.md` *Technical context*, "The failure scenario of the chosen approach", as it stood at `fa2d82a`.
 
-- `executed`, probe `test_tmp_front.test.ts`, run once at `166327e`'s tree and removed: `lsappinfo front`, polled every 40 ms, named `Electron` as the app in front 0.45 s after the probe began, the owner's app 1.0 s later, `Electron` again 3.1 s after the probe began and the owner's app 0.5 s after that. The result is `probe-front-result.json` in this phase's scratch.
+- `executed`, probe `test_tmp_front.test.ts`, run once at `166327e`'s patch on `c128acb` and removed: `lsappinfo front`, polled every 40 ms, named `Electron` as the app in front 0.45 s after the probe began, the owner's app 1.0 s later, `Electron` again 3.1 s after the probe began and the owner's app 0.5 s after that. The result is `probe-front-result.json` in this phase's scratch.
 - `executed`, probe `test_tmp_focus2.test.ts`, run once and removed: with "고" composing in a pane, a second app started. 0.3 s later the first pane's textarea received a `compositionend` with the data "고" and no `blur`, `document.hasFocus()` stayed true, and the receiver's file gained `eab3a0 eab3bc ec9dbc 0d`, "고" before "과일". A composition held 1.5 s with no second app stayed open. The result is `probe-focus-result.json`. A first writing of this probe, `test_tmp_focus.test.ts`, printed its result where the runner did not show it, so the probe ran twice.
 - `executed`: three runs of the unchanged case failed on bytes no step sent. One received `38` after a line, the digit 8. Two received `7f`, which a Backspace key sends. The owner was typing, and the keys went to the pane because the window had the keyboard. The outputs are `k2.txt`, `k3.txt` and `k4.txt`.
 
-**Under the switch the app stayed in the background in this phase's runs.** `executed`, at `99f668a`'s tree: the case "stays in the background" read `"ApplicationType"="UIElement"` from `lsappinfo info -only ApplicationType <pid>` and `document.hasFocus()` false before focus emulation, and every line arrived as typed in the one run of the *Phase boundary* set (`boundary1.txt`). The frame's probe 5 is the measurement that the app is at no reading the front app. This phase read the front app in no run under the switch.
+**Under the switch the app stayed in the background in this phase's runs.** `executed`, at `99f668a`'s patch on `c128acb`, a tree without #21's `app.dock?.setIcon`: the case "stays in the background" read `"ApplicationType"="UIElement"` from `lsappinfo info -only ApplicationType <pid>` and `document.hasFocus()` false before focus emulation, and every line arrived as typed in the one run of the *Phase boundary* set (`boundary1.txt`). The frame's probe 5 is the measurement that the app is at no reading the front app. This phase read the front app in no run under the switch.
 
 **Scenario 8's two readings were never seen failing.** `frame/plan.md` *Judgments of the run* withholds a start without the variable, and a mutation of `built-app.ts`'s line that sets it, or of `main.ts`'s policy or `showInactive()`, is such a start. Their red stands, as the frame says, on the measurement above and on scenario 9's case. `main.ts` has no case of its own: no case can import a module that imports Electron.
 
@@ -35,14 +35,14 @@
 
 **Enter before the last commit does not always double the syllable.** With Enter's keydown, the commit and Enter's keyup sent with no wait between them, "한글" arrived as typed (`red-enter.txt`). With the whole of Enter before the commit and a wait between, the file received `ed959c eab880 0d eab880` (`red-enter2.txt`). Both ran without the switch.
 
-**Seen red.** Each run is in this phase's scratch, at the tree of the commit named. The rows at `c350028` and `0b04f2c` ran without the switch, before the fold. The plan's row does not ask them again.
+**Seen red.** Each run is in this phase's scratch, at the named commit's patch on `c128acb`, as `frame/plan.md` *Judgments of the run* row 6 states. The rows at `c350028` and `0b04f2c` ran without the switch, before the fold. The plan's row does not ask them again.
 
 | Case | How it was shown red | What the failing line said |
 |---|---|---|
-| Scenario 1, the lines | `term.onData` of `work-item-view.ts#terminalFor` removed in the working tree, at `c350028`'s tree | `the line "한글": expected ed959ceab8800d, received nothing`, and the same for every line |
-| Scenario 1, the order | "한글" with Enter before the last commit, at `c350028`'s tree | `received ed959ceab8800deab880` |
-| Scenario 2 | the composing step replaced by a commit, at `c350028`'s tree | `expected { active: false, text: '하' } to deeply equal { active: true, text: '하' }` |
-| Scenario 3 | `pane.term.focus()` of `#showView` removed in the working tree, at `c350028`'s tree | `expected false to be true` |
+| Scenario 1, the lines | `term.onData` of `work-item-view.ts#terminalFor` removed in the working tree, at `c350028`'s patch on `c128acb` | `the line "한글": expected ed959ceab8800d, received nothing`, and the same for every line |
+| Scenario 1, the order | "한글" with Enter before the last commit, at `c350028`'s patch on `c128acb` | `received ed959ceab8800deab880` |
+| Scenario 2 | the composing step replaced by a commit, at `c350028`'s patch on `c128acb` | `expected { active: false, text: '하' } to deeply equal { active: true, text: '하' }` |
+| Scenario 3 | `pane.term.focus()` of `#showView` removed in the working tree, at `c350028`'s patch on `c128acb` | `expected false to be true` |
 | One shell pane | `seal mutate`: the kind's choice removed, at `c350028` | `expected [ 'Claude Code 1' ] to deeply equal [ 'Shell 1' ]` |
 | The pace | `seal mutate`: the wait replaced by `Promise.resolve()`, at `0b04f2c` | `the line "한글": … received 0d` |
 | Raw mode | `seal mutate`: `stty raw -echo` to `stty -echo`, at `0b04f2c` | every line red, `received ed959ceab8800a` for "한글" at `c350028` |
@@ -59,7 +59,7 @@ Scenario 10's first case was rewritten at `99f668a` to read the answer and one t
 
 **Scenario 4, listed once more under the switch.** The names in `/private/tmp/claude-501` and the absence of `~/.owlery` were the same before and after the run of the *Phase boundary* set (`before2.txt`, `after2.txt`), and `pgrep -fl 'owlery-app-|receiver.sh'` printed nothing after it.
 
-**The *Phase boundary* set** was `pnpm run test korean-input background.test`, run once at `99f668a`'s tree: 2 files, 23 cases, all passing. No other test file reads a path the phase changed, and the repository has no guide that names tree-wide test files.
+**The *Phase boundary* set** was `pnpm run test korean-input background.test`, run once at `99f668a`'s patch on `c128acb`: 2 files, 23 cases, all passing. No other test file reads a path the phase changed, and the repository has no guide that names tree-wide test files.
 
 **The runs used `TMPDIR=/private/tmp/claude-501`**, so the case's folders stood where the orchestrator asked. The case itself reads `os.tmpdir()`.
 
