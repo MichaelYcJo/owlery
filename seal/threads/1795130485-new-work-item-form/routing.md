@@ -2,7 +2,7 @@
 
 | Axis | Answer |
 |---|---|
-| Review | review chain |
+| Review | through the review chain |
 | Destination | open the pull request |
 | Planning | framer |
 | Implementation | crafter |
