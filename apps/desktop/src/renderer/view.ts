@@ -318,7 +318,7 @@ export function lastHere(at: number, now: number): string {
 
 /** A state in its heading's words and how long it has lasted, as in "Waiting for you, 12 min": the state alone where it has no time. */
 export function stateWithAge(state: AgentState | null, since: number | null | undefined, now: number): string {
-  const age = state === null ? "" : ageOf(since, now);
+  const age = ageOf(since, now);
   return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
 }
 
@@ -443,9 +443,9 @@ export function fileLines(workItem: WorkItem): { sum: string; lines: { path: str
 
 /** The facts of a view's right column, in their order: the agent, which is the label of the kind of the pane the state is read from, when the work item was started, its base and its worktree. */
 export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now: number): { label: string; value: string }[] {
-  const kind = entry.session && paneKinds.find((offered) => offered.kind === entry.session?.kind);
+  const kind = paneKinds.find((offered) => offered.kind === entry.session?.kind);
   return [
-    { label: "Agent", value: entry.session ? (kind ? kind.label : entry.session.kind) : "None" },
+    { label: "Agent", value: kind ? kind.label : "None" },
     { label: "Started", value: `${ageOf(entry.workItem.createdAt, now)} ago` },
     { label: "Base", value: ahead(entry.workItem).fact },
     { label: "Worktree", value: entry.workItem.worktree },
