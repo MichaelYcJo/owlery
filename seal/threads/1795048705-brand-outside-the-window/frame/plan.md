@@ -43,7 +43,7 @@ Both phases start from this branch as it stands, rebased onto `release/v0.0.1` a
 | 1 | `frame/design.md` *Scope* items 1 to 4, inside the limits of items 10 and 11 | Scenarios 2, 3, 5, 6 and 13 executed; scenarios 1 and 4 in one drive of the built app. No case: `frame/design.md` *Grounding*, the bullet on the main process | `7f85f41` |
 | 2 | *Scope* items 5 to 8, and the first three rows of `## Removes` | Scenario 7 read; scenario 8 executed once; scenarios 9, 10 and 11 executed | `b7ced11` |
 
-*Scope* item 9 is built by no phase: its operations stand in `frame/design.md` *Rule changes*, and scenario 12 is the reviewer's reading. Phase 2's commit that adds `changelog.md` carries no version move (*Operational impact*). `gaps.md` *Not done* names the simpler drawing, as *Scope* item 12 states, with the answer to `frame/questions.md` Q4: issue #78 draws it into the packaged app's icon file.
+*Scope* item 9 is built by no phase: its operations stand in `frame/design.md` *Rule changes*, and scenario 12 is the reviewer's reading. Phase 2's commit that adds `changelog.md` carries no version move (*Operational impact*). Phase 1 meets the second line of the issue's *Done when*, which asks that the simpler drawing be committed and its sizes named. Showing it is out of scope, as *Scope* item 12 states with the answer to `frame/questions.md` Q4: issue #78 draws it into the packaged app's icon file.
 
 ## Overlap with the release
 

@@ -1,6 +1,6 @@
 # Design: the brand outside the window
 
-The ticket is issue #21. Its body and comments were read with `gh issue view 21 --json body,comments` on 2026-11-19, after the owner's decision on the icon was folded into it: the body states that decision, and the issue has no comments.
+The ticket is issue #21. Its body and comments were read with `gh issue view 21 --json body,comments` on 2026-11-19, after the owner's decision on the icon and the answer to `frame/questions.md` Q4 were folded into it: the body states both, its *Done when* holds four lines, and the issue has no comments.
 
 ## Grounding
 
@@ -48,7 +48,7 @@ What the reading and the probes found:
 
 ## Scope
 
-The subject is the app's icon and the README pair. `docs/name.md` is changed through `## Rule changes`, as a work item whose subject is the code states its rules, and the settle of release 0.0.1 writes them (issue #25, *Done when*, its last line). So the third line of this issue's *Done when* holds once that settle has run, and until then `docs/name.md` keeps its open row on `release/v0.0.1`.
+The subject is the app's icon and the README pair. `docs/name.md` is changed through `## Rule changes`, as a work item whose subject is the code states its rules, and the settle of release 0.0.1 writes them (issue #25, *Done when*, its last line). So the fourth line of this issue's *Done when* holds once that settle has run, and until then `docs/name.md` keeps its open row on `release/v0.0.1`.
 
 1. **The emblem's two drawings enter the tree as the owner chose them.** `apps/desktop/assets/icon/app-icon.svg` and `apps/desktop/assets/icon/app-icon-small.svg` are the canvas's files of the same names, byte for byte, each with the SHA-256 *Grounding* names. The folder is new: `assets/seals/` holds the seal's drawings, and the icon is not a seal.
 2. **The Dock's image is the full drawing at 1024 pixels.** `apps/desktop/assets/icon/app-icon.png` is drawn from `app-icon.svg` by the command of *Data & interfaces*. The drawing holds its own margin, so the command adds none.
@@ -62,7 +62,7 @@ The subject is the app's icon and the README pair. `docs/name.md` is changed thr
 10. **The seal stays as #18 committed it.** This work changes no file under `apps/desktop/assets/seals/`, neither of their copy lines in `build.mjs`, and no file under `apps/desktop/src/renderer/`.
 11. **The emblem's colours are its own.** The icon and the READMEs' image carry the white `#f3efe6` and the black of the drawing, read from the SVG and from no token of the window's themes. The READMEs name no colour and show no picture of the window.
 12. Out of scope, each with its reason:
-    - Showing the simpler drawing anywhere. Under `electron .` the Dock takes one image and draws it at every size (*Grounding*, the bullet on the three representations), and Electron loads no `.icns` at run time. The simpler drawing shows where macOS picks among an icon's sizes, which is the icon file of a packaged app. So the first line of the issue's *Done when* holds for its first half, and its second half, "the simpler drawing at 32 pixels and under", is a row of `gaps.md` *Not done* unless the owner answers `frame/questions.md` Q4 otherwise.
+    - Showing the simpler drawing anywhere. Under `electron .` the Dock takes one image and draws it at every size (*Grounding*, the bullet on the three representations), and Electron loads no `.icns` at run time. The simpler drawing shows where macOS picks among an icon's sizes, which is the icon file of a packaged app. The issue's *Done when* asks for no more: its second line asks that the simpler drawing be committed beside the full one and that `TRADEMARKS.md` name its sizes, which *Scope* items 1 and 4 build. The owner answered `frame/questions.md` Q4 so: the packaging of the app, issue #78 in release 0.1.0, draws it into the icon file.
     - A packaged app: an `.icns` file, the app's name in the menu bar and under the Dock's tile, signing. The tree has no packager, and the roadmap's row on releases below 0.1.0 is open. Under `electron .` the Dock shows Electron's icon until the app is ready, and the system calls the app "Electron". The hand-back names it as a follow-up, and with it the simpler drawing, which the packaging work draws into the sizes of 32 pixels and under.
     - The seal's two drawings and where the window shows them. They are #18's, and the decision keeps them.
     - A window icon for Windows and Linux. The first version is macOS only, and a macOS window draws none.
@@ -86,7 +86,7 @@ The subject is the app's icon and the README pair. `docs/name.md` is changed thr
 | 10. The table names the build order once | `git grep -n -e 'the build order' -e '만드는 순서' -e 'open decision on the emblem' -e '엠블럼에 대해 남겨 둔 결정' -- README.md README.ko.md` prints nothing | Executed. At `68dc407` it prints lines 16 and 18 of each README, which *Scope* item 8 changes |
 | 11. The two editions keep one shape | The count of lines that open with `#` is the same for `README.md` and `README.ko.md`, and so is the count of table lines | Executed on the two files, with the two `grep -c` commands of *Grounding*. The `Broad gate` reads the same counts and is the orchestrator's |
 | 12. The name document's decisions are stated for the settle | `## Rule changes` holds an operation for each edition of `docs/name.md`, and each `from` is the text the edition holds | Read against the two files by the reviewer |
-| 13. The simpler drawing is in the tree and shown by nothing | `app-icon-small.svg` is committed with its SHA-256, `TRADEMARKS.md` says it is the drawing for 32 pixels and under, and no line of `apps/desktop/src` or `build.mjs` names it | Executed: `shasum -a 256`, and `git grep -n -e 'app-icon-small' -- apps/desktop/src apps/desktop/build.mjs` prints nothing, as it does at `68dc407`. `gaps.md` *Not done* holds the second half of the issue's first *Done when* line (`frame/questions.md` Q4) |
+| 13. The simpler drawing is in the tree and shown by nothing | `app-icon-small.svg` is committed with its SHA-256, `TRADEMARKS.md` says it is the drawing for 32 pixels and under, and no line of `apps/desktop/src` or `build.mjs` names it | Executed: `shasum -a 256`, and `git grep -n -e 'app-icon-small' -- apps/desktop/src apps/desktop/build.mjs` prints nothing, as it does at `68dc407`. This is the second line of the issue's *Done when*. Showing the drawing is issue #78's (`frame/questions.md` Q4) |
 
 ## Data & interfaces
 
