@@ -31,7 +31,7 @@ What Claude Code does at the trust question is in `frame/design.md` *Grounding*,
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 5 | Scenarios 2 to 6 as cases, each seen red before its code; scenario 1 against the built daemon with no window, driven once against the real `claude`, with the two checksums it names; scenario 8 needs the window and is named in the phase record as not run | |
+| 1 | `frame/design.md` *Scope* items 1 to 5 | Scenarios 2 to 6 as cases, each seen red before its code; scenario 1 against the built daemon with no window, driven once against the real `claude`, with the two checksums it names; scenario 8 needs the window and is named in the phase record as not run | `b05f3df` |
 
 ## Overlap with the release
 
