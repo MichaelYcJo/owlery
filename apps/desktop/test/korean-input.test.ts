@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BuiltApp, buildApp, untilGone } from "./built-app";
-import { compositionView, countCompositions, endedFromOutside, ENTER, type Line, openReceiverPane, readLines, Received, RECEIVER, replay } from "./korean-pane";
+import { compositionView, ENTER, type Line, openReceiverPane, readLines, Received, RECEIVER, Typing } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
 
 const lines = readLines();
@@ -61,13 +61,13 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
    * and it is typed again, three times at most. Nothing else types a line
    * twice.
    */
-  async function deliver(line: Line, type: () => Promise<void>): Promise<void> {
+  async function deliver(line: Line, type: (typing: Typing) => Promise<void>): Promise<void> {
     const expected = Buffer.from(`${line.text}\r`, "utf8");
     for (let attempt = 1; ; attempt += 1) {
-      await countCompositions(app);
-      await type();
+      const typing = await Typing.start(app);
+      await type(typing);
       const got = await received.next(expected.length);
-      const outside = await endedFromOutside(app, line.steps);
+      const outside = await typing.endedFromOutside();
       if (outside && attempt < 3) continue;
       const taken = outside ? ", and in each of three attempts a composition ended that no step ended: something keeps taking the system's focus from the window" : "";
       expect(got.toString("hex"), `the line "${line.text}": expected ${expected.toString("hex")}, received ${got.toString("hex") || "nothing"}${taken}`).toBe(expected.toString("hex"));
@@ -94,10 +94,10 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
   it("shows the syllable being composed until it is committed", async () => {
     let whileComposing: Awaited<ReturnType<typeof compositionView>> = null;
     let afterTheLine: Awaited<ReturnType<typeof compositionView>> = null;
-    await deliver(first, async () => {
-      await replay(app, upToSyllable);
+    await deliver(first, async (typing) => {
+      await typing.replay(upToSyllable);
       whileComposing = await compositionView(app);
-      await replay(app, afterSyllable);
+      await typing.replay(afterSyllable);
       afterTheLine = await compositionView(app);
     });
     expect(whileComposing).toEqual({ active: true, text: syllable });
@@ -105,31 +105,31 @@ describe("Korean typed into a terminal pane", { timeout: 30_000 }, () => {
   });
 
   it.each(lines)("hands the pane's process $text as typed", async (line) => {
-    await deliver(line, () => replay(app, [...line.steps, ...ENTER]));
+    await deliver(line, (typing) => typing.replay([...line.steps, ...ENTER]));
   });
 
   it("types a line again where a composition ended that no step ended", async () => {
     let attempts = 0;
-    await deliver(first, async () => {
+    await deliver(first, async (typing) => {
       attempts += 1;
-      await replay(app, upToSyllable);
+      await typing.replay(upToSyllable);
       // What another app taking the system's focus does to the pane: the composing syllable is committed where it stands, and the page sees no blur.
       if (attempts === 1) await app.cdp("Input.insertText", { text: syllable });
-      await replay(app, afterSyllable);
+      await typing.replay(afterSyllable);
     });
     expect(attempts).toBe(2);
   });
 
   it("does not take a composition the window's own code ended for one ended from outside", async () => {
-    await countCompositions(app);
-    await replay(app, upToSyllable);
+    const typing = await Typing.start(app);
+    await typing.replay(upToSyllable);
     // What the window's own code would do by moving the focus while a person types. A click gives the pane the keyboard back.
     await app.evaluate("document.activeElement.blur()");
     await app.click("#stage .pane:not([hidden])");
-    await replay(app, afterSyllable);
+    await typing.replay(afterSyllable);
     // The line's bytes are read so that no later reading holds them.
     await received.next(Buffer.byteLength(`${first.text}\r`));
-    expect(await endedFromOutside(app, first.steps)).toBe(false);
+    expect(await typing.endedFromOutside()).toBe(false);
   });
 
   it("stops the app, the daemon and the receiver, and removes its folders", async () => {

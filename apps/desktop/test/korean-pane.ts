@@ -58,65 +58,75 @@ function call(app: BuiltApp, step: Step): Promise<unknown> {
 }
 
 /**
- * Replays steps into whatever has the keyboard, one call each, in order.
- * It waits for one zero-delay timer of the page after every key released,
- * before every key pressed and after the last step, once where two of those
- * meet. A person's keys are never closer than that, and the terminal sends
- * composed text from such timers, so steps sent without the wait lose it.
+ * One line being typed into the pane in front. It replays steps, one call of
+ * the debugging port each, and knows whether the line reached the pane as
+ * its steps were written.
  */
-export async function replay(app: BuiltApp, steps: readonly Step[]): Promise<void> {
-  const turn = (): Promise<unknown> => app.evaluate("new Promise((resolve) => setTimeout(resolve, 0))");
-  let waited = true;
-  for (const step of steps) {
-    if ((step.type === "imeKey" || step.type === "key") && !waited) await turn();
-    await call(app, step);
-    waited = step.type === "keyUp";
-    if (waited) await turn();
-  }
-  if (!waited) await turn();
-}
+export class Typing {
+  /** Whether the steps replayed so far leave a composition open. */
+  private composing = false;
+  /** Whether a composition the steps left open was found ended at a step that continued or committed it. */
+  private ended = false;
 
-/**
- * Starts counting from zero, on the terminal's hidden textarea, the
- * compositions that end and the times the textarea loses the keyboard inside
- * the window. The listeners are added from here, once, and the app's code
- * holds none of them.
- */
-export async function countCompositions(app: BuiltApp): Promise<void> {
-  await app.evaluate(`(() => {
-    if (!window.__koreanInput) {
-      const area = document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea");
-      const counts = { ended: 0, blurred: 0 };
-      area.addEventListener("compositionend", () => { counts.ended += 1; }, true);
-      area.addEventListener("blur", () => { counts.blurred += 1; }, true);
-      window.__koreanInput = counts;
-    }
-    window.__koreanInput.ended = 0;
-    window.__koreanInput.blurred = 0;
-  })()`);
-}
+  private constructor(private readonly app: BuiltApp) {}
 
-/**
- * True where, since the count started, a composition ended that none of
- * `steps` ended, while the textarea kept the keyboard inside the window.
- * That is what another app taking the system's focus does: the composing
- * syllable is committed where it stands, the page sees no blur, and the
- * pane's process receives the syllable once more than was typed. A
- * composition that ended with a blur was ended by the window's own code,
- * and is not this.
- */
-export async function endedFromOutside(app: BuiltApp, steps: readonly Step[]): Promise<boolean> {
-  const seen = await app.evaluate<{ ended: number; blurred: number }>("window.__koreanInput");
-  let composing = false;
-  let ended = 0;
-  for (const step of steps) {
-    if (step.type === "compose") composing = true;
-    else if (step.type === "commit" && composing) {
-      ended += 1;
-      composing = false;
-    }
+  /**
+   * Starts a line. It notes, on the terminal's hidden textarea, whether a
+   * composition is open and how often the textarea loses the keyboard inside
+   * the window. The listeners are added from here, once, and the app's code
+   * holds none of them.
+   */
+  static async start(app: BuiltApp): Promise<Typing> {
+    await app.evaluate(`(() => {
+      if (!window.__koreanInput) {
+        const area = document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea");
+        const noted = { composing: false, blurred: 0 };
+        area.addEventListener("compositionstart", () => { noted.composing = true; }, true);
+        area.addEventListener("compositionend", () => { noted.composing = false; }, true);
+        area.addEventListener("blur", () => { noted.blurred += 1; }, true);
+        window.__koreanInput = noted;
+      }
+      window.__koreanInput.blurred = 0;
+    })()`);
+    return new Typing(app);
   }
-  return seen.blurred === 0 && seen.ended > ended;
+
+  /**
+   * Replays steps into whatever has the keyboard, in order. It waits for one
+   * zero-delay timer of the page after every key released, before every key
+   * pressed and after the last step, once where two of those meet. A person's
+   * keys are never closer than that, and the terminal sends composed text
+   * from such timers, so steps sent without the wait lose it.
+   */
+  async replay(steps: readonly Step[]): Promise<void> {
+    const turn = (): Promise<unknown> => this.app.evaluate("new Promise((resolve) => setTimeout(resolve, 0))");
+    let waited = true;
+    for (const step of steps) {
+      if ((step.type === "imeKey" || step.type === "key") && !waited) await turn();
+      if (step.type === "compose" || step.type === "commit") {
+        // A step that continues or commits a composition finds it open, unless something other than a step ended it.
+        if (this.composing && !(await this.app.evaluate<boolean>("window.__koreanInput.composing"))) this.ended = true;
+        this.composing = step.type === "compose";
+      }
+      await call(this.app, step);
+      waited = step.type === "keyUp";
+      if (waited) await turn();
+    }
+    if (!waited) await turn();
+  }
+
+  /**
+   * True where something outside the window ended a composition of this
+   * line: one was found ended that no step ended, and the textarea kept the
+   * keyboard inside the window all along. That is what another app taking
+   * the system's focus does. The composing syllable is committed where it
+   * stands, the page sees no blur, and the pane's process receives other
+   * bytes than were typed. A composition that ended with a blur was ended by
+   * the window's own code, and is not this.
+   */
+  async endedFromOutside(): Promise<boolean> {
+    return this.ended && (await this.app.evaluate<number>("window.__koreanInput.blurred")) === 0;
+  }
 }
 
 /**
