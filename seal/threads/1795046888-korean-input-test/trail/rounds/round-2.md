@@ -36,6 +36,11 @@ The fix pass of review round 1 built the two bullets of *Scope* item 14 that `f0
 
 The three edits are the frame's, the orchestrator's to fold. No code changes.
 
+```seal
+verdict: fixed 7901e42
+answer: The finding holds. The orchestrator folded the record's three sentences as written: `frame/design.md` *Scope* item 14 gives probe 5 its second and third bullets and the fix pass at `8fde593` the two new ones, `frame/plan.md` *Phases* row 1 delivers item 14 as `bca24bf` folded it, and the paragraph above the *Phases* table names the fix pass and scenarios 11 and 12. The row of *Not judged* on the two calls of `main.ts` is answered by a new row of *Judgments of the run*: they stand on this round's reading, with no start.
+```
+
 ## Confirmations
 
 ```seal
