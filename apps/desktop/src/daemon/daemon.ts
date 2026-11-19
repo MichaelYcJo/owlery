@@ -413,8 +413,9 @@ export class Daemon {
 
   /**
    * Arranges the next read of the work items' new commits, an interval after
-   * the last one. The reads follow one another while a client is connected,
-   * and the hello of the next client to connect starts them again.
+   * the last one where none is arranged yet. The reads follow one another
+   * while a client is connected, and the hello of the next client to connect
+   * starts them again.
    */
   private scheduleCommitRead(): void {
     if (this.closed || this.commitTimer !== undefined || this.readingCommits) return;
@@ -428,11 +429,9 @@ export class Daemon {
     }, wait);
   }
 
-  /** Reads the counts now, or gives the read under way: one read runs at a time. The next one is an interval after this one. */
+  /** Reads the counts now, or gives the read under way: one read runs at a time. */
   private readCommitsNow(): Promise<void> {
     if (this.readingCommits) return this.readingCommits;
-    clearTimeout(this.commitTimer);
-    this.commitTimer = undefined;
     this.commitsReadAt = Date.now();
     const reading = this.readCommits().finally(() => {
       this.readingCommits = undefined;

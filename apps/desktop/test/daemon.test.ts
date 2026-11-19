@@ -92,6 +92,17 @@ function watchedGit(base: string, seconds = 0): { calls: (command: string) => nu
   };
 }
 
+/** A run folder that lists one work item, made before the daemon that reads it, whose branch holds one new commit. */
+async function runFolderWithWorkItem(made: { repo: string; root: string; base: string }, title: string) {
+  const runDir = join(made.base, "run");
+  mkdirSync(runDir);
+  const place = await createWorktree({ folder: made.repo, title, root: made.root });
+  git(place.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
+  const workItem = { id: 1, title, createdAt: 1, ...place };
+  writeFileSync(join(runDir, "work-items.json"), JSON.stringify([workItem]));
+  return { runDir, workItem };
+}
+
 describe("the daemon's local server", () => {
   it("listens on the loopback address only", async () => {
     const { daemon: d } = await daemon();
@@ -664,19 +675,33 @@ describe("the inbox", () => {
   });
 
   it("sends `ready` with the counts it holds where the read takes longer than its wait, and the read's counts in an inbox after it", async () => {
-    const { repo, root, base } = repository();
-    const runDir = join(base, "run");
-    mkdirSync(runDir);
-    const made = await createWorktree({ folder: repo, title: "Slow to count", root });
-    commit(made.worktree, "one.txt");
-    writeFileSync(join(runDir, "work-items.json"), JSON.stringify([{ id: 1, title: "Slow to count", createdAt: 1, ...made }]));
-    watchedGit(base, 0.3);
-    const { url } = await daemon({ runDir, worktreesRoot: root, readyWaitMs: 50, commitPollMs: 60_000 });
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Slow to count");
+    watchedGit(made.base, 1);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 50, commitPollMs: 60_000 });
     const c = await client(url);
     // A daemon that just started holds no count.
     expect((await c.message("ready")).workItems[0]?.newCommits).toBeNull();
     expect((await c.message("inbox")).workItems[0]?.newCommits).toBe(1);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+  });
+
+  it("handles nothing of a client that left before its `ready`: a pane it asked for is not started", async () => {
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Left early");
+    // The read takes long enough for the client to ask and leave before it ends, and the wait is longer still.
+    const watched = watchedGit(made.base, 0.2);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000 });
+    const c = await client(url);
+    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.socket.close();
+    await c.until(() => c.closed());
+    watched.stop();
+    // The hello of the next client is answered after the read the first one started.
+    const ready = await (await client(url)).message("ready");
+    expect(ready.workItems[0]?.newCommits).toBe(1);
+    expect(ready.sessions).toEqual([]);
+    expect(c.messages).toEqual([]);
   });
 
   it("gives a work item from before the base commit was recorded no count, beside one that has it", async () => {
@@ -775,16 +800,11 @@ describe("the last look", () => {
   });
 
   it("handles what a client sends after its hello only once its `ready` is sent: a look sent at once is taken after the counts were read, and is not the look that `ready` carries", async () => {
-    const { repo, root, base } = repository();
-    const runDir = join(base, "run");
-    mkdirSync(runDir);
-    const made = await createWorktree({ folder: repo, title: "Looked at early", root });
-    git(made.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
-    const workItem = { id: 1, title: "Looked at early", createdAt: 1, ...made };
-    writeFileSync(join(runDir, "work-items.json"), JSON.stringify([workItem]));
+    const made = repository();
+    const { runDir, workItem } = await runFolderWithWorkItem(made, "Looked at early");
     // The read takes long enough for both messages to arrive before it ends, and the wait is longer still.
-    watchedGit(base, 0.2);
-    const { url } = await daemon({ runDir, worktreesRoot: root, readyWaitMs: 5000, now: () => 1234 });
+    watchedGit(made.base, 0.2);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000, now: () => 1234 });
     const c = await client(url);
     c.send({ type: "looked" });
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, workItemId: 999 });
