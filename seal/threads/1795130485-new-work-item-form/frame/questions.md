@@ -1,0 +1,24 @@
+# Questions for the planner: the new work item form (#85)
+
+Judgments the ticket left open that the tree, the owner's words or a probe answered. None is a question any more.
+
+- How a repository's default branch is read where the remote's `HEAD` is set, where it is not, and where the repository has no remote: `frame/design.md` *Grounding*, the bullet on the probe `test_tmp_default_branch.sh`, and *Scope* item 4.
+- Whether the default branch is asked of the remote over the network: `frame/plan.md` *Alternatives considered*, the row on `git ls-remote`.
+- What a generated name is: `frame/plan.md` *Alternatives considered*, the rows on `work-item`, on two random words and on the date and the time.
+- What a title written in Korean alone gives its branch: `frame/design.md` *Grounding*, the bullet on `slugFor`, and *Scope* item 2.
+- Whether the form shows the branch by itself or asks the daemon: `frame/plan.md` *Alternatives considered*, the first three rows.
+- Whether the branch gets a field a person edits: `frame/plan.md` *Alternatives considered*, the row on a branch field of its own.
+- Whether the two test drivers change: `frame/design.md` *Grounding*, the bullet on `memory.ts#openWorkItem` and `korean-pane.ts#openReceiverPane`, and *Scope* item 7.
+- What the form does against a daemon of an earlier build: `frame/plan.md` *Technical context*, the constraints, and *Operational impact*.
+- How the form's new parts are held by a case: `frame/plan.md` *Alternatives considered*, the last two rows.
+- What a creation does in a repository with no commit: `frame/design.md` *Grounding*, the probe's last bullet, and *Scope*, out of scope.
+
+Two assumptions are written down and not asked, because another answer changes a word on the form and nothing else that is built: the field's label reads "Name", and the menu's label reads "Starts from" (`frame/design.md` *Scope* items 7 and 9).
+
+One thing is verified by no scenario and is no row, because no answer to it changes what is built: how the form looks when drawn. `frame/design.md` names the orchestrator as the one who says who looks.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | Which branches can a work item start from: the repository's local branches alone, or the remote's branches as well, such as `origin/main`? No document says what a base is, so the tree cannot answer it, and no probe can say what the product should be. The reference dialog the owner pointed at shows `origin/main`. In Owlery at `47c4f61` a base is a local branch. | a person | (a) Local branches alone, as framed. The default is the local default branch, such as `main`. A work item starts where that branch stands on this machine, so it starts behind the remote where the person has not pulled, and a branch that exists on the remote alone cannot be chosen until the person checks it out. Nothing but this frame is built. (b) Local and remote branches both in the menu, with the remote's default branch, such as `origin/main`, as the default. A work item starts where the last fetch left the remote, which is behind where the person has not fetched, and behind the local branch where the person committed there and did not push. The work item's facts then read "origin/main · 6 ahead". It adds to this frame: `baseBranch` holds a remote's branch, `aheadOf` reads it, and the cut is made without an upstream. (c) As (b), and Owlery fetches from the remote before it cuts. A work item starts at the remote's newest commit. A creation then waits on the network, fails or falls back without one, and can ask for credentials in a daemon that has no terminal to ask in. | (a) | open |
+| Q2 | Which words do the two lists of `apps/desktop/src/shared/names.ts` hold, and how many? The tree holds no list of words, and `frame/design.md` *Scope* item 1 fixes only their letters and their length. | the work | Phase 1 chooses plain English words that read well as a branch and holds no word a person would not want in a branch's name. More words make two equal names in one repository rarer, and the loop that appends a number covers the rest. | Phase 1 decides and records the lists' sizes in its phase record | open |
+| Q3 | How long does the window wait after a key before it asks the daemon for a plan? It depends on how long a plan's reads of git take in a real repository, which is known once the daemon's side is built. | the work | Phase 2 reads how long a plan takes against a repository with many branches and chooses the wait, or no wait where the answer comes back faster than a person types. Either way the form shows only the answer to its latest request (`frame/design.md` *Scope* item 8). | Phase 2 decides and records the wait in its phase record | open |
