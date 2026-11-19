@@ -5,7 +5,7 @@ import type { WorkItem } from "../shared/protocol";
 const FILE = "work-items.json";
 
 /** A work item as the list keeps it: without what the daemon reads from git at each read, and without the name its repository's folder gives. */
-export type StoredWorkItem = Omit<WorkItem, "repoName" | "newCommits" | "commits" | "changes">;
+export type StoredWorkItem = Omit<WorkItem, "repoName" | "aheadOfBase" | "newCommits" | "commits" | "changes">;
 
 /** An entry of the file. One written before the base commit was recorded has no `baseCommit`, and one written before the base branch was has no `baseBranch`. */
 function isStored(value: unknown): value is Omit<StoredWorkItem, "baseCommit" | "baseBranch"> & { baseCommit?: string | null; baseBranch?: string | null } {

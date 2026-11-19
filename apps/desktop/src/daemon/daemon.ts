@@ -11,7 +11,7 @@ import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { LastLook } from "./last-look";
 import { type StoredWorkItem, WorkItemList } from "./work-items";
-import { branchChanges, branchCommits, branchHead, createWorktree, newCommits, worktreesRoot } from "./worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
 const STATE_TEXT_CHARS = 2000;
@@ -95,6 +95,8 @@ export class Daemon {
   private creating: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
+  // How many commits each work item's branch was last read to hold that its base branch does not, by the work item's id.
+  private readonly aheadCounts = new Map<number, number | null>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
   private commitTimer: NodeJS.Timeout | undefined;
@@ -240,6 +242,7 @@ export class Daemon {
             const stored = this.workItems.add({ title: message.title, ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.id, 0);
+            if (place.baseBranch !== null) this.aheadCounts.set(stored.id, 0);
             this.branches.set(stored.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
             const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
@@ -430,7 +433,7 @@ export class Daemon {
   /** A work item as a client is sent it: with its repository's name, and with what was last read of its branch. */
   private workItemOf(item: StoredWorkItem): WorkItem {
     const read = this.branches.get(item.id);
-    return { ...item, repoName: basename(item.repo), newCommits: this.commitCounts.get(item.id) ?? null, commits: read?.commits ?? null, changes: read?.changes ?? null };
+    return { ...item, repoName: basename(item.repo), aheadOfBase: this.aheadCounts.get(item.id) ?? null, newCommits: this.commitCounts.get(item.id) ?? null, commits: read?.commits ?? null, changes: read?.changes ?? null };
   }
 
   /** Sends every client the whole of both lists, after either changed. */
@@ -470,9 +473,10 @@ export class Daemon {
 
   /**
    * Reads each work item's new commits from git, and tells every client where
-   * a count changed or a branch's head moved. The commits and the changed
-   * files are read only where the head is another commit than the one they
-   * were last read at.
+   * a count changed or a branch's head moved. How far a branch is ahead of its
+   * base branch is counted at every read, since the base moves by itself. The
+   * commits and the changed files are read only where the head is another
+   * commit than the one they were last read at.
    */
   private async readCommits(): Promise<void> {
     let changed = false;
@@ -484,6 +488,11 @@ export class Daemon {
         const [count, head] = await Promise.all([newCommits(item.repo, item.branch, baseCommit), branchHead(item.repo, item.branch)]);
         if (count !== (this.commitCounts.get(item.id) ?? null)) {
           this.commitCounts.set(item.id, count);
+          changed = true;
+        }
+        const ahead = item.baseBranch === null || head === null ? null : await aheadOf(item.repo, item.baseBranch, head);
+        if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
+          this.aheadCounts.set(item.id, ahead);
           changed = true;
         }
         if (head === (this.branches.get(item.id)?.head ?? null)) return;

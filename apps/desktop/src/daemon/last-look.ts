@@ -50,6 +50,7 @@ function isWorkItem(value: unknown): value is WorkItem {
     typeof item.repoName === "string" &&
     isTextOrNull(item.baseCommit) &&
     isTextOrNull(item.baseBranch) &&
+    isNumberOrNull(item.aheadOfBase) &&
     isNumberOrNull(item.newCommits) &&
     (item.commits === null || (Array.isArray(item.commits) && item.commits.every(isCommit))) &&
     (item.changes === null || isChanges(item.changes))
@@ -66,7 +67,7 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
   return {
     at,
     sessions: sessions.map(({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool }) => ({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool })),
-    workItems: workItems.map(({ id, title, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, newCommits, commits, changes }) => ({
+    workItems: workItems.map(({ id, title, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes }) => ({
       id,
       title,
       repo,
@@ -76,6 +77,7 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
       createdAt,
       baseCommit,
       baseBranch,
+      aheadOfBase,
       newCommits,
       commits: commits && commits.map(({ hash, subject, at, added, removed }) => ({ hash, subject, at, added, removed })),
       changes: changes && { files: changes.files, added: changes.added, removed: changes.removed, list: changes.list.map(({ path, added, removed }) => ({ path, added, removed })) },

@@ -18,9 +18,9 @@ const TOKEN = "t".repeat(64);
 /** A session whose agent has said nothing yet, or whose kind reports no state. */
 const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null };
 /** What a branch just cut holds since its base. */
-const NOTHING_NEW = { newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
+const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "id", "newCommits", "repo", "repoName", "title", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "id", "newCommits", "repo", "repoName", "title", "worktree"];
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -356,7 +356,7 @@ describe("work items", () => {
     const { url } = await daemon({ runDir, worktreesRoot: root });
     const ready = await (await client(url)).message("ready");
     // The daemon that starts holds no count, and reads each before it answers its first hello.
-    expect(ready.workItems).toEqual([{ ...workItem, newCommits: 2, commits: [expect.objectContaining({ subject: "two" }), expect.objectContaining({ subject: "one" })] }]);
+    expect(ready.workItems).toEqual([{ ...workItem, aheadOfBase: 2, newCommits: 2, commits: [expect.objectContaining({ subject: "two" }), expect.objectContaining({ subject: "one" })] }]);
     expect(ready.workItems[0]).toMatchObject({ repoName: "project", baseBranch: "main" });
     // Sessions do not outlive the daemon.
     expect(ready.sessions).toEqual([]);
@@ -705,7 +705,7 @@ describe("the inbox", () => {
     commit(workItem.worktree, "one.txt");
     const one = newest("add one.txt");
     const inbox = await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
-    expect(inbox.workItems).toEqual([{ ...workItem, newCommits: 1, commits: [one], changes: { files: 1, added: 1, removed: 0, list: [{ path: "one.txt", added: 1, removed: 0 }] } }]);
+    expect(inbox.workItems).toEqual([{ ...workItem, aheadOfBase: 1, newCommits: 1, commits: [one], changes: { files: 1, added: 1, removed: 0, list: [{ path: "one.txt", added: 1, removed: 0 }] } }]);
     expect(inbox.sessions).toEqual([{ ...session, state: null }]);
     commit(workItem.worktree, "two.txt");
     const two = newest("add two.txt");
@@ -723,10 +723,10 @@ describe("the inbox", () => {
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Amended", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
     const watched = watchedGit(base);
-    /** Waits until the daemon has read the counts three more times. */
+    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the cut, and for the commits ahead of the base branch. */
     const threeReads = async (): Promise<void> => {
       const reads = watched.calls("rev-list");
-      await c.until(() => (watched.calls("rev-list") >= reads + 3 ? true : undefined));
+      await c.until(() => (watched.calls("rev-list") >= reads + 6 ? true : undefined));
     };
     // The branch was just cut, and its head is where the creation left it.
     await threeReads();
@@ -742,6 +742,46 @@ describe("the inbox", () => {
     expect([watched.calls("log"), watched.calls("diff")]).toEqual([2, 2]);
     // One for the creation, one for the commit and one for the amended one.
     expect(inboxes(c).map((m) => m.workItems[0]?.commits?.[0]?.subject)).toEqual([undefined, "add one.txt", "add one, said better"]);
+  });
+
+  it("tells every client how far a work item's branch is ahead of its base branch: not by the commits the base gained and the branch merged in, and by none once the base holds the branch", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    expect([workItem.baseBranch, workItem.aheadOfBase]).toEqual(["main", 0]);
+    const counts = (m: Inbox) => [m.workItems[0]?.aheadOfBase, m.workItems[0]?.newCommits];
+    commit(workItem.worktree, "own.txt");
+    await c.message("inbox", (m) => counts(m).join() === "1,1");
+    commit(repo, "on-main.txt");
+    git(workItem.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
+    // Three commits since the cut: the branch's own, the base's and the merge. The base holds its own.
+    await c.message("inbox", (m) => counts(m).join() === "2,3");
+    git(repo, "merge", "--quiet", "--ff-only", workItem.branch);
+    // The branch's head and its count stay, and the inbox is for the base that moved.
+    await c.message("inbox", (m) => counts(m).join() === "0,3");
+  });
+
+  it("gives a work item cut from no branch, and one whose base branch is gone, no count of commits ahead", async () => {
+    const { repo, root } = repository();
+    git(repo, "checkout", "--quiet", "--detach");
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "From a commit", kind: "shell", cols: 80, rows: 24 });
+    const detached = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    expect([detached.baseBranch, detached.aheadOfBase]).toEqual([null, null]);
+    git(repo, "checkout", "--quiet", "-b", "feature");
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "From a feature", kind: "shell", cols: 80, rows: 24 });
+    const cut = (await c.message("workItemCreated", (m) => m.requestId === 2)).workItem;
+    expect([cut.baseBranch, cut.aheadOfBase]).toEqual(["feature", 0]);
+    commit(detached.worktree, "one.txt");
+    git(repo, "checkout", "--quiet", "main");
+    git(repo, "branch", "--quiet", "-D", "feature");
+    const inbox = await c.message("inbox", (m) => m.workItems[1]?.aheadOfBase === null && m.workItems[0]?.newCommits === 1);
+    expect(inbox.workItems.map((w) => [w.baseBranch, w.aheadOfBase, w.newCommits])).toEqual([[null, null, 1], ["feature", null, 0]]);
   });
 
   it("lists the 20 newest of a work item's commits, beside the count of all of them", async () => {
@@ -766,7 +806,7 @@ describe("the inbox", () => {
     git(repo, "worktree", "remove", "--force", workItem.worktree);
     git(repo, "branch", "--quiet", "-D", workItem.branch);
     const gone = await c.message("inbox", (m) => m.workItems[0]?.newCommits === null);
-    expect(gone.workItems).toEqual([{ ...workItem, newCommits: null, commits: null, changes: null }]);
+    expect(gone.workItems).toEqual([{ ...workItem, aheadOfBase: null, newCommits: null, commits: null, changes: null }]);
   });
 
   it("sends no inbox while the counts stay as they were", async () => {
@@ -962,7 +1002,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoName: "project", newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoName: "project", aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { branchChanges, branchCommits, branchHead, createWorktree, newCommits, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
@@ -267,6 +267,61 @@ describe("what a branch holds since its base", () => {
         { path: "src/새 파일 one.txt", added: 2, removed: 0 },
       ],
     });
+  });
+
+  it("gives a merge commit the lines it brought onto the branch, which are its difference from its first parent", async () => {
+    const made = await cut("Merged into");
+    writeFileSync(join(made.worktree, "own.txt"), "own\n");
+    const own = commitAll(made.worktree, "add own");
+    writeFileSync(join(made.repo, "README.md"), "a repository\nof owls\nand more\n");
+    const onMain = commitAll(made.repo, "say more");
+    git(made.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
+    const merge = { hash: git(made.worktree, "rev-parse", "--short", "HEAD").trim(), at: Number(git(made.worktree, "log", "-1", "--format=%ct").trim()) * 1000 };
+    const commits = (await branchCommits(made.repo, made.baseCommit, await made.head()))!;
+    expect(commits[0]).toEqual({ ...merge, subject: "merge main", added: 2, removed: 0 });
+    // The base's own commit and the branch's stand under it, in whichever order their times give.
+    expect(commits.slice(1)).toEqual(expect.arrayContaining([{ ...onMain, subject: "say more", added: 2, removed: 0 }, { ...own, subject: "add own", added: 1, removed: 0 }]));
+    expect(commits).toHaveLength(3);
+  });
+
+  it("reads the commits and the changes of a branch whose list of files is longer than a megabyte of git's output", async () => {
+    const made = await cut("Wide");
+    // Three names of 250 letters: 1500 files under them are more than a megabyte of paths, twice over in a diff's two columns of counts.
+    const deep = join("a".repeat(250), "b".repeat(250), "c".repeat(250));
+    mkdirSync(join(made.worktree, deep), { recursive: true });
+    for (let n = 0; n < 1500; n++) writeFileSync(join(made.worktree, deep, `file-${n}.txt`), "one\n");
+    const wide = commitAll(made.worktree, "add many files");
+    const head = await made.head();
+    expect(await branchCommits(made.repo, made.baseCommit, head)).toEqual([{ ...wide, subject: "add many files", added: 1500, removed: 0 }]);
+    const changes = (await branchChanges(made.repo, made.baseCommit, head))!;
+    expect({ files: changes.files, added: changes.added, removed: changes.removed, listed: changes.list.length }).toEqual({ files: 1500, added: 1500, removed: 0, listed: 50 });
+  });
+
+  it("counts how many commits a head holds that its base branch does not: its own and a merge of the base, and not the commits the base gained", async () => {
+    const made = await cut("Ahead");
+    expect(await aheadOf(made.repo, "main", await made.head())).toBe(0);
+    writeFileSync(join(made.worktree, "own.txt"), "own\n");
+    commitAll(made.worktree, "add own");
+    expect(await aheadOf(made.repo, "main", await made.head())).toBe(1);
+    writeFileSync(join(made.repo, "README.md"), "a repository\nof owls\n");
+    commitAll(made.repo, "say more");
+    commitAll(made.repo, "and more");
+    expect(await aheadOf(made.repo, "main", await made.head())).toBe(1);
+    git(made.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
+    // Four commits since the cut, two of them the base's own.
+    expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(4);
+    expect(await aheadOf(made.repo, "main", await made.head())).toBe(2);
+    // The base takes the branch, and the branch is ahead by none.
+    git(made.repo, "merge", "--quiet", "--ff-only", made.branch);
+    expect(await aheadOf(made.repo, "main", await made.head())).toBe(0);
+    expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(4);
+  });
+
+  it("gives no count of commits ahead where the base branch is gone, or the repository is", async () => {
+    const made = await cut("Ahead of none");
+    const head = await made.head();
+    expect(await aheadOf(made.repo, "never-cut", head)).toBeNull();
+    expect(await aheadOf(join(made.base, "missing"), "main", head)).toBeNull();
   });
 
   it("lists 50 files of a branch that changed more, beside the count and the lines of all of them", async () => {

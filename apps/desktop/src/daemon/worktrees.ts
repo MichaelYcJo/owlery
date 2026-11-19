@@ -28,9 +28,17 @@ export function slugFor(title: string): string {
   return slug || "work-item";
 }
 
-function git(cwd: string, args: string[]): Promise<string> {
+/**
+ * How much of git's output a read of a branch's log or diff holds. `--numstat`
+ * prints a line for every file, and the lists are cut to their length only
+ * after the read, so the limit Node gives a child's output, a megabyte, ends
+ * the read of a branch that changed some thousands of files.
+ */
+const BRANCH_OUTPUT_BYTES = 256 * 1024 * 1024;
+
+function git(cwd: string, args: string[], maxBuffer = 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, encoding: "utf8" }, (error, stdout, stderr) => {
+    execFile("git", args, { cwd, encoding: "utf8", maxBuffer }, (error, stdout, stderr) => {
       if (error) reject(new Error(stderr.trim() || error.message));
       else resolve(stdout);
     });
@@ -99,12 +107,29 @@ export async function createWorktree(options: { folder: string; title: string; r
 
 /**
  * How many commits the branch holds after `baseCommit`, read in the
- * repository. Null where git gives no count: the repository, the branch or the
+ * repository: every commit since the branch was cut, the base's own among
+ * them once the base was merged in. Null where git gives no count: the repository, the branch or the
  * commit is gone.
  */
 export async function newCommits(repo: string, branch: string, baseCommit: string): Promise<number | null> {
   try {
     const count = Number.parseInt(await git(repo, ["rev-list", "--count", `${baseCommit}..refs/heads/${branch}`, "--"]), 10);
+    return Number.isInteger(count) ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How many commits `head` holds that the branch `baseBranch` does not: how far
+ * a work item's branch is ahead of its base. A commit the base gained and the
+ * work item's branch merged in is not counted, and the count is none once the
+ * base holds `head`. Null where git gives no count: the base branch, the
+ * commit or the repository is gone.
+ */
+export async function aheadOf(repo: string, baseBranch: string, head: string): Promise<number | null> {
+  try {
+    const count = Number.parseInt(await git(repo, ["rev-list", "--count", `refs/heads/${baseBranch}..${head}`, "--"]), 10);
     return Number.isInteger(count) ? count : null;
   } catch {
     return null;
@@ -131,14 +156,16 @@ function numstat(line: string): { added: number | null; removed: number | null; 
 /**
  * The commits `head` holds after `baseCommit`, newest first, 20 at most. A
  * commit's lines are summed over the files git counts lines of, with a moved
- * file counted as one removed and one added, as `branchChanges` counts it.
+ * file counted as one removed and one added, as `branchChanges` counts it,
+ * and a merge's lines are its difference from its first parent.
  * Null where git gives no log: the repository or a commit is gone.
  */
 export async function branchCommits(repo: string, baseCommit: string, head: string): Promise<CommitInfo[] | null> {
   let log: string;
   try {
     // Each commit opens with a NUL, so a commit's first line is told from the counts under it, and from whatever git prints before a commit.
-    log = await git(repo, ["log", "--no-renames", "--numstat", `--max-count=${COMMITS_LISTED}`, "--format=%x00%h%x1f%ct%x1f%s", `${baseCommit}..${head}`, "--"]);
+    // A merge is compared with its first parent, the branch before it: git's log prints no counts for a merge otherwise. The option is git 2.31's.
+    log = await git(repo, ["log", "--no-renames", "--numstat", "--diff-merges=first-parent", `--max-count=${COMMITS_LISTED}`, "--format=%x00%h%x1f%ct%x1f%s", `${baseCommit}..${head}`, "--"], BRANCH_OUTPUT_BYTES);
   } catch {
     return null;
   }
@@ -171,7 +198,7 @@ export async function branchChanges(repo: string, baseCommit: string, head: stri
   let diff: string;
   try {
     // NUL ends each file, so a path is as it is on disk, with no quoting.
-    diff = await git(repo, ["diff", "--no-renames", "--numstat", "-z", baseCommit, head, "--"]);
+    diff = await git(repo, ["diff", "--no-renames", "--numstat", "-z", baseCommit, head, "--"], BRANCH_OUTPUT_BYTES);
   } catch {
     return null;
   }

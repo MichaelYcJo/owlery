@@ -377,12 +377,14 @@ export function lineBadge(workItem: WorkItem, look: Look | null): string {
 /**
  * How far a work item's branch is ahead of its base: as the preview's
  * sentence, "6 commits ahead of main", and as the base's fact in a view,
- * "main · 6 ahead". The base branch is left out where none is recorded, and
- * the count where the daemon read none.
+ * "main · 6 ahead". The count is of the commits the base branch does not
+ * hold. Where no base branch is recorded it is left out, and the count is of
+ * the commits since the branch was cut. The count is left out where the
+ * daemon read none.
  */
 export function ahead(workItem: WorkItem): { sentence: string; fact: string } {
-  const count = workItem.newCommits ?? null;
   const base = workItem.baseBranch ?? null;
+  const count = (base === null ? workItem.newCommits : workItem.aheadOfBase) ?? null;
   const sentence = count === null ? "" : `${count} ${count === 1 ? "commit" : "commits"} ahead${base === null ? "" : ` of ${base}`}`;
   const fact = [base, count === null ? null : `${count} ahead`].filter((part) => part !== null).join(" · ");
   return { sentence, fact: fact || "Not recorded" };

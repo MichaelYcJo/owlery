@@ -60,6 +60,7 @@ const LOGIN: WorkItem = {
   createdAt: 1234,
   baseCommit: null,
   baseBranch: null,
+  aheadOfBase: null,
   newCommits: null,
   commits: null,
   changes: null,
@@ -948,17 +949,28 @@ describe("gainedSince and lineBadge", () => {
 
 describe("ahead", () => {
   it("says how many commits the branch is ahead of its base, as a sentence and as the base's fact", () => {
-    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main", fact: "main · 6 ahead" });
-    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: 1 })).toEqual({ sentence: "1 commit ahead of main", fact: "main · 1 ahead" });
-    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: 0 })).toEqual({ sentence: "0 commits ahead of main", fact: "main · 0 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 6, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main", fact: "main · 6 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 1, newCommits: 1 })).toEqual({ sentence: "1 commit ahead of main", fact: "main · 1 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 0, newCommits: 0 })).toEqual({ sentence: "0 commits ahead of main", fact: "main · 0 ahead" });
   });
 
-  it("says the count alone where no base branch is recorded", () => {
+  it("counts the commits the base branch does not hold, and not the commits since the cut, which hold the base's own once the base was merged in", () => {
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 2, newCommits: 9 })).toEqual({ sentence: "2 commits ahead of main", fact: "main · 2 ahead" });
+    // The base took the branch: ahead by none, though the branch holds as many commits since its cut as before.
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 0, newCommits: 9 })).toEqual({ sentence: "0 commits ahead of main", fact: "main · 0 ahead" });
+  });
+
+  it("says the count of the commits since the cut, alone, where no base branch is recorded", () => {
     expect(ahead({ ...LOGIN, baseBranch: null, newCommits: 3 })).toEqual({ sentence: "3 commits ahead", fact: "3 ahead" });
   });
 
   it("says no count where the daemon read none: the base branch alone as the fact, and that nothing is recorded where there is neither", () => {
-    expect(ahead({ ...LOGIN, baseBranch: "main", newCommits: null })).toEqual({ sentence: "", fact: "main" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: null, newCommits: null })).toEqual({ sentence: "", fact: "main" });
+    // A base branch that is gone leaves no count ahead of it, though the commits since the cut are counted.
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: null, newCommits: 3 })).toEqual({ sentence: "", fact: "main" });
+    // A daemon of an earlier build sends no such field.
+    const { aheadOfBase: _none, ...earlier } = { ...LOGIN, baseBranch: "main", newCommits: 3 };
+    expect(ahead(earlier as WorkItem)).toEqual({ sentence: "", fact: "main" });
     expect(ahead(LOGIN)).toEqual({ sentence: "", fact: "Not recorded" });
   });
 });
@@ -1044,7 +1056,7 @@ describe("fileLines", () => {
 });
 
 describe("viewFacts", () => {
-  const item = { ...LOGIN, createdAt: NOW - 2 * HOUR, baseBranch: "main", newCommits: 6 };
+  const item = { ...LOGIN, createdAt: NOW - 2 * HOUR, baseBranch: "main", aheadOfBase: 6, newCommits: 8 };
 
   it("gives the agent, when the work item was started, its base and its worktree, in that order", () => {
     const entries = workItemEntries([item], [session(3, { state: "working" })], KINDS);

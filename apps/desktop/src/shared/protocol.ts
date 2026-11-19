@@ -33,7 +33,7 @@ export interface CommitInfo {
   subject: string;
   /** When the commit was made, as the committer's clock had it. */
   at: number;
-  /** The lines the commit added and removed, over the files git counts lines of; both null where it changed files and git counts lines of none of them, as for binary files. */
+  /** The lines the commit added and removed, over the files git counts lines of; both null where it changed files and git counts lines of none of them, as for binary files. A merge's lines are those it brought onto the branch: its difference from its first parent. */
   added: number | null;
   removed: number | null;
 }
@@ -73,7 +73,9 @@ export interface WorkItem {
   baseCommit: string | null;
   /** The branch the repository's HEAD was on when the branch was cut, or null where it was on none and for a work item made before this was recorded. */
   baseBranch: string | null;
-  /** How many commits the branch holds after `baseCommit`, or null where the daemon has read none. */
+  /** How many commits the branch holds that `baseBranch` does not hold, or null where no base branch is recorded, that branch is gone, or the daemon has read none. A base merged into the branch adds none of its own, and a branch its base took is ahead by none. */
+  aheadOfBase: number | null;
+  /** How many commits the branch holds after `baseCommit`, the base's own among them once the base was merged in, or null where the daemon has read none. */
   newCommits: number | null;
   /** The commits the branch holds after `baseCommit`, newest first, 20 at most, or null where the daemon has read none. */
   commits: CommitInfo[] | null;
