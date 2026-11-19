@@ -47,6 +47,38 @@ export async function untilGone(pids: readonly number[], ms: number): Promise<nu
   return pids.filter(alive);
 }
 
+/** True while the process runs. One that ended and that its parent has not read yet is listed by the system and does not run. */
+function running(pid: number): boolean {
+  try {
+    return !execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim().startsWith("Z");
+  } catch {
+    // `ps` exits 1 where no process has the id.
+    return false;
+  }
+}
+
+/**
+ * Asks the processes to end and waits `ms` at most, without giving the event
+ * loop a turn, so a handler of a signal can call it before the process exits.
+ * It kills the ones still running then, and answers with them.
+ */
+export function endNow(pids: readonly number[], ms: number): number[] {
+  const signal = (pid: number, name: NodeJS.Signals): void => {
+    try {
+      process.kill(pid, name);
+    } catch {
+      // It ended before the signal.
+    }
+  };
+  for (const pid of pids) signal(pid, "SIGTERM");
+  const deadline = Date.now() + ms;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  while (pids.some(running) && Date.now() < deadline) Atomics.wait(pause, 0, 0, 50);
+  const left = pids.filter(running);
+  for (const pid of left) signal(pid, "SIGKILL");
+  return left;
+}
+
 interface Pending {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
@@ -178,6 +210,19 @@ export class BuiltApp {
   stop(): Promise<number[]> {
     this.stopped ??= this.end();
     return this.stopped;
+  }
+
+  /**
+   * Stops the app and the daemon and removes the user data folder before it
+   * returns, for a run that a signal ends: `stop` needs turns of the event
+   * loop that such a run does not get.
+   */
+  stopNow(): void {
+    endNow(
+      [this.child.pid, this.daemonPid()].filter((pid): pid is number => pid !== undefined),
+      10_000,
+    );
+    rmSync(this.userData, { recursive: true, force: true });
   }
 
   private async end(): Promise<number[]> {
