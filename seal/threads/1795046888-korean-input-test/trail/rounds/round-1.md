@@ -60,6 +60,12 @@ describe("quitsWithLastWindow", () => {
 
 The snippet does not reach these statements, and the fix pass owes them too: `frame/design.md:110`, which says `background.ts` holds one function; a bullet of *Scope* item 14 (`frame/design.md:109-115`) that says what the app does when its last window closes in the background; the row of `background.ts` in *Data & interfaces* (`frame/design.md:152`); scenario 9's row or a new row (`frame/design.md:143`); the cost at `frame/plan.md:26`; and the third bullet of `changelog.md` (`changelog.md:7`). The frame's files are the framer's or the orchestrator's to fold. The first case is seen red with the `|| background` taken out.
 
+```seal
+verdict: fixed 8fde593
+location: `apps/desktop/src/main/main.ts`, `apps/desktop/src/main/background.ts`, `apps/desktop/test/background.test.ts`, `seal/threads/1795046888-korean-input-test/changelog.md`
+answer: The finding holds, and the paste-ready fix was applied as written after reading it against `frame/design.md` *Scope* items 12 and 14 and the handler's one caller. `background.ts` gains `quitsWithLastWindow`, the `window-all-closed` handler of `main.ts` calls it, and `background.test.ts` holds the two cases. The fix also went to `changelog.md`, whose third bullet now says an app started that way quits with its last window. `seal mutate` with `|| background` taken out: red on the first case, `expected false to be true`. With the whole condition replaced by `background`: red on the second case. The handler's line in `main.ts` has no case, and `gaps.md` *Not verified* names it. The fix pass writes no frame file, so the sentences of `frame/design.md:110`, `:109-115`, `:143`, `:152`, `:153` and `frame/plan.md:26` went to the orchestrator in the hand-back with their replacement text.
+```
+
 ### 2. The switch passes from the app to its daemon and to every pane's process
 
 ```seal
@@ -101,6 +107,12 @@ describe("takeBackground", () => {
 
 The snippet does not reach these statements, and the fix pass owes them too: `frame/design.md:110`, which says `background.ts` holds one function; a bullet of *Scope* item 14 that says the app hands the variable to no process it starts; the row of `background.ts` in *Data & interfaces* (`frame/design.md:152`); `frame/plan.md:74`, *Operational impact*; and `changelog.md:7`. The case is seen red with the `delete` line taken out.
 
+```seal
+verdict: fixed 8fde593
+location: `apps/desktop/src/main/main.ts`, `apps/desktop/src/main/background.ts`, `apps/desktop/test/background.test.ts`, `seal/threads/1795046888-korean-input-test/changelog.md`
+answer: The finding holds: `git grep -n OWLERY_BACKGROUND -- apps/desktop/src apps/desktop/scripts` at `cb3344d` printed `background.ts` alone, so nothing reads the variable after `main.ts` loads. The paste-ready fix was applied, with one case added in the fix pass's own words: `takeBackground` takes the variable out whatever its value, and the second case pins that for the value `0`. `main.ts` reads the switch through `takeBackground(process.env)`. The fix also went to `changelog.md`, whose third bullet now says the daemon and the programs in the panes run without the variable. `seal mutate` with the `delete` line taken out: red on both cases, `expected { OWLERY_BACKGROUND: '1', … } to deeply equal { HOME: '/Users/x' }`. With the delete made conditional on the answer: red on the second case. With `return false`: red on the first. The call in `main.ts` has no case, and `gaps.md` *Not verified* names it. No start read the environment of a daemon or a pane. The sentences of `frame/design.md:110`, `:109-115`, `:152`, `:153` and `frame/plan.md:74` went to the orchestrator in the hand-back with their replacement text.
+```
+
 ### 3. A case of the typed run's versions fails at the next `@xterm/xterm` upgrade, with no defect
 
 ```seal
@@ -118,6 +130,11 @@ it("reads the versions a typed run is recorded with", () => {
   const pinned = (JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { dependencies: Record<string, string> }).dependencies["@xterm/xterm"];
   expect(versions(new Date(2026, 10, 20))).toEqual({ date: "2026-11-20", macos: expect.stringMatching(/^\d+\.\d+/), electron: process.versions.electron, xterm: pinned });
 });
+```
+
+```seal
+verdict: fixed 236f00e
+answer: The finding holds, and the paste-ready fix was applied with a comment that names its precondition, an exact pin in `apps/desktop/package.json`. The case was shown able to fail by `seal mutate` on `apps/desktop/test/korean-pane.ts`, `xterm: xterm.version` replaced by `xterm: "0.0.0"`: red on "reads the versions a typed run is recorded with". The literal `xterm: "6.0.0"` at `apps/desktop/test/korean-input.test.ts:255` stays: it is a value the case of `fixtureAfter` hands in and reads back, and no installed version is compared with it.
 ```
 
 ### 4. The remap says scenario 8's runs were at trees they were not, and that no case asserts on #21's Dock icon lines
@@ -147,6 +164,11 @@ at the named commit's patch on `c128acb`, as `frame/plan.md` *Judgments of the r
 trail/phases/phase-1.md:7, :9, :42, :43, :44, :45, :62 and gaps.md:15, replace each "at `<commit>`'s tree" or "at the trees of" with the same "patch on `c128acb`" wording
 ```
 
+```seal
+verdict: fixed d4514d7
+answer: The finding holds: `git diff 1b5ef35 99f668a` and `git diff 2f693fd c350028` give the patch id of `git diff c128acb 7159499`, and `1b5ef35`'s `main.ts` holds no `setIcon`. `d4514d7` rewords `trail/phases/phase-1.md:7`, `:9`, `:13`, `:38`, `:42` to `:45` and `:62` and `gaps.md:15` as the text block gives. The orchestrator rewrote row 6 of `frame/plan.md` at `cb3344d`. After the commit, `git grep -n -e "'s tree" -e "trees of"` over the work item's directory names no phase record and no line of `gaps.md`.
+```
+
 ### 5. The plan's row on #23 says either may merge first, and omits that #23's scenario 8 waits on this work's switch
 
 ```seal
@@ -160,6 +182,11 @@ Why it matters: the row's *Merges first* cell reads "either", and its last cell 
 ```text
 frame/plan.md:69, Merges first: #23, which merged first (pull request #82, `f42ab46`)
 frame/plan.md:69, Grounds: #23 changed `src/daemon/daemon.ts` and `src/shared/protocol.ts`, a silent start for the kinds that report state, which the shell pane the case opens is not, and no step of the case. #23's records leave its scenario 8, the drawn window, to the orchestrator once this work's switch reaches `release/v0.0.1` (`seal/threads/1795048706-trust-question/frame/design.md` *Grounding*, the bullet "No agent starts the app").
+```
+
+```seal
+verdict: fixed cb3344d
+answer: The finding holds. The orchestrator rewrote the row on #23 in `frame/plan.md` *Overlap with the release* with the record's two cells: #23 merged first, as pull request #82 at `f42ab46`, and its scenario 8 waits on this work's switch reaching `release/v0.0.1`.
 ```
 
 ### 6. Two quotes of `pr.md` are not the words of the rows they cite
@@ -182,6 +209,11 @@ The orchestrator owns `pr.md`. Where finding 1 or 2 changes a row this file quot
   `seal/threads/1795046888-korean-input-test/frame/plan.md` *Judgments of the run*, row 4, Judgment
 - This work merges before #9, after #18
   `seal/threads/1795046888-korean-input-test/frame/plan.md` *Judgments of the run*, row 2, Judgment
+```
+
+```seal
+verdict: fixed cb3344d
+answer: The finding holds. The orchestrator replaced the two quotes of `pr.md` with the words of rows 4 and 2 of *Judgments of the run*, as the record's text block gives, and added a quote of row 7, the proofer round on the app's main process.
 ```
 
 ## Confirmations
