@@ -31,6 +31,12 @@ The snippet restores the rule the phase record states. `stageOf` already drops e
   // A closed pane stays in `recent`: `stageOf` shows no pane that is not a tab, and where the closed pane was the one in front, `paneInFront` then brings the most recent live pane in front, as the window did before this work.
 ```
 
+```seal
+verdict: fixed f155c71
+location: `apps/desktop/src/renderer/work-item-view.ts`, `apps/desktop/src/renderer/view.ts`, `apps/desktop/test/view.test.ts`, `seal/threads/1795046889-four-terminals-memory/trail/phases/phase-4.md`, `seal/threads/1795046889-four-terminals-memory/gaps.md`
+answer: The finding holds, and the fix is in the fix pass's own words. The snippet deletes the line, which restores the rule and leaves it with no case, since `dropClosed` is wiring that only a start of the app runs. The fix keeps the line and hands its decision to a pure function, `apps/desktop/src/renderer/view.ts#recentKept`: a pane the daemon no longer lists leaves `recent`, except where it is the most recent one. That one stays as the pane last in front, which is what `lastInFront` held before the work, so `paneInFront` finds it is no tab and gives the most recent live pane. The rest of `recent` only ranks the tiles, and a closed pane leaves it as before the fix. Two cases in `apps/desktop/test/view.test.ts` hold the function. The first runs the finding's example through `recentKept` and `stageOf`: panes 1 and 3 run, pane 2 has exited and was in front before pane 3, pane 3 closes, and pane 1 comes in front. With the tree's logic moved into the function unchanged, every closed pane filtered out, that case failed on `expected [ 2, 1 ] to deeply equal [ 3, 2, 1 ]`. The second case, that every other closed pane leaves, asserts that something is not kept and passed against that logic. At `f155c71`, `seal mutate src/renderer/view.ts` with four mutants read all four red under the two cases: no pane kept, every pane kept, the first two places kept, and the most recent pane kept only where it is listed. The second and third fail the second case alone. `phase-4.md:23` now names the function and says what the tree did when the phase closed. The comment on `recent`, the docstring of `dropClosed` and the row of `gaps.md` on the pool's wiring say the same, and `eee89e3` reworded two of those comments. No bullet of `changelog.md` changes, because the pane that follows a close is again the one the release before this work brings in front. Not shown: no start of the app closed the pane in front after the fix. That `renderer.ts#takeLists` calls `dropClosed` before `showView`, and that `showView` hands `stageOf` the list `recentKept` gave, is `read`, and the row of `gaps.md` says so.
+```
+
 ### 2. The changelog says the window holds a terminal only for a pane on screen, and the window keeps up to four terminals after their panes leave
 
 ```seal
@@ -43,6 +49,11 @@ Why it matters: the bullet opens "**The window holds a terminal only for a pane 
 
 ```markdown
 - **A pane that is not on screen holds no terminal in the window.** A pane that leaves the screen gives its terminal back, the next pane that comes on screen takes it, and the daemon keeps the pane's output. When the pane comes back, the window draws that output again. Eight panes each shown once read 480.3 MB, where they read 764.5 MB before. The window keeps the terminals it made, up to four, for the panes that come next, so with the inbox in front after four tiles it still holds them and reads 257.8 MB, against 156.4 MB before any view was opened.
+```
+
+```seal
+verdict: fixed 96b70fe
+answer: The finding holds, and the snippet was applied as written, in place of the bullet at `changelog.md:9`. The fix pass read it against the tree first. The pool gains a screen only where a pane comes onto the stage and none is free (`work-item-view.ts#stageShows`), and the stage holds at most four panes (`view.ts#STAGE_PANES`), so "up to four" holds. The two numbers are the highest samples of `inbox-after-four` and `inbox` in `apps/desktop/measurements/memory.md`. `git grep -n -e "only for a pane on screen"` over the tree printed the old bullet and this record alone, so no other file states it.
 ```
 
 ### 3. The `stageOf` case of a view with more tabs holds nothing the case of a pressed tab beside it does not hold
@@ -60,6 +71,11 @@ Why it matters: "puts the four panes most recently in front on the stage of a vi
   it("puts the four panes most recently in front on the stage of a view with more tabs, in the tabs' order, so a pressed tab that was not shown takes the place of the shown pane least recently in front", () => {
 ```
 
+```seal
+verdict: fixed 368a86e
+answer: The finding holds, and the snippet was applied as written: the case of a view with more tabs is deleted, and the case of a pressed tab carries the snippet's name. The fix pass read the two calls against `view.ts#stageOf`. Both hand it six tabs with "Side by side" pressed, and each of the five breaks the round names changes what the call of the case that stays returns. The round's mutants were not run again. `git grep -n -e "most recently in front on the stage"` over the tree prints the renamed case and this record alone.
+```
+
 ### 4. The phase record says the vendor search counts lines in three files of the daemon, and it counts lines in seven
 
 ```seal
@@ -72,6 +88,11 @@ Why it matters: the record says of `git grep -n -i -e claude -- apps/desktop/src
 
 ```markdown
 **Scenarios 12 to 14.** `executed` at the same tree. `git grep -n -e 'new Terminal(' -- apps/desktop/src` printed `apps/desktop/src/renderer/work-item-view.ts:106` alone. `git grep -n -e 'process exited' -- apps/desktop/src/renderer` and `git grep -n -i -e claude -- apps/desktop/src/renderer` each printed nothing and exited 1. Aimed at `apps/desktop/src/daemon`, the last search counts lines in seven files, so it can find the word.
+```
+
+```seal
+verdict: fixed ec49ba1
+answer: The finding holds, and the snippet's last sentence replaced the one at `phase-4.md:62`. `git grep -c -i -e claude -- apps/desktop/src/daemon` printed seven files in the worktree at the fix: `adapters/claude.ts`, `adapters/fake.ts`, `agent-events.ts`, `hooks.ts`, `main.ts`, `pane-kinds.ts` and `pty.ts`. `git grep -n -e "three files"` over this work item's directory prints this record alone.
 ```
 
 ## Confirmations
