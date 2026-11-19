@@ -309,6 +309,8 @@ The decisions are functions of `apps/desktop/src/renderer/view.ts`, with cases i
 
 In `apps/desktop/src/renderer/index.html` the sidebar and the four screens are elements of `body`, and the three screens not in front carry `hidden`. The status line is in the sidebar and the "New work item" dialog is outside all five. A seal's place is one element with the attribute `data-seal`, whose value is `none` wherever the page sets it; the drawing reaches it as an image or a mask whose source is the copy of `owl.svg` in `dist/`, which the page's content security policy allows as it allows the page's own stylesheets (`default-src 'self'`). The builder names the elements, and a function name that differs from one this section gives is a line of the phase record.
 
+
+Phase 6 built the window's side of *Scope* items 20 to 22 in modules this section does not name: `src/renderer/shared.ts`, `sidebar.ts`, `list.ts`, `work-item-view.ts` and `summary.ts`, with `renderer.ts` keeping the connection, the screens, the keys and the form. The functions of `view.ts` beyond those named above, the list screens' template and ids, and the words of the status line are recorded in `trail/phases/phase-6.md` *What phases 7 to 9 need from the page*, which phases 7 to 9 read as this section's continuation.
 ## Rule changes
 
 - add
