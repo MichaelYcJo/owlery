@@ -1336,6 +1336,16 @@ describe("discovery", () => {
     expect(readDiscovery(dir)).toEqual({ port: 4321, token: TOKEN, pid: 99 });
   });
 
+  it("throws where the rename fails, and removes the partial file it wrote", () => {
+    const dir = mkdtempSync(join(tmpdir(), "owlery-discovery-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    // A folder stands where the file goes, so the partial file is written and its rename refused.
+    mkdirSync(join(dir, "daemon.json"));
+    expect(() => writeDiscovery(dir, { port: 4321, token: TOKEN, pid: 99 })).toThrow(/rename/);
+    expect(readdirSync(dir)).toEqual(["daemon.json"]);
+    expect(statSync(join(dir, "daemon.json")).isDirectory()).toBe(true);
+  });
+
   it("reads nothing where no daemon has written", () => {
     const dir = mkdtempSync(join(tmpdir(), "owlery-discovery-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

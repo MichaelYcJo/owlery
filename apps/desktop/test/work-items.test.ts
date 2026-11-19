@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -71,6 +71,15 @@ describe("WorkItemList", () => {
     expect(new WorkItemList(dir).all()).toEqual([]);
     writeFileSync(join(dir, "work-items.json"), JSON.stringify([{ id: 1, ...PLACE, createdAt: 1, baseBranch: 7 }]));
     expect(new WorkItemList(dir).all()).toEqual([]);
+  });
+
+  it("throws where the rename fails, and removes the partial file it wrote", () => {
+    const dir = runDir();
+    // A folder stands where the file goes, so the partial file is written and its rename refused.
+    mkdirSync(join(dir, "work-items.json"));
+    expect(() => new WorkItemList(dir).add(PLACE)).toThrow(/rename/);
+    expect(readdirSync(dir)).toEqual(["work-items.json"]);
+    expect(statSync(join(dir, "work-items.json")).isDirectory()).toBe(true);
   });
 
   it("keeps the list in memory alone where it is given no run directory", () => {

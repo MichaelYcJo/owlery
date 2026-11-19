@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -175,6 +175,17 @@ describe("LastLook", () => {
     const gone = join(runDir(), "removed");
     const look = new LastLook(gone);
     expect(() => look.record(1234, [SESSION], [WORK_ITEM])).toThrow();
+    expect(look.get()).toEqual(LOOK);
+  });
+
+  it("throws where the rename fails, removes the partial file it wrote, and holds the look", () => {
+    const dir = runDir();
+    // A folder stands where the file goes, so the partial file is written and its rename refused.
+    mkdirSync(join(dir, "last-look.json"));
+    const look = new LastLook(dir);
+    expect(() => look.record(1234, [SESSION], [WORK_ITEM])).toThrow(/rename/);
+    expect(readdirSync(dir)).toEqual(["last-look.json"]);
+    expect(statSync(join(dir, "last-look.json")).isDirectory()).toBe(true);
     expect(look.get()).toEqual(LOOK);
   });
 

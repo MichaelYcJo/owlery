@@ -1,6 +1,7 @@
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkItem } from "../shared/protocol";
+import { writeWholeFile } from "./whole-file";
 
 const FILE = "work-items.json";
 
@@ -69,9 +70,7 @@ export class WorkItemList {
 
   private write(): void {
     if (this.file === undefined) return;
-    const partial = `${this.file}.${process.pid}`;
-    writeFileSync(partial, JSON.stringify(this.items), { mode: 0o600 });
-    // A daemon that starts meanwhile never reads a half-written file.
-    renameSync(partial, this.file);
+    // A daemon that starts meanwhile never reads a half-written file, and a write that fails removes its partial file.
+    writeWholeFile(this.file, JSON.stringify(this.items));
   }
 }
