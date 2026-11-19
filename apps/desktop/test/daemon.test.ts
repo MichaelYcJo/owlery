@@ -687,7 +687,8 @@ describe("the inbox", () => {
   });
 
   it("sends nothing for the silence of a pane a client closed before the time passed", async () => {
-    const { url } = await daemon({ ...SILENT, silentStartMs: 200 });
+    // The pane's shell ignores the signal a close sends, so its end does not come before the time passes.
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 200 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1 });
@@ -702,7 +703,7 @@ describe("the inbox", () => {
 
   it("calls no pane waiting after the daemon closed, though the pane's process outlives the close", async () => {
     let read = 0;
-    // The pane's shell ignores the signal a close sends, so its end does not come before the time passes.
+    // The shell ignores the signal here too.
     const { daemon: d, url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 150, now: () => ++read });
     const c = await client(url);
     await c.message("ready");
