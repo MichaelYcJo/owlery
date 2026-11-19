@@ -1,4 +1,4 @@
-Part of #9. The issue closes when `release/v0.0.1` reaches `main`.
+Part of #9. Four visible terminals measured 503.4 MB, over the 500 MB of the issue's first *Done when* line, so that line stays open for the owner after `release/v0.0.1` reaches `main`.
 
 - A person puts up to four of a work item's panes on screen with one "Side by side" control, as fixed tiles
   `seal/threads/1795046889-four-terminals-memory/frame/plan.md` *Judgments of the run*, row 3, Judgment
