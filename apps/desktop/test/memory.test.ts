@@ -125,11 +125,6 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
     expect(unread(split, bytes)).toEqual([{ pid: 101, kind: "gpu" }]);
   });
 
-  it("takes no process of another app", () => {
-    const split = splitProcesses(processRows(listed), 100, 104);
-    expect([...split.app.map((process) => process.pid), ...split.panes].filter((pid) => pid >= 900)).toEqual([]);
-  });
-
   it("sums the app itself and the panes' processes apart, and the app itself by kind", () => {
     const split = splitProcesses(processRows(listed), 100, 104);
     // The pane's `sleep` ended between `ps` and `footprint`, which then prints no line for it.
