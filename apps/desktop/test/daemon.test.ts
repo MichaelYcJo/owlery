@@ -593,6 +593,128 @@ describe("the inbox", () => {
     expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "waiting", "working"]);
   });
 
+  /** A pane whose process prints nothing and stays alive, as a CLI that asks a question before its session starts sends no event. */
+  const SILENT = { commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }) };
+
+  it("lists a pane that sent no event in the time after its start as waiting, from the clock's value then and with no text and no tool, and tells every client once", async () => {
+    let clock = 100;
+    const { url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE });
+    // The time is the one the silence was called at, and not the pane's start.
+    clock = 700;
+    const waiting = { ...session, state: "waiting", stateSince: 700, stateText: null, stateTool: null };
+    for (const each of [c, bystander]) expect((await each.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+    await pause(200);
+    // One inbox for the pane's start and one for the silence.
+    for (const each of [c, bystander]) expect(inboxes(each).map((m) => stateOf(m, session.id))).toEqual([null, "waiting"]);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([waiting]);
+  });
+
+  it.each(["SessionStart", "SubagentStop"])("never calls a pane waiting by silence once an event arrived under its id: %s, though it leaves no state", async (hook) => {
+    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 200 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    d.agentEvent(session.id, hook, {});
+    await pause(450);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([session]);
+    // The one inbox is the pane's start.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null]);
+  });
+
+  it("takes the waiting of a silent pane away at its session's start, and gives a prompt after it working with the prompt's time", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    clock = 200;
+    d.agentEvent(session.id, "SessionStart", {});
+    expect(await listed()).toEqual({ ...session, ...NO_STATE });
+    clock = 300;
+    d.agentEvent(session.id, "UserPromptSubmit", { prompt: "Go on." });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null });
+    await pause(200);
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "waiting", null, "working"]);
+  });
+
+  it("keeps the time of the silence, and neither a text nor a tool, where an event that maps to waiting arrives while the pane waits by silence", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
+    clock = 200;
+    d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, state: "waiting", stateSince: 100, stateText: null, stateTool: null }]);
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "waiting"]);
+  });
+
+  it("keeps a silent pane of a kind that reports no state at none, and sends no inbox for its silence", async () => {
+    const { url } = await daemon({ ...SILENT, silentStartMs: 60 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "shell", requestId: 1 });
+    const { session } = await c.message("started");
+    await pause(300);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, ...NO_STATE }]);
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null]);
+  });
+
+  it("never calls a pane waiting whose process exited before the time passed", async () => {
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), silentStartMs: 300 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    await c.message("exit");
+    await pause(550);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, alive: false }]);
+    // One inbox for the pane's start and one for its end.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, null]);
+  });
+
+  it("sends nothing for the silence of a pane a client closed before the time passed", async () => {
+    const { url } = await daemon({ ...SILENT, silentStartMs: 200 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    const { session } = await c.message("started");
+    c.send({ type: "close", id: session.id });
+    await c.message("inbox", (m) => m.sessions.length === 0);
+    await pause(450);
+    // One inbox for the pane's start and one for its close, which lists no pane.
+    expect(inboxes(c).map((m) => m.sessions.map((s) => s.state))).toEqual([[null], []]);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([]);
+  });
+
+  it("calls no pane waiting after the daemon closed, though the pane's process outlives the close", async () => {
+    let read = 0;
+    // The pane's shell ignores the signal a close sends, so its end does not come before the time passes.
+    const { daemon: d, url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 150, now: () => ++read });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1 });
+    await c.message("started");
+    await d.close();
+    const before = read;
+    await pause(400);
+    // A silence that is called reads the clock for the state's time.
+    expect(read).toBe(before);
+  });
+
   it("tells every client of a work item one of them creates, of a pane one starts, and of a state that changes", async () => {
     const { repo, root } = repository();
     const { daemon: d, url } = await daemon({ worktreesRoot: root });
