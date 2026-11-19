@@ -29,8 +29,8 @@ These facts shape the build.
 - The measurement moves the window by its controls' ids. It runs only under its variable, so a change of the pane bar or of the form breaks it without a red check, and the break shows the next time somebody runs it.
 - Free screens stay in the pool, so a window that once showed four panes holds four hidden screens while the inbox is in front. The probes read 269 MB on the inbox after four terminals, against 158 MB before any. The measurement reports that number, and nothing here lowers it.
 - Four tiles in the stage are small: 49 columns by 27 rows at the default window size, under the 80 columns an agent's CLI is drawn for. A person who wants wider tiles widens the window, and the two side columns keep their widths (`frame/questions.md` Q4).
-- The number is likely over 500 MB with WebGL (`frame/questions.md` Q2). This work then publishes a number that does not meet the issue's first line, and what follows is the owner's (Q3).
-- A program that asks its terminal a question while its pane is off the stage gets no answer: the pane holds no screen then, and the answers to a later replay are not sent. What a person types while the terminal draws a later replay is not sent either.
+- The number is over 500 MB with WebGL: 503.4 MB at the highest sample of three runs of `four` (`apps/desktop/measurements/memory.md`, `frame/questions.md` Q2). This work then publishes a number that does not meet the issue's first line, and what follows is the owner's (Q3).
+- A program that asks its terminal a question while its pane is off the stage gets no answer: the pane holds no screen then, and the answers to a later replay are not sent. What a person types while the terminal draws a later replay, or still draws what it was handed before the pane on the screen took it, is not sent either.
 
 ## Alternatives considered
 
