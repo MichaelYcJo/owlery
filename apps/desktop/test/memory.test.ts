@@ -111,18 +111,23 @@ describe.skipIf(MEASURE)("the memory measurement, without the app", () => {
     expect(split.panes).toEqual([105, 106, 107]);
   });
 
-  it("names each process of the app that `footprint` gave no number for, and none of the panes'", () => {
+  it("says which processes of the app `footprint` gave no number for, and nothing of the panes'", () => {
     const split = splitProcesses(processRows(listed), 100, 104);
-    // `footprint` read neither the GPU process nor two of the panes' three.
+    // `footprint` read neither the GPU process, the renderer, nor two of the panes' three.
     const bytes = new Map([
       [100, 60],
       [102, 5],
-      [103, 40],
       [104, 20],
       [108, 1],
       [105, 2],
     ]);
-    expect(unread(split, bytes)).toEqual([{ pid: 101, kind: "gpu" }]);
+    expect(unread(split, bytes)).toBe("`footprint` gave no number for the gpu process 101, the renderer process 103, so the sum is not the app's. The measurement is macOS's.");
+  });
+
+  it("says nothing where `footprint` read every process of the app, though it read none of the panes'", () => {
+    const split = splitProcesses(processRows(listed), 100, 104);
+    const bytes = new Map([100, 101, 102, 103, 104, 108].map((pid) => [pid, 1]));
+    expect(unread(split, bytes)).toBeNull();
   });
 
   it("sums the app itself and the panes' processes apart, and the app itself by kind", () => {
