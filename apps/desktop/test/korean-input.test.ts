@@ -293,8 +293,9 @@ describe.skipIf(TYPED)("the typed run, without a person", () => {
       const file = join(repository.base, "received");
       writeFileSync(file, "a");
       const received = new Received(file);
-      setTimeout(() => appendFileSync(file, "b\r"), 300);
-      expect((await received.typed(5_000)).toString()).toBe("ab\r");
+      // Later than the moment `typed` waits after an Enter, so a reading that did not wait for the Enter holds "a" alone.
+      setTimeout(() => appendFileSync(file, "b\r"), 800);
+      expect((await received.typed(4_000)).toString()).toBe("ab\r");
       appendFileSync(file, "c");
       expect((await received.typed(100)).toString()).toBe("c");
     } finally {
