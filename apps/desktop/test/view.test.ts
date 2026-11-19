@@ -89,18 +89,29 @@ function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo 
 }
 
 describe("tabLabel", () => {
-  it("labels a tab with the pane's kind and id, and not with the work item's title, which the view's header says", () => {
-    expect(tabLabel(session(3, { workItemId: 2 }), KINDS)).toBe("Claude Code 3");
-    expect(tabLabel(session(4, { kind: "shell" }), KINDS)).toBe("Shell 4");
+  it("labels the one open pane of a kind in a work item with the kind alone, and never with the daemon's id or the work item's title", () => {
+    const tabs = [session(3, { workItemId: 2 }), session(4, { kind: "shell", workItemId: 2 })];
+    expect(tabLabel(tabs[0]!, tabs, KINDS)).toBe("Claude Code");
+    expect(tabLabel(tabs[1]!, tabs, KINDS)).toBe("Shell");
+  });
+
+  it("numbers the open panes of a kind 1, 2, 3 in the tabs' order, apart from the other kinds", () => {
+    const tabs = [session(3), session(5, { kind: "shell" }), session(8), session(9)];
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS))).toEqual(["Claude Code 1", "Shell", "Claude Code 2", "Claude Code 3"]);
+  });
+
+  it("numbers the panes again once one of them closes, so the numbers stay 1 to the count", () => {
+    const tabs = [session(3), session(9)];
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS))).toEqual(["Claude Code 1", "Claude Code 2"]);
   });
 
   it("reads a kind's label from the daemon's list, whatever the daemon calls it", () => {
     const renamed: PaneKindInfo[] = [{ kind: "claude", label: "Agent", reportsState: true }];
-    expect(tabLabel(session(6), renamed)).toBe("Agent 6");
+    expect(tabLabel(session(6), [session(6)], renamed)).toBe("Agent");
   });
 
   it("labels a pane of a kind the list does not hold with the kind as the daemon spells it", () => {
-    expect(tabLabel(session(7, { kind: "shell" }), [])).toBe("shell 7");
+    expect(tabLabel(session(7, { kind: "shell" }), [session(7, { kind: "shell" })], [])).toBe("shell");
   });
 });
 
@@ -714,7 +725,7 @@ describe("notificationFor", () => {
   });
 
   it("is titled with the tab's label for a pane without a work item", () => {
-    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Claude Code 3", body: "Waiting for you" });
+    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Claude Code", body: "Waiting for you" });
   });
 
   it("shows nothing when the state becomes working or none", () => {
