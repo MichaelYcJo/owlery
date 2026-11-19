@@ -26,6 +26,11 @@ Why it matters: the case feeds `"abcdef\ngh\nij"` into a buffer of 8 and expects
 // apps/desktop/test/daemon.test.ts: delete lines 1512-1516, the case "drops the rest of the line a cut falls in where the cut is in the middle of one piece of output".
 ```
 
+```seal
+verdict: fixed 1dbc049
+answer: The finding holds, and the case is deleted. The first append of "opens at the first character after a line break" takes the same path: a cut inside one piece, the line break in that piece, and a rest kept after it. "counts what it keeps" does not see that path alone, because its second append cuts through the same characters whether or not the first dropped the line's rest. At `b849075`, `seal mutate src/daemon/buffer.ts` with the three mutants the deleted case had turned red (the rest not dropped, the rest kept with its line break, the kept rest left out of the pieces) read all three red under the six cases that stay.
+```
+
 ### 2. The comment of the escape sequence case puts the cut in the colour sequence that opens the second line, and it falls in the one that closes it
 
 ```seal
@@ -38,6 +43,11 @@ Why it matters: the comment says "The count of characters puts the cut inside th
 
 ```ts
     // The first piece is already over the size and loses its first line. The second puts the cut inside `\u001b[0m`, the colour sequence that closes the line `two`.
+```
+
+```seal
+verdict: fixed b849075
+answer: The finding holds, and the snippet replaced the comment as written. The fix pass read both appends by hand before applying it: the first piece is 19 characters in a buffer of 16 and loses `one` with its line break, and the second append's nine dropped characters end on the escape character of `\u001b[0m`. The case's code is unchanged, and `test/daemon.test.ts` passed whole at `b849075`, 91 cases.
 ```
 
 ## Confirmations
