@@ -5,11 +5,13 @@ What the ticket left open and the tree or a probe answered. Each line points at 
 - How the test runs, automated, typed, or both: `frame/plan.md` *Alternatives considered*, its first three rows.
 - Whether composition events made inside the page can stand for typing: `frame/design.md` *Grounding*, probe 1.
 - Whether composition sent through the debugging port reaches the pane's process, and under what pace: `frame/design.md` *Grounding*, probes 1 and 2.
+- How the case reaches a pane now that the app starts none and a pane lives inside a work item: `frame/design.md` *Grounding*, probe 4, and `frame/plan.md` *Alternatives considered*, the row on reaching the pane without the form.
+- Whether the keys the window reads by `KeyboardEvent.code` take a key typed into a pane: `frame/design.md` *Grounding*, the bullet on the window's code and probe 4.
 - Whether the test needs a switch in the app's code: `frame/design.md` *Grounding*, the row on what is chosen from outside the app's code.
 - Whether the suite's runner can start the app, or a second runner is needed: `frame/plan.md` *Alternatives considered*, the row on Playwright.
 - Whether the roadmap's text is edited in this pull request or stated for the settle: `frame/design.md` *Grounding*, the last row of its table, and `frame/plan.md` *Alternatives considered*, the row on editing `docs/roadmap.md`.
 - Whether the pull request waits for a person's typed run: `frame/design.md` *Scope* item 13, an assumption the owner can overturn by typing first.
-- Which of issues #18, #9 and #19 merges before this work: `frame/plan.md` *Overlap with the release*.
+- Which of the release's other work items merges before this work: `frame/plan.md` *Overlap with the release*.
 
 | # | Question | Who can answer | Options & what each implies | Default until answered | Status |
 |---|---|---|---|---|---|
