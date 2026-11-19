@@ -101,7 +101,7 @@ describe.skipIf(TYPED)("Korean typed into a terminal pane", { timeout: 30_000 },
   const afterSyllable = withEnter(first).slice(composing + 1);
 
   it("opens one pane through the form, of the shell kind", async () => {
-    expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#tabs .tab .label")].map((label) => label.textContent)`)).toEqual(["Shell 1"]);
+    expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#tabs .tab .label")].map((label) => label.textContent)`)).toEqual(["Shell"]);
   });
 
   it("stays in the background: no Dock icon, and no focus of the system's", () => {
