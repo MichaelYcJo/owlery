@@ -16,8 +16,23 @@ function runDir(): string {
   return dir;
 }
 
-const SESSION: SessionInfo = { id: 4, kind: "claude", alive: true, workItemId: 1, state: "working" };
-const WORK_ITEM: WorkItem = { id: 1, title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", createdAt: 1, baseCommit: "c".repeat(40), newCommits: 2 };
+const SESSION: SessionInfo = { id: 4, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: 1200, stateText: "May I run the tests?", stateTool: "Bash" };
+const COMMIT = { hash: "abc1234", subject: "add the form", at: 1100, added: 3, removed: 1 };
+const FILE = { path: "src/form.ts", added: 3, removed: 1 };
+const WORK_ITEM: WorkItem = {
+  id: 1,
+  title: "Fix the login bug",
+  repo: "/r/project",
+  repoName: "project",
+  branch: "owlery/fix-the-login-bug",
+  worktree: "/w/project/fix-the-login-bug",
+  createdAt: 1,
+  baseCommit: "c".repeat(40),
+  baseBranch: "main",
+  newCommits: 2,
+  commits: [COMMIT, { hash: "def5678", subject: "add an image", at: 1000, added: null, removed: null }],
+  changes: { files: 2, added: 3, removed: 1, list: [FILE, { path: "owl.png", added: null, removed: null }] },
+};
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
 describe("LastLook", () => {
@@ -37,12 +52,18 @@ describe("LastLook", () => {
 
   it("keeps the lists as they stood, though a session or a work item it was given changes afterwards", () => {
     const session = { ...SESSION };
-    const workItem = { ...WORK_ITEM };
+    const workItem = structuredClone(WORK_ITEM);
     const sessions = [session];
     const look = new LastLook(runDir());
     look.record(1234, sessions, [workItem]);
-    session.state = "waiting";
+    session.state = "finished";
+    session.stateText = "Done.";
     workItem.newCommits = 9;
+    workItem.commits![0]!.subject = "amended";
+    workItem.commits!.pop();
+    workItem.changes!.files = 9;
+    workItem.changes!.list[0]!.added = 9;
+    workItem.changes!.list.pop();
     sessions.push({ ...SESSION, id: 5 });
     expect(look.get()).toEqual(LOOK);
   });
@@ -62,16 +83,26 @@ describe("LastLook", () => {
     expect(new LastLook(dir).get()).toEqual(LOOK);
   });
 
-  it("reads a session with no work item, a session with no state and a work item with neither base commit nor count", () => {
+  it("reads a session with no work item, a session with no state and a work item with neither base commit, base branch, count, commits nor changes", () => {
     const dir = runDir();
-    const look: Look = { at: 1, sessions: [{ id: 2, kind: "shell", alive: false, workItemId: null, state: null }], workItems: [{ ...WORK_ITEM, baseCommit: null, newCommits: null }] };
+    const look: Look = {
+      at: 1,
+      sessions: [{ id: 2, kind: "shell", alive: false, workItemId: null, state: null, stateSince: null, stateText: null, stateTool: null }],
+      workItems: [{ ...WORK_ITEM, baseCommit: null, baseBranch: null, newCommits: null, commits: null, changes: null }],
+    };
     writeFileSync(join(dir, "last-look.json"), JSON.stringify(look));
     expect(new LastLook(dir).get()).toEqual(look);
   });
 
   it("reads only the fields of a look, whatever else the file carries", () => {
     const dir = runDir();
-    writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, by: "a window", sessions: [{ ...SESSION, pid: 7 }], workItems: [{ ...WORK_ITEM, note: "x" }] }));
+    const workItem = {
+      ...WORK_ITEM,
+      note: "x",
+      commits: WORK_ITEM.commits!.map((commit) => ({ ...commit, author: "someone" })),
+      changes: { ...WORK_ITEM.changes!, binary: 1, list: WORK_ITEM.changes!.list.map((file) => ({ ...file, mode: "100644" })) },
+    };
+    writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, by: "a window", sessions: [{ ...SESSION, pid: 7 }], workItems: [workItem] }));
     expect(new LastLook(dir).get()).toEqual(LOOK);
   });
 
@@ -102,8 +133,40 @@ describe("LastLook", () => {
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, createdAt: "1" }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, baseCommit: 7 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, newCommits: "2" }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, stateSince: "1200" }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, stateText: 3 }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, stateTool: 3 }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, repoName: 3 }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, baseBranch: 3 }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: "none" }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: [null] }] }))).toBeNull();
+    for (const commit of [{ hash: 7 }, { subject: 7 }, { at: "1100" }, { added: "3" }, { removed: "1" }]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: [{ ...COMMIT, ...commit }] }] }))).toBeNull();
+    expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, changes: [] }] }))).toBeNull();
+    for (const changes of [{ files: "2" }, { added: null }, { removed: null }, { list: {} }, { list: [null] }, { list: [{ ...FILE, path: 3 }] }, { list: [{ ...FILE, added: "3" }] }, { list: [{ ...FILE, removed: "1" }] }]) {
+      expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, changes: { ...WORK_ITEM.changes, ...changes } }] }))).toBeNull();
+    }
     // The file as the first line of this case would have it read, so the reader is the one under test.
     expect(read(JSON.stringify(LOOK))).toEqual(LOOK);
+  });
+
+  it("holds no look where the file is one a build before these fields wrote: a session with no time of its state, or a work item with no repository's name", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { stateSince: _since, stateText: _text, stateTool: _tool, ...sessionBefore } = SESSION;
+    const { repoName: _name, baseBranch: _base, commits: _commits, changes: _changes, ...workItemBefore } = WORK_ITEM;
+    writeFileSync(file, JSON.stringify({ at: 1234, sessions: [sessionBefore], workItems: [WORK_ITEM] }));
+    expect(new LastLook(dir).get()).toBeNull();
+    writeFileSync(file, JSON.stringify({ at: 1234, sessions: [SESSION], workItems: [workItemBefore] }));
+    expect(new LastLook(dir).get()).toBeNull();
+    // Each field of the two alone, absent: none is read as null.
+    for (const field of ["stateSince", "stateText", "stateTool"]) {
+      writeFileSync(file, JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, [field]: undefined }] }));
+      expect(new LastLook(dir).get()).toBeNull();
+    }
+    for (const field of ["repoName", "baseBranch", "commits", "changes"]) {
+      writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, [field]: undefined }] }));
+      expect(new LastLook(dir).get()).toBeNull();
+    }
   });
 
   it("holds the look it was given though the file cannot be written, and says that it was not", () => {

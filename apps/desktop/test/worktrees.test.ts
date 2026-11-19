@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createWorktree, newCommits, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { branchChanges, branchCommits, branchHead, createWorktree, newCommits, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
@@ -61,12 +61,27 @@ describe("createWorktree", () => {
     const { repo, root } = repository();
     const made = await createWorktree({ folder: repo, title: "Fix the login bug", root });
     const head = git(repo, "rev-parse", "HEAD").trim();
-    expect(made).toEqual({ repo, branch: "owlery/fix-the-login-bug", worktree: join(root, "project", "fix-the-login-bug"), baseCommit: head });
+    expect(made).toEqual({ repo, branch: "owlery/fix-the-login-bug", worktree: join(root, "project", "fix-the-login-bug"), baseCommit: head, baseBranch: "main" });
     expect(git(repo, "branch", "--list", "owlery/*").trim()).toContain("owlery/fix-the-login-bug");
     expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/fix-the-login-bug");
     expect(git(repo, "rev-parse", "owlery/fix-the-login-bug")).toBe(git(repo, "rev-parse", "HEAD"));
     // The person's own checkout stays on its branch.
     expect(worktrees(repo)[repo]).toBe("refs/heads/main");
+  });
+
+  it("gives no base branch where the repository's HEAD is on no branch", async () => {
+    const { repo, root } = repository();
+    git(repo, "checkout", "--quiet", "--detach");
+    const made = await createWorktree({ folder: repo, title: "Cut from a commit", root });
+    expect(made.baseBranch).toBeNull();
+    expect(made.baseCommit).toBe(git(repo, "rev-parse", "HEAD").trim());
+  });
+
+  it("names as the base the branch HEAD is on, slashes and all, though a tag of the same name exists", async () => {
+    const { repo, root } = repository();
+    git(repo, "checkout", "--quiet", "-b", "feat/login");
+    git(repo, "tag", "feat/login");
+    expect((await createWorktree({ folder: repo, title: "Cut from a feature", root })).baseBranch).toBe("feat/login");
   });
 
   it("takes the repository's top-level folder when given a folder inside it", async () => {
@@ -169,5 +184,100 @@ describe("newCommits", () => {
     const made = await createWorktree({ folder: repo, title: "Gone", root });
     expect(await newCommits(made.repo, "owlery/never-cut", made.baseCommit)).toBeNull();
     expect(await newCommits(join(base, "missing"), made.branch, made.baseCommit)).toBeNull();
+  });
+});
+
+describe("what a branch holds since its base", () => {
+  /** Commits whatever the folder holds, and gives the commit's short hash and its time. */
+  function commitAll(folder: string, subject: string): { hash: string; at: number } {
+    git(folder, "add", "--all");
+    git(folder, "commit", "--quiet", "--allow-empty", "-m", subject);
+    return { hash: git(folder, "rev-parse", "--short", "HEAD").trim(), at: Number(git(folder, "log", "-1", "--format=%ct").trim()) * 1000 };
+  }
+
+  async function cut(title: string) {
+    const { repo, root, base } = repository();
+    const made = await createWorktree({ folder: repo, title, root });
+    return { ...made, base, head: async () => (await branchHead(made.repo, made.branch))! };
+  }
+
+  it("reads a branch's head, and none where the branch is gone", async () => {
+    const made = await cut("Headed");
+    expect(await branchHead(made.repo, made.branch)).toBe(made.baseCommit);
+    writeFileSync(join(made.worktree, "one.txt"), "one\n");
+    commitAll(made.worktree, "add one");
+    expect(await branchHead(made.repo, made.branch)).toBe(git(made.worktree, "rev-parse", "HEAD").trim());
+    expect(await branchHead(made.repo, "owlery/never-cut")).toBeNull();
+    expect(await branchHead(join(made.base, "missing"), made.branch)).toBeNull();
+  });
+
+  it("lists no commit on a branch just cut, then each commit newest first, with its short hash, its subject, its time and its lines", async () => {
+    const made = await cut("Listed");
+    expect(await branchCommits(made.repo, made.baseCommit, await made.head())).toEqual([]);
+    writeFileSync(join(made.worktree, "one.txt"), "a\nb\nc\n");
+    const one = commitAll(made.worktree, "add one");
+    writeFileSync(join(made.worktree, "one.txt"), "a\nB\n");
+    writeFileSync(join(made.worktree, "two.txt"), "two\n");
+    const two = commitAll(made.worktree, "change one: and add two");
+    expect(await branchCommits(made.repo, made.baseCommit, await made.head())).toEqual([
+      { ...two, subject: "change one: and add two", added: 2, removed: 2 },
+      { ...one, subject: "add one", added: 3, removed: 0 },
+    ]);
+  });
+
+  it("gives a commit that changes no file no lines, and one whose files git counts no lines of, such as a binary file, no count", async () => {
+    const made = await cut("Counted lines");
+    const empty = commitAll(made.worktree, "nothing");
+    writeFileSync(join(made.worktree, "owl.bin"), Buffer.from([0, 1, 2, 0, 255]));
+    const binary = commitAll(made.worktree, "add a binary file");
+    writeFileSync(join(made.worktree, "owl.bin"), Buffer.from([0, 9, 9, 0]));
+    writeFileSync(join(made.worktree, "note.txt"), "one\ntwo\n");
+    const mixed = commitAll(made.worktree, "change it, beside a note");
+    expect(await branchCommits(made.repo, made.baseCommit, await made.head())).toEqual([
+      { ...mixed, subject: "change it, beside a note", added: 2, removed: 0 },
+      { ...binary, subject: "add a binary file", added: null, removed: null },
+      { ...empty, subject: "nothing", added: 0, removed: 0 },
+    ]);
+  });
+
+  it("lists the files a branch changed since its base, each with its lines, and counts a moved file as one removed and one added", async () => {
+    const made = await cut("Changed");
+    expect(await branchChanges(made.repo, made.baseCommit, await made.head())).toEqual({ files: 0, added: 0, removed: 0, list: [] });
+    writeFileSync(join(made.worktree, "README.md"), "a repository\nof owls\n");
+    mkdirSync(join(made.worktree, "src"));
+    writeFileSync(join(made.worktree, "src", "새 파일 one.txt"), "하나\n둘\n");
+    writeFileSync(join(made.worktree, "owl.bin"), Buffer.from([0, 1, 2, 0, 255]));
+    commitAll(made.worktree, "first");
+    // A second commit, so the changes are the branch's and not the last commit's.
+    git(made.worktree, "mv", "README.md", "READ.md");
+    commitAll(made.worktree, "second");
+    expect(await branchChanges(made.repo, made.baseCommit, await made.head())).toEqual({
+      files: 4,
+      added: 4,
+      removed: 1,
+      list: [
+        { path: "READ.md", added: 2, removed: 0 },
+        { path: "README.md", added: 0, removed: 1 },
+        { path: "owl.bin", added: null, removed: null },
+        { path: "src/새 파일 one.txt", added: 2, removed: 0 },
+      ],
+    });
+  });
+
+  it("lists 50 files of a branch that changed more, beside the count and the lines of all of them", async () => {
+    const made = await cut("Many files");
+    for (let n = 10; n < 65; n++) writeFileSync(join(made.worktree, `file-${n}.txt`), "one\ntwo\n");
+    commitAll(made.worktree, "many");
+    const changes = (await branchChanges(made.repo, made.baseCommit, await made.head()))!;
+    expect({ ...changes, list: changes.list.map((file) => file.path) }).toEqual({ files: 55, added: 110, removed: 0, list: Array.from({ length: 50 }, (_, i) => `file-${i + 10}.txt`) });
+  });
+
+  it("gives neither commits nor changes where git cannot: the repository is gone, or the base commit is not one", async () => {
+    const made = await cut("Gone");
+    const head = await made.head();
+    expect(await branchCommits(join(made.base, "missing"), made.baseCommit, head)).toBeNull();
+    expect(await branchChanges(join(made.base, "missing"), made.baseCommit, head)).toBeNull();
+    expect(await branchCommits(made.repo, "0".repeat(40), head)).toBeNull();
+    expect(await branchChanges(made.repo, "0".repeat(40), head)).toBeNull();
   });
 });

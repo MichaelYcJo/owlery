@@ -1,16 +1,28 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { basename } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type ClientMessage, type HeadlessInfo, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
-import { agentEventFor } from "./agent-events";
+import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { LastLook } from "./last-look";
-import { WorkItemList } from "./work-items";
-import { createWorktree, newCommits, worktreesRoot } from "./worktrees";
+import { type StoredWorkItem, WorkItemList } from "./work-items";
+import { branchChanges, branchCommits, branchHead, createWorktree, newCommits, worktreesRoot } from "./worktrees";
+
+/** How much of a state's text the daemon keeps. */
+const STATE_TEXT_CHARS = 2000;
+
+/** The first `STATE_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
+function cutText(text: string | null): string | null {
+  if (text === null || text.length <= STATE_TEXT_CHARS) return text;
+  const last = text.charCodeAt(STATE_TEXT_CHARS - 1);
+  // A character outside the basic plane is two of a string's, and the first of the two alone is no character.
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
+}
 
 export interface PaneCommand {
   command: string;
@@ -32,7 +44,7 @@ export interface DaemonOptions {
   runDir?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
-  /** The clock a work item's `createdAt`, a headless session's `startedAt` and a look's `at` are read from. */
+  /** The clock a work item's `createdAt`, a headless session's `startedAt`, a look's `at` and a session's `stateSince` are read from. */
   now?: () => number;
   /** How long the daemon waits between two reads of the work items' new commits, apart from the read each hello starts. */
   commitPollMs?: number;
@@ -83,6 +95,8 @@ export class Daemon {
   private creating: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
+  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
+  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
   // The read of the counts under way, which a hello that arrives meanwhile waits on.
@@ -113,7 +127,9 @@ export class Daemon {
 
   /**
    * Delivers an agent's event for a pane to every client, as a neutral event,
-   * and keeps the state it leaves the pane's session in.
+   * and keeps the state it leaves the pane's session in, with the time the
+   * state began and what the event that began it said. An event that leaves
+   * the state as it was changes none of them.
    */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const event = agentEventFor(hookName);
@@ -124,7 +140,11 @@ export class Daemon {
     if (!session || !this.reportsState(session.info.kind)) return;
     const state = agentStateAfter(event);
     if (state === session.info.state) return;
+    const said = agentSaid(hookName, payload);
     session.info.state = state;
+    session.info.stateSince = state === null ? null : (this.options.now ?? Date.now)();
+    session.info.stateText = cutText(said.text);
+    session.info.stateTool = said.tool;
     this.broadcastInbox();
   }
 
@@ -218,9 +238,10 @@ export class Daemon {
             if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
             const place = await createWorktree({ folder: message.repo, title: message.title, root: this.options.worktreesRoot ?? worktreesRoot(process.env) });
             const stored = this.workItems.add({ title: message.title, ...place });
-            // The branch was cut at its base commit a moment ago.
+            // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.id, 0);
-            const workItem: WorkItem = { ...stored, newCommits: 0 };
+            this.branches.set(stored.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
+            const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
             this.broadcastInbox();
@@ -363,7 +384,7 @@ export class Daemon {
       rows: pane.rows,
       env: { ...process.env, ...env },
     });
-    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
+    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
     this.sessions.set(id, session);
     terminal.onData((data) => {
       session.output.append(data);
@@ -403,7 +424,13 @@ export class Daemon {
   }
 
   private workItemList(): WorkItem[] {
-    return this.workItems.all().map((item) => ({ ...item, newCommits: this.commitCounts.get(item.id) ?? null }));
+    return this.workItems.all().map((item) => this.workItemOf(item));
+  }
+
+  /** A work item as a client is sent it: with its repository's name, and with what was last read of its branch. */
+  private workItemOf(item: StoredWorkItem): WorkItem {
+    const read = this.branches.get(item.id);
+    return { ...item, repoName: basename(item.repo), newCommits: this.commitCounts.get(item.id) ?? null, commits: read?.commits ?? null, changes: read?.changes ?? null };
   }
 
   /** Sends every client the whole of both lists, after either changed. */
@@ -441,17 +468,34 @@ export class Daemon {
     return reading;
   }
 
-  /** Reads each work item's new commits from git, and tells every client where a count changed. */
+  /**
+   * Reads each work item's new commits from git, and tells every client where
+   * a count changed or a branch's head moved. The commits and the changed
+   * files are read only where the head is another commit than the one they
+   * were last read at.
+   */
   private async readCommits(): Promise<void> {
     let changed = false;
     await Promise.all(
       this.workItems.all().map(async (item) => {
         // A work item from before the base commit was recorded has nothing to count from.
-        if (item.baseCommit === null) return;
-        const count = await newCommits(item.repo, item.branch, item.baseCommit);
-        if (count === (this.commitCounts.get(item.id) ?? null)) return;
-        this.commitCounts.set(item.id, count);
+        const { baseCommit } = item;
+        if (baseCommit === null) return;
+        const [count, head] = await Promise.all([newCommits(item.repo, item.branch, baseCommit), branchHead(item.repo, item.branch)]);
+        if (count !== (this.commitCounts.get(item.id) ?? null)) {
+          this.commitCounts.set(item.id, count);
+          changed = true;
+        }
+        if (head === (this.branches.get(item.id)?.head ?? null)) return;
         changed = true;
+        if (head === null) {
+          // The branch is gone, and what was read of it with it.
+          this.branches.delete(item.id);
+          return;
+        }
+        // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
+        const [commits, changes] = await Promise.all([branchCommits(item.repo, baseCommit, head), branchChanges(item.repo, baseCommit, head)]);
+        this.branches.set(item.id, { head, commits, changes });
       }),
     );
     if (changed) this.broadcastInbox();

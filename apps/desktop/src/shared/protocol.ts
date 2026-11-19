@@ -26,6 +26,36 @@ export interface PaneKindInfo {
   reportsState: boolean;
 }
 
+/** One commit of a work item's branch. */
+export interface CommitInfo {
+  /** The commit's hash as git shortens it. */
+  hash: string;
+  subject: string;
+  /** When the commit was made, as the committer's clock had it. */
+  at: number;
+  /** The lines the commit added and removed, over the files git counts lines of; both null where it changed files and git counts lines of none of them, as for binary files. */
+  added: number | null;
+  removed: number | null;
+}
+
+/** One file a work item's branch changed. A file that was moved is two: one removed, one added. */
+export interface FileChange {
+  /** The file's path from the top of the repository. */
+  path: string;
+  /** Null where git counts no lines of the file, as for a binary file. */
+  added: number | null;
+  removed: number | null;
+}
+
+/** What a work item's branch changed since `baseCommit`: the count of the files and the sums of their lines, and the first of the files. */
+export interface Changes {
+  files: number;
+  added: number;
+  removed: number;
+  /** 50 files at most, in git's order of paths. */
+  list: FileChange[];
+}
+
 /**
  * One piece of work, in a worktree of its own: `repo` is the repository's
  * top-level folder, `branch` the branch cut for it, `worktree` its folder.
@@ -34,13 +64,21 @@ export interface WorkItem {
   id: number;
   title: string;
   repo: string;
+  /** The last part of `repo`, which a person reads as the repository's name. */
+  repoName: string;
   branch: string;
   worktree: string;
   createdAt: number;
   /** The commit the branch was cut at, or null for a work item made before this was recorded. */
   baseCommit: string | null;
+  /** The branch the repository's HEAD was on when the branch was cut, or null where it was on none and for a work item made before this was recorded. */
+  baseBranch: string | null;
   /** How many commits the branch holds after `baseCommit`, or null where the daemon has read none. */
   newCommits: number | null;
+  /** The commits the branch holds after `baseCommit`, newest first, 20 at most, or null where the daemon has read none. */
+  commits: CommitInfo[] | null;
+  /** Null where the daemon has read none. */
+  changes: Changes | null;
 }
 
 export interface SessionInfo {
@@ -51,6 +89,12 @@ export interface SessionInfo {
   workItemId: number | null;
   /** Null until the agent's first event, and always for a kind that reports no state. An exited session keeps its last. */
   state: AgentState | null;
+  /** The daemon's clock when the session entered `state`, or null where it has none. */
+  stateSince: number | null;
+  /** The text the event that began `state` carried: what the agent last said or what it tells the person, 2000 characters of it at most. Null where the event carried none. */
+  stateText: string | null;
+  /** The name of the tool the event that began `state` asks for. Null where the event named none. */
+  stateTool: string | null;
 }
 
 /**

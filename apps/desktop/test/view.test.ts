@@ -27,11 +27,15 @@ const LOGIN: WorkItem = {
   id: 1,
   title: "Fix the login bug",
   repo: "/r/project",
+  repoName: "project",
   branch: "owlery/fix-the-login-bug",
   worktree: "/w/project/fix-the-login-bug",
   createdAt: 1234,
   baseCommit: null,
+  baseBranch: null,
   newCommits: null,
+  commits: null,
+  changes: null,
 };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
@@ -42,7 +46,7 @@ const KINDS: PaneKindInfo[] = [
 ];
 
 function session(id: number, fields: Partial<SessionInfo> = {}): SessionInfo {
-  return { id, kind: "claude", alive: true, workItemId: 1, state: null, ...fields };
+  return { id, kind: "claude", alive: true, workItemId: 1, state: null, stateSince: null, stateText: null, stateTool: null, ...fields };
 }
 
 function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo {
