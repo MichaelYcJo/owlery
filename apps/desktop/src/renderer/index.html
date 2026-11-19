@@ -86,7 +86,7 @@
       .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 500; }
       .title.changed { color: var(--ink-strong); font-weight: var(--weight-changed); }
       /* The letters of a title or a branch that match what is typed in the search field. */
-      mark { border-radius: var(--space-1); background: var(--mark); box-shadow: 0 0 0 1px var(--mark); color: inherit; }
+      mark { border-radius: var(--radius-mark); background: var(--mark); box-shadow: var(--mark-edge); color: inherit; }
       .count, .age { flex: none; font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
@@ -118,13 +118,13 @@
 
       /* The seal's place. Before a seal it is blank: a disc on a line, and in the preview and a view the seal's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
       .seal { position: relative; flex: none; display: block; box-sizing: border-box; width: var(--seal-size-line); height: var(--seal-size-line); border-radius: 50%; }
-      .seal[data-seal="none"] { background: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep)); box-shadow: inset 0 0 0 1px var(--seal-blank-ring); }
+      .seal[data-seal="none"] { background: var(--seal-blank-ground); box-shadow: var(--seal-blank-edge); }
       .seal.drawn { width: var(--seal-size); height: var(--seal-size); border-radius: 0; }
       .seal.drawn.large { width: var(--seal-size-large); height: var(--seal-size-large); }
       .seal.drawn[data-seal="none"] { background: none; box-shadow: none; filter: var(--seal-blank-light); }
       .seal.drawn[data-seal="none"]::before, .seal.drawn[data-seal="none"]::after { content: ""; position: absolute; inset: 0; -webkit-mask: url("./owl.svg") center / contain no-repeat; mask: url("./owl.svg") center / contain no-repeat; }
       /* The drawing's outline holds the blank's ground, and its light parts, read as a mask laid twice, the owl's tone. */
-      .seal.drawn[data-seal="none"]::before { background: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep)); }
+      .seal.drawn[data-seal="none"]::before { background: var(--seal-blank-ground); }
       .seal.drawn[data-seal="none"]::after { background: var(--seal-blank-owl); -webkit-mask-image: url("./owl.svg"), url("./owl.svg"); mask-image: url("./owl.svg"), url("./owl.svg"); mask-mode: luminance; }
       /* A sealed place shows the wax seal as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size. Nothing sets it before a work item can be sealed. */
       .seal[data-seal="sealed"] { background: url("./owl-icon-cream.svg") center / contain no-repeat; filter: var(--seal-light); }
@@ -182,7 +182,7 @@
       #bell-count { font-weight: 600; color: var(--ink); }
       #bell-count:empty { display: none; }
       /* The dot on the bell where a work item waits, in the strong ink. */
-      #bell.ringing::after { content: ""; position: absolute; left: 14px; top: 3px; width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--ink-strong); box-shadow: 0 0 0 1.5px var(--ground-side); }
+      #bell.ringing::after { content: ""; position: absolute; left: 14px; top: 3px; width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--ink-strong); box-shadow: var(--dot-edge); }
       #repositories { flex: 1; display: flex; flex-direction: column; gap: var(--space-1); min-height: 0; overflow: auto; padding: 0 10px var(--space-4); }
       .repository .fold { gap: var(--space-3); font-weight: 600; }
       .repository .fold svg.icon { width: var(--space-5); height: var(--space-5); color: var(--ink-faint); }
@@ -265,7 +265,7 @@
       /* The tab in front stands on the terminal's ground. */
       #tabs .tab { flex: none; display: flex; align-items: stretch; }
       #tabs .tab:hover { background: var(--hover); transition: background-color var(--motion); }
-      #tabs .tab.active { background: var(--terminal-ground); box-shadow: 1px 0 0 var(--rule), -1px 0 0 var(--rule); }
+      #tabs .tab.active { background: var(--terminal-ground); box-shadow: var(--tab-edge); }
       #tabs .tab .label { max-width: var(--tab-width); padding: 0 var(--space-2) 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #tabs .tab.active .label { color: var(--terminal-strong); font-weight: 600; }
       #tabs .tab .close { padding: 0 var(--space-4) 0 var(--space-2); color: var(--ink-faint); }
@@ -304,7 +304,7 @@
       #headless .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }
 
-      input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-strong); font: inherit; }
+      input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
       input::placeholder { color: var(--ink-faint); }
 
       #work-item-dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }

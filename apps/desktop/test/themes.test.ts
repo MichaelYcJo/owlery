@@ -6,8 +6,8 @@ import { THEMES } from "../src/shared/appearance";
 // The rules of the page's look that hold as text: a theme is one block of
 // src/renderer/themes.css, each theme the window can draw in has one, red
 // stands on the seal alone, a theme changes no measure, and the page names no
-// colour outside a theme. The files are read
-// as text; no case loads the page.
+// colour and writes no shadow, gradient or corner outside a theme. The files
+// are read as text; no case loads the page.
 const renderer = join(__dirname, "..", "src", "renderer");
 const themes = readFileSync(join(renderer, "themes.css"), "utf8");
 const page = readFileSync(join(renderer, "index.html"), "utf8");
@@ -129,6 +129,24 @@ describe("the page", () => {
       return /["'`]#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})["'`]/i.test(text) || [...text.matchAll(FUNCTION)].length > 0;
     });
     expect(inModules).toEqual([]);
+  });
+
+  it("writes no shadow, no light, no gradient and no corner of its own in its style", () => {
+    const { style } = pageParts();
+    const blocks = themeBlocks();
+    const themed = (name: string) => blocks.every(({ properties }) => properties.some(([defined]) => defined === name));
+    // No shadow, no light, no corner and a circle are shapes the same in every theme.
+    const SHAPES = ["none", "0", "50%"];
+    const written = caught(style, /\{([^{}]*)\}/g)
+      .flatMap(declarations)
+      .filter(([name, value]) => {
+        if (value.includes("gradient(")) return true;
+        if (!/(?:^|-)(?:shadow|filter|radius)$/.test(name) || SHAPES.includes(value)) return false;
+        // What is left of the value once the theme's properties are taken out of it is the page's own.
+        return value.replace(/var\((--[a-z0-9-]+)\)/g, (read, property: string) => (themed(property) ? "" : read)).replace(/[\s,]/g, "") !== "";
+      })
+      .map(([name, value]) => `${name}: ${value}`);
+    expect(written).toEqual([]);
   });
 
   it("reads no property that neither its own block nor every theme defines", () => {

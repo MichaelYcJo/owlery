@@ -72,11 +72,13 @@
   --terminal-ink: #d6cfc1;
   --terminal-strong: #f6ecd8;
 
-  /* The seal. Its drawing and the wax's red are the drawing's own; a theme gives the tones of the blank place and the light on each. */
+  /* The seal. Its drawing and the wax's red are the drawing's own; a theme gives the tones of the blank place, its ground and its edge on a line, and the light on each. */
   --seal-blank: #292624;
   --seal-blank-deep: #23201e;
   --seal-blank-ring: #312d2a;
   --seal-blank-owl: #3b3632;
+  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
+  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
@@ -89,6 +91,13 @@
   --card-edge: inset 0 0 0 1px rgba(246, 236, 216, 0.06);
   --backdrop: rgba(0, 0, 0, 0.6);
   --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+
+  /* The edges the page draws as a shadow: a field's, the tab in front's, the bell's dot's and a search's mark's, with the mark's corner. */
+  --field-edge: inset 0 0 0 1px var(--rule);
+  --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --mark-edge: 0 0 0 1px var(--mark);
+  --radius-mark: 2px;
 }
 
 :root[data-theme="letter"] {
@@ -156,6 +165,8 @@
   --seal-blank-deep: #e6dcc6;
   --seal-blank-ring: #f4eddd;
   --seal-blank-owl: #d9ccb2;
+  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
+  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
   --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
@@ -167,4 +178,10 @@
   --card-edge: inset 0 0 0 1px #d6cab2;
   --backdrop: rgba(46, 41, 36, 0.4);
   --dialog-shadow: 0 24px 80px rgba(90, 60, 30, 0.35);
+
+  --field-edge: inset 0 0 0 1px var(--rule);
+  --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --mark-edge: 0 0 0 1px var(--mark);
+  --radius-mark: 2px;
 }
