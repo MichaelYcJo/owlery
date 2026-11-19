@@ -1533,12 +1533,33 @@ describe("OutputBuffer", () => {
     expect(buffer.text()).toBe("cdefghijkl");
   });
 
-  it("drops the rest of a long line at the first line break that follows it", () => {
+  it("drops the rest of a line that had no line break yet at the first line break that follows it", () => {
     const buffer = new OutputBuffer(10);
     buffer.append("abcdef");
     buffer.append("ghijkl");
     buffer.append("\nmn");
     expect(buffer.text()).toBe("mn");
+    // The pieces dropped before the line break's own are counted out as well.
+    buffer.append("opqrstuv");
+    expect(buffer.text()).toBe("mnopqrstuv");
+  });
+
+  it("keeps what the count of characters left where the first line break stands past the first 4,096 characters it keeps", () => {
+    const buffer = new OutputBuffer(8000);
+    buffer.append("a".repeat(8000));
+    // 2,002 characters are over the size, so the line break is the 6,000th character kept, near the start of a long piece.
+    buffer.append(`b\n${"c".repeat(2000)}`);
+    expect(buffer.text()).toBe(`${"a".repeat(5998)}b\n${"c".repeat(2000)}`);
+  });
+
+  it("drops through a line break that is the 4,096th character it keeps, and nothing where it is the 4,097th", () => {
+    const within = new OutputBuffer(5000);
+    // One character is over the size in each buffer.
+    within.append(`${"a".repeat(4096)}\n${"z".repeat(904)}`);
+    expect(within.text()).toBe("z".repeat(904));
+    const past = new OutputBuffer(5000);
+    past.append(`${"a".repeat(4097)}\n${"z".repeat(903)}`);
+    expect(past.text()).toBe(`${"a".repeat(4096)}\n${"z".repeat(903)}`);
   });
 });
 

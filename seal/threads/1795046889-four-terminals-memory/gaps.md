@@ -24,6 +24,6 @@ The measurement prints the date and the versions of macOS, Electron and xterm.js
 
 A launch that is thrown away is not made again by the tool. The run fails, and whoever ran it runs it again.
 
-The cut at a line's start searches every kept piece of output for a line break on each append while the kept output holds none. Phase 2 measured 29 microseconds an append for pieces of 64 characters at 256K characters kept, and built nothing to lower it: a pane that prints 256K characters without one line break was not met.
+The cut at a line's start reads at most the first 4,096 characters kept for a line break, on each append that drops output (`apps/desktop/src/daemon/buffer.ts#dropLineRest`, the bound of `frame/design.md` *Scope* item 5). Phase 2 measured 29 microseconds an append for pieces of 64 characters where the search read all 256K characters kept. The bounded search was not timed: it reads at most 4,096 characters whatever is kept.
 
 A launch fails where `footprint` gave no number for any process of the app (`apps/desktop/test/memory.ts#unread`, round 1's finding 1), and no process of the app is let off. A helper that Chromium starts and ends between the read of `ps` and the read of `footprint` would fail a launch that way. No launch has been made since the rule, so nobody has seen whether one does. The by-kind rows of phase 1's three kept launches hold the same five kinds (`trail/phases/phase-1.md`).
