@@ -40,7 +40,7 @@ Both phases start from this branch as it stands, rebased onto `release/v0.0.1` a
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 4, inside the limits of items 10 and 11 | Scenarios 2, 3, 5, 6 and 13 executed; scenarios 1 and 4 in one drive of the built app. No case: `frame/design.md` *Grounding*, the bullet on the main process | |
+| 1 | `frame/design.md` *Scope* items 1 to 4, inside the limits of items 10 and 11 | Scenarios 2, 3, 5, 6 and 13 executed; scenarios 1 and 4 in one drive of the built app. No case: `frame/design.md` *Grounding*, the bullet on the main process | `7f85f41` |
 | 2 | *Scope* items 5 to 8, and the first three rows of `## Removes` | Scenario 7 read; scenario 8 executed once; scenarios 9, 10 and 11 executed | |
 
 *Scope* item 9 is built by no phase: its operations stand in `frame/design.md` *Rule changes*, and scenario 12 is the reviewer's reading. Phase 2's commit that adds `changelog.md` carries no version move (*Operational impact*). `gaps.md` *Not done* names the simpler drawing, as *Scope* item 12 states, unless the owner has answered `frame/questions.md` Q4 by then.
