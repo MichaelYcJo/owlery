@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<defs><linearGradient id="g-B" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1a1a"/><stop offset="1" stop-color="#050505"/></linearGradient>
+<clipPath id="c-B"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath></defs>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#g-B)"/>
+<rect x="100.5" y="100.5" width="823" height="823" rx="185" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+<defs><mask id="mB" maskUnits="userSpaceOnUse" x="0" y="0" width="1200" height="1200"><rect width="1200" height="1200" fill="black"/>
+<path d="M 600 452 C 682 452 734 492 734 550 C 734 592 716 606 717 626 C 718 648 730 664 730 696 C 730 744 668 770 600 770 C 532 770 470 744 470 696 C 470 664 482 648 483 626 C 484 606 466 592 466 550 C 466 492 518 452 600 452 Z" fill="white"/><path d="M 446 786 L 754 786" stroke="white" stroke-width="28" stroke-linecap="round"/>
+<path d="M 498 782 C 474 738 440 726 414 732 C 430 764 466 782 498 782 Z" fill="white"/><path d="M 702 782 C 726 738 760 726 786 732 C 770 764 734 782 702 782 Z" fill="white"/>
+<path d="M 520 768 L 680 768" stroke="black" stroke-width="12"/>
+<circle cx="546" cy="548" r="48" fill="none" stroke="black" stroke-width="24"/><circle cx="546" cy="548" r="25" fill="black"/>
+<circle cx="654" cy="548" r="48" fill="none" stroke="black" stroke-width="24"/><circle cx="654" cy="548" r="25" fill="black"/>
+<path d="M 600 590 C 626 596 628 620 600 652 C 572 620 574 596 600 590 Z" fill="black"/>
+
+
+</mask></defs><g transform="translate(512 540) scale(1.55) translate(-600 -621)"><rect width="1200" height="1200" fill="#f3efe6" mask="url(#mB)"/></g>
+</svg>
