@@ -90,6 +90,11 @@ Why it matters: the fold at `2e20c88` changed the row's end from `are gone | |` 
 | 1 | `frame/design.md` *Scope* item 6, for the scenarios `inbox`, `one` and `eight-in-turn`, on the window as it stands; their tables go into the phase record as the numbers before this work | Scenario 15, the parsing of `footprint`'s output and the split of the app's processes from the panes' as cases, each seen red before its code; scenario 16 executed; the measurement executed for those scenarios at the phase's commit; one sample's sum read against `footprint` run by hand on the same process ids; after the run, `ps` shows no process the measurement started and its folders are gone | `aeaa1e0` |
 ```
 
+```seal
+verdict: fixed 8f8daea
+answer: The finding holds. The orchestrator wrote the *Phases* row 1 Status cell as the fourth cell, `aeaa1e0`, so the row has the header's four cells.
+```
+
 ## Confirmations
 
 What matched: scenario 16. Claimed in `trail/phases/phase-1.md:60`: 25 cases ran and 9 launches were skipped, with no process of the app. This round ran `env -u OWLERY_MEASURE_MEMORY -u OWLERY_MEMORY_RUNS -u OWLERY_MEMORY_SCENARIOS node scripts/test-in-electron.mjs test/memory.test.ts` from `apps/desktop`. It exited 0 with 25 passed and 9 skipped. Six `pgrep` polls during the run, for the app's main process, `dist/daemon.js` and `printer.sh`, found nothing. `executed`.
