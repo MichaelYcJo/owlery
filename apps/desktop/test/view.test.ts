@@ -491,16 +491,7 @@ describe("screenMoves", () => {
 });
 
 describe("replayStep", () => {
-  it("writes the replay the window asked for, and the output after it", () => {
-    expect(replayStep(1, "replay")).toEqual({ awaited: 0, write: true });
-    expect(replayStep(0, "output")).toEqual({ awaited: 0, write: true });
-  });
-
-  it("drops output that arrives before the replay, which holds it", () => {
-    expect(replayStep(1, "output")).toEqual({ awaited: 1, write: false });
-  });
-
-  it("writes the last of two replays alone where a pane was attached, detached and attached again before either arrived", () => {
+  it("drops output that arrives before the last replay asked for, writes that replay alone, and writes the output after it, where a pane was attached, detached and attached again before either replay arrived", () => {
     const first = replayStep(2, "replay");
     expect(first).toEqual({ awaited: 1, write: false });
     const between = replayStep(first.awaited, "output");
