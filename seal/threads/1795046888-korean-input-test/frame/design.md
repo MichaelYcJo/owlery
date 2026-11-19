@@ -97,7 +97,7 @@ What the reading and the probes gave. Each fact is labelled as it was got.
    - It starts the app through the helper the case uses and opens the same pane. It asks the helper to leave `OWLERY_BACKGROUND` as the command's own environment has it, so a person's run opens the app as it ships, with the keyboard. An agent that starts `korean:typed` to verify it sets the variable to `1` in the command's environment. It shows one line at a time, the text and its keys, in a bar it puts over the window through the debugging port, and the person types the line into the pane and presses Enter.
    - It compares the receiver's bytes with the line's by itself. A line whose bytes differ is shown once more, since a slip of the hand is no regression. A second difference fails the line.
    - It ends by itself after the last line, prints each line's verdict, and exits 0 only where every line matched.
-   - It does not set focus emulation: the person's click gives the pane the keyboard.
+   - It sets focus emulation while it fills the "New work item" form, because a window started under `OWLERY_BACKGROUND=1` has no focus and the form would not take the keys, and turns it off before the first line: from then on the person's click gives the pane the keyboard.
 10. **The typed run records what the typing produced.** While the person types, it records the keydown, keyup, composition and input events on the pane's textarea, in order. It turns each line's record into steps and replays them at once in the same pane. The replay keeps the pace `apps/desktop/test/korean-pane.ts#Typing.replay` has: it waits after a key's release and before a key's press, and never between a key's press and its release. Phase 1 measured that this difference decides the bytes where Enter's keydown comes before the last commit (`## Grounding`).
     - Where the replay delivers the line's bytes, the fixture's line takes the recorded steps and `source: "typed"`.
     - Where the replay differs although the typing matched, the line keeps its steps, and the fixture's `typedRun` names it under `replayDiffers` with the bytes the replay gave. That is a limit of the debugging port and not a failure of the typed run.
@@ -151,11 +151,11 @@ No protocol or schema of the app changes. The app's main process gains the switc
 |---|---|
 | `apps/desktop/src/main/background.ts` | The function that reads `OWLERY_BACKGROUND` from an environment |
 | `apps/desktop/test/background.test.ts` | The case of scenario 9 |
-| `apps/desktop/test/korean-input.test.ts` | The cases of scenarios 1 to 4, 6, 8 and 10, and the typed run, which runs only where `OWLERY_KOREAN_TYPED` is `1` |
+| `apps/desktop/test/korean-input.test.ts` | The cases of scenarios 1 to 4, 6, 8 and 10, the cases of the typed run's verdict functions and of `endNow`, which start no app, and the typed run, which runs only where `OWLERY_KOREAN_TYPED` is `1` |
 | `apps/desktop/test/fixtures/korean-input.json` | The lines and, once a person typed, `typedRun` |
 | `apps/desktop/test/fixtures/receiver.sh` | The pane's process of *Scope* item 3 |
 | `apps/desktop/test/built-app.ts` | Building, starting and stopping the app, with the switch set, and the debugging port's session. It names nothing Korean, so another work item's case or measurement can start the app through it |
-| `apps/desktop/test/korean-pane.ts` | Opening the receiver's pane, the steps, the replay and, from phase 2, the recorder |
+| `apps/desktop/test/korean-pane.ts` | Opening the receiver's pane, the steps, the replay and, from phase 2, the recorder and the typed run's helpers: `stepsOf`, `typedTwice`, `fixtureAfter`, `formatFixture`, `verdicts`, `versions`, `barText`, `showBar` and `withEnter` |
 
 `apps/desktop/package.json` gains the script `korean:typed`, which sets `OWLERY_KOREAN_TYPED=1` and runs that one test file through `scripts/test-in-electron.mjs`.
 
@@ -174,7 +174,7 @@ No protocol or schema of the app changes. The app's main process gains the switc
 | `할` | g k s Backspace f | Backspace inside a composition removes one consonant and sends nothing |
 | `안녕하세요 반갑습니다` | d k s s u d g k t p d y Space q k s r k q t m q s l e k | A whole sentence, with a space inside it |
 
-Every line ends with Enter, which the case and the typed run add.
+Every line ends with Enter. A line of `source: "assumed"` holds no Enter in its steps, and the case adds it (`withEnter`). A line of `source: "typed"` holds the person's Enter in its steps where the recorder saw it, so the order of Enter and the last syllable's commit, which `frame/questions.md` Q1 asks about, stays in the record.
 
 **The steps.** One step is one call of the debugging port. A recorded event becomes the step on its row.
 
