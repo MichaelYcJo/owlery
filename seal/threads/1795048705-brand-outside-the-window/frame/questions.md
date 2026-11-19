@@ -1,0 +1,30 @@
+# Questions for the planner: the brand outside the window
+
+Judgments the ticket (#21) left open that the tree answered. None is a question any more.
+
+- How the Dock's image is drawn from the emblem, and why the Dock takes one drawing: `frame/plan.md` *Alternatives considered*, the rows from the first to the one on an `.icns` committed now.
+- Where the emblem's drawings stand in the tree: `frame/plan.md` *Alternatives considered*, the row on `assets/seals/`.
+- Whether the tree's small owl can stand in for the canvas's files: `frame/design.md` *Grounding*, the bullet on the outline.
+- Whether this work touches the seal's drawings: `frame/design.md` *Scope* item 10.
+- Where the command that draws the PNG lives: `frame/plan.md` *Alternatives considered*, the row on a script of `package.json`.
+- What "the built app" is: `frame/design.md` *Grounding*, the row of `docs/roadmap.md`.
+- Whether the app has a window icon: `frame/design.md` *Grounding*, the bullet on `app.dock.setIcon`.
+- Whether `docs/name.md` changes in this pull request or at the settle: `frame/plan.md` *Alternatives considered*, the row on editing `docs/name.md`.
+- What the issue's sentence on "the build order" asks for: `frame/design.md` *Grounding*, the bullet on the *Documents* table.
+- What the brand's one-line description says: `frame/design.md` *Grounding*, the row of `docs/product.md` *What we promise*.
+- Whether the emblem follows the window's themes: `frame/design.md` *Scope* item 11.
+- Whether the README keeps its structure: `frame/plan.md` *Alternatives considered*, the row on replacing it.
+
+These assumptions are written down and not asked, because either answer of each changes a line or two of the build:
+
+- The emblem stands 200 pixels wide, centred, above the title of each README.
+- The new section is named "Run it", and "실행" in the Korean edition.
+- The READMEs name the Node.js version the builder ran the commands with, and no minimum.
+- The owner reads the READMEs' sentences at the pull request, as `routing.md` says of their voice.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | Does the name "Owlery" stay? The tree cannot answer it and no probe can: the issue leaves it to the owner, to decide with the design study in hand, and it is a decision about what the product is called. | a person | It stays: the work is as framed, and the two `add` operations of `frame/design.md` *Rule changes* record it in `docs/name.md` at the settle. It changes: this work item is reframed. The new name goes into both READMEs, `TRADEMARKS.md`, the window's title, and the packages' names; `docs/name.md` is rewritten whole, in a work item whose subject is that document; the trademark search of its *What to keep in mind* comes first; and the repository's own name and the folder the app keeps its data in are decided with it. | The name stays. Both phases build on it, and the two `add` operations of `frame/design.md` *Rule changes* carry the owner's decision and its date. | answered 2026-11-19 by the owner: the name stays |
+| Q2 | Is the app's icon the wax seal alone on a transparent ground, or the seal on a tile? The tree cannot answer it and no probe can: the look of the icon is the owner's to judge (`routing.md`, *Automation*), and no document of the tree draws it. | a person | The seal alone: the icon is the wax seal and nothing else. The seal on a rounded tile: the icon has the outline of its neighbours. The owner took neither on 2026-11-19 and chose a third: a warm white owl on a black rounded square, with no seal and no red (`frame/design.md` *Grounding*, the decision's bullets). | The owner's choice. Phase 1 builds it (`frame/design.md` *Scope* items 1 to 3). | answered 2026-11-19 by the owner: a warm white owl on a black rounded square, neither option |
+| Q3 | Does the macOS Dock draw the image `app.dock.setIcon` is given as it is, and can the builder see it? The first frame's probe did not answer it: it captured the main display, which holds no Dock. | a measurement | The reframe's probe of 2026-11-19 measured both: the Dock drew the image with no backing of its own, and a capture of every display showed the tile (`frame/design.md` *Grounding*, the bullet on the Dock). What stays for phase 1 is the built app's own tile, which scenario 1 reads by the same capture. | Scenario 1 of `frame/design.md`, with `gaps.md` *Not verified* and the owner as the answerer where no capture shows the Dock. | answered 2026-11-19 by the reframe's probe |
+| Q4 | Where does the simpler drawing, the one for 32 pixels and under, show in release 0.0.1? The issue's first *Done when* line says the built app shows it at those sizes. The tree cannot make that true and no further probe can: the app runs as `electron .`, the Dock takes one image and draws it at every size, a probe showed that an image holding both drawings makes the Dock draw the wrong one, and Electron loads no `.icns` at run time (`frame/design.md` *Grounding*, the three bullets on the Dock, the three representations and `.icns`). macOS picks a drawing by size only from the icon file of a packaged app, and whether a release below 0.1.0 is packaged is an open row of `docs/roadmap.md`. | a person | Nowhere until the app is packaged: this work commits the simpler drawing and names its sizes in `TRADEMARKS.md`, the second half of the *Done when* line goes to `gaps.md` *Not done*, and the work that packages the app draws it into the icon file. Package the app in this work item: the frame is drawn again with a packager as a new dependency, an `.icns` built from the two drawings, the app's name in the menu bar and the Dock, and a decision on signing, and "the built app" then means the packaged one in every scenario. | Nowhere until the app is packaged. Phase 1 builds on it (`frame/design.md` *Scope* item 12, its first sub-item). | answered 2026-11-19 by the owner's earlier decision that packaging belongs to v0.1 ("dmg 패키징은 0.1로 정한거였고"): option (1), nowhere until the app is packaged |
