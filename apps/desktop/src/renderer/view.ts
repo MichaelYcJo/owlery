@@ -518,20 +518,19 @@ export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; al
 }
 
 /**
- * The tabs of a work item's view, in the order of the panes' ids: its panes
- * whose process runs, and those whose terminal this window holds, `held`
- * being their ids. An exited pane the window holds keeps its tab and its last
- * screen until it is closed; one it does not hold has nothing to show.
+ * The tabs of a work item's view: its panes as the daemon lists them, whether
+ * their process runs or has exited, in the order of their ids. An exited
+ * pane keeps its tab until it is closed, and the daemon keeps its last output.
  */
-export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[], held: ReadonlySet<number>): SessionInfo[] {
-  return sessions.filter((session) => session.workItemId === workItem.id && (session.alive || held.has(session.id))).sort((a, b) => a.id - b.id);
+export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
+  return sessions.filter((session) => session.workItemId === workItem.id).sort((a, b) => a.id - b.id);
 }
 
 /**
  * The pane in front when a view shows `tabs`: the one that was `last` in
- * front in that view where it is still a tab, and otherwise the most recent
- * live pane, or the most recent tab where none is alive. Nothing where there
- * is no tab.
+ * front in that view where it is still a tab, and otherwise the live pane
+ * with the highest id, or the tab with the highest id where none is alive.
+ * Nothing where there is no tab.
  */
 export function paneInFront(tabs: readonly SessionInfo[], last: number | undefined): number | undefined {
   if (tabs.some((tab) => tab.id === last)) return last;
@@ -539,10 +538,176 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
   return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
 }
 
+/** The most panes a work item's view shows at once: the count the 500 MB target is measured at (docs/architecture.md, Memory design). */
+export const STAGE_PANES = 4;
+
+/**
+ * The panes on the stage of a view that shows `tabs`, in the tabs' order,
+ * and the one of them in front, which has the keyboard. `recent` is the panes
+ * that were in front in that view, the most recent first. The view's stage
+ * order is the panes of `recent` that are still tabs, in that order, and
+ * then the tabs that are not in `recent`, which were never in front, the
+ * highest id first. The pane in front is `paneInFront`'s for the first of
+ * `recent`. Where "Side by side" is not pressed, it is alone on the stage.
+ * Where it is pressed, the stage holds up to `STAGE_PANES` panes: the one in
+ * front, then the panes of the stage order. A pressed tab is the first of
+ * `recent`, so it takes the place of the shown pane last in the stage order.
+ * A closed pane that `recentKept` left first takes no place: the stage holds
+ * the first `STAGE_PANES` panes of the stage order, and the pane in front is
+ * `paneInFront`'s among them. Where fewer than `STAGE_PANES` of the tabs
+ * were in front, tabs never in front are among them, and one of those can
+ * be the pane in front.
+ */
+export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean): { front: number | undefined; shown: number[] } {
+  const ids = tabs.map((tab) => tab.id);
+  const never = ids.filter((id) => !recent.includes(id)).sort((a, b) => b - a);
+  // A set keeps each pane at the first place it is named.
+  const byRecency = [...new Set([...recent.filter((id) => ids.includes(id)), ...never])];
+  const closedFirst = sideBySide && recent.length > 0 && !ids.includes(recent[0] as number);
+  const candidates = closedFirst ? tabs.filter((tab) => byRecency.slice(0, STAGE_PANES).includes(tab.id)) : tabs;
+  const front = paneInFront(candidates, recent[0]);
+  if (front === undefined) return { front, shown: [] };
+  if (!sideBySide) return { front, shown: [front] };
+  const top = [...new Set([front, ...byRecency])].slice(0, STAGE_PANES);
+  return { front, shown: ids.filter((id) => top.includes(id)) };
+}
+
+/**
+ * The panes that were in front in a view, the most recent first, once the
+ * daemon lists only `listed`. A pane it no longer lists leaves, except the
+ * first one: that one stays as the pane last in front, so `paneInFront`
+ * finds it is no tab and gives the live pane with the highest id, which
+ * `stageOf` takes from the first `STAGE_PANES` panes of its stage order
+ * where "Side by side" is pressed, tabs never in front among them where
+ * fewer of the tabs were in front, or the one of those panes with the
+ * highest id where none of them runs. Were it taken out, the pane in front
+ * before it would come in front, an exited one included.
+ */
+export function recentKept(recent: readonly number[], listed: ReadonlySet<number>): number[] {
+  return recent.filter((pane, place) => place === 0 || listed.has(pane));
+}
+
+/** Whether the window tells a pane's process the size of the pane's screen: only where the daemon lists the pane with its process running. The pseudo-terminal of a process that exited is closed, and a daemon built before it ignored such a size failed on it. */
+export function tellsSize(sessions: readonly SessionInfo[], pane: number): boolean {
+  return sessions.some((session) => session.id === pane && session.alive);
+}
+
+/** A screen of the pool, by its place there, and a pane. */
+export interface ScreenAndPane {
+  screen: number;
+  pane: number;
+}
+
+/**
+ * What the pool of terminal screens does when the stage shows `stage`,
+ * `holds` being the pane each screen holds now, or nothing for a free one. A
+ * pane that stays on the stage keeps its screen. The screen of a pane that
+ * left is given back, `back`. A pane that comes on takes the first free
+ * screen, one given back here among them, and only where none is free a new
+ * one, whose place is one past the pool's end, `taken`. `holds` is the pool
+ * after both.
+ */
+export function screenMoves(holds: readonly (number | undefined)[], stage: readonly number[]): { holds: (number | undefined)[]; back: ScreenAndPane[]; taken: ScreenAndPane[] } {
+  const after = holds.map((pane) => (pane !== undefined && stage.includes(pane) ? pane : undefined));
+  const back = holds.flatMap((pane, screen) => (pane !== undefined && after[screen] === undefined ? [{ screen, pane }] : []));
+  const taken: ScreenAndPane[] = [];
+  for (const pane of stage) {
+    if (after.includes(pane)) continue;
+    const free = after.indexOf(undefined);
+    const screen = free === -1 ? after.length : free;
+    after[screen] = pane;
+    taken.push({ screen, pane });
+  }
+  return { holds: after, back, taken };
+}
+
+/**
+ * What the window does with a `replay` or an `output` of a pane, `awaited`
+ * being the replays it asked for with an `attach` and has not received: the
+ * count after the message, and whether the message is written into the
+ * pane's screen. The last replay asked for is written and no other, since it
+ * holds what the earlier ones held. Output before it is dropped, since the
+ * replay holds that too.
+ */
+export function replayStep(awaited: number, kind: "replay" | "output"): { awaited: number; write: boolean } {
+  if (kind === "output") return { awaited, write: awaited === 0 };
+  return { awaited: Math.max(0, awaited - 1), write: awaited === 1 };
+}
+
+/** What a screen's turns need of its terminal: a piece it is handed is drawn later, in the order the pieces were handed, and `drawn` runs once the terminal has drawn that piece. */
+export interface TerminalWrites {
+  write(data: string, drawn?: () => void): void;
+}
+
+/** Whose a terminal screen is: the pane on it, and the pane that what its terminal hands the window goes to. */
+export interface ScreenTurns {
+  /** The pane on the screen, or nothing while the screen is free. */
+  readonly pane: number | undefined;
+  /** Puts `pane` on the screen. */
+  take(pane: number): void;
+  /** Takes the screen back from the pane on it, and empties the terminal after what it has still to draw. */
+  giveBack(): void;
+  /** Hands the terminal what the pane on the screen printed. Where `answered` is false, nothing is sent until the terminal has drawn it. */
+  write(data: string, answered: boolean): void;
+  /** The pane that what the terminal hands the window now goes to, or nothing where it is sent to nobody. */
+  receiver(): number | undefined;
+}
+
+/**
+ * The turns of the panes on one terminal screen, kept in the order of the
+ * terminal's writes. A terminal hands the window what a person types and
+ * what it answers a program's question with through one path. A person's
+ * keys arrive at once. An answer arrives when the terminal draws the
+ * question, which can be after the screen passed to another pane. So nothing
+ * is sent until the terminal has drawn everything it was handed before the
+ * pane on the screen took it, and what a person types in that span is not
+ * sent either. Nothing is sent while the terminal draws a piece written
+ * with `answered` false, and nothing from a free screen.
+ */
+export function screenTurns(term: TerminalWrites): ScreenTurns {
+  let pane: number | undefined;
+  // The turns the screen has had, and the turn whose output the terminal has reached.
+  let turn = 0;
+  let reached = 0;
+  // The pieces the terminal is drawing whose answers are not sent.
+  let muted = 0;
+  return {
+    get pane() {
+      return pane;
+    },
+    take(next) {
+      pane = next;
+      turn += 1;
+      const taken = turn;
+      // An empty piece is drawn in its place among the others, so its callback runs once the terminal has drawn everything handed to it before this turn.
+      term.write("", () => {
+        reached = taken;
+      });
+    },
+    giveBack() {
+      pane = undefined;
+      // The reset is handed to the terminal as output is, so what it has still to draw of the pane that leaves is drawn before the reset and not into the next pane's screen.
+      term.write("\u001bc");
+    },
+    write(data, answered) {
+      if (answered) {
+        term.write(data);
+        return;
+      }
+      muted += 1;
+      term.write(data, () => {
+        muted -= 1;
+      });
+    },
+    receiver: () => (reached === turn && muted === 0 ? pane : undefined),
+  };
+}
+
 /**
  * The notification for a session whose state was `previous`, or null where
  * none is shown: one is shown when the state becomes waiting or finished, and
- * never for the pane in front of a focused window, which the person is looking at.
+ * never where `inFront` holds: the pane is on the stage of a focused window,
+ * so the person is looking at it, whether or not it has the keyboard.
  */
 export function notificationFor(
   previous: AgentState | null,

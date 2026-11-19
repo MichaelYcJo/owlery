@@ -200,6 +200,70 @@ describe("sessions", () => {
     expect(bystander.messages.filter((m) => m.type === "output")).toEqual([]);
   });
 
+  it("sends a client that detached no further output of the session while the other client still receives it, and after its next attach a replay of what was printed meanwhile and the output after it", async () => {
+    // The pane answers each line it is sent, so the case decides when it prints.
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
+    const stays = await client(url);
+    await stays.message("ready");
+    stays.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await stays.message("started");
+    const leaves = await client(url);
+    await leaves.message("ready");
+    leaves.send({ type: "attach", id: session.id });
+    await leaves.message("replay");
+    const printed = (c: { messages: ServerMessage[] }, text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
+    leaves.send({ type: "input", id: session.id, data: "one\n" });
+    for (const each of [stays, leaves]) await each.until(() => printed(each, "got-one."));
+
+    // The daemon handles one client's messages in the order they arrive, so the line is sent after the detach.
+    leaves.send({ type: "detach", id: session.id });
+    leaves.send({ type: "input", id: session.id, data: "two\n" });
+    await stays.until(() => printed(stays, "got-two."));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(leaves.messages.filter((m) => m.type === "output" && m.data.includes("two"))).toEqual([]);
+
+    leaves.send({ type: "attach", id: session.id });
+    const replay = await leaves.message("replay", (m) => m.data.includes("got-one."));
+    expect(replay.data).toContain("got-two.");
+    leaves.send({ type: "input", id: session.id, data: "three\n" });
+    await leaves.until(() => printed(leaves, "got-three."));
+  });
+
+  it("ends a session's output with the exit line, on a line of its own: sent to the clients that receive the session, and last in a later replay", async () => {
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf last; exit 3"], env: {} }) });
+    const opener = await client(url);
+    await opener.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await opener.message("started");
+    await opener.message("exit");
+    const sent = opener.messages.flatMap((m) => (m.type === "output" && m.id === session.id ? [m.data] : [])).join("");
+    expect(sent).toBe("last\r\n[process exited with code 3]\r\n");
+    // The line is the session's output, so a client that does not receive the session is not sent it.
+    expect(bystander.messages.filter((m) => m.type === "output")).toEqual([]);
+    // It is sent before the `exit` it follows from, so a client draws it before it learns of the end.
+    expect(opener.messages.findIndex((m) => m.type === "output" && m.data.includes("[process exited with code 3]"))).toBeLessThan(opener.messages.findIndex((m) => m.type === "exit"));
+
+    const later = await client(url);
+    await later.message("ready");
+    later.send({ type: "attach", id: session.id });
+    expect((await later.message("replay")).data).toBe("last\r\n[process exited with code 3]\r\n");
+  });
+
+  it("takes a size sent for a session whose process exited, changes nothing, and goes on answering", async () => {
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await c.message("started");
+    await c.message("exit");
+    // A window that shows an exited pane fits its screen and tells the size, as it does for a live one. The pseudo-terminal is closed by then.
+    c.send({ type: "resize", id: session.id, cols: 100, rows: 30 });
+    c.send({ type: "attach", id: session.id });
+    expect((await c.message("replay")).data).toBe("\r\n[process exited with code 3]\r\n");
+  });
+
   it("tells every client when a session ends, and lists it as ended", async () => {
     const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
     const c = await client(url);
@@ -797,9 +861,10 @@ describe("the inbox", () => {
       }
     });
     expect((await (await client(url)).message("ready")).sessions).toEqual([kept]);
-    // The pane is gone from the lists, so nothing says later that it ended.
+    // The pane is gone from the lists, so nothing says later that it ended: no `exit`, and no exit line in its output.
     await pause(200);
     expect(c.messages.filter((m) => m.type === "exit")).toEqual([]);
+    expect(c.messages.filter((m) => m.type === "output" && m.data.includes("process exited"))).toEqual([]);
     expect(inboxes(c).at(-1)?.sessions).toEqual([kept]);
   });
 
@@ -1442,11 +1507,72 @@ describe("idle exit", () => {
 });
 
 describe("OutputBuffer", () => {
-  it("keeps the most recent output up to its size", () => {
+  it("keeps all of the output while it is within its size", () => {
+    const buffer = new OutputBuffer(10);
+    buffer.append("ab\ncd");
+    buffer.append("ef\n");
+    expect(buffer.text()).toBe("ab\ncdef\n");
+  });
+
+  it("opens at the first character after a line break once it dropped old output, so at no escape sequence's middle", () => {
+    const buffer = new OutputBuffer(16);
+    buffer.append("one\r\n\u001b[31mtwo\u001b[0m\r\n");
+    // The first piece is already over the size and loses its first line. The second puts the cut inside `\u001b[0m`, the colour sequence that closes the line `two`.
+    buffer.append("three\r\nfour");
+    expect(buffer.text()).toBe("three\r\nfour");
+  });
+
+  it("keeps a line whole where the cut falls at its start, between two pieces of output or inside one", () => {
+    const between = new OutputBuffer(6);
+    between.append("abc\n");
+    between.append("def\ngh");
+    expect(between.text()).toBe("def\ngh");
+    const inside = new OutputBuffer(5);
+    inside.append("abc\nde\nfg");
+    expect(inside.text()).toBe("de\nfg");
+  });
+
+  it("counts what it keeps after it dropped a line's rest, so later output is cut at its size again", () => {
+    const buffer = new OutputBuffer(8);
+    buffer.append("abcdef\ngh\nij");
+    buffer.append("klmnop");
+    expect(buffer.text()).toBe("ijklmnop");
+  });
+
+  it("cuts at the count of characters where what it keeps holds no line break", () => {
     const buffer = new OutputBuffer(10);
     buffer.append("abcdef");
     buffer.append("ghijkl");
     expect(buffer.text()).toBe("cdefghijkl");
+  });
+
+  it("drops the rest of a line that had no line break yet at the first line break that follows it", () => {
+    const buffer = new OutputBuffer(10);
+    buffer.append("abcdef");
+    buffer.append("ghijkl");
+    buffer.append("\nmn");
+    expect(buffer.text()).toBe("mn");
+    // The pieces dropped before the line break's own are counted out as well.
+    buffer.append("opqrstuv");
+    expect(buffer.text()).toBe("mnopqrstuv");
+  });
+
+  it("keeps what the count of characters left where the first line break stands past the first 4,096 characters it keeps", () => {
+    const buffer = new OutputBuffer(8000);
+    buffer.append("a".repeat(8000));
+    // 2,002 characters are over the size, so the line break is the 6,000th character kept, near the start of a long piece.
+    buffer.append(`b\n${"c".repeat(2000)}`);
+    expect(buffer.text()).toBe(`${"a".repeat(5998)}b\n${"c".repeat(2000)}`);
+  });
+
+  it("drops through a line break that is the 4,096th character it keeps, and nothing where it is the 4,097th", () => {
+    const within = new OutputBuffer(5000);
+    // One character is over the size in each buffer.
+    within.append(`${"a".repeat(4096)}\n${"z".repeat(904)}`);
+    expect(within.text()).toBe("z".repeat(904));
+    const past = new OutputBuffer(5000);
+    past.append(`${"a".repeat(4097)}\n${"z".repeat(903)}`);
+    expect(past.text()).toBe(`${"a".repeat(4096)}\n${"z".repeat(903)}`);
   });
 });
 

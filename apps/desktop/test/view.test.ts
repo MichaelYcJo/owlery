@@ -33,8 +33,13 @@ import {
   notificationFor,
   paneInFront,
   paneTabs,
+  recentKept,
+  replayStep,
+  screenMoves,
+  screenTurns,
   selectedLine,
   sidebarTree,
+  stageOf,
   stateHeading,
   stateSays,
   stateWithAge,
@@ -43,6 +48,7 @@ import {
   summaryHead,
   summarySentence,
   tabLabel,
+  tellsSize,
   viewFacts,
   withHeadless,
   workItemEntries,
@@ -418,22 +424,22 @@ describe("paneTabs", () => {
 
   it("gives the work item's live panes, of whatever kind, in the order of their ids", () => {
     const sessions = [session(6, { kind: "shell" }), session(2), session(4)];
-    expect(ids(paneTabs(LOGIN, sessions, new Set()))).toEqual([2, 4, 6]);
+    expect(ids(paneTabs(LOGIN, sessions))).toEqual([2, 4, 6]);
   });
 
-  it("gives no tab for another work item's pane or a pane without a work item, even one the window holds a terminal for", () => {
+  it("gives no tab for another work item's pane or a pane without a work item", () => {
     const sessions = [session(2), session(9, { workItemId: 2 }), session(4, { workItemId: null })];
-    expect(ids(paneTabs(LOGIN, sessions, new Set([9, 4])))).toEqual([2]);
+    expect(ids(paneTabs(LOGIN, sessions))).toEqual([2]);
   });
 
-  it("keeps the tab of an exited pane whose terminal the window holds, and gives none for one it does not hold", () => {
-    const sessions = [session(2, { alive: false }), session(3, { alive: false }), session(5)];
-    expect(ids(paneTabs(LOGIN, sessions, new Set([3])))).toEqual([3, 5]);
+  it("gives an exited pane its tab for as long as the daemon lists it, whatever the window holds", () => {
+    const sessions = [session(5), session(3, { alive: false }), session(2, { alive: false })];
+    expect(ids(paneTabs(LOGIN, sessions))).toEqual([2, 3, 5]);
   });
 
   it("gives no tab where the work item has no pane, so opening its view starts none", () => {
-    expect(paneTabs(LOGIN, [session(3, { workItemId: 2 })], new Set())).toEqual([]);
-    expect(paneTabs(LOGIN, [], new Set())).toEqual([]);
+    expect(paneTabs(LOGIN, [session(3, { workItemId: 2 })])).toEqual([]);
+    expect(paneTabs(LOGIN, [])).toEqual([]);
   });
 });
 
@@ -443,19 +449,258 @@ describe("paneInFront", () => {
     expect(paneInFront([session(2, { alive: false }), session(6)], 2)).toBe(2);
   });
 
-  it("gives the most recent live pane where the one last in front is no longer a tab, or none was", () => {
+  it("gives the live pane with the highest id where the one last in front is no longer a tab, or none was", () => {
     const tabs = [session(2), session(6), session(7, { alive: false })];
     expect(paneInFront(tabs, 9)).toBe(6);
     expect(paneInFront(tabs, undefined)).toBe(6);
   });
 
-  it("gives the most recent tab where none is alive", () => {
+  it("gives the tab with the highest id where none is alive", () => {
     expect(paneInFront([session(2, { alive: false }), session(3, { alive: false })], undefined)).toBe(3);
   });
 
   it("gives nothing where there is no tab", () => {
     expect(paneInFront([], 4)).toBeUndefined();
     expect(paneInFront([], undefined)).toBeUndefined();
+  });
+});
+
+describe("stageOf", () => {
+  const six = [session(1), session(2), session(3), session(4), session(5), session(6)];
+
+  it("puts the pane in front alone on the stage where \"Side by side\" is not pressed, and nothing where the view has no tab", () => {
+    expect(stageOf([session(2), session(4), session(6)], [4, 6], false)).toEqual({ front: 4, shown: [4] });
+    // Pane 9 was in front and is closed, so the live pane of the view with the highest id follows it, whichever were in front before.
+    expect(stageOf(six, [9, 2, 1, 3, 4], false)).toEqual({ front: 6, shown: [6] });
+    expect(stageOf([], [4], false)).toEqual({ front: undefined, shown: [] });
+    expect(stageOf([], [4], true)).toEqual({ front: undefined, shown: [] });
+  });
+
+  it("puts every pane of a view of up to four tabs on the stage where \"Side by side\" is pressed, in the tabs' order, the one last in front having the keyboard", () => {
+    expect(stageOf([session(2), session(4)], [4, 2], true)).toEqual({ front: 4, shown: [2, 4] });
+    expect(stageOf([session(2), session(4), session(6)], [4], true)).toEqual({ front: 4, shown: [2, 4, 6] });
+    expect(stageOf([session(2), session(4), session(6), session(7)], [6, 2, 7, 4], true)).toEqual({ front: 6, shown: [2, 4, 6, 7] });
+    expect(stageOf([session(2)], [2], true)).toEqual({ front: 2, shown: [2] });
+  });
+
+  it("puts the pane in front and then the panes of the stage order, up to four, on the stage of a view with more tabs, in the tabs' order, so a pressed tab that was not shown takes the place of the shown pane last in the stage order", () => {
+    // Panes 3, 5, 2 and 6 are on the stage, and the tab of pane 1 is pressed.
+    expect(stageOf(six, [1, 3, 5, 2, 6], true)).toEqual({ front: 1, shown: [1, 2, 3, 5] });
+  });
+
+  it("fills the stage with the tabs that were never in front, the highest id first, after the ones that were", () => {
+    // After a load no pane was in front, so the live pane with the highest id is.
+    expect(stageOf(six, [], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
+    expect(stageOf(six, [2], true)).toEqual({ front: 2, shown: [2, 4, 5, 6] });
+    // No pane was in front and the four tabs with the highest ids have exited, so the live pane is in front and on the stage.
+    const oneLive = [session(1), session(2, { alive: false }), session(3, { alive: false }), session(4, { alive: false }), session(5, { alive: false })];
+    expect(stageOf(oneLive, [], true)).toEqual({ front: 1, shown: [1, 3, 4, 5] });
+  });
+
+  it("gives a pane no longer among the tabs no place on the stage, so where the pane in front closed the first four panes of the stage order stand on the stage, tabs never in front among them where fewer than four of the tabs were in front, and the live one of the four with the highest id has the keyboard, or the one of them with the highest id where none runs, and counts a pane named twice once", () => {
+    expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
+    // Pane 4 has exited, so pane 3, the live one of the four with the highest id, has the keyboard, and not pane 2, the last in front before pane 9.
+    const exited = [session(1), session(2), session(3), session(4, { alive: false }), session(5), session(6)];
+    expect(stageOf(exited, [9, 2, 1, 3, 4], true)).toEqual({ front: 3, shown: [1, 2, 3, 4] });
+    // Panes 1 to 4 have exited, so pane 4, the highest id of the four, has the keyboard, and not pane 1, the last in front before pane 9, nor panes 5 and 6, which run off the stage.
+    const fourExited = [session(1, { alive: false }), session(2, { alive: false }), session(3, { alive: false }), session(4, { alive: false }), session(5), session(6)];
+    expect(stageOf(fourExited, [9, 1, 2, 3, 4], true)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
+    // Only pane 6 was in front besides pane 2, which closed, so pane 3, never in front and not on the stage before, takes pane 2's place, and where pane 6 has exited pane 5, never in front, has the keyboard.
+    const twoInFront = [session(1), session(3), session(4), session(5), session(6)];
+    expect(stageOf(twoInFront, [2, 6], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
+    expect(stageOf([session(1), session(3), session(4), session(5), session(6, { alive: false })], [2, 6], true)).toEqual({ front: 5, shown: [3, 4, 5, 6] });
+  });
+});
+
+describe("recentKept", () => {
+  it("keeps a closed pane that was the most recent, so the live pane with the highest id comes in front and not the pane in front before it", () => {
+    // Panes 1 and 3 run and pane 2 has exited. Pane 2 was in front, then pane 3, which is closed.
+    const kept = recentKept([3, 2, 1], new Set([1, 2]));
+    expect(kept).toEqual([3, 2, 1]);
+    expect(stageOf([session(1), session(2, { alive: false })], kept, false)).toEqual({ front: 1, shown: [1] });
+  });
+
+  it("takes out every other pane the daemon no longer lists", () => {
+    expect(recentKept([3, 9, 2, 8, 1], new Set([1, 2, 3]))).toEqual([3, 2, 1]);
+    expect(recentKept([], new Set([1]))).toEqual([]);
+  });
+});
+
+describe("tellsSize", () => {
+  it("tells a size to a pane whose process runs", () => {
+    expect(tellsSize([session(2), session(3, { alive: false })], 2)).toBe(true);
+  });
+
+  it("tells no size to a pane whose process exited, or to a pane the daemon does not list", () => {
+    expect(tellsSize([session(2), session(3, { alive: false })], 3)).toBe(false);
+    expect(tellsSize([session(2)], 5)).toBe(false);
+  });
+});
+
+describe("screenMoves", () => {
+  it("gives a pane that comes onto the stage a free screen, the first of them, before it asks for a new one", () => {
+    expect(screenMoves([undefined], [4])).toEqual({ holds: [4], back: [], taken: [{ screen: 0, pane: 4 }] });
+    expect(screenMoves([undefined, 3, undefined], [3, 7])).toEqual({ holds: [7, 3, undefined], back: [], taken: [{ screen: 0, pane: 7 }] });
+  });
+
+  it("asks for a new screen, one past the pool's end, only where none is free", () => {
+    expect(screenMoves([], [4])).toEqual({ holds: [4], back: [], taken: [{ screen: 0, pane: 4 }] });
+    expect(screenMoves([2], [2, 5])).toEqual({ holds: [2, 5], back: [], taken: [{ screen: 1, pane: 5 }] });
+  });
+
+  it("keeps a pane that stays on the stage on the screen it has, in whatever order the stage names it", () => {
+    expect(screenMoves([2, 3], [3, 2])).toEqual({ holds: [2, 3], back: [], taken: [] });
+  });
+
+  it("names the screen of each pane that left the stage to give back, and hands it to a pane that comes on", () => {
+    expect(screenMoves([2], [5])).toEqual({ holds: [5], back: [{ screen: 0, pane: 2 }], taken: [{ screen: 0, pane: 5 }] });
+    expect(screenMoves([2, undefined, 3], [])).toEqual({
+      holds: [undefined, undefined, undefined],
+      back: [
+        { screen: 0, pane: 2 },
+        { screen: 2, pane: 3 },
+      ],
+      taken: [],
+    });
+  });
+});
+
+describe("replayStep", () => {
+  it("drops output that arrives before the last replay asked for, writes that replay alone, and writes the output after it, where a pane was attached, detached and attached again before either replay arrived", () => {
+    const first = replayStep(2, "replay");
+    expect(first).toEqual({ awaited: 1, write: false });
+    const between = replayStep(first.awaited, "output");
+    expect(between).toEqual({ awaited: 1, write: false });
+    const second = replayStep(between.awaited, "replay");
+    expect(second).toEqual({ awaited: 0, write: true });
+    expect(replayStep(second.awaited, "output")).toEqual({ awaited: 0, write: true });
+  });
+
+  it("writes no replay the window did not ask for", () => {
+    expect(replayStep(0, "replay")).toEqual({ awaited: 0, write: false });
+  });
+});
+
+describe("screenTurns", () => {
+  /**
+   * A terminal as xterm.js is one: it draws what it was handed later, in
+   * order, and runs a piece's callback once the piece is drawn. A piece that
+   * holds "?" is a question a program asks, which the terminal answers while
+   * it draws it. `sent` is each answer and each key with the pane it went to.
+   */
+  function screen() {
+    const handed: { data: string; drawn?: () => void }[] = [];
+    const sent: [number, string][] = [];
+    const turns = screenTurns({ write: (data, drawn) => handed.push({ data, drawn }) });
+    const hands = (data: string): void => {
+      const to = turns.receiver();
+      if (to !== undefined) sent.push([to, data]);
+    };
+    return {
+      turns,
+      sent,
+      /** What the terminal has still to draw. */
+      waiting: () => handed.map((piece) => piece.data),
+      /** A person presses a key in the terminal. */
+      types: hands,
+      /** The terminal draws the next `count` pieces, or all of them. */
+      draws(count = handed.length): void {
+        for (const piece of handed.splice(0, count)) {
+          if (piece.data.includes("?")) hands(`answer to ${piece.data}`);
+          piece.drawn?.();
+        }
+      },
+    };
+  }
+
+  it("sends what a person types and what the terminal answers to the pane on the screen, and nothing from a free screen", () => {
+    const { turns, sent, types, draws } = screen();
+    types("a");
+    turns.take(4);
+    draws();
+    expect(turns.pane).toBe(4);
+    types("b");
+    turns.write("where?", true);
+    draws();
+    turns.giveBack();
+    expect(turns.pane).toBeUndefined();
+    types("c");
+    draws();
+    types("d");
+    expect(sent).toEqual([
+      [4, "b"],
+      [4, "answer to where?"],
+    ]);
+  });
+
+  it("sends no pane the answer to a question of the pane that held the screen before it, which the terminal draws after the screen passed on", () => {
+    const { turns, sent, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("where?", true);
+    // The press that hands the screen from pane 4 to pane 5 comes before the terminal has drawn pane 4's question.
+    turns.giveBack();
+    turns.take(5);
+    draws();
+    expect(sent).toEqual([]);
+    turns.write("which?", true);
+    draws();
+    expect(sent).toEqual([[5, "answer to which?"]]);
+  });
+
+  it("sends nothing a person types until the terminal has drawn what it was handed before the pane on the screen took it", () => {
+    const { turns, sent, types, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("a long piece", true);
+    turns.giveBack();
+    turns.take(5);
+    types("a");
+    // The piece of pane 4 and the reset are drawn, and the screen has not reached pane 5's turn yet.
+    draws(2);
+    types("b");
+    draws();
+    types("c");
+    expect(sent).toEqual([[5, "c"]]);
+  });
+
+  it("sends a pane no answer to what it or another pane printed in an earlier turn on the screen, where it took the screen again before the terminal drew that", () => {
+    const { turns, sent, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("where?", true);
+    turns.giveBack();
+    turns.take(5);
+    turns.write("which?", true);
+    turns.giveBack();
+    turns.take(4);
+    draws();
+    expect(sent).toEqual([]);
+    turns.write("what?", true);
+    draws();
+    expect(sent).toEqual([[4, "answer to what?"]]);
+  });
+
+  it("sends nothing while the terminal draws a piece whose answers are not sent, and sends again once it is drawn", () => {
+    const { turns, sent, types, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("where?", false);
+    types("a");
+    draws();
+    types("b");
+    expect(sent).toEqual([[4, "b"]]);
+  });
+
+  it("empties the terminal after what the pane that leaves has still to draw, and before what the next pane prints", () => {
+    const { turns, waiting, draws } = screen();
+    turns.take(4);
+    draws();
+    turns.write("of pane 4", true);
+    turns.giveBack();
+    turns.take(5);
+    turns.write("of pane 5", true);
+    expect(waiting()).toEqual(["of pane 4", "\u001bc", "", "of pane 5"]);
   });
 });
 

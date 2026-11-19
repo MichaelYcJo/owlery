@@ -86,7 +86,7 @@ interface HeadlessSession {
  */
 export class Daemon {
   private readonly sessions = new Map<number, Session>();
-  // Each client, with the sessions whose output it receives: the ones it opened or attached.
+  // Each client, with the sessions whose output it receives: the ones it opened or attached and has not detached since.
   private readonly clients = new Map<WebSocket, Set<number>>();
   // The clients that said hello and were not yet sent `ready`. Nothing is sent to one before its `ready`, which carries the lists whole.
   private readonly greeting = new Set<WebSocket>();
@@ -276,6 +276,10 @@ export class Daemon {
         this.clients.get(socket)?.add(message.id);
         return;
       }
+      case "detach":
+        // The session, its process and its kept output stay as they are, and the next `attach` replays what the client missed.
+        this.clients.get(socket)?.delete(message.id);
+        return;
       case "close": {
         const session = this.sessions.get(message.id);
         if (!session) return;
@@ -320,9 +324,12 @@ export class Daemon {
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
-      case "resize":
-        this.sessions.get(message.id)?.terminal.resize(message.cols, message.rows);
+      case "resize": {
+        const session = this.sessions.get(message.id);
+        // A window fits the screen it shows an exited pane on. The pseudo-terminal of a process that exited is closed, and a size set on it throws.
+        if (session?.info.alive) session.terminal.resize(message.cols, message.rows);
         return;
+      }
       default:
         return;
     }
@@ -403,15 +410,19 @@ export class Daemon {
     const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024), silentStart: undefined };
     this.sessions.set(id, session);
     if (this.reportsState(pane.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
-    terminal.onData((data) => {
+    // What the session prints is kept for a replay and sent to the clients that receive the session.
+    const print = (data: string): void => {
       session.output.append(data);
       this.sendOutput(id, data);
-    });
+    };
+    terminal.onData(print);
     terminal.onExit((exitCode) => {
       session.info.alive = false;
       clearTimeout(session.silentStart);
       // A closed pane is on no list, and its end is no client's news.
       if (this.sessions.get(id) === session) {
+        // The exit line is the session's last output, so a replay of an exited session ends with it and no client writes one of its own.
+        print(`\r\n[process exited with code ${exitCode}]\r\n`);
         this.broadcast({ type: "exit", id, exitCode });
         this.broadcastInbox();
       }
