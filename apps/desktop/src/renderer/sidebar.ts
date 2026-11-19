@@ -1,7 +1,7 @@
 // The sidebar, which stands at the left of every screen: the search field,
 // the three screens it opens, the repositories with their work items, and the
 // status line at its foot.
-import { byId, changedSince, CHEVRON, entries, held, icon, narrowed, part, stateIcon, titleClass } from "./shared";
+import { byId, changedSince, CHEVRON, entries, held, icon, marked, narrowed, part, stateIcon, titleClass } from "./shared";
 import { ageOf, daemonStatus, filterChoices, matchCount, sidebarTree, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. */
@@ -81,13 +81,14 @@ function showStatus(): void {
   status.classList.toggle("notice", notice !== "");
 }
 
-function workItemElement(workItemId: number, title: string, state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
+function workItemElement(workItemId: number, title: string, marks: readonly (readonly [number, number])[], state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
   const button = document.createElement("button");
   button.className = "side-item";
   button.dataset.workItem = String(workItemId);
   // The sidebar marks the work item whose view is on screen.
   if (workItemId === held.viewing) button.setAttribute("aria-current", "page");
-  button.append(stateIcon(state, changedSince(workItemId)), part(titleClass(workItemId), title), part("age", ageOf(since, Date.now())));
+  // The letters of the title that match what is typed in the search field are marked, as a line of the list marks them.
+  button.append(stateIcon(state, changedSince(workItemId)), marked(titleClass(workItemId), title, marks), part("age", ageOf(since, Date.now())));
   button.addEventListener("click", () => {
     if (workItemId !== held.viewing) actions.openView(workItemId);
   });
@@ -123,11 +124,7 @@ export function showSidebar(inFront: Front = front): void {
   filterControl.classList.toggle("on", held.filter !== "all");
   searchCount.textContent = held.query === "" ? "" : matchCount(left.length, all.length);
   repositories.replaceChildren(
-    ...sidebarTree(
-      left.map(({ workItem }) => workItem),
-      held.sessions,
-      held.paneKinds,
-    ).map((repository) => {
+    ...sidebarTree(held.workItems, held.sessions, held.paneKinds, held.query, held.filter).map((repository) => {
       const isFolded = folded.has(repository.repo);
       const section = document.createElement("section");
       section.className = "repository";
@@ -145,7 +142,7 @@ export function showSidebar(inFront: Front = front): void {
       });
       const list = document.createElement("ul");
       list.hidden = isFolded;
-      list.append(...repository.entries.map(({ workItem, line, session }) => workItemElement(workItem.id, line.title, line.state, session?.stateSince)));
+      list.append(...repository.entries.map(({ workItem, line, session, marks }) => workItemElement(workItem.id, line.title, marks, line.state, session?.stateSince)));
       section.append(head, list);
       return section;
     }),

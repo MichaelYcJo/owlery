@@ -112,25 +112,27 @@ export interface SidebarRepository {
   /** The repository's folder, which tells two repositories of one name apart. */
   repo: string;
   name: string;
-  /** How many work items are listed under it. */
+  /** How many work items are listed under it: those the search and the filter leave. */
   count: number;
-  entries: Entry[];
+  /** Its work items, each with the places of its title that match what is typed. */
+  entries: (Entry & { marks: [number, number][] })[];
 }
 
 /**
- * The sidebar's repositories: each repository a given work item is of, in the
- * order of its first work item, with its work items in the order given. A
- * repository is its folder, so two of one name are two.
+ * The sidebar's repositories: each repository that has a work item the
+ * search and the filter leave, in the order of its first such work item,
+ * with those work items in the order given. A repository is its folder, so
+ * two of one name are two.
  */
-export function sidebarTree(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): SidebarRepository[] {
+export function sidebarTree(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
   const tree: SidebarRepository[] = [];
-  for (const entry of workItemEntries(workItems, sessions, paneKinds)) {
+  for (const entry of matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state)) {
     let repository = tree.find((held) => held.repo === entry.workItem.repo);
     if (!repository) {
       repository = { repo: entry.workItem.repo, name: repoNameOf(entry.workItem), count: 0, entries: [] };
       tree.push(repository);
     }
-    repository.entries.push(entry);
+    repository.entries.push({ ...entry, marks: markRanges(entry.line.title, query) });
     repository.count = repository.entries.length;
   }
   return tree;

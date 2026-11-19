@@ -595,6 +595,32 @@ describe("sidebarTree", () => {
   it("lists nothing where no work item is given", () => {
     expect(sidebarTree([], [], KINDS)).toEqual([]);
   });
+
+  it("marks in each title the letters a search matches, and none where nothing is typed or the match stands elsewhere", () => {
+    const titles = (query: string) => sidebarTree([LOGIN, SEARCH, DOCS], [], KINDS, query).flatMap((repository) => repository.entries.map((entry) => [entry.line.title, entry.marks]));
+    // "search" stands in the second title and in its branch, and the sidebar draws no branch.
+    expect(titles("SEARCH")).toEqual([["Speed up search", [[9, 15]]]]);
+    // "docs" is the name of the third work item's repository, so its title stays plain.
+    expect(titles("docs")).toEqual([["Write the guide", []]]);
+    expect(titles("")).toEqual([
+      ["Fix the login bug", []],
+      ["Speed up search", []],
+      ["Write the guide", []],
+    ]);
+  });
+
+  it("counts under a repository the work items a search and a filter leave, and leaves out a repository none of whose work items is left", () => {
+    const sessions = [session(4, { workItemId: 2, state: "waiting" }), session(5, { workItemId: 3, state: "waiting" })];
+    const counts = (query: string, state: Parameters<typeof sidebarTree>[4]) =>
+      sidebarTree([LOGIN, SEARCH, DOCS], sessions, KINDS, query, state).map((repository) => [repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
+    expect(counts("login", "all")).toEqual([["project", 1, [1]]]);
+    expect(counts("", "waiting")).toEqual([
+      ["project", 1, [2]],
+      ["docs", 1, [3]],
+    ]);
+    expect(counts("the", "waiting")).toEqual([["docs", 1, [3]]]);
+    expect(counts("nowhere", "all")).toEqual([]);
+  });
 });
 
 describe("historyLines", () => {
