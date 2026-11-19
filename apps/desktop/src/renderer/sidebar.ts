@@ -10,7 +10,7 @@ export type Front = "summary" | "inbox" | "history" | "view" | null;
 export interface SidebarActions {
   openScreen(screen: "summary" | "inbox" | "history"): void;
   openView(workItemId: number): void;
-  /** Opens the "New work item" form, with `folder` as its repository where one is given. */
+  /** Opens the "New work item" form, with `folder` as its repository where one is given. It does not open before the daemon's `ready`. */
   openForm(folder?: string): void;
   pickFolder(): Promise<string | null>;
   /** Takes what the search field holds, as it is typed. */
@@ -56,6 +56,8 @@ export function initSidebar(given: SidebarActions, mac: boolean): void {
   bell.addEventListener("click", () => actions.filter("waiting"));
   byId("new-work-item").addEventListener("click", () => actions.openForm());
   byId("add-repository").addEventListener("click", () => {
+    // Before the daemon's `ready` the form does not open, so neither does the folder dialog.
+    if (!held.ready) return;
     // The repository stands in the sidebar once the form made a work item in it: the daemon keeps work items and no list of repositories.
     void actions.pickFolder().then((folder) => {
       if (folder) actions.openForm(folder);

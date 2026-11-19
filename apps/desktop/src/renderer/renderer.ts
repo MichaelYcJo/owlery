@@ -157,9 +157,9 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): vo
   if (front === "view") showView();
 }
 
-/** Opens the "New work item" form, with `folder` as its repository where one is given. */
+/** Opens the "New work item" form, with `folder` as its repository where one is given. Before the daemon's `ready` the form has no kind of pane to offer, so it does not open. */
 function openWorkItemForm(folder?: string): void {
-  if (workItemDialog.open) return;
+  if (!held.ready || workItemDialog.open) return;
   // The folder stays from the last time, because the next work item is often of the same repository.
   if (folder !== undefined) repoField.value = folder;
   titleField.value = "";
