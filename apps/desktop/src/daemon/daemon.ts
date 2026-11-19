@@ -24,6 +24,9 @@ function cutText(text: string | null): string | null {
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
 }
 
+/** How long a pane's silent start lasts where the options name no time. */
+const SILENT_START_MS = 10_000;
+
 export interface PaneCommand {
   command: string;
   args: string[];
@@ -50,6 +53,8 @@ export interface DaemonOptions {
   commitPollMs?: number;
   /** How long a hello's answer waits for the read of the work items' new commits. It stays under the second the app gives a daemon to answer (`answers` of src/main/daemon-client.ts). */
   readyWaitMs?: number;
+  /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
+  silentStartMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -63,6 +68,8 @@ interface Session {
   info: SessionInfo;
   terminal: TerminalSession;
   output: OutputBuffer;
+  /** The wait for the first event of a pane whose kind reports state. That event, the pane's end and the daemon's close each cancel it. */
+  silentStart: NodeJS.Timeout | undefined;
 }
 
 interface HeadlessSession {
@@ -131,14 +138,16 @@ export class Daemon {
    * Delivers an agent's event for a pane to every client, as a neutral event,
    * and keeps the state it leaves the pane's session in, with the time the
    * state began and what the event that began it said. An event that leaves
-   * the state as it was changes none of them.
+   * the state as it was changes none of them. Any event ends the pane's
+   * silent start, an event the daemon maps to no neutral one among them.
    */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
+    const session = this.sessions.get(paneId);
+    clearTimeout(session?.silentStart);
     const event = agentEventFor(hookName);
     if (!event) return;
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });
-    const session = this.sessions.get(paneId);
     if (!session || !this.reportsState(session.info.kind)) return;
     const state = agentStateAfter(event);
     if (state === session.info.state) return;
@@ -154,7 +163,10 @@ export class Daemon {
     this.closed = true;
     clearTimeout(this.commitTimer);
     clearTimeout(this.idleTimer);
-    for (const session of this.sessions.values()) if (session.info.alive) session.terminal.kill();
+    for (const session of this.sessions.values()) {
+      clearTimeout(session.silentStart);
+      if (session.info.alive) session.terminal.kill();
+    }
     for (const session of this.headless.values()) session.run?.stop();
     for (const client of this.clients.keys()) client.terminate();
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
@@ -269,6 +281,7 @@ export class Daemon {
         if (!session) return;
         // Off the lists first, so the process's end is told to nobody as a session's.
         this.sessions.delete(message.id);
+        clearTimeout(session.silentStart);
         if (session.info.alive) session.terminal.kill();
         this.broadcastInbox();
         this.checkIdle();
@@ -387,14 +400,16 @@ export class Daemon {
       rows: pane.rows,
       env: { ...process.env, ...env },
     });
-    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024) };
+    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024), silentStart: undefined };
     this.sessions.set(id, session);
+    if (this.reportsState(pane.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
     terminal.onData((data) => {
       session.output.append(data);
       this.sendOutput(id, data);
     });
     terminal.onExit((exitCode) => {
       session.info.alive = false;
+      clearTimeout(session.silentStart);
       // A closed pane is on no list, and its end is no client's news.
       if (this.sessions.get(id) === session) {
         this.broadcast({ type: "exit", id, exitCode });
@@ -405,6 +420,20 @@ export class Daemon {
     this.clients.get(socket)?.add(id);
     this.checkIdle();
     return session.info;
+  }
+
+  /**
+   * Lists as waiting a pane that sent no event in the time after its start. A
+   * CLI asks its first questions before its session starts and sends no event
+   * while it asks, so the missing event is what says the pane waits. No event
+   * said anything, so the state keeps no text and no tool. The timer that
+   * calls this is cancelled by the pane's first event, its end and its close,
+   * so the pane is alive, listed and silent here.
+   */
+  private silentStartOver(session: Session): void {
+    session.info.state = "waiting";
+    session.info.stateSince = (this.options.now ?? Date.now)();
+    this.broadcastInbox();
   }
 
   private tokenMatches(token: unknown): boolean {

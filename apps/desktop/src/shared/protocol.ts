@@ -16,7 +16,7 @@ export type AgentEvent =
   | "notification"
   | "turn-end";
 
-/** What a session's agent is doing, as its last event says. */
+/** What a session's agent is doing, as its last event says. `waiting` is also what a pane that sent no event in the time after its start is called. */
 export type AgentState = "working" | "waiting" | "finished";
 
 /** A kind of pane the daemon offers: the label a person reads, and whether its panes report an agent's state. */
@@ -89,13 +89,13 @@ export interface SessionInfo {
   alive: boolean;
   /** The work item whose worktree the pane runs in, or null for a pane opened without one. */
   workItemId: number | null;
-  /** Null until the agent's first event, and always for a kind that reports no state. An exited session keeps its last. */
+  /** Null until the agent's first event or until the pane has sent no event for the time after its start the daemon allows, whichever comes first, and always for a kind that reports no state. An exited session keeps its last. */
   state: AgentState | null;
   /** The daemon's clock when the session entered `state`, or null where it has none. */
   stateSince: number | null;
-  /** The text the event that began `state` carried: what the agent last said or what it tells the person, 2000 characters of it at most. Null where the event carried none. */
+  /** The text the event that began `state` carried: what the agent last said or what it tells the person, 2000 characters of it at most. Null where the event carried none, and where no event began the state. */
   stateText: string | null;
-  /** The name of the tool the event that began `state` asks for. Null where the event named none. */
+  /** The name of the tool the event that began `state` asks for. Null where the event named none, and where no event began the state. */
   stateTool: string | null;
 }
 
