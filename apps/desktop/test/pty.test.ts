@@ -79,6 +79,58 @@ describe("terminalEnv", () => {
     expect(Object.keys(env).filter((k) => k.startsWith("CLAUDE"))).toEqual([]);
   });
 
+  it("drops the variables a package script gives the app it starts, and keeps the user's own", () => {
+    // `pnpm -C apps/desktop start` gives the app these. nvm refuses to load while `npm_config_prefix` is set,
+    // so a login shell in the pane found no `node`, and Claude Code's hooks that run `node` failed.
+    const env = terminalEnv({
+      PATH: "/usr/bin",
+      HOME: "/Users/x",
+      npm_config_prefix: "/Users/x/owlery/apps/desktop",
+      npm_config_user_agent: "pnpm/10.33.0",
+      npm_lifecycle_event: "start",
+      npm_package_name: "@owlery/desktop",
+      npm_execpath: "/x/pnpm.cjs",
+      npm_node_execpath: "/x/node",
+      npm_command: "run-script",
+      pnpm_config_verify_deps_before_run: "false",
+      PNPM_SCRIPT_SRC_DIR: "/Users/x/owlery/apps/desktop",
+      INIT_CWD: "/Users/x/owlery",
+      NODE: "/x/node",
+      NODE_PATH: "/Users/x/owlery/node_modules/.pnpm/node_modules",
+      PNPM_HOME: "/Users/x/Library/pnpm",
+      NVM_DIR: "/Users/x/.nvm",
+    });
+    expect(Object.keys(env).filter((k) => /^(npm_|pnpm_)/i.test(k) && k !== "PNPM_HOME")).toEqual([]);
+    expect([env.PNPM_SCRIPT_SRC_DIR, env.INIT_CWD, env.NODE, env.NODE_PATH]).toEqual([undefined, undefined, undefined, undefined]);
+    expect([env.HOME, env.PNPM_HOME, env.NVM_DIR]).toEqual(["/Users/x", "/Users/x/Library/pnpm", "/Users/x/.nvm"]);
+  });
+
+  it("drops the folders inside a node_modules folder from PATH, and keeps the others in their order", () => {
+    const env = terminalEnv({
+      PATH: [
+        "/Users/x/owlery/apps/desktop/node_modules/.bin",
+        "/opt/homebrew/Cellar/pnpm/10.33.0/libexec/lib/node_modules/pnpm/dist/node-gyp-bin",
+        "/Users/x/owlery/node_modules/.bin",
+        "/Users/x/.nvm/versions/node/v26.13.1/bin",
+        "/usr/bin",
+        "/bin",
+      ].join(":"),
+    });
+    expect(env.PATH).toBe("/Users/x/.nvm/versions/node/v26.13.1/bin:/usr/bin:/bin");
+  });
+
+  it("starts a pane's process without a package script's variables", async () => {
+    const session = TerminalSession.spawn({
+      command: "/bin/sh",
+      args: ["-c", 'echo "prefix=${npm_config_prefix-none}"'],
+      cwd: process.cwd(),
+      cols: 80,
+      rows: 24,
+      env: { PATH: "/usr/bin:/bin", npm_config_prefix: "/Users/x/owlery/apps/desktop" },
+    });
+    expect(await collect(session, (o) => o.includes("prefix="))).toContain("prefix=none");
+  });
+
   it("keeps the user's own Claude Code and Anthropic settings", () => {
     const env = terminalEnv({ PATH: "/usr/bin", CLAUDE_CODE_USE_BEDROCK: "1", ANTHROPIC_BASE_URL: "https://example.test" });
     expect(env.CLAUDE_CODE_USE_BEDROCK).toBe("1");
