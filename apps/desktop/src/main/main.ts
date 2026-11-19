@@ -54,6 +54,13 @@ app.whenReady().then(() => {
     event.returnValue = readAppearance(userData);
   });
   ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, themeChoice(choice)));
+  if (process.platform === "darwin") {
+    try {
+      app.dock?.setIcon(join(__dirname, "app-icon.png"));
+    } catch {
+      // setIcon throws on a file it cannot load. The Dock then keeps Electron's icon, and the window opens all the same.
+    }
+  }
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

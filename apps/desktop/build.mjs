@@ -47,3 +47,5 @@ await copyFile("node_modules/@xterm/xterm/css/xterm.css", "dist/renderer.css");
 // The seal's drawings, which the page's style draws a seal's place from: the wax seal, and the small mark of a sealed line. They are AgenticSeal's and not under this repository's licence (TRADEMARKS.md).
 await copyFile("assets/seals/owl.svg", "dist/owl.svg");
 await copyFile("assets/seals/owl-icon-cream.svg", "dist/owl-icon-cream.svg");
+// The app's icon, which the main process gives the macOS Dock: Owlery's emblem, the white owl on a black rounded square. It is Owlery's and not under this repository's licence (TRADEMARKS.md).
+await copyFile("assets/icon/app-icon.png", "dist/app-icon.png");
