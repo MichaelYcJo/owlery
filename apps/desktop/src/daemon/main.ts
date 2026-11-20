@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { claudeAdapter } from "./adapters/claude";
 import { HookServer, paneCommands, writeHookSettings } from "./hooks";
 import { Daemon } from "./daemon";
-import { readDiscovery, writeDiscovery } from "./discovery";
+import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
 import { holdAwakeFor } from "./keep-awake";
 import { PANE_KINDS } from "./pane-kinds";
 
@@ -24,6 +24,8 @@ async function main(): Promise<void> {
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
+  // The build of the script this process runs, taken once, before the daemon listens. The app compares it with the script it would start.
+  const build = process.argv[1] === undefined ? undefined : buildOf(process.argv[1]);
   const hookSettingsFile = writeHookSettings(runDir);
   const hooks = await HookServer.listen(join(runDir, "hooks.sock"));
 
@@ -60,7 +62,7 @@ async function main(): Promise<void> {
   });
 
   const port = await daemon.listen(0);
-  writeDiscovery(runDir, { port, token, pid: process.pid });
+  writeDiscovery(runDir, { port, token, pid: process.pid, build });
   console.log(`owlery daemon ${process.pid} listening on 127.0.0.1:${port}`);
   process.on("SIGTERM", () => void stop(0));
   process.on("SIGINT", () => void stop(0));

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { fstatSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import WebSocket from "ws";
-import { type Discovery, readDiscovery } from "../daemon/discovery";
+import { buildOf, type Discovery, readDiscovery } from "../daemon/discovery";
 
 /** Whether a daemon answers at this address with this token. */
 export function answers(discovery: Discovery, timeoutMs = 1000): Promise<boolean> {
@@ -69,4 +69,51 @@ export async function ensureDaemon(runDir: string, daemonScript: string, timeout
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`the daemon did not start; see ${logFile}`);
+}
+
+/**
+ * Whether the daemon the app found is of another build than the script the
+ * app would start: its `daemon.json` holds no build, as a daemon of an
+ * earlier build and one that could not read its script leave it, or one
+ * that differs from that script's.
+ */
+export function otherBuild(found: Discovery, daemonScript: string): boolean {
+  return found.build === undefined || found.build !== buildOf(daemonScript);
+}
+
+/** True while a process with this id exists. One of another user is there, and answers EPERM. */
+function exists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Stops the daemon of this run folder, and no other process. It reads the
+ * folder's `daemon.json` and asks whether a daemon answers at that file's
+ * address with that file's token. Only where one does, it sends SIGTERM to
+ * the process the file names, at which a daemon of any build removes its
+ * file, ends its sessions and exits, and waits until that process is gone.
+ * Where no file stands or nothing answers, it signals nothing and is done.
+ *
+ * Rejects where the process is still there after `timeoutMs`, with a
+ * sentence the window shows as it is. It signals nothing else then: no
+ * daemon answers any more that could say the id is still the daemon's.
+ */
+export async function stopDaemon(runDir: string, timeoutMs = 5000): Promise<void> {
+  const named = readDiscovery(runDir);
+  if (!named || !(await answers(named))) return;
+  try {
+    process.kill(named.pid, "SIGTERM");
+  } catch {
+    // It ended between its answer and the signal.
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (exists(named.pid)) {
+    if (Date.now() >= deadline) throw new Error(`Owlery's background process did not stop. It is process ${named.pid}.`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }

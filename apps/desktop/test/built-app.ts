@@ -141,7 +141,6 @@ interface Target {
 
 /** The built app, running with a user data folder of its own, and a session of its window's debugging port. */
 export class BuiltApp {
-  private daemon: number | undefined;
   private stopped: Promise<number[]> | undefined;
   private focused = false;
 
@@ -249,22 +248,36 @@ export class BuiltApp {
     await this.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
   }
 
-  /** The process id of the daemon the app started, as `run/daemon.json` names it, or nothing before the daemon wrote it. */
+  /**
+   * The process id of the app's daemon, as `run/daemon.json` names it at this
+   * call, or nothing where the folder holds no such file: before the daemon
+   * wrote it, and after a daemon that stopped removed it. The file is read
+   * at each call and no id is kept, so after a restart of the daemon this is
+   * the new daemon's id, and `stop` never signals the id of one that ended.
+   */
   daemonPid(): number | undefined {
-    if (this.daemon !== undefined) return this.daemon;
     try {
       const pid = (JSON.parse(readFileSync(join(this.userData, "run", "daemon.json"), "utf8")) as { pid?: unknown }).pid;
-      if (typeof pid === "number") this.daemon = pid;
+      if (typeof pid === "number") return pid;
     } catch {
-      // The daemon has not written its file.
+      // The run folder holds no daemon's file.
     }
-    return this.daemon;
+    return undefined;
   }
 
   /**
-   * Stops the app and the daemon it started, each by its process id, and
-   * removes the user data folder. The daemon outlives the app while a pane's
-   * process runs, so it is stopped here. It answers with the process ids that
+   * Closes the session of the main process's inspector, for a case that has
+   * the app quit: a process whose inspector holds a session waits at its end
+   * until that session closes. `evaluateMain` is not to be called after it.
+   */
+  leaveMain(): void {
+    this.main?.close();
+  }
+
+  /**
+   * Stops the app and the daemon its run folder names at this call, each by
+   * its process id, and removes the user data folder. The daemon outlives
+   * the app while a pane's process runs, so it is stopped here. It answers with the process ids that
    * were still there ten seconds after they were asked to end, which it then
    * kills. A second call answers what the first did.
    */

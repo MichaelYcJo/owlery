@@ -35,6 +35,12 @@ const api: OwleryApi = {
   clipboardText: () => ipcRenderer.invoke(Channel.clipboardText),
   pathOf: (file) => webUtils.getPathForFile(file),
   comeForward: () => ipcRenderer.invoke(Channel.comeForward),
+  endDaemon: (then) => ipcRenderer.invoke(Channel.endDaemon, then),
+  onDaemonMenu: (listener) => {
+    ipcRenderer.on(Channel.daemonMenu, (_event, chosen: unknown) => {
+      if (chosen === "restart" || chosen === "quit") listener(chosen);
+    });
+  },
 };
 
 contextBridge.exposeInMainWorld("owlery", api);

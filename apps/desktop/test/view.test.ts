@@ -17,7 +17,9 @@ import {
   closeAsks,
   commandKey,
   commitLines,
+  daemonEnding,
   daemonLists,
+  daemonNotice,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -77,6 +79,7 @@ import {
   replayStep,
   repositoryMenu,
   rowButtons,
+  runningSessions,
   screenMoves,
   screenTurns,
   selectedLine,
@@ -659,6 +662,55 @@ describe("archivalOf", () => {
 
   it("names none where no session of the work item runs, so its archive asks nothing first", () => {
     expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
+  });
+});
+
+describe("daemonEnding", () => {
+  it("words the dialog before a restart: its head, what a restart ends and what stays, and its button", () => {
+    expect(daemonEnding("restart")).toEqual({
+      head: "Restart the daemon",
+      says: "A restart ends every running session and starts Owlery's background process again, from this build. The panes' tabs and the answers to what was asked go with the old process. Work items, their folders and their branches stay as they are.",
+      button: "Restart",
+    });
+  });
+
+  it("words the dialog before a complete quit: its head, what the quit ends and what stays, and its button", () => {
+    expect(daemonEnding("quit")).toEqual({
+      head: "Quit Owlery completely",
+      says: "This ends every running session, stops Owlery's background process and quits Owlery. The panes' tabs and the answers to what was asked go with the process. Work items, their folders and their branches stay as they are.",
+      button: "Quit",
+    });
+  });
+});
+
+describe("runningSessions", () => {
+  const SHELVED: WorkItem = { ...LOGIN, id: 4, title: "Shelved", archivedAt: 50 };
+
+  it("names every running session the window holds: each live pane of a listed work item, archived or not, by its tab's label and the work item, then a live pane of no listed work item by its kind's label, then each working headless session by its work item and its prompt, and no pane that exited and no headless session that ended", () => {
+    const sessions = [
+      session(5, { kind: "shell" }),
+      session(6, { kind: "shell", alive: false }),
+      session(7, { workItemId: 4 }),
+      session(8, { workItemId: 4, alive: false }),
+      session(9, { kind: "shell", workItemId: null }),
+      session(10, { workItemId: 99 }),
+      session(11, { kind: "shell", workItemId: null, alive: false }),
+    ];
+    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { workItemId: 4, prompt: "Where is the index built?" }), headless(4, { workItemId: 4, state: "failed" }), headless(5, { workItemId: 99, prompt: "Who asked?" }), headless(6, { workItemId: 99, state: "finished" })];
+    expect(runningSessions([LOGIN], [SHELVED], sessions, asked, KINDS)).toEqual([
+      "Shell 1 in Fix the login bug",
+      "Claude Code 1 in Shelved",
+      "Shell",
+      "Claude Code",
+      "Asked in Fix the login bug: Which file holds the login form?",
+      "Asked in Shelved: Where is the index built?",
+      "Asked: Who asked?",
+    ]);
+  });
+
+  it("names none where no session runs", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [session(6, { alive: false })], [headless(2, { state: "finished" })], KINDS)).toEqual([]);
+    expect(runningSessions([], [], [], [], KINDS)).toEqual([]);
   });
 });
 
@@ -1629,19 +1681,26 @@ describe("sidebarTree", () => {
 });
 
 describe("daemonLists", () => {
-  const EARLIER = "Owlery's background process is from an earlier build. End its sessions and start Owlery again.";
-
-  it("gives the repositories and the archived work items a `ready` or an `inbox` carries, and no notice", () => {
+  it("gives the repositories and the archived work items a `ready` or an `inbox` carries", () => {
     const archived: WorkItem = { ...SEARCH, archivedAt: 50 };
-    expect(daemonLists({ repositories: [PROJECT], archived: [archived] })).toEqual({ repositories: [PROJECT], archived: [archived], notice: "" });
-    expect(daemonLists({ repositories: [], archived: [] })).toEqual({ repositories: [], archived: [], notice: "" });
-    expect(daemonLists({ repositories: [PROJECT] })).toEqual({ repositories: [PROJECT], archived: [], notice: "" });
+    expect(daemonLists({ repositories: [PROJECT], archived: [archived] })).toEqual({ repositories: [PROJECT], archived: [archived] });
+    expect(daemonLists({ repositories: [], archived: [] })).toEqual({ repositories: [], archived: [] });
+    expect(daemonLists({ repositories: [PROJECT] })).toEqual({ repositories: [PROJECT], archived: [] });
   });
 
-  it("gives no repository, no archived work item and the notice of an earlier build where the daemon sends no repositories", () => {
-    expect(daemonLists({})).toEqual({ repositories: [], archived: [], notice: EARLIER });
+  it("gives no repository and no archived work item where the daemon sends no repositories, and says nothing of that daemon", () => {
+    expect(daemonLists({})).toEqual({ repositories: [], archived: [] });
     // What an earlier daemon's `ready` holds, as the window receives it.
-    expect(daemonLists(JSON.parse(JSON.stringify({ type: "ready", sessions: [], workItems: [LOGIN], paneKinds: KINDS, headless: [], lastLook: null })))).toEqual({ repositories: [], archived: [], notice: EARLIER });
+    const lists = daemonLists(JSON.parse(JSON.stringify({ type: "ready", sessions: [], workItems: [LOGIN], paneKinds: KINDS, headless: [], lastLook: null })));
+    expect(lists).toEqual({ repositories: [], archived: [] });
+    expect(Object.keys(lists).sort()).toEqual(["archived", "repositories"]);
+  });
+});
+
+describe("daemonNotice", () => {
+  it("names the menu's entry that replaces a daemon of another build, and says nothing of a daemon of the running build", () => {
+    expect(daemonNotice(true)).toBe(`Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.`);
+    expect(daemonNotice(false)).toBe("");
   });
 });
 

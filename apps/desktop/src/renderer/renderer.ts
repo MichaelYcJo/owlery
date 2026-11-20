@@ -8,12 +8,14 @@
 // what would be lost, its move into a group and out of it, and a
 // repository's settings, its icon, the dialog of its new group, the list of
 // the hidden ones, the screen of its archived work items and its removal,
-// with its two choices to delete from disk. How a menu is drawn is ./menu. The theme
+// with its two choices to delete from disk, and the dialog that asks before
+// the daemon ends, for a restart or for a complete quit, at a choice of the
+// application menu. How a menu is drawn is ./menu. The theme
 // and its control are ./theme, and the choice of when the Mac is kept awake
 // with its control is ./keep-awake. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
-import type { OwleryApi } from "../shared/ipc";
+import type { DaemonEnd, OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, HeadlessInfo, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
@@ -33,7 +35,9 @@ import {
   baseSays,
   changesSince,
   commandKey,
+  daemonEnding,
   daemonLists,
+  daemonNotice,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -53,6 +57,7 @@ import {
   removalOf,
   renameChoice,
   repositoryMenu,
+  runningSessions,
   settingsBases,
   settingsFields,
   workItemFields,
@@ -150,6 +155,7 @@ const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
 const removeDialog = byId<HTMLDialogElement>("remove-dialog");
 const sessionsDialog = byId<HTMLDialogElement>("sessions-dialog");
 const deleteDialog = byId<HTMLDialogElement>("delete-dialog");
+const daemonDialog = byId<HTMLDialogElement>("daemon-dialog");
 const deleteForce = byId<HTMLInputElement>("delete-force");
 const removeDelete = byId<HTMLInputElement>("remove-delete");
 const removeForce = byId<HTMLInputElement>("remove-force");
@@ -168,6 +174,8 @@ const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button:
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
+// The dialog that asks before the daemon ends waits on the main process's answer, not on the daemon's: the main process is the one that stops the daemon.
+const DAEMON: Asking = { dialog: daemonDialog, error: byId("daemon-error"), button: byId<HTMLButtonElement>("daemon-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
 const asking = new Map<number, Asking>();
 // The repository the settings dialog, the icon's dialog, the dialog of a new group and the removal's dialog are each open on.
@@ -190,6 +198,8 @@ let deleting: number | undefined;
 let deleteLoss: WorkItemLoss | null = null;
 let deleteLossRequest: number | undefined;
 let deletion: ReturnType<typeof archivalOf> | undefined;
+// What the dialog that asks before the daemon ends is open for: a restart, or a complete quit.
+let ending: DaemonEnd | undefined;
 // The plan the settings dialog asked for, to list the repository's bases: its request, and what the daemon answered.
 let settingsPlanRequest: number | undefined;
 let settingsPlan: PlanAnswered | null = null;
@@ -941,25 +951,73 @@ function archiveNamed(): void {
   ask(SESSIONS, (requestId) => ({ type: "archiveWorkItem", requestId, id, running: told.running }));
 }
 
+/** Draws the dialog that asks before the daemon ends, from the daemon's lists as they are now: its words for a restart or for a complete quit, and every running session the window holds. The list is hidden where none runs. */
+function showDaemonEnding(): void {
+  if (ending === undefined) return;
+  const words = daemonEnding(ending);
+  byId("daemon-head").textContent = words.head;
+  byId("daemon-says").textContent = words.says;
+  DAEMON.button.textContent = words.button;
+  const sessions = runningSessions(held.workItems, held.archived, held.sessions, held.headless, held.paneKinds);
+  const section = byId("daemon-sessions");
+  section.hidden = sessions.length === 0;
+  section.querySelector("ul")?.replaceWith(namedLines(sessions));
+}
+
+/**
+ * Opens the dialog that asks before the daemon ends, at a person's choice
+ * of "Restart Daemon…" or "Quit Owlery Completely…" in the application
+ * menu, with the keyboard on the button that ends nothing. It opens over no
+ * other dialog and over no menu.
+ */
+function openDaemonEnding(chosen: DaemonEnd): void {
+  if (!opened(DAEMON)) return;
+  ending = chosen;
+  showDaemonEnding();
+  byId("daemon-cancel").focus();
+}
+
+/**
+ * Asks the main process to end the daemon, at the press of the dialog's
+ * button, which stays off until the answer. A refusal is shown in the
+ * dialog. After a restart the window reloads at once: the load finds no
+ * daemon and starts the one of the running build. After a complete quit the
+ * app quits, and the window with it.
+ */
+function endDaemon(): void {
+  const then = ending;
+  if (then === undefined) return;
+  DAEMON.error.textContent = "";
+  DAEMON.button.disabled = true;
+  void window.owlery.endDaemon(then).then((refusal) => {
+    if (refusal === null) {
+      if (then === "restart") window.location.reload();
+      return;
+    }
+    DAEMON.error.textContent = refusal;
+    DAEMON.button.disabled = false;
+  });
+}
+
 /** Restores an archived work item. A refusal is said in the status line. */
 function restore(workItemId: number): void {
   send({ type: "restoreWorkItem", requestId: request(), id: workItemId });
 }
 
-/** Takes a headless session the daemon sent, and names it in the removal's dialog, in the dialog before an archive and in the delete dialog, where one is open: a session that started or ended is one the dialog has to say. */
+/** Takes a headless session the daemon sent, and names it in the removal's dialog, in the dialog before an archive, in the delete dialog and in the dialog that asks before the daemon ends, where one is open: a session that started or ended is one the dialog has to say. */
 function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
   takeHeadless(headless, requestId);
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
   if (deleteDialog.open) showDelete();
+  if (daemonDialog.open) showDaemonEnding();
 }
 
-/** Takes the repositories and the archived work items of a `ready` or an `inbox`, and what the status line has to say of the daemon that sent it. */
+/** Takes the repositories and the archived work items of a `ready` or an `inbox`. */
 function takeRepositories(message: { repositories?: Repository[]; archived?: WorkItem[] }): void {
   const lists = daemonLists(message);
   held.repositories = lists.repositories;
   held.archived = lists.archived;
-  held.daemonNotice = lists.notice;
 }
 
 /**
@@ -999,6 +1057,7 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
   if (deleteDialog.open) showDelete();
+  if (daemonDialog.open) showDaemonEnding();
 }
 
 /** Draws the form as its choice "Register the repository only" has it: with the choice taken, the name, the base and the kind of pane are off, the form shows no plan, and its button reads "Register". */
@@ -1188,6 +1247,8 @@ function onMessage(message: ServerMessage): void {
       // The app opens on the summary where a work item changed since the person last looked, and on the inbox otherwise.
       if (held.changes.length > 0) openSummary();
       else openList("inbox");
+      // The dialog that asks before the daemon ends can be open before the lists are here, in a window the menu's click made.
+      if (daemonDialog.open) showDaemonEnding();
       return;
     }
     case "inbox":
@@ -1314,6 +1375,8 @@ async function connect(): Promise<void> {
     return;
   }
   const { url, token } = answer;
+  // Said in the status line from the socket's opening on, in place of the daemon's state, until a restart replaces the daemon and the window loads again.
+  held.daemonNotice = daemonNotice(answer.otherBuild);
   const ws = new WebSocket(url);
   connectedBy(ws);
   ws.addEventListener("open", () => {
@@ -1471,5 +1534,11 @@ byId<HTMLFormElement>("sessions-form").addEventListener("submit", (event) => {
   event.preventDefault();
   archiveNamed();
 });
+byId("daemon-cancel").addEventListener("click", () => daemonDialog.close());
+byId<HTMLFormElement>("daemon-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  endDaemon();
+});
+window.owlery.onDaemonMenu(openDaemonEnding);
 
 void connect();
