@@ -66,7 +66,7 @@ The protocol gains the client message `planWorkItem`, the server message `workIt
 
 A work item made without a `base` starts from the repository's default base and no longer from the branch the person's checkout stands on. In a repository with a remote that is the remote's default branch as the last fetch left it, such as `origin/main`, and Owlery does not fetch. A person who relied on the old start chooses the checkout's branch in the form's menu. A work item's branch has no upstream, whatever its base. A `baseBranch` can now name a remote's branch, and a client prints it as it stands.
 
-A daemon that was started by an earlier build and is still alive answers no plan, so the form shows no branch and no base until that daemon exits, and a creation there starts from the checkout's commit and names an unnamed work item `work-item`.
+A daemon that was started by an earlier build and is still alive answers no plan, so the form shows no branch and no base until that daemon exits, and a creation there starts from the checkout's commit and gives an unnamed work item the branch `owlery/work-item` and an empty title.
 
 No environment variable and no dependency is added, and `work-items.json` keeps its fields. The version does not move. Phase 2's commit adds `changelog.md`.
 

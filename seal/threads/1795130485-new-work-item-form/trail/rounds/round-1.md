@@ -51,6 +51,12 @@ The regression test belongs in `apps/desktop/test/worktrees.test.ts`, under `des
 
 The snippet leaves three statements of the same fact, and the fix pass owes them too. They are the sentence "A remote's `HEAD` entry is no base." of `frame/design.md` *Scope* item 4 (line 73), the comment on `WorktreePlan.localBases` (`apps/desktop/src/daemon/worktrees.ts:74`), and the comment on `workItemPlan` in `apps/desktop/src/shared/protocol.ts:170`. Each says "the local branches" and would then also say that a local branch naming another ref is not among them. The other way to close the finding is to let `baseRef` accept such a line and cut at the ref. That keeps the alias in the menu and stores the alias's name as `baseBranch`. That choice is open to the fix pass, provided the list and the read agree.
 
+```seal
+verdict: fixed e859041
+location: `apps/desktop/src/daemon/worktrees.ts:185`, `apps/desktop/test/worktrees.test.ts:230`, `apps/desktop/src/shared/protocol.ts:170`, `seal/threads/1795130485-new-work-item-form/changelog.md:8`
+answer: The finding holds, and the record's first fix was taken after it was read against *Scope* items 5 and 6 and against every input of `basesOf`: `basesOf` leaves a local branch that names another ref out of the local list, so it is no default base either, and its target stands in the list. The regression case is the record's, under `describe("the default base")`; it was seen red against the old `basesOf` on its first assertion, "expected [ [ 'master', 'main' ], 'main' ] to deeply equal [ [ 'master' ], 'master' ]", and `seal mutate` with the guard removed is red on the same line. The same commit corrects the comments on `WorktreePlan.localBases`, on `baseRef` and on `workItemPlan` in `protocol.ts`, and adds a sentence to `changelog.md` line 8, which the finding's `location:` does not name. The sentence of `frame/design.md` line 73 is not corrected by this pass: a crafter writes no line of the frame, so it is handed back to the orchestrator to fold, with the sentence of *Scope* item 6 on the local list (line 83).
+```
+
 ### 2. Against a daemon of an earlier build, an empty name gives a work item with an empty title, and the changelog says it is called `work-item`
 
 ```seal
@@ -76,6 +82,12 @@ A daemon that was started by an earlier build and is still alive answers no plan
 ```
 
 The fix pass can choose to change the code instead. For example, the window could send `title: formName` where it holds no answer to any plan of this opening. That departs from *Scope* item 7 and item 3: a new daemon would store `amber-heron` where the branch got `amber-heron-2`. The fix pass would have to argue that departure against the frame, and the changelog sentence would then change to match.
+
+```seal
+verdict: fixed e859041
+location: `seal/threads/1795130485-new-work-item-form/changelog.md:13`, `seal/threads/1795130485-new-work-item-form/gaps.md:14`
+answer: The finding holds, read at `365dafd` in `daemon.ts`, the case `createWorkItem`, and `worktrees.ts#slugFor`. The records are corrected and the code is not changed, by the orchestrator's choice: the empty title lasts only until the earlier daemon exits, and a guard in the window departs from *Scope* items 3 and 7. `changelog.md` line 13 now says such a work item gets the branch `owlery/work-item`, the folder `work-item` and no title, in this pass's words: the record's clause "stands in the list as an empty line" is left out because this pass did not open how the lists draw an empty title. `gaps.md` line 14 states the same fact, which the finding's `location:` does not name. The sentence of `frame/plan.md` line 69 is not corrected by this pass: a crafter writes no line of the frame but its Status cell, so the record's replacement for it is handed back to the orchestrator to fold.
+```
 
 ## Confirmations
 
