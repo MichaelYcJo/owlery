@@ -313,6 +313,23 @@ export class RepositoryStore {
     return removed;
   }
 
+  /**
+   * Takes one work item out of the store, and answers with it. Its
+   * repository stays, with its other work items, though it holds none after.
+   * Nothing on disk but the store's file is touched, and the id it bore is
+   * given to nothing after. Undefined where no work item has the id.
+   */
+  removeWorkItem(id: number): StoredWorkItem | undefined {
+    for (const repository of this.held) {
+      const at = repository.workItems.findIndex((item) => item.id === id);
+      if (at === -1) continue;
+      const [removed] = repository.workItems.splice(at, 1);
+      this.write();
+      return removed;
+    }
+    return undefined;
+  }
+
   /** The repository of a folder, not hidden: the one held, or a new one. Nothing is written here. */
   private shown(folder: string): { repository: StoredRepository; changed: boolean } {
     const known = this.held.find((repository) => repository.folder === folder);

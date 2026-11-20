@@ -155,6 +155,24 @@ describe("RepositoryStore", () => {
     expect(new RepositoryStore(dir).repositories()).toEqual([kept.repository]);
   });
 
+  it("removes one work item and leaves its repository, the repository's other work items and every other repository as they were, writes the store, and gives the removed id to no work item made after", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    store.addWorkItem(PLACE);
+    const other = store.addWorkItem({ ...PLACE, repo: "/r/docs" });
+    const last = store.addWorkItem({ ...PLACE, title: "Another" });
+    expect(store.removeWorkItem(9)).toBeUndefined();
+    expect(file(dir)).toMatchObject([{ workItems: [{ id: 1 }, { id: 3 }] }, { workItems: [{ id: 2 }] }]);
+    expect(store.removeWorkItem(3)).toEqual(last.item);
+    expect(store.workItems().map(({ repository, item }) => [repository.id, item.id])).toEqual([[1, 1], [2, 2]]);
+    expect(store.workItem(3)).toBeUndefined();
+    expect(file(dir)).toMatchObject([{ id: 1, workItems: [{ id: 1 }] }, { id: 2, workItems: [other.item] }]);
+    // A repository whose last work item is removed stays, with none.
+    store.removeWorkItem(2);
+    expect(new RepositoryStore(dir).repositories().map((repository) => [repository.id, repository.workItems.length])).toEqual([[1, 1], [2, 0]]);
+    expect(new RepositoryStore(dir).addWorkItem(PLACE).item.id).toBe(4);
+  });
+
   it("gives no id twice, to a work item or to a repository, though the one that bore it was removed, and keeps the next id of each kind in its file", () => {
     const dir = runDir();
     const store = new RepositoryStore(dir, () => 1);

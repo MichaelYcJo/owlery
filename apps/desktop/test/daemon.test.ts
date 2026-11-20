@@ -10,9 +10,9 @@ import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
-import { createWorktree } from "../src/daemon/worktrees";
+import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import type { HeadlessInfo, ServerMessage } from "../src/shared/protocol";
+import type { HeadlessInfo, ServerMessage, WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -1283,6 +1283,55 @@ describe("repositories", () => {
     expect((await (await client(later.url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
     // Two daemons, and two processes that each outlive the signal for a moment.
   }, 15_000);
+
+  it("removes a repository with its work items deleted from disk, one after another: without the force it deletes the one that loses nothing, stops at the one that holds an untracked file, whose pane it leaves running, and keeps the repository; with the force both worktrees and both branches are gone, the repository leaves the lists, and its folder stands", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const { url } = await daemon({ runDir, worktreesRoot: root, commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Nothing to lose", kind: "shell", cols: 80, rows: 24 });
+    const clean = await c.message("workItemCreated", (m) => m.requestId === 1);
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "Holds a file", kind: "shell", cols: 80, rows: 24 });
+    const held = await c.message("workItemCreated", (m) => m.requestId === 2);
+    writeFileSync(join(held.workItem.worktree, "untracked.txt"), "kept\n");
+    const stamps = { [clean.workItem.id]: (await readLoss(repo, clean.workItem.branch, clean.workItem.worktree)).stamp, [held.workItem.id]: (await readLoss(repo, held.workItem.branch, held.workItem.worktree)).stamp };
+    const told = { workItems: [clean.workItem.id, held.workItem.id], running: { panes: [clean.session.id, held.session.id], headless: [] } };
+    // A removal that deletes names the stamp of every work item's loss, and one that does not ends and removes nothing.
+    const refusals = [
+      [3, { stamps: { [clean.workItem.id]: stamps[clean.workItem.id] }, force: false }],
+      [4, { stamps, force: "yes" }],
+      [5, { stamps: [], force: false }],
+      [6, true],
+    ] as const;
+    for (const [requestId, chosen] of refusals) {
+      c.send({ type: "removeRepository", requestId, id: 1, ...told, delete: chosen });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a removal that deletes names the stamp of each work item's loss, and whether it is forced" });
+    }
+    const before = onDisk(repo, clean.workItem.worktree, held.workItem.worktree);
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => s.alive)]).toEqual([[1, 2], [true, true]]);
+    expect(onDisk(repo, clean.workItem.worktree, held.workItem.worktree)).toEqual(before);
+
+    c.messages.length = 0;
+    c.send({ type: "removeRepository", requestId: 7, id: 1, ...told, delete: { stamps, force: false } });
+    expect(await c.message("error", (m) => m.requestId === 7)).toEqual({ type: "error", requestId: 7, message: "Holds a file: The work item holds work a delete would lose. Check Force delete to delete it anyway." });
+    // The first work item is gone, from the lists and from disk, and the second and the repository are as they were.
+    const partly = await c.message("inbox", (m) => m.workItems.length === 1);
+    expect([partly.repositories.map((r) => r.id), partly.workItems.map((w) => w.id), partly.sessions.map((s) => [s.id, s.alive])]).toEqual([[1], [held.workItem.id], [[held.session.id, true]]]);
+    expect([existsSync(clean.workItem.worktree), git(repo, "branch", "--list", "owlery/*").trim()]).toEqual([false, `+ ${held.workItem.branch}`]);
+    expect(readFileSync(join(held.workItem.worktree, "untracked.txt"), "utf8")).toBe("kept\n");
+
+    c.send({ type: "removeRepository", requestId: 8, id: 1, workItems: [held.workItem.id], running: { panes: [held.session.id], headless: [] }, delete: { stamps: { [held.workItem.id]: stamps[held.workItem.id] }, force: true } });
+    await c.message("done", (m) => m.requestId === 8);
+    const removed = await c.message("inbox", (m) => m.repositories.length === 0);
+    expect([removed.workItems, removed.archived, removed.sessions]).toEqual([[], [], []]);
+    expect([existsSync(held.workItem.worktree), git(repo, "branch", "--list", "owlery/*").trim(), git(repo, "worktree", "list", "--porcelain").split("\n\n").filter((block) => block.trim() !== "").length]).toEqual([false, "", 1]);
+    // The repository's own folder is no worktree a delete removes.
+    expect([readFileSync(join(repo, "README.md"), "utf8"), git(repo, "status", "--porcelain")]).toEqual(["a repository\n", ""]);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toEqual({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [] });
+  });
 });
 
 describe("what a person sets on a work item", () => {
@@ -1660,6 +1709,273 @@ describe("what a person sets on a work item", () => {
     expect([inbox.workItems, inbox.archived.map((w) => w.id), inbox.sessions.map((s) => [s.id, s.alive])]).toEqual([[], [workItem.id], [[session.id, true]]]);
     // The pane is listed as exited once its process ends.
     expect((await c.message("inbox", (m) => m.sessions.every((s) => !s.alive))).archived.map((w) => w.id)).toEqual([workItem.id]);
+  });
+
+  const CHANGED = "What the delete would remove has changed. Read it again.";
+  const UNFORCED = "The work item holds work a delete would lose. Check Force delete to delete it anyway.";
+  /** Asks the daemon what a delete of the work item would lose. */
+  async function lossOf(c: Awaited<ReturnType<typeof client>>, id: number): Promise<WorkItemLoss> {
+    const requestId = refused++;
+    c.send({ type: "readLoss", requestId, id });
+    return (await c.message("workItemLoss", (m) => m.requestId === requestId)).loss;
+  }
+  /** Every file under a folder, by its path from the folder, without the worktree's own `.git`. */
+  const pathsIn = (folder: string): string[] =>
+    (readdirSync(folder, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name).slice(folder.length + 1))
+      .filter((path) => path !== ".git")
+      .sort();
+
+  it("answers a `readLoss` with what a delete of the work item would lose, as git reads it then, and one that names no work item it holds with an error", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made);
+    writeFileSync(join(workItem.worktree, "untracked.txt"), "kept\n");
+    c.send({ type: "readLoss", requestId: 1, id: workItem.id });
+    const answer = await c.message("workItemLoss", (m) => m.requestId === 1);
+    expect(answer).toEqual({ type: "workItemLoss", requestId: 1, id: workItem.id, loss: await readLoss(made.repo, workItem.branch, workItem.worktree) });
+    expect(answer.loss).toMatchObject({ branch: workItem.branch, worktree: workItem.worktree, untracked: ["untracked.txt"] });
+    c.send({ type: "readLoss", requestId: 2, id: 9 });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "no work item 9" });
+    // The read changed nothing, and told no other client anything.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["workItemLoss", "error", "error"]);
+  });
+
+  it("deletes a work item that would lose nothing but an ignored file, with the loss's stamp and no force: it ends the pane the delete names, removes the folder and the branch, takes the work item, its pane and its headless sessions off the lists, answers before the inbox, and gives its id to no work item made after", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem, session } = await withWorkItem(made, { roleAdapter: fakeAdapter() });
+    writeFileSync(join(workItem.worktree, ".gitignore"), ".env\n");
+    git(workItem.worktree, "add", ".gitignore");
+    git(workItem.worktree, "commit", "--quiet", "-m", "ignore the environment");
+    git(made.repo, "branch", "keeps", workItem.branch);
+    writeFileSync(join(workItem.worktree, ".env"), "SECRET=1\n");
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    const loss = await lossOf(c, workItem.id);
+    expect(loss).toMatchObject({ commitCount: 0, uncommittedCount: 0, untrackedCount: 0, ignored: [".env"] });
+    const own = [readFileSync(join(made.repo, "README.md"), "base64"), git(made.repo, "status", "--porcelain")];
+    c.messages.length = 0;
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+    const gone = await c.message("inbox", (m) => m.workItems.length === 0);
+    // The answer first, then the inbox that carries the delete.
+    expect(c.messages.findIndex((m) => m.type === "done" && m.requestId === 2)).toBe(c.messages.indexOf(gone) - 1);
+    expect([gone.repositories.map((r) => r.id), gone.archived, gone.sessions]).toEqual([[1], [], []]);
+    expect([existsSync(workItem.worktree), git(made.repo, "branch", "--format=%(refname:short)").trim().split("\n").sort()]).toEqual([false, ["keeps", "main"]]);
+    expect([readFileSync(join(made.repo, "README.md"), "base64"), git(made.repo, "status", "--porcelain")]).toEqual(own);
+    const after = await (await client(url)).message("ready");
+    expect([after.workItems, after.sessions, after.headless]).toEqual([[], [], []]);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextWorkItemId: 2, repositories: [{ id: 1, workItems: [] }] });
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Made after", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated", (m) => m.requestId === 3)).workItem).toMatchObject({ id: 2, repoId: 1, ...NOTHING_NEW });
+  });
+
+  it("refuses a delete of a work item that holds work without the force and leaves everything as it was, the pane running; and with the force removes the folder and the branch and nothing else: no ref of the remote, no remote's branch or tag of the clone, no other branch, no file of another work item or of the repository's own checkout, no path the loss did not name and no commit the loss did not name", async () => {
+    const seed = temporaryRepository("seed");
+    cleanups.push(seed.remove);
+    // A clone of a bare remote, in the seed's temporary folder.
+    const remote = join(seed.base, "remote.git");
+    const repo = join(seed.base, "project");
+    git(seed.base, "clone", "--quiet", "--bare", seed.repo, remote);
+    git(seed.base, "clone", "--quiet", remote, repo);
+    git(repo, "config", "user.name", "Owlery Test");
+    git(repo, "config", "user.email", "test@owlery.invalid");
+    git(repo, "config", "commit.gpgsign", "false");
+    const { c, url, workItem, session } = await withWorkItem({ repo, root: seed.root, base: seed.base });
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Beside it", kind: "shell", cols: 80, rows: 24 });
+    const beside = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    writeFileSync(join(beside.worktree, "beside.txt"), "another work item's\n");
+    const { worktree, branch } = workItem;
+    writeFileSync(join(worktree, ".gitignore"), ".env\nnode_modules/\n");
+    git(worktree, "add", ".gitignore");
+    git(worktree, "commit", "--quiet", "-m", "ignore the environment");
+    const shared = commitFile(worktree, "shared.txt");
+    git(repo, "branch", "keeps", shared);
+    git(repo, "tag", "marked", "main");
+    git(repo, "push", "--quiet", "origin", "keeps", "marked");
+    const lost = commitFile(worktree, "lost.txt");
+    writeFileSync(join(worktree, "README.md"), "changed and not committed\n");
+    mkdirSync(join(worktree, "newdir", "deep"), { recursive: true });
+    writeFileSync(join(worktree, "newdir", "deep", "u.txt"), "untracked\n");
+    writeFileSync(join(worktree, ".env"), "SECRET=1\n");
+    mkdirSync(join(worktree, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(worktree, "node_modules", "left-pad", "index.js"), "\n");
+    const loss = await lossOf(c, workItem.id);
+    expect(loss).toMatchObject({ branch, worktree, commits: [{ hash: git(repo, "rev-parse", "--short", lost).trim(), subject: "add lost.txt" }], uncommitted: ["README.md"], untracked: ["newdir/deep/u.txt"], ignored: [".env", "node_modules/"], blocked: null, unreachable: false });
+    const everything = onDisk(repo, worktree, beside.worktree);
+    const told = { panes: [session.id], headless: [] };
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: told });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: UNFORCED });
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive])]).toEqual([[workItem.id, beside.id], [[session.id, true], [session.id + 1, true]]]);
+    expect(onDisk(repo, worktree, beside.worktree)).toEqual(everything);
+
+    // What stands before the delete that it may not touch, and what it may only touch as the loss named it.
+    const refs = (...patterns: string[]): string => git(repo, "for-each-ref", "--format=%(refname) %(objectname)", ...patterns);
+    const others = (): string => refs("refs/heads").split("\n").filter((line) => !line.startsWith(`refs/heads/${branch} `)).join("\n");
+    const bytesIn = (folder: string) => pathsIn(folder).filter((path) => !path.startsWith(".git/")).map((path) => [path, readFileSync(join(folder, path), "base64")]);
+    const kept = () => [git(repo, "ls-remote", "origin"), refs("refs/remotes", "refs/tags"), others(), bytesIn(beside.worktree), bytesIn(repo), git(repo, "status", "--porcelain")];
+    const before = kept();
+    const stood = pathsIn(worktree);
+    const committed = new Set(git(repo, "ls-tree", "-r", "--name-only", `refs/heads/${branch}`).split("\n"));
+    const reachable = (): Set<string> => new Set(git(repo, "rev-list", "--all").split("\n").filter((commit) => commit !== ""));
+    const commitsBefore = reachable();
+    c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: loss.stamp, force: true, running: told });
+    await c.message("done", (m) => m.requestId === 3);
+    expect([existsSync(worktree), refs(`refs/heads/${branch}`)]).toEqual([false, ""]);
+    expect(kept()).toEqual(before);
+    expect((await c.message("inbox", (m) => m.workItems.length === 1)).workItems.map((w) => w.id)).toEqual([beside.id]);
+    // Every path that stood in the folder is one a commit of the branch holds, or one the loss named, by itself or by the folder it is under.
+    const named = [...loss.uncommitted, ...loss.untracked, ...loss.ignored];
+    expect(stood.filter((path) => !committed.has(path) && !named.some((name) => (name.endsWith("/") ? path.startsWith(name) : path === name)))).toEqual([]);
+    expect(stood).toEqual(expect.arrayContaining(["newdir/deep/u.txt", ".env", "node_modules/left-pad/index.js", "lost.txt"]));
+    // Every commit no ref holds any more is one the loss named.
+    const after = reachable();
+    expect([...commitsBefore].filter((commit) => !after.has(commit)).map((commit) => git(repo, "rev-parse", "--short", commit).trim())).toEqual(loss.commits.map(({ hash }) => hash));
+  });
+
+  it("refuses a delete whose stamp is of an earlier loss, one that does not name a running pane, one of a work item whose loss says it is blocked, and one whose fields are not the protocol's or that names no work item, and ends and removes nothing", async () => {
+    const made = repository();
+    const { c, url, workItem, session } = await withWorkItem(made);
+    const told = { panes: [session.id], headless: [] };
+    const earlier = await lossOf(c, workItem.id);
+    git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "made since the dialog was drawn");
+    const everything = onDisk(made.repo, workItem.worktree);
+    // The force does not stand in for the reading: the person read another loss.
+    c.send({ type: "deleteWorkItem", requestId: 1, id: workItem.id, stamp: earlier.stamp, force: true, running: told });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: CHANGED });
+    const loss = await lossOf(c, workItem.id);
+    expect(loss.commitCount).toBe(1);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: true, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "A session started since you looked. Read it again." });
+    git(made.repo, "worktree", "lock", workItem.worktree);
+    const locked = await lossOf(c, workItem.id);
+    c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: locked.stamp, force: true, running: told });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: `The worktree ${workItem.worktree} is locked, so git does not remove it.` });
+    git(made.repo, "worktree", "unlock", workItem.worktree);
+    for (const [requestId, fields] of [[4, { stamp: 7, force: true, running: told }], [5, { stamp: loss.stamp, force: "yes", running: told }], [6, { stamp: loss.stamp, running: told }], [7, { stamp: loss.stamp, force: true }]] as const) {
+      c.send({ type: "deleteWorkItem", requestId, id: workItem.id, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a delete names the stamp of the loss the person read, whether it is forced, and the work item's running sessions" });
+    }
+    c.send({ type: "deleteWorkItem", requestId: 8, id: 9, stamp: loss.stamp, force: true, running: told });
+    expect(await c.message("error", (m) => m.requestId === 8)).toEqual({ type: "error", requestId: 8, message: "no work item 9" });
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive])]).toEqual([[workItem.id], [[session.id, true]]]);
+    expect(onDisk(made.repo, workItem.worktree)).toEqual(everything);
+  });
+
+  it("reads the loss once more after the sessions ended, and refuses a delete where a pane's end left a file the person was not told of: the folder, the branch and the work item stay, and a headless session the delete stopped says that a delete of its work item began", async () => {
+    const made = repository();
+    const slow = fakeAdapter({ delayMs: 60_000 });
+    // The pane's process writes a file into its folder as it ends.
+    const { c, url, workItem, session } = await withWorkItem(made, { roleAdapter: slow, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap 'echo late > late.txt; exit 0' HUP; echo ready; sleep 30 & wait"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("ready")) ? true : undefined));
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    const loss = await lossOf(c, workItem.id);
+    expect([loss.untrackedCount, loss.commitCount]).toEqual([0, 0]);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [headless.id] } });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: CHANGED });
+    expect([readFileSync(join(workItem.worktree, "late.txt"), "utf8"), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual(["late\n", `+ ${workItem.branch}`]);
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive]), still.headless]).toEqual([[workItem.id], [[session.id, false]], [{ ...headless, state: "failed", error: "ended when a delete of its work item began" }]]);
+    // The loss the person reads next names the file, and a delete with its stamp needs the force.
+    const next = await lossOf(c, workItem.id);
+    expect(next.untracked).toEqual(["late.txt"]);
+    c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: next.stamp, force: false, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: UNFORCED });
+    c.send({ type: "deleteWorkItem", requestId: 4, id: workItem.id, stamp: next.stamp, force: true, running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 4);
+    expect([existsSync(workItem.worktree), (await (await client(url)).message("ready")).headless]).toEqual([false, []]);
+  });
+
+  it("refuses a delete where a pane's process has not exited within the wait, and removes nothing; starts no pane and no headless session in the work item, and archives it at no request, while the delete is under way; and starts one again after", async () => {
+    const made = repository();
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const { c, url, workItem, session } = await withWorkItem(made, { endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    const loss = await lossOf(c, workItem.id);
+    const told = { panes: [session.id], headless: [] };
+    c.send({ type: "deleteWorkItem", requestId: 1, id: workItem.id, stamp: loss.stamp, force: false, running: told });
+    // The requests arrive once the delete waits: messages sent together are read in one turn, before the delete's first read.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 1)).toBe(false);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
+    c.send({ type: "ask", requestId: 3, workItemId: workItem.id, prompt: "Which file?" });
+    c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: told });
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "started" || m.type === "asked" || m.type === "done" || m.type === "error") && m.requestId === requestId));
+    const DELETING = `work item ${workItem.id} is being deleted`;
+    expect([await answer(2), await answer(3), await answer(4)]).toEqual([2, 3, 4].map((requestId) => ({ type: "error", requestId, message: DELETING })));
+    expect(await answer(1)).toEqual({ type: "error", requestId: 1, message: "A session did not end in time, so nothing was deleted. Try again." });
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.archived, existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], [], true, `+ ${workItem.branch}`]);
+    // The refused delete holds the work item no longer.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 5, workItemId: workItem.id });
+    expect((await answer(5))?.type).toBe("started");
+  });
+
+  it("refuses a delete of a work item while an archive of it is ending its sessions, so the two never end one work item's sessions at once, and the archive goes on", async () => {
+    const made = repository();
+    const { c, workItem, session } = await withWorkItem(made, { endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    const loss = await lossOf(c, workItem.id);
+    const told = { panes: [session.id], headless: [] };
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: told });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 1)).toBe(false);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: true, running: told });
+    c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: told, delete: { stamps: { [workItem.id]: loss.stamp }, force: true } });
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "done" || m.type === "error") && m.requestId === requestId));
+    const ARCHIVING = `An archive of work item ${workItem.id} is ending its sessions. Try again.`;
+    expect([await answer(2), await answer(3)]).toEqual([{ type: "error", requestId: 2, message: ARCHIVING }, { type: "error", requestId: 3, message: ARCHIVING }]);
+    expect(await answer(1)).toEqual({ type: "done", requestId: 1 });
+    const { inbox } = await archivedInbox(c);
+    expect([inbox.archived.map((w) => w.id), existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], true, `+ ${workItem.branch}`]);
+  });
+
+  it("deletes an archived work item, and takes a work item whose repository's folder is gone off the lists with nothing removed on disk", async () => {
+    const made = repository();
+    const { c, url, workItem, session } = await withWorkItem(made);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 1);
+    const loss = await lossOf(c, workItem.id);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 2);
+    const after = await (await client(url)).message("ready");
+    expect([after.workItems, after.archived, after.sessions, existsSync(workItem.worktree), git(made.repo, "branch", "--list", "owlery/*")]).toEqual([[], [], [], false, ""]);
+
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Its repository goes", kind: "shell", cols: 80, rows: 24 });
+    const left = await c.message("workItemCreated", (m) => m.requestId === 3);
+    writeFileSync(join(left.workItem.worktree, "untracked.txt"), "kept\n");
+    rmSync(made.repo, { recursive: true });
+    const unreachable = await lossOf(c, left.workItem.id);
+    expect(unreachable).toMatchObject({ branch: null, worktree: null, untracked: [], unreachable: true });
+    // Nothing is named as lost, so the delete needs no force, and removes no file.
+    c.send({ type: "deleteWorkItem", requestId: 4, id: left.workItem.id, stamp: unreachable.stamp, force: false, running: { panes: [left.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect((await (await client(url)).message("ready")).workItems).toEqual([]);
+    expect(pathsIn(left.workItem.worktree)).toEqual(["README.md", "untracked.txt"]);
+  });
+
+  it("runs a delete after a creation that is under way, so the two never take and give up one branch at once", async () => {
+    const made = repository();
+    const { c, workItem, session } = await withWorkItem(made);
+    const loss = await lossOf(c, workItem.id);
+    const held = heldGit(made.base);
+    c.messages.length = 0;
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Under way", kind: "shell", cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+    // A delete that did not wait would be answered before the refusal of a start sent after it.
+    await settled(c);
+    expect(c.messages.flatMap((m) => (m.type === "done" || m.type === "error" ? [m.requestId] : [])).filter((requestId) => requestId < 900)).toEqual([]);
+    held.release();
+    await c.message("workItemCreated", (m) => m.requestId === 1);
+    await c.message("done", (m) => m.requestId === 2);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/under-way");
   });
 });
 
