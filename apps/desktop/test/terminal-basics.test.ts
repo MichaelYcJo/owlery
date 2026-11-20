@@ -1018,7 +1018,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await closeFromElsewhere(second);
     await app.until(`${TABS}.length === 1`, "one tab");
     await app.until(`!(${MENU_OPEN})`, "the menu closed with its pane");
-    // The menu did not hand the keyboard to the terminal of the pane that left: the pane that is left has it.
+    // The menu had the keyboard, and the pane that is left has it now.
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 });

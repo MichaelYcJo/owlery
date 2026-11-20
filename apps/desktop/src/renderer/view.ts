@@ -594,7 +594,8 @@ export const PANE_KEY_BYTES: Record<PaneKeyAct, string> = { lineFeed: "\n", line
  * other modifier are the editing keys of macOS: the left arrow goes to the
  * line's start, the right arrow to its end, and Backspace sends Control+U,
  * which deletes what stands before the cursor in bash and the whole line in
- * zsh. On a keyboard without the Command key the three stay the terminal's. During a composition every key is the terminal's: the event
+ * zsh. On a keyboard without the Command key the three stay the
+ * terminal's. During a composition every key is the terminal's: the event
  * says so, or its key code is 229, the code of a key the input source took.
  * The application menu binds none of these keys (src/main/menu.ts).
  */
