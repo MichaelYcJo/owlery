@@ -5,6 +5,7 @@
 // permission check off (docs/roadmap.md, milestone 1).
 import { execFile, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { terminalEnv } from "../pty";
 import type { RoleAdapter, RoleEvent } from "./adapter";
 
 /**
@@ -62,7 +63,9 @@ export const LOOKUP_SCRIPT = `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' 
 /**
  * The command that finds the CLI: the user's interactive login shell, as a
  * terminal pane opens it, because a daemon the app started has the app's PATH
- * and many profiles set PATH only for an interactive shell.
+ * and many profiles set PATH only for an interactive shell. The adapter starts
+ * it with a pane's environment, so a profile that refuses a package script's
+ * variables, as nvm does, still sets the PATH the session gets.
  */
 export function lookupCommand(env: NodeJS.ProcessEnv): { command: string; args: string[] } {
   return { command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", LOOKUP_SCRIPT] };
@@ -133,7 +136,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
   const lookup = (): Promise<{ cli: string; path: string }> => {
     const { command, args } = lookupCommand(env);
     return new Promise((resolve, reject) => {
-      execFile(command, args, { env, encoding: "utf8", timeout: options.lookupTimeoutMs ?? 10_000 }, (error, stdout) => {
+      execFile(command, args, { env: terminalEnv(env), encoding: "utf8", timeout: options.lookupTimeoutMs ?? 10_000 }, (error, stdout) => {
         // The exit code is the profile's last word, not the lookup's: what was printed decides.
         const result = parseLookup(stdout);
         if (result) resolve(result);
