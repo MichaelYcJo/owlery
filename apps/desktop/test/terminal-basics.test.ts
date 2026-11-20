@@ -961,6 +961,26 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const inBrackets = pasted("from the clipboard");
     expect((await handed.next(inBrackets.length)).toString("utf8")).toBe(inBrackets);
 
+    /** Has the pane leave the stage and come back: the first pane's tab is pressed, and then this pane's. The terminal is then drawn from the daemon's replay alone. */
+    const leavesAndReturns = async (): Promise<void> => {
+      await app.click("#tabs .tab:nth-child(1) .label");
+      await app.until(`${TAB_IN_FRONT} === "Shell 1" && ${PANE_HAS_KEYBOARD}`, "the first pane in front");
+      await app.click("#tabs .tab:nth-child(2) .label");
+      await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the pane of the menu in front again");
+    };
+    /** Presses the menu's "Paste" after the pane came back, and answers what the pane's process was handed. A screen sends nothing until its terminal has drawn the replay (src/renderer/view.ts, `screenTurns`), so a press made before that hands the process nothing, and it is made again after a second without a byte, three times at most. */
+    const pasteOnceBack = async (): Promise<string> => {
+      for (let presses = 1; ; presses++) {
+        await pressMenuItem("Paste");
+        for (let reads = 0; reads < 5; reads++) {
+          const got = (await handed.next(0)).toString("utf8");
+          // A moment more for what follows the first bytes.
+          if (got !== "") return got + (await handed.next(0)).toString("utf8");
+        }
+        if (presses === 3) return "";
+      }
+    };
+
     // "Clear Screen" empties the terminal, and keeps the modes the pane's program set: a paste still arrives in brackets.
     expect(await linkAt(9, 0)).toBe(true);
     await pressMenuItem("Clear Screen");
@@ -968,23 +988,37 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await pressMenuItem("Paste");
     expect((await handed.next(inBrackets.length)).toString("utf8")).toBe(inBrackets);
 
+    // The daemon forgot what the pane printed and kept the modes, so once the pane left the stage and came back it is still empty, and a paste still arrives in brackets.
+    await leavesAndReturns();
+    expect(await linkAt(9, 0)).toBe(false);
+    expect(await linkAt(3, 1)).toBe(false);
+    expect(await pasteOnceBack()).toBe(inBrackets);
+
     // "Reset Terminal" ends those modes: the same paste arrives as typed text.
     await pressMenuItem("Reset Terminal");
     await pressMenuItem("Paste");
     expect((await handed.next("from the clipboard".length)).toString("utf8")).toBe("from the clipboard");
 
-    // The daemon forgot what the pane printed, so the pane is still empty once it left the stage and came back.
-    await app.click("#tabs .tab:nth-child(1) .label");
-    await app.until(`${TAB_IN_FRONT} === "Shell 1" && ${PANE_HAS_KEYBOARD}`, "the first pane in front");
-    await app.click("#tabs .tab:nth-child(2) .label");
-    await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the cleared pane in front again");
-    expect(await linkAt(9, 0)).toBe(false);
-    expect(await linkAt(3, 1)).toBe(false);
+    // The daemon kept no mode at the reset, so the paste arrives as typed text once the pane left the stage and came back as well.
+    await leavesAndReturns();
+    expect(await pasteOnceBack()).toBe("from the clipboard");
 
     // "Close Pane" closes the pane as a press of its tab's "×" does.
     await pressMenuItem("Close Pane");
     await app.until(`${TABS}.length === 1`, "one tab");
     expect(await untilGone([pid], 5_000)).toEqual([]);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it("closes a pane's menu when its pane is closed from elsewhere, so no item acts on the pane that takes its screen", async () => {
+    const second = await openPane("Shell");
+    await pidOf(second);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    await openMenu();
+    await closeFromElsewhere(second);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(`!(${MENU_OPEN})`, "the menu closed with its pane");
+    // The menu did not hand the keyboard to the terminal of the pane that left: the pane that is left has it.
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 });

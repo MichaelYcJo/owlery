@@ -311,8 +311,8 @@ export class Daemon {
         this.clients.get(socket)?.delete(message.id);
         return;
       case "forget":
-        // A person cleared the pane in a window. Without this the next replay would draw again what they cleared.
-        this.sessions.get(message.id)?.output.clear();
+        // A person cleared or reset the pane in a window. Without this the next replay would draw again what they cleared. A clear asks with `keepModes` that the modes the pane's program set are kept, and the next replay then opens with them. A reset does not ask, and the next replay sets no mode.
+        this.sessions.get(message.id)?.output.clear(message.keepModes === true);
         return;
       case "close": {
         const session = this.sessions.get(message.id);

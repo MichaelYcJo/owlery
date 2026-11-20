@@ -301,12 +301,12 @@ function findsPaths(term: Terminal, turns: ScreenTurns): void {
   });
 }
 
-/** Closes the pane's menu where it is open, and gives the keyboard back to the terminal of the pane it was for. */
-function closeMenu(): void {
+/** Closes the pane's menu where it is open. The terminal of the pane it was for takes the keyboard back, unless `giveKeyboard` is false, as where that pane leaves the stage. */
+function closeMenu(giveKeyboard = true): void {
   if (!paneMenuElement) return;
   paneMenuElement.remove();
   paneMenuElement = undefined;
-  paneMenuTerm?.focus();
+  if (giveKeyboard) paneMenuTerm?.focus();
   paneMenuTerm = undefined;
 }
 
@@ -317,7 +317,11 @@ function closeMenu(): void {
  * pastes in brackets receives one, and an empty clipboard pastes nothing.
  * Before the terminal is cleared or reset the daemon is told to forget what
  * the pane printed: its replay draws the pane each time it comes onto the
- * stage, and would draw again what the person cleared.
+ * stage, and would draw again what the person cleared. A clear asks the
+ * daemon to keep the modes the pane's program set, such as pastes in
+ * brackets, so the pane has them again when it comes back onto the stage,
+ * as the cleared terminal has them now. A reset asks it to keep nothing,
+ * since the reset ends those modes in the terminal.
  */
 function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
   const pane = turns.pane;
@@ -332,10 +336,12 @@ function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
   else if (chosen === "close") {
     const session = held.sessions.find((listed) => listed.id === pane);
     if (session) closePane(session);
+  } else if (chosen === "clear") {
+    send({ type: "forget", id: pane, keepModes: true });
+    term.clear();
   } else {
     send({ type: "forget", id: pane });
-    if (chosen === "clear") term.clear();
-    else term.reset();
+    term.reset();
   }
 }
 
@@ -522,6 +528,8 @@ function take(screen: Screen, pane: number): void {
 /** Takes a screen back from the pane on it, as the pane leaves the stage: the daemon is told to send this window no more of the pane's output, and the screen is emptied and hidden. */
 function giveBack(screen: Screen): void {
   if (screen.turns.pane === undefined) return;
+  // A menu open for this pane closes as the pane leaves the stage: the screen goes to the next pane that comes, and the menu's items would act on that one. The terminal is not given the keyboard, since its pane is leaving.
+  if (paneMenuTerm === screen.term) closeMenu(false);
   send({ type: "detach", id: screen.turns.pane });
   screen.turns.giveBack();
   screen.element.hidden = true;

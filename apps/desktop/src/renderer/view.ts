@@ -582,7 +582,7 @@ export function droppedText(paths: readonly string[]): string {
 /** What a key of a pane that the window reads does: it sends a line feed, or one of the three bytes a shell reads as an editing key. */
 export type PaneKeyAct = "lineFeed" | "lineStart" | "lineEnd" | "deleteToLineStart";
 
-/** The byte the pane's process is handed for each: a line feed, and Control+A, Control+E and Control+U, which a shell and a prompt read as the line's start, the line's end, and the deletion of what stands before the cursor. */
+/** The byte the pane's process is handed for each: a line feed, and Control+A, Control+E and Control+U. A shell reads the first two as the line's start and its end. bash reads Control+U as a deletion of what stands before the cursor, and zsh as a deletion of the whole line. */
 export const PANE_KEY_BYTES: Record<PaneKeyAct, string> = { lineFeed: "\n", lineStart: "\u0001", lineEnd: "\u0005", deleteToLineStart: "\u0015" };
 
 /**
@@ -592,9 +592,9 @@ export const PANE_KEY_BYTES: Record<PaneKeyAct, string> = { lineFeed: "\n", line
  * which a program such as Claude Code reads as a line break where Enter
  * submits. On a Mac keyboard, `mac`, three keys with the Command key and no
  * other modifier are the editing keys of macOS: the left arrow goes to the
- * line's start, the right arrow to its end, and Backspace deletes to its
- * start. On a keyboard without the Command key the three stay the
- * terminal's. During a composition every key is the terminal's: the event
+ * line's start, the right arrow to its end, and Backspace sends Control+U,
+ * which deletes what stands before the cursor in bash and the whole line in
+ * zsh. On a keyboard without the Command key the three stay the terminal's. During a composition every key is the terminal's: the event
  * says so, or its key code is 229, the code of a key the input source took.
  * The application menu binds none of these keys (src/main/menu.ts).
  */
