@@ -105,11 +105,13 @@ function watchedGit(base: string, seconds = 0): { calls: (command: string) => nu
 
 /**
  * Puts a `git` before the real one on the path the daemon runs git from: its
- * `git worktree` waits until `release`, and every other command runs at once.
- * `when` names another command to hold, as a test of the shell over git's
- * arguments. `waiting` says whether a held command has arrived.
+ * `git worktree add`, which makes a work item's folder, waits until
+ * `release`, and every other command runs at once, the `git worktree list`
+ * that reads a folder's repository among them. `when` names another command
+ * to hold, as a test of the shell over git's arguments. `waiting` says
+ * whether a held command has arrived.
  */
-function heldGit(base: string, when = '[ "$1" = worktree ]'): { release: () => void; waiting: () => boolean } {
+function heldGit(base: string, when = '[ "$1" = worktree ] && [ "$2" = add ]'): { release: () => void; waiting: () => boolean } {
   const bin = join(base, "held-bin");
   const released = join(base, "git-released");
   const arrived = join(base, "git-arrived");
