@@ -98,6 +98,11 @@ The same, the sentence in the `to` line at 232:
 Command 키를 누른 채 클릭하면, 다른 작업의 worktree는 그 작업의 화면을 앞으로 가져오고, 그 밖의 경로는 Finder에서 보여 줍니다.
 ```
 
+```seal
+verdict: fixed ed96e3c
+answer: The finding holds. The crafter writes no frame sentence but the plan's Status cell, so the orchestrator folded the record's English and Korean sentences word for word at `ed96e3c`, after reading them against `apps/desktop/src/renderer/view.ts#linkClick` and `LINK_ROWS.workItem`, which answer a Command click on another work item's worktree by putting that view in front. The `check:` lines are as they were.
+```
+
 ### 3. The fold says `chooseOpener` is called after the disk is read, and `main.ts` calls it once when it loads; `gaps.md` quotes the design's words from before the fold
 
 ```seal
@@ -120,6 +125,12 @@ Why it matters: `987d4de` rewrote the sentence of *Data & interfaces* at `frame/
 
 ```md
 - **`links.ts#chooseOpener` was not given a second kind of opener.** `paths.ts#chooseFinder` calls it once for each of Finder's two acts when `main.ts` loads, as `frame/design.md` *Data & interfaces* states. The disk is read before the act is chosen, so the program `OWLERY_OPENER` names has to stand in for either act. `chooseOpener` itself is unchanged.
+```
+
+```seal
+verdict: fixed ed96e3c
+location: `seal/threads/1795158088-terminal-basics/gaps.md`
+answer: The finding holds. The fix pass rewrote the bullet of `gaps.md` at `204639d` with the record's words, and the orchestrator folded the record's sentences of `frame/design.md:203` at `ed96e3c`. Both agree with `apps/desktop/src/main/main.ts`, which calls `paths.ts#chooseFinder` once at load, and with `paths.ts#showInFinder`, which reads the disk before it chooses the act.
 ```
 
 ### 4. The changelog says the card shows under the link, and at the window's foot it shows above it
