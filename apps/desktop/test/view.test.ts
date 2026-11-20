@@ -13,6 +13,7 @@ import {
   closeAsks,
   commandKey,
   commitLines,
+  daemonEnding,
   daemonLists,
   deleteChoice,
   deleteSays,
@@ -71,6 +72,7 @@ import {
   replayStep,
   repositoryMenu,
   rowButtons,
+  runningSessions,
   screenMoves,
   screenTurns,
   selectedLine,
@@ -652,6 +654,54 @@ describe("archivalOf", () => {
 
   it("names none where no session of the work item runs, so its archive asks nothing first", () => {
     expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
+  });
+});
+
+describe("daemonEnding", () => {
+  it("words the dialog before a restart: its head, what a restart ends and what stays, and its button", () => {
+    expect(daemonEnding("restart")).toEqual({
+      head: "Restart the daemon",
+      says: "A restart ends every running session and starts Owlery's background process again, from this build. The panes' tabs and the answers to what was asked go with the old process. Work items, their folders and their branches stay as they are.",
+      button: "Restart",
+    });
+  });
+
+  it("words the dialog before a complete quit: its head, what the quit ends and what stays, and its button", () => {
+    expect(daemonEnding("quit")).toEqual({
+      head: "Quit Owlery completely",
+      says: "This ends every running session, stops Owlery's background process and quits Owlery. The panes' tabs and the answers to what was asked go with the process. Work items, their folders and their branches stay as they are.",
+      button: "Quit",
+    });
+  });
+});
+
+describe("runningSessions", () => {
+  const SHELVED: WorkItem = { ...LOGIN, id: 4, title: "Shelved", archivedAt: 50 };
+
+  it("names every running session the window holds: each live pane of a listed work item, archived or not, by its tab's label and the work item, then a live pane of no listed work item by its kind's label, then each working headless session by its work item and its prompt, and no pane that exited and no headless session that ended", () => {
+    const sessions = [
+      session(5, { kind: "shell" }),
+      session(6, { kind: "shell", alive: false }),
+      session(7, { workItemId: 4 }),
+      session(8, { workItemId: 4, alive: false }),
+      session(9, { kind: "shell", workItemId: null }),
+      session(10, { workItemId: 99 }),
+    ];
+    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { workItemId: 4, prompt: "Where is the index built?" }), headless(4, { workItemId: 4, state: "failed" }), headless(5, { workItemId: 99, prompt: "Who asked?" })];
+    expect(runningSessions([LOGIN], [SHELVED], sessions, asked, KINDS)).toEqual([
+      "Shell 1 in Fix the login bug",
+      "Claude Code 1 in Shelved",
+      "Shell",
+      "Claude Code",
+      "Asked in Fix the login bug: Which file holds the login form?",
+      "Asked in Shelved: Where is the index built?",
+      "Asked: Who asked?",
+    ]);
+  });
+
+  it("names none where no session runs", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [session(6, { alive: false })], [headless(2, { state: "finished" })], KINDS)).toEqual([]);
+    expect(runningSessions([], [], [], [], KINDS)).toEqual([]);
   });
 });
 

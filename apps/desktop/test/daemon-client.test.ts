@@ -1,9 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureDaemon } from "../src/main/daemon-client";
+import { ensureDaemon, stopDaemon } from "../src/main/daemon-client";
+import { alive } from "./built-app";
 
 const dirs: string[] = [];
 const pids: number[] = [];
@@ -99,5 +102,111 @@ describe("ensureDaemon", () => {
     expect(message).toBe(`the daemon did not start; see ${join(dir, "daemon.log")}`);
     expect(ms).toBeGreaterThanOrEqual(600);
     expect(ms).toBeLessThan(3000);
+  }, WAIT);
+});
+
+/**
+ * Starts a script the case wrote, on the suite's own binary as Node, with
+ * `dir` as its run folder, and waits until it wrote `wrote` there. Its
+ * process id is noted, so the case's end kills it where it is still there.
+ */
+async function started(dir: string, file: string, wrote: string): Promise<number> {
+  const child = spawn(process.execPath, [file], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", OWLERY_RUN_DIR: dir }, stdio: "ignore" });
+  const pid = child.pid as number;
+  pids.push(pid);
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(join(dir, wrote))) {
+    if (Date.now() >= deadline) throw new Error(`the script did not write ${wrote}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return pid;
+}
+
+/**
+ * A script that stands in for the daemon: it answers `ready` to a hello that
+ * carries `token` and closes the socket of any other, and writes its port
+ * into the file `port` of its run folder once it listens. `atSigterm` is
+ * what it does at SIGTERM, and without it the signal ends it.
+ */
+function standIn(dir: string, token: string, atSigterm?: string): string {
+  const ws = createRequire(import.meta.url).resolve("ws");
+  return script(
+    dir,
+    `const { WebSocketServer } = require(${JSON.stringify(ws)});
+     const { writeFileSync } = require("node:fs");
+     const { join } = require("node:path");
+     ${atSigterm === undefined ? "" : `process.on("SIGTERM", () => { ${atSigterm} });`}
+     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => writeFileSync(join(process.env.OWLERY_RUN_DIR, "port"), String(server.address().port)));
+     server.on("connection", (socket) => socket.on("message", (raw) => {
+       if (JSON.parse(String(raw)).token === ${JSON.stringify(token)}) socket.send(JSON.stringify({ type: "ready" }));
+       else socket.close();
+     }));`,
+  );
+}
+
+/** Starts a stand-in daemon in `dir`, and gives its process id and its port. It writes no `daemon.json`: the case does. */
+async function standingIn(dir: string, token: string, atSigterm?: string): Promise<{ pid: number; port: number }> {
+  const pid = await started(dir, standIn(dir, token, atSigterm), "port");
+  return { pid, port: Number(readFileSync(join(dir, "port"), "utf8")) };
+}
+
+/** A port nothing listens on: the system gave it as free, and the listener that took it is closed. */
+function deadPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as { port: number };
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function names(dir: string, discovery: { port: number; token: string; pid: number }): void {
+  writeFileSync(join(dir, "daemon.json"), JSON.stringify(discovery));
+}
+
+describe("stopDaemon", () => {
+  it("ends the process the run folder's daemon.json names, where a daemon answers at the file's address with the file's token", async () => {
+    const dir = scratch();
+    const { pid, port } = await standingIn(dir, "t");
+    names(dir, { port, token: "t", pid });
+    await stopDaemon(dir);
+    expect(alive(pid)).toBe(false);
+  }, WAIT);
+
+  it("signals nobody where nothing answers at the file's address: the process the file names lives on", async () => {
+    const dir = scratch();
+    const pid = await started(dir, script(dir, `require("node:fs").writeFileSync(require("node:path").join(process.env.OWLERY_RUN_DIR, "up"), ""); setTimeout(() => {}, 30000);`), "up");
+    names(dir, { port: await deadPort(), token: "t", pid });
+    await stopDaemon(dir);
+    // A signal that was sent has ended the process by now: the stop waits for the process it signalled.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(alive(pid)).toBe(true);
+  }, WAIT);
+
+  it("is done at once where the run folder holds no daemon.json", async () => {
+    await expect(stopDaemon(scratch())).resolves.toBeUndefined();
+  });
+
+  it("signals nobody where the daemon at the file's address does not answer the file's token", async () => {
+    const dir = scratch();
+    const { pid, port } = await standingIn(dir, "its own");
+    names(dir, { port, token: "another", pid });
+    await stopDaemon(dir);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(alive(pid)).toBe(true);
+  }, WAIT);
+
+  it("fails with the process's id where the daemon outlives the wait, and signals nothing else", async () => {
+    const dir = scratch();
+    // The stand-in notes each SIGTERM it was sent, and stays.
+    const { pid, port } = await standingIn(dir, "t", `require("node:fs").appendFileSync(require("node:path").join(process.env.OWLERY_RUN_DIR, "signals"), "t");`);
+    names(dir, { port, token: "t", pid });
+    const started = Date.now();
+    await expect(stopDaemon(dir, 400)).rejects.toThrow(new Error(`Owlery's background process did not stop. It is process ${pid}.`));
+    expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+    expect(alive(pid)).toBe(true);
+    expect(readFileSync(join(dir, "signals"), "utf8")).toBe("t");
   }, WAIT);
 });

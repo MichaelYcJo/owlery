@@ -1,7 +1,7 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
-import type { InstalledApp } from "../shared/ipc";
+import type { DaemonEnd, InstalledApp } from "../shared/ipc";
 import { losesWork, type AgentState, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
@@ -269,6 +269,43 @@ export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[],
     sessions: [...panes.map(({ label }) => label), ...asked.map(({ prompt }) => `Asked: ${prompt}`)],
     running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
   };
+}
+
+/** The words of the dialog that asks before the daemon ends, for a restart or for a complete quit: its head, what ends and what stays, and the button that ends it. */
+export function daemonEnding(chosen: DaemonEnd): { head: string; says: string; button: string } {
+  if (chosen === "restart") {
+    return {
+      head: "Restart the daemon",
+      says: "A restart ends every running session and starts Owlery's background process again, from this build. The panes' tabs and the answers to what was asked go with the old process. Work items, their folders and their branches stay as they are.",
+      button: "Restart",
+    };
+  }
+  return {
+    head: "Quit Owlery completely",
+    says: "This ends every running session, stops Owlery's background process and quits Owlery. The panes' tabs and the answers to what was asked go with the process. Work items, their folders and their branches stay as they are.",
+    button: "Quit",
+  };
+}
+
+/**
+ * Every running session the window holds, as the dialog that asks before
+ * the daemon ends names it: each live pane, then each working headless
+ * session. A session of a work item the window lists, archived or not,
+ * reads as a repository's removal names it (`removalOf`). A live pane of no
+ * listed work item reads as its kind's label alone, after the others, and a
+ * working headless session of none by its prompt alone. The daemon's end
+ * carries no list: it ends what runs at that moment.
+ */
+export function runningSessions(workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): string[] {
+  const listed = [...workItems, ...archived];
+  const running = listed.map((workItem) => ({ workItem, ...runningIn(workItem, sessions, headless, paneKinds) }));
+  const known = new Set(listed.map((workItem) => workItem.id));
+  return [
+    ...running.flatMap(({ workItem, panes }) => panes.map(({ label }) => `${label} in ${workItem.title}`)),
+    ...sessions.filter((session) => session.alive && (session.workItemId === null || !known.has(session.workItemId))).map((session) => tabLabel(session, [session], paneKinds)),
+    ...running.flatMap(({ workItem, asked }) => asked.map(({ prompt }) => `Asked in ${workItem.title}: ${prompt}`)),
+    ...headless.filter((session) => session.state === "working" && !known.has(session.workItemId)).map(({ prompt }) => `Asked: ${prompt}`),
+  ];
 }
 
 /** One kind of thing a loss names, as a dialog draws it: its heading, a line for each entry the loss carries, and how many more there are where the list is cut, or nothing. */

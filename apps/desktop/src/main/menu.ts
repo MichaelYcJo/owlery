@@ -3,6 +3,8 @@
 
 /** One entry of the menu, in the fields of Electron's menu template this menu uses. */
 export interface MenuEntry {
+  /** The name the main process finds the entry's click by. An entry with a role has none: the role is what its click does. */
+  id?: string;
   label?: string;
   role?: string;
   accelerator?: string;
@@ -15,16 +17,24 @@ const SEPARATOR: MenuEntry = { type: "separator" };
 // The role closes the window, which on macOS hides it (./background, `closeHides`), and brings Command+W with it where the entry names no key of its own. The window reads that key in its page, to close the pane in front.
 const CLOSE_WINDOW: MenuEntry = { label: "Close Window", role: "close", accelerator: "Shift+CommandOrControl+W" };
 
+/** The ids of the two entries that end the daemon. The main process gives each its click (./main), and the window asks the person first. */
+export const RESTART_DAEMON = "restart-daemon";
+export const QUIT_COMPLETELY = "quit-completely";
+
+// The two entries stand before the plain quit, which leaves the daemon and its sessions running. Neither has a key. Each label ends in an ellipsis, because a dialog asks before anything ends.
+const END_DAEMON: MenuEntry[] = [SEPARATOR, { id: RESTART_DAEMON, label: "Restart Daemon…" }, SEPARATOR, { id: QUIT_COMPLETELY, label: "Quit Owlery Completely…" }];
+
 /**
  * The application menu's template for a platform. No entry is bound to a key
  * the window reads in its page with the Command key (src/renderer/view.ts,
  * `commandKey`): a menu takes its key before the page sees it, so an entry
  * on such a key would end what the page does with it.
  *
- * On macOS it is the menu Electron gives an app that sets none, with two
+ * On macOS it is the menu Electron gives an app that sets none, with three
  * differences: the app's menu says "Owlery" where Electron would write the
- * package's name, and "Close Window" is on Shift+Command+W. Another platform
- * has no app menu, so "Quit" stands under "File". Its "Window" menu is
+ * package's name, it holds the two entries that end the daemon before its
+ * quit, and "Close Window" is on Shift+Command+W. Another platform has no
+ * app menu, so those two entries and "Quit" stand under "File". Its "Window" menu is
  * written out entry by entry: no case runs on such a platform to read which
  * keys the menu Electron fills there would bring.
  */
@@ -41,7 +51,7 @@ export function menuTemplate(platform: NodeJS.Platform): MenuEntry[] {
           { label: "Hide Owlery", role: "hide" },
           { role: "hideOthers" },
           { role: "unhide" },
-          SEPARATOR,
+          ...END_DAEMON,
           { label: "Quit Owlery", role: "quit" },
         ],
       },
@@ -51,5 +61,5 @@ export function menuTemplate(platform: NodeJS.Platform): MenuEntry[] {
       { role: "windowMenu" },
     ];
   }
-  return [{ label: "File", submenu: [CLOSE_WINDOW, SEPARATOR, { role: "quit" }] }, { role: "editMenu" }, { role: "viewMenu" }, { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }] }];
+  return [{ label: "File", submenu: [CLOSE_WINDOW, ...END_DAEMON, { role: "quit" }] }, { role: "editMenu" }, { role: "viewMenu" }, { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }] }];
 }
