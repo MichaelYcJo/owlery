@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { themeChoice } from "../shared/appearance";
 import { Channel, type DaemonConnection, type DaemonFailure, type PathFound } from "../shared/ipc";
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
-import { quitsWithLastWindow, takeBackground } from "./background";
+import { closeHides, quitsWithLastWindow, takeBackground } from "./background";
 import { chooseClipboard } from "./clipboard";
 import { ensureDaemon } from "./daemon-client";
 import { chooseOpener, openLink, takeOpener } from "./links";
@@ -20,7 +20,9 @@ import { pickFolder } from "./pick-folder";
 // the app's menu, keeps the one window on Owlery's own page, opens the
 // address of a link a person clicked in a pane outside Owlery, says what
 // stands at a path a pane printed and shows one in Finder, reads and writes
-// the clipboard, and brings the window forward when the window asks.
+// the clipboard, brings the window forward when the window asks, and on
+// macOS hides the window at its close, so its page keeps raising the
+// notifications.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
 // A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard.
@@ -49,6 +51,11 @@ const finder = chooseFinder(program, background, {
 });
 // The clipboard a copy and a paste of the window reach: the app's own in the background, and the system's otherwise (./clipboard).
 const held = chooseClipboard(background, clipboard);
+// Whether the app is quitting. From Electron's `before-quit` on, a close of the window closes it, so Quit ends the app.
+let quitting = false;
+app.on("before-quit", () => {
+  quitting = true;
+});
 // Set before the app is ready, so the start does not make it the front app. On macOS the app then has no Dock icon and no menu bar.
 if (background && process.platform === "darwin") app.setActivationPolicy("accessory");
 
@@ -75,6 +82,17 @@ function createWindow(): BrowserWindow {
     if (!staysOnPage(url, win.webContents.getURL())) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // On macOS a close hides the window and keeps its page loaded and connected to the daemon (./background, `closeHides`). The red button and the menu's "Close Window" both arrive here. A window that is full screen leaves full screen first, and hides once it has left.
+  win.on("close", (event) => {
+    if (!closeHides(process.platform, background, quitting)) return;
+    event.preventDefault();
+    if (!win.isFullScreen()) {
+      win.hide();
+      return;
+    }
+    win.once("leave-full-screen", () => win.hide());
+    win.setFullScreen(false);
+  });
   void win.loadFile(join(__dirname, "index.html"));
   if (background) win.showInactive();
   return win;
@@ -121,8 +139,11 @@ app.whenReady().then(() => {
   // Set before the window is made, so the keys Electron's own menu binds are never the window's: that menu closes the window on Command+W.
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate(process.platform) as MenuItemConstructorOptions[]));
   createWindow();
+  // A click on the Dock icon arrives here. It shows the window a close hid, and makes one where none is left.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    const [win] = BrowserWindow.getAllWindows();
+    if (!win) createWindow();
+    else if (!win.isVisible()) win.show();
   });
 });
 

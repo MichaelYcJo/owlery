@@ -310,6 +310,10 @@ export class Daemon {
         // The session, its process and its kept output stay as they are, and the next `attach` replays what the client missed.
         this.clients.get(socket)?.delete(message.id);
         return;
+      case "forget":
+        // A person cleared the pane in a window. Without this the next replay would draw again what they cleared.
+        this.sessions.get(message.id)?.output.clear();
+        return;
       case "close": {
         const session = this.sessions.get(message.id);
         if (!session) return;

@@ -118,9 +118,9 @@ function filter(state: StateFilter): void {
   showNarrowed();
 }
 
-/** Whether a dialog of the page is open: the "New work item" form, or the question before a working pane closes. The window reads none of its keys then. */
+/** Whether a dialog of the page is open, the "New work item" form or the question before a working pane closes, or a menu stands in the page, as a pane's does while it is open (./work-item-view). The window reads none of its keys then. */
 function dialogOpen(): boolean {
-  return document.querySelector("dialog[open]") !== null;
+  return document.querySelector('dialog[open], [role="menu"]') !== null;
 }
 
 /** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, and W closes the pane in front. The key is kept from the terminal whatever it did. */

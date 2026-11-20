@@ -42,6 +42,7 @@ import {
   paneChoices,
   paneInFront,
   paneKey,
+  paneMenu,
   paneTabs,
   pathCandidates,
   pathTarget,
@@ -1308,25 +1309,90 @@ describe("droppedText", () => {
 
 describe("paneKey", () => {
   const enter = { key: "Enter", shift: false, ctrl: false, alt: false, meta: false, isComposing: false, keyCode: 13 };
+  /** The three editing keys, each pressed with the Command key and no other modifier, and what each does. */
+  const EDITING = [
+    ["ArrowLeft", 37, "lineStart"],
+    ["ArrowRight", 39, "lineEnd"],
+    ["Backspace", 8, "deleteToLineStart"],
+  ] as const;
+  const command = (key: string, keyCode: number) => ({ ...enter, key, keyCode, meta: true });
 
-  it("reads Enter with the Shift key as the key that sends a line feed", () => {
-    expect(paneKey({ ...enter, shift: true })).toBe("lineFeed");
+  it("reads Enter with the Shift key as the key that sends a line feed, on a Mac keyboard and on another", () => {
+    expect(paneKey({ ...enter, shift: true }, true)).toBe("lineFeed");
+    expect(paneKey({ ...enter, shift: true }, false)).toBe("lineFeed");
   });
 
   it("leaves Shift+Enter to the terminal during a composition, told by the event and told by the key code of a key the input source took", () => {
-    expect(paneKey({ ...enter, shift: true, isComposing: true })).toBeNull();
-    expect(paneKey({ ...enter, shift: true, keyCode: 229 })).toBeNull();
+    expect(paneKey({ ...enter, shift: true, isComposing: true }, true)).toBeNull();
+    expect(paneKey({ ...enter, shift: true, keyCode: 229 }, true)).toBeNull();
   });
 
   it.each(["ctrl", "alt", "meta"] as const)("leaves Shift+Enter to the terminal where the %s key is held as well", (modifier) => {
-    expect(paneKey({ ...enter, shift: true, [modifier]: true })).toBeNull();
+    expect(paneKey({ ...enter, shift: true, [modifier]: true }, true)).toBeNull();
   });
 
   it("leaves Enter without the Shift key to the terminal, and every other key with it", () => {
-    expect(paneKey(enter)).toBeNull();
-    expect(paneKey({ ...enter, alt: true })).toBeNull();
-    expect(paneKey({ ...enter, key: "Tab", keyCode: 9, shift: true })).toBeNull();
-    expect(paneKey({ ...enter, key: "J", keyCode: 74, shift: true })).toBeNull();
+    expect(paneKey(enter, true)).toBeNull();
+    expect(paneKey({ ...enter, alt: true }, true)).toBeNull();
+    expect(paneKey({ ...enter, key: "Tab", keyCode: 9, shift: true }, true)).toBeNull();
+    expect(paneKey({ ...enter, key: "J", keyCode: 74, shift: true }, true)).toBeNull();
+  });
+
+  it.each(EDITING)("reads %s with the Command key on a Mac keyboard as an editing key of macOS", (key, keyCode, does) => {
+    expect(paneKey(command(key, keyCode), true)).toBe(does);
+  });
+
+  it.each(EDITING)("leaves %s with the Command key to the terminal during a composition", (key, keyCode) => {
+    expect(paneKey({ ...command(key, keyCode), isComposing: true }, true)).toBeNull();
+    expect(paneKey({ ...command(key, 229) }, true)).toBeNull();
+  });
+
+  it.each(EDITING)("leaves %s to the terminal without the Command key, and with another modifier held as well", (key, keyCode) => {
+    expect(paneKey({ ...command(key, keyCode), meta: false }, true)).toBeNull();
+    for (const modifier of ["shift", "ctrl", "alt"] as const) expect(paneKey({ ...command(key, keyCode), [modifier]: true }, true)).toBeNull();
+  });
+
+  it.each(EDITING)("leaves %s to the terminal on a keyboard without the Command key, with the Control key and with a key the event names as the Command key", (key, keyCode) => {
+    expect(paneKey(command(key, keyCode), false)).toBeNull();
+    expect(paneKey({ ...command(key, keyCode), meta: false, ctrl: true }, false)).toBeNull();
+  });
+
+  it("leaves every other key with the Command key to the terminal", () => {
+    for (const [key, keyCode] of [["ArrowUp", 38], ["ArrowDown", 40], ["Delete", 46], ["Enter", 13], ["a", 65]] as const) expect(paneKey(command(key, keyCode), true)).toBeNull();
+  });
+});
+
+describe("paneMenu", () => {
+  const texts = (mac: boolean, selection: boolean) => paneMenu(mac, selection).map((item) => (item === null ? "-" : item.text));
+
+  it("holds the six items in their order, with a rule before the two that clear and before the one that closes", () => {
+    expect(texts(true, false)).toEqual(["Copy", "Paste", "Select All", "-", "Clear Screen", "Reset Terminal", "-", "Close Pane"]);
+    expect(texts(false, true)).toEqual(texts(true, false));
+  });
+
+  it("names each item's act", () => {
+    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [item.act]))).toEqual(["copy", "paste", "selectAll", "clear", "reset", "close"]);
+  });
+
+  it("shows the keys of Copy, Paste and Close Pane on a Mac keyboard, and no key on any other item", () => {
+    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [[item.text, item.keys]]))).toEqual([
+      ["Copy", "\u2318C"],
+      ["Paste", "\u2318V"],
+      ["Select All", ""],
+      ["Clear Screen", ""],
+      ["Reset Terminal", ""],
+      ["Close Pane", "\u2318W"],
+    ]);
+  });
+
+  it("shows no key on a keyboard without the Command key", () => {
+    expect(paneMenu(false, true).flatMap((item) => (item === null ? [] : [item.keys]))).toEqual(["", "", "", "", "", ""]);
+  });
+
+  it("disables Copy where the terminal holds no selection, and no other item", () => {
+    const disabled = (selection: boolean) => paneMenu(true, selection).flatMap((item) => (item !== null && !item.enabled ? [item.text] : []));
+    expect(disabled(false)).toEqual(["Copy"]);
+    expect(disabled(true)).toEqual([]);
   });
 });
 

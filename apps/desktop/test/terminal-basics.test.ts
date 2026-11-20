@@ -4,7 +4,10 @@
 // session is working asks before it closes, a file dropped on a pane types
 // its path, a link opens at a click with the Command key, Shift+Enter
 // sends a line feed, a path a pane printed is a link where something stands
-// at it, and a link under the pointer shows a card of what a click does.
+// at it, a link under the pointer shows a card of what a click does, a
+// press of the right button on a pane opens the pane's menu, and the left
+// arrow, the right arrow and Backspace with the Command key are the editing
+// keys of macOS.
 // One start of the app serves every case, so the cases run in the order
 // they stand in. No case opens the system's browser or Finder: the app is
 // started with `OWLERY_OPENER` naming a program that notes the address or
@@ -164,10 +167,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     })()`);
     expect(built, "the app has no application menu").not.toBeNull();
     const entries = built as Built[];
-    // The keys the page reads with the Command key (src/renderer/view.ts, `commandKey`). A menu entry on one of them takes the key before the page sees it.
+    // The keys the page reads with the Command key (src/renderer/view.ts, `commandKey`), and the three a pane reads with it (`paneKey`). A menu entry on one of them takes the key before the page sees it.
     const taken = entries.filter(({ accelerator }) => {
       const { key, modifiers } = keyOf(accelerator);
-      return ["K", "N", "W"].includes(key) && modifiers.join("+") === "command";
+      return ["K", "N", "W", "LEFT", "RIGHT", "BACKSPACE"].includes(key) && modifiers.join("+") === "command";
     });
     expect(taken.map(({ path, accelerator }) => `${path}: ${accelerator}`)).toEqual([]);
     const closeWindow = entries.find(({ path }) => path === "File / Close Window");
@@ -798,6 +801,185 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
 
     await closeFromElsewhere(pane);
     await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it.runIf(process.platform === "darwin")("sends Control+A, Control+E and Control+U for the left arrow, the right arrow and Backspace with the Command key, and nothing else", async () => {
+    await received.next(0);
+    for (const [key, virtualKey, byte] of [
+      ["ArrowLeft", 37, "01"],
+      ["ArrowRight", 39, "05"],
+      ["Backspace", 8, "15"],
+    ] as const) {
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", windowsVirtualKeyCode: virtualKey, code: key, key, modifiers: COMMAND });
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: virtualKey, code: key, key, modifiers: COMMAND });
+      expect((await received.next(1)).toString("hex"), `${key} with the Command key`).toBe(byte);
+    }
+  });
+
+  const MENU_OPEN = `document.getElementById("pane-menu") !== null`;
+
+  /** A press and a release of the right button at a place in the window, as a person's arrives: the pointer comes there first. */
+  async function rightPress(at: { x: number; y: number }): Promise<void> {
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+  }
+
+  /** Opens the menu of the pane in front by a press of the right button on a cell of its screen, and answers where the press was. */
+  async function openMenu(column = 9, row = EMPTY_ROW): Promise<{ x: number; y: number }> {
+    const at = await cell(column, row);
+    await rightPress(at);
+    await app.until(MENU_OPEN, "the pane's menu");
+    return at;
+  }
+
+  /** What the menu holds, from its top: an item's words and its keys, or "-" for a rule. */
+  function menu(): Promise<(string[] | string)[]> {
+    return app.evaluate(`[...document.getElementById("pane-menu").children].map((child) => (child.getAttribute("role") === "menuitem" ? [...child.children].map((part) => part.textContent) : child.getAttribute("role") === "separator" ? "-" : child.outerHTML))`);
+  }
+
+  /** The middle of the menu's item with these words. */
+  function menuItem(text: string): Promise<{ x: number; y: number }> {
+    return app.evaluate(`(() => { const box = [...document.querySelectorAll("#pane-menu [role=menuitem]")].find((item) => item.firstChild.textContent === ${JSON.stringify(text)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+  }
+
+  /** Opens the menu of the pane in front and presses its item with these words, as a person's press arrives. Afterwards the menu is gone. */
+  async function pressMenuItem(text: string): Promise<void> {
+    await openMenu();
+    const at = await menuItem(text);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+    await app.until(`!(${MENU_OPEN})`, `the menu closed at "${text}"`);
+  }
+
+  /** A press and a release of a key that types nothing, sent to whatever has the keyboard. */
+  async function press(key: "Escape" | "ArrowDown" | "ArrowUp", virtualKey: number): Promise<void> {
+    await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", windowsVirtualKeyCode: virtualKey, code: key, key });
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: virtualKey, code: key, key });
+  }
+
+  const FOCUSED_ITEM = `document.activeElement?.getAttribute("role") === "menuitem" ? document.activeElement.firstChild.textContent : null`;
+
+  it("opens a pane's menu at a press of the right button, with the pane in front and the window's keys unread while it is open", async () => {
+    // A pane that prints its two links and nothing under them.
+    writeFileSync(linesFile, "");
+    const pane = await openPane("Shell");
+    const pid = await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    expect(await app.evaluate<string>(TAB_IN_FRONT)).toBe("Shell 2");
+    const handed = new Received(`${receivedFile}-${pane}`);
+
+    // The press reaches the pane that is not in front, and that pane is in front once its menu is open.
+    await app.click("#side-by-side");
+    await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
+    await app.until(`document.activeElement?.classList.contains("xterm-helper-textarea")`, "the keyboard in the pane in front");
+    await app.evaluate(`void document.addEventListener("contextmenu", (event) => { window.__menuDefault = !event.defaultPrevented; })`);
+    const other = await app.evaluate<{ x: number; y: number }>(`(() => { const box = [...document.querySelectorAll("#stage .pane:not([hidden])")].find((tile) => !tile.contains(document.activeElement)).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await rightPress(other);
+    await app.until(MENU_OPEN, "the menu of the pane that was not in front");
+    expect(await app.evaluate<string>(TAB_IN_FRONT)).toBe("Shell 1");
+    // The system's own menu is kept from opening.
+    expect(await app.evaluate<boolean>("window.__menuDefault")).toBe(false);
+    // Its corner stands at the pointer.
+    const corner = await app.evaluate<{ left: number; top: number }>(`(() => { const box = document.getElementById("pane-menu").getBoundingClientRect(); return { left: box.left, top: box.top }; })()`);
+    expect(Math.abs(corner.left - other.x)).toBeLessThan(1);
+    expect(Math.abs(corner.top - other.y)).toBeLessThan(1);
+    expect(await menu()).toEqual([["Copy", "\u2318C"], ["Paste", "\u2318V"], ["Select All", ""], "-", ["Clear Screen", ""], ["Reset Terminal", ""], "-", ["Close Pane", "\u2318W"]].map((item) => (process.platform === "darwin" || typeof item === "string" ? item : [item[0], ""])));
+    expect(await app.evaluate<string | null>(`document.getElementById("pane-menu").getAttribute("role")`)).toBe("menu");
+    // Nothing is selected in a pane whose empty row was pressed, so there is nothing to copy.
+    expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-menu [role=menuitem]")].filter((item) => item.disabled).map((item) => item.firstChild.textContent)`)).toEqual(["Copy"]);
+
+    // While the menu is open the window reads none of its keys: W with the Command key would close the pane, and N would open the "New work item" form.
+    await command("W");
+    await command("N");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2"]);
+    expect(await app.evaluate<boolean>(`document.getElementById("work-item-dialog").open`)).toBe(false);
+    expect(await app.evaluate<boolean>(MENU_OPEN)).toBe(true);
+
+    // The arrows move through the items that can be pressed, and Escape closes the menu and gives the pane the keyboard.
+    await press("ArrowDown", 40);
+    expect(await app.evaluate<string | null>(FOCUSED_ITEM)).toBe("Paste");
+    await press("ArrowDown", 40);
+    expect(await app.evaluate<string | null>(FOCUSED_ITEM)).toBe("Select All");
+    await press("ArrowUp", 38);
+    await press("ArrowUp", 38);
+    expect(await app.evaluate<string | null>(FOCUSED_ITEM)).toBe("Close Pane");
+    await received.next(0);
+    await press("Escape", 27);
+    expect(await app.evaluate<boolean>(MENU_OPEN)).toBe(false);
+    expect(await app.evaluate<boolean>(`document.activeElement?.classList.contains("xterm-helper-textarea") === true`)).toBe(true);
+    expect(await app.evaluate<string>(TAB_IN_FRONT)).toBe("Shell 1");
+    // No key pressed in the menu reached the pane's process.
+    expect(await handedMeanwhile()).toBe("");
+    await app.click("#side-by-side");
+    await app.click("#tabs .tab:nth-child(2) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the new pane in front again");
+
+    // A press outside the menu closes it, and so does a second press of the right button, which opens the menu where it was pressed.
+    await openMenu();
+    await app.click("#view-title");
+    expect(await app.evaluate<boolean>(MENU_OPEN)).toBe(false);
+    await openMenu();
+    const [, rows] = (await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×").map(Number) as [number, number];
+    // At the screen's last row the menu would pass the window's foot, and is moved to stand inside the window.
+    const low = await openMenu(9, rows - 1);
+    expect(await app.evaluate<number>(`document.querySelectorAll("[role=menu]").length`)).toBe(1);
+    const moved = await app.evaluate<{ left: number; top: number; bottom: number; inner: number }>(`(() => { const box = document.getElementById("pane-menu").getBoundingClientRect(); return { left: box.left, top: box.top, bottom: box.bottom, inner: window.innerHeight }; })()`);
+    expect(Math.abs(moved.left - low.x)).toBeLessThan(1);
+    expect(moved.top).toBeLessThan(low.y - 10);
+    expect(moved.bottom).toBeLessThanOrEqual(moved.inner);
+    // A press of the right button on the menu itself closes it, and presses no item.
+    await rightPress(await menuItem("Close Pane"));
+    expect(await app.evaluate<boolean>(MENU_OPEN)).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2"]);
+
+    // "Select All" and then "Copy": the clipboard holds what the pane printed, its first row first.
+    await pressMenuItem("Select All");
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    await openMenu();
+    expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-menu [role=menuitem]")].filter((item) => item.disabled).map((item) => item.firstChild.textContent)`)).toEqual([]);
+    await press("Escape", 27);
+    await pressMenuItem("Copy");
+    expect((await clipboard()).trimEnd()).toBe(`${PRINTED}\na named link`);
+
+    // "Paste" hands the pane the clipboard's text as a paste, and nothing where the clipboard is empty.
+    await app.evaluate(`window.owlery.copyText("")`);
+    await handed.next(0);
+    await pressMenuItem("Paste");
+    expect((await handed.next(0)).toString("utf8")).toBe("");
+    await app.evaluate(`window.owlery.copyText("from the clipboard")`);
+    await pressMenuItem("Paste");
+    const inBrackets = pasted("from the clipboard");
+    expect((await handed.next(inBrackets.length)).toString("utf8")).toBe(inBrackets);
+
+    // "Clear Screen" empties the terminal, and keeps the modes the pane's program set: a paste still arrives in brackets.
+    expect(await linkAt(9, 0)).toBe(true);
+    await pressMenuItem("Clear Screen");
+    expect(await linkAt(9, 0)).toBe(false);
+    await pressMenuItem("Paste");
+    expect((await handed.next(inBrackets.length)).toString("utf8")).toBe(inBrackets);
+
+    // "Reset Terminal" ends those modes: the same paste arrives as typed text.
+    await pressMenuItem("Reset Terminal");
+    await pressMenuItem("Paste");
+    expect((await handed.next("from the clipboard".length)).toString("utf8")).toBe("from the clipboard");
+
+    // The daemon forgot what the pane printed, so the pane is still empty once it left the stage and came back.
+    await app.click("#tabs .tab:nth-child(1) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 1" && ${PANE_HAS_KEYBOARD}`, "the first pane in front");
+    await app.click("#tabs .tab:nth-child(2) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the cleared pane in front again");
+    expect(await linkAt(9, 0)).toBe(false);
+    expect(await linkAt(3, 1)).toBe(false);
+
+    // "Close Pane" closes the pane as a press of its tab's "×" does.
+    await pressMenuItem("Close Pane");
+    await app.until(`${TABS}.length === 1`, "one tab");
+    expect(await untilGone([pid], 5_000)).toEqual([]);
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 });

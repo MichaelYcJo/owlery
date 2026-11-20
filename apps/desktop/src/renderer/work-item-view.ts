@@ -2,7 +2,7 @@
 // on the stage and the strip under them, and its right column, which says what the
 // daemon sends of the work item above the "Ask" section and the seal's
 // place. The pool of terminal screens the window holds lives here, and so
-// does the card of the link under the pointer.
+// do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -19,8 +19,11 @@ import {
   linkCard,
   linkClick,
   type LinkTarget,
+  PANE_KEY_BYTES,
   paneChoices,
   paneKey,
+  paneMenu,
+  type PaneMenuAct,
   paneTabs,
   pathCandidates,
   pathTarget,
@@ -84,6 +87,9 @@ let cardFor: LinkTarget | undefined;
 let pointer = { x: 0, y: 0 };
 let cardShowTimer: ReturnType<typeof setTimeout> | undefined;
 let cardLeaveTimer: ReturnType<typeof setTimeout> | undefined;
+// The menu of a pane, while it is open, and the terminal of the pane it is for, which takes the keyboard back when the menu closes.
+let paneMenuElement: HTMLElement | undefined;
+let paneMenuTerm: Terminal | undefined;
 
 const viewTitle = byId("view-title");
 const viewBranch = byId("view-branch");
@@ -295,6 +301,103 @@ function findsPaths(term: Terminal, turns: ScreenTurns): void {
   });
 }
 
+/** Closes the pane's menu where it is open, and gives the keyboard back to the terminal of the pane it was for. */
+function closeMenu(): void {
+  if (!paneMenuElement) return;
+  paneMenuElement.remove();
+  paneMenuElement = undefined;
+  paneMenuTerm?.focus();
+  paneMenuTerm = undefined;
+}
+
+/**
+ * Does what an item of a pane's menu names, for the pane a screen holds.
+ * The clipboard is the main process's (src/main/clipboard.ts). A paste is
+ * handed to the terminal as a dropped path is, so a program that asked for
+ * pastes in brackets receives one, and an empty clipboard pastes nothing.
+ * Before the terminal is cleared or reset the daemon is told to forget what
+ * the pane printed: its replay draws the pane each time it comes onto the
+ * stage, and would draw again what the person cleared.
+ */
+function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
+  const pane = turns.pane;
+  if (pane === undefined) return;
+  if (chosen === "copy") void window.owlery.copyText(term.getSelection());
+  else if (chosen === "paste")
+    void window.owlery.clipboardText().then((text) => {
+      // The screen may have gone to another pane while the main process answered.
+      if (text !== "" && turns.pane === pane) term.paste(text);
+    });
+  else if (chosen === "selectAll") term.selectAll();
+  else if (chosen === "close") {
+    const session = held.sessions.find((listed) => listed.id === pane);
+    if (session) closePane(session);
+  } else {
+    send({ type: "forget", id: pane });
+    if (chosen === "clear") term.clear();
+    else term.reset();
+  }
+}
+
+/**
+ * Opens the menu of the pane a screen holds, with its corner at a place in
+ * the window, moved to stand inside the window where it would pass an edge.
+ * Its items are `paneMenu`'s (./view). The menu takes the keyboard: the up
+ * and down arrows move through the items that can be pressed, and Escape
+ * closes it. A press of an item closes the menu, gives the keyboard back to
+ * the terminal and does what the item names. A menu that was open is closed
+ * first.
+ */
+function openMenu(screen: Screen, at: { x: number; y: number }): void {
+  closeMenu();
+  const menu = document.createElement("div");
+  menu.id = "pane-menu";
+  menu.setAttribute("role", "menu");
+  menu.tabIndex = -1;
+  const buttons: HTMLButtonElement[] = [];
+  for (const item of paneMenu(mac, screen.term.hasSelection())) {
+    if (item === null) {
+      const rule = document.createElement("div");
+      rule.setAttribute("role", "separator");
+      menu.append(rule);
+      continue;
+    }
+    const button = document.createElement("button");
+    button.setAttribute("role", "menuitem");
+    button.disabled = !item.enabled;
+    button.append(part("does", item.text), part("keys", item.keys));
+    button.addEventListener("click", () => {
+      closeMenu();
+      menuAct(item.act, screen);
+    });
+    if (item.enabled) buttons.push(button);
+    menu.append(button);
+  }
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMenu();
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      // From the menu itself, where the keyboard starts, down goes to the first item and up to the last.
+      const from = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const down = event.key === "ArrowDown";
+      const next = from === -1 ? (down ? 0 : buttons.length - 1) : (from + (down ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+    } else return;
+    event.preventDefault();
+  });
+  // A press of the right button on the menu closes it, and the system's own menu stays away.
+  menu.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    closeMenu();
+  });
+  document.body.append(menu);
+  paneMenuElement = menu;
+  paneMenuTerm = screen.term;
+  const box = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(0, Math.min(at.x, window.innerWidth - box.width))}px`;
+  menu.style.top = `${Math.max(0, Math.min(at.y, window.innerHeight - box.height))}px`;
+  menu.focus();
+}
+
 /**
  * Has an element take the files a person drops on it, for the terminal of
  * the screen it holds: the terminal is handed the files' paths as a paste
@@ -325,11 +428,13 @@ function takesDrops(element: HTMLElement, term: Terminal): void {
  * that holds it at that moment where that pane's process runs, and a free
  * screen sends nothing. What a person types and what the terminal answers
  * go where the screen's turns say (./view, `screenTurns`), and so do the
- * line feed of Shift+Enter and the paths of dropped files. A press inside
+ * line feed of Shift+Enter, the bytes of the three editing keys and the
+ * paths of dropped files. A press inside
  * the screen gives its pane the keyboard, so that pane is in front. A link
  * the pane printed opens outside Owlery at a click with the Command key,
  * a path it printed is a link where something stands at it (`findsPaths`),
- * and the pointer's rest on either shows the link's card.
+ * and the pointer's rest on either shows the link's card. A press of the
+ * right button opens the pane's menu (`openMenu`).
  */
 function newScreen(): Screen {
   const element = document.createElement("div");
@@ -367,16 +472,24 @@ function newScreen(): Screen {
     const id = turns.receiver();
     if (id !== undefined) send({ type: "input", id, data });
   });
-  // Read before the terminal reads the key. Where it is the window's, the terminal sends nothing for the press, and the line feed goes the way a typed key goes.
+  // Read before the terminal reads the key. Where it is the window's, the terminal sends nothing for the press, and the key's byte goes the way a typed key goes: a line feed, or the byte of an editing key (./view, `paneKey`).
   term.attachCustomKeyEventHandler((event) => {
-    if (paneKey({ key: event.key, shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey, isComposing: event.isComposing, keyCode: event.keyCode }) === null) return true;
+    const key = paneKey({ key: event.key, shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey, isComposing: event.isComposing, keyCode: event.keyCode }, mac);
+    if (key === null) return true;
     // The terminal hands this each event of the press. Without the default, the hidden field the terminal types in takes no line break.
     event.preventDefault();
-    if (event.type === "keydown") term.input("\n");
+    if (event.type === "keydown") term.input(PANE_KEY_BYTES[key]);
     return false;
   });
   takesDrops(element, term);
   findsPaths(term, turns);
+  // A press of the right button, and a press with the Control key, ask for a menu. The pane's own opens in place of the system's, and the pane is the one in front. The terminal has read the press by then, and on a Mac it selected the word under it.
+  element.addEventListener("contextmenu", (event) => {
+    if (turns.pane === undefined) return;
+    event.preventDefault();
+    term.focus();
+    openMenu(screen, { x: event.clientX, y: event.clientY });
+  });
   term.onResize(({ cols, rows }) => {
     if (turns.pane === undefined) return;
     if (tellsSize(held.sessions, turns.pane)) send({ type: "resize", id: turns.pane, cols, rows });
@@ -721,6 +834,8 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     "mousedown",
     (event) => {
       if (!(event.target instanceof Node && linkCardElement.contains(event.target))) hideCard();
+      // A press outside a pane's menu closes the menu.
+      if (!(event.target instanceof Node && paneMenuElement?.contains(event.target))) closeMenu();
     },
     { capture: true },
   );

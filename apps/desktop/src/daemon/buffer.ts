@@ -41,6 +41,12 @@ export class OutputBuffer {
     if (dropped !== "\n") this.dropLineRest();
   }
 
+  /** Empties the buffer: what was kept is gone, and what is appended afterwards is kept as in a new buffer. */
+  clear(): void {
+    this.chunks = [];
+    this.size = 0;
+  }
+
   text(): string {
     return this.chunks.join("");
   }

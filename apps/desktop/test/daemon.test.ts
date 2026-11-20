@@ -256,6 +256,32 @@ describe("sessions", () => {
     await leaves.until(() => printed(leaves, "got-three."));
   });
 
+  it("forgets a session's kept output at a forget, so the next replay holds only what the session printed afterwards, and changes nothing for an id it does not list", async () => {
+    // The pane answers each line it is sent, so the case decides when it prints.
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await c.message("started");
+    const printed = (text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
+    const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay");
+    c.send({ type: "input", id: session.id, data: "one\n" });
+    await c.until(() => printed("got-one."));
+
+    // No session has this id, and the one that printed keeps its output.
+    c.send({ type: "forget", id: session.id + 1 });
+    c.send({ type: "attach", id: session.id });
+    expect((await c.until(() => replays()[0])).data).toContain("got-one.");
+
+    c.send({ type: "forget", id: session.id });
+    c.send({ type: "input", id: session.id, data: "two\n" });
+    await c.until(() => printed("got-two."));
+    c.send({ type: "attach", id: session.id });
+    const later = await c.until(() => replays()[1]);
+    expect(later.data).toContain("got-two.");
+    expect(later.data).not.toContain("one");
+  });
+
   it("ends a session's output with the exit line, on a line of its own: sent to the clients that receive the session, and last in a later replay", async () => {
     const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf last; exit 3"], env: {} }) });
     const opener = await client(url);
@@ -1854,6 +1880,20 @@ describe("OutputBuffer", () => {
     const past = new OutputBuffer(5000);
     past.append(`${"a".repeat(4097)}\n${"z".repeat(903)}`);
     expect(past.text()).toBe(`${"a".repeat(4096)}\n${"z".repeat(903)}`);
+  });
+
+  it("holds nothing once it was emptied, and keeps what is printed afterwards under its size as before", () => {
+    const buffer = new OutputBuffer(10);
+    buffer.append("ab\ncd");
+    buffer.clear();
+    expect(buffer.text()).toBe("");
+    buffer.append("ef\n");
+    expect(buffer.text()).toBe("ef\n");
+    // The count starts again: ten characters fit, and the eleventh drops the first line.
+    buffer.append("ghijklm");
+    expect(buffer.text()).toBe("ef\nghijklm");
+    buffer.append("\nn");
+    expect(buffer.text()).toBe("ghijklm\nn");
   });
 });
 

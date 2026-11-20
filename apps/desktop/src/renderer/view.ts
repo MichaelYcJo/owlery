@@ -518,8 +518,8 @@ export function moveSelection(ids: readonly number[], selected: number | undefin
  * history screen, or null where the window leaves it alone. J and K are read
  * by their place on the keyboard, so they act under any input source. No key
  * is read while a screen the window does not name as one is in front, a
- * dialog is open, the focus is in a field or a modifier key is held. Enter
- * on a control is that control's own press.
+ * dialog or a pane's menu is open, the focus is in a field or a modifier
+ * key is held. Enter on a control is that control's own press.
  */
 export function inboxKey(
   key: { code: string; modified: boolean },
@@ -537,8 +537,8 @@ export function inboxKey(
  * where the window leaves it alone: K puts the focus in the search field,
  * N opens the "New work item" form, and W closes the pane in front. The
  * Control key stands for the Command key where the keyboard has none. The
- * key is read by its place on the keyboard, and not while a dialog is open
- * or another modifier key is held as well. The application menu binds none
+ * key is read by its place on the keyboard, and not while a dialog or a
+ * pane's menu is open or another modifier key is held as well. The application menu binds none
  * of these keys, since a menu takes its key before the page sees it
  * (src/main/menu.ts).
  */
@@ -579,17 +579,55 @@ export function droppedText(paths: readonly string[]): string {
     .join("");
 }
 
+/** What a key of a pane that the window reads does: it sends a line feed, or one of the three bytes a shell reads as an editing key. */
+export type PaneKeyAct = "lineFeed" | "lineStart" | "lineEnd" | "deleteToLineStart";
+
+/** The byte the pane's process is handed for each: a line feed, and Control+A, Control+E and Control+U, which a shell and a prompt read as the line's start, the line's end, and the deletion of what stands before the cursor. */
+export const PANE_KEY_BYTES: Record<PaneKeyAct, string> = { lineFeed: "\n", lineStart: "\u0001", lineEnd: "\u0005", deleteToLineStart: "\u0015" };
+
 /**
  * What a key pressed in a pane does in place of what the terminal would
  * send for it, or null where the terminal reads the key itself. Enter with
  * the Shift key and no other modifier is the key that sends a line feed,
  * which a program such as Claude Code reads as a line break where Enter
- * submits. During a composition every key is the terminal's: the event says
- * so, or its key code is 229, the code of a key the input source took.
+ * submits. On a Mac keyboard, `mac`, three keys with the Command key and no
+ * other modifier are the editing keys of macOS: the left arrow goes to the
+ * line's start, the right arrow to its end, and Backspace deletes to its
+ * start. On a keyboard without the Command key the three stay the
+ * terminal's. During a composition every key is the terminal's: the event
+ * says so, or its key code is 229, the code of a key the input source took.
+ * The application menu binds none of these keys (src/main/menu.ts).
  */
-export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: boolean; meta: boolean; isComposing: boolean; keyCode: number }): "lineFeed" | null {
+export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: boolean; meta: boolean; isComposing: boolean; keyCode: number }, mac: boolean): PaneKeyAct | null {
   if (key.isComposing || key.keyCode === 229) return null;
-  return key.key === "Enter" && key.shift && !key.ctrl && !key.alt && !key.meta ? "lineFeed" : null;
+  if (key.key === "Enter") return key.shift && !key.ctrl && !key.alt && !key.meta ? "lineFeed" : null;
+  if (!mac || !key.meta || key.shift || key.ctrl || key.alt) return null;
+  if (key.key === "ArrowLeft") return "lineStart";
+  if (key.key === "ArrowRight") return "lineEnd";
+  return key.key === "Backspace" ? "deleteToLineStart" : null;
+}
+
+/** What an item of a pane's menu does. */
+export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "close";
+
+/** An item of a pane's menu: its words, the keys that do the same, empty where no key of the window does, what it does, and whether it can be pressed. */
+export interface PaneMenuItem {
+  text: string;
+  keys: string;
+  act: PaneMenuAct;
+  enabled: boolean;
+}
+
+/**
+ * The items of a pane's menu, in their order, with null where a rule stands
+ * between two groups. On a Mac keyboard "Copy", "Paste" and "Close Pane"
+ * show the keys that do the same, and no other item shows one, since no key
+ * of the window does what it does. On another keyboard no item shows a key.
+ * "Copy" can be pressed only where the terminal holds a `selection`.
+ */
+export function paneMenu(mac: boolean, selection: boolean): (PaneMenuItem | null)[] {
+  const item = (text: string, act: PaneMenuAct, keys = "", enabled = true): PaneMenuItem => ({ text, keys: mac ? keys : "", act, enabled });
+  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, item("Close Pane", "close", "\u2318W")];
 }
 
 /** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */

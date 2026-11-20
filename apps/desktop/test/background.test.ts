@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quitsWithLastWindow, startsInBackground, takeBackground } from "../src/main/background";
+import { closeHides, quitsWithLastWindow, startsInBackground, takeBackground } from "../src/main/background";
 
 describe("startsInBackground", () => {
   it("starts the app in the background for the value 1", () => {
@@ -38,5 +38,26 @@ describe("quitsWithLastWindow", () => {
   it("stays on macOS as it ships, and quits on another platform", () => {
     expect(quitsWithLastWindow("darwin", false)).toBe(false);
     expect(quitsWithLastWindow("linux", false)).toBe(true);
+  });
+});
+
+describe("closeHides", () => {
+  it("hides the window at its close on macOS, in an app that was not started in the background and is not quitting", () => {
+    expect(closeHides("darwin", false, false)).toBe(true);
+  });
+
+  it("closes the window where the app is quitting, so Quit ends the app", () => {
+    expect(closeHides("darwin", false, true)).toBe(false);
+  });
+
+  it("closes the window of an app started in the background, which has no Dock icon to show a hidden window again", () => {
+    expect(closeHides("darwin", true, false)).toBe(false);
+    expect(closeHides("darwin", true, true)).toBe(false);
+  });
+
+  it.each(["linux", "win32"] as const)("closes the window on %s", (platform) => {
+    expect(closeHides(platform, false, false)).toBe(false);
+    expect(closeHides(platform, true, false)).toBe(false);
+    expect(closeHides(platform, false, true)).toBe(false);
   });
 });

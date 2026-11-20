@@ -153,6 +153,8 @@ export type ClientMessage =
   | { type: "attach"; id: number }
   // Ends this client's receiving of the session's output until it attaches again. The session and its process are untouched, and the daemon answers nothing.
   | { type: "detach"; id: number }
+  // Has the daemon forget the session's kept output, after a person cleared or reset the pane's terminal: the next `replay` holds only what the session prints afterwards. The daemon answers nothing, and does nothing for an id it does not list.
+  | { type: "forget"; id: number }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
   // Starts a headless session that answers `prompt` in the work item's worktree.

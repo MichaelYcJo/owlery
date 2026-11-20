@@ -345,6 +345,11 @@
       #link-card button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-7); box-sizing: border-box; width: 100%; height: var(--control-height); padding: 0 var(--space-4); border-radius: var(--radius-control); font-size: var(--size-second); white-space: nowrap; text-align: left; }
       #link-card button:hover { background: var(--hover); transition: background-color var(--motion); }
       #link-card .keys { color: var(--ink-faint); }
+      #pane-menu { position: fixed; z-index: 11; box-sizing: border-box; padding: var(--space-3); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); outline: 0; }
+      #pane-menu button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-7); box-sizing: border-box; width: 100%; height: var(--control-height); padding: 0 var(--space-4); border-radius: var(--radius-control); font-size: var(--size-second); white-space: nowrap; text-align: left; }
+      #pane-menu button:not(:disabled):hover, #pane-menu button:focus { background: var(--hover); outline: 0; transition: background-color var(--motion); }
+      #pane-menu .keys { color: var(--ink-faint); }
+      #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
       #work-item-dialog label { display: block; margin-bottom: var(--space-5); font-size: var(--size-second); color: var(--ink-muted); }
       #work-item-dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
       #work-item-dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
