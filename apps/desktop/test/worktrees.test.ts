@@ -381,6 +381,27 @@ describe("the repository of a folder", () => {
     expect([repositoryOfSync(plain), repositoryOfSync(join(made.base, "missing")), repositoryOfSync(worktree), repositoryOfSync(bareFolder)]).toEqual([null, null, null, null]);
   });
 
+  it("waits two seconds in all at the daemon's start for a folder git does not answer for, over the two commands the read can take", () => {
+    const made = repository();
+    const bin = join(made.base, "slow-bin");
+    mkdirSync(bin);
+    // A git that answers no command within the wait, and ends at the signal the timeout sends.
+    writeFileSync(join(bin, "git"), "#!/bin/sh\nexec sleep 6\n", { mode: 0o755 });
+    const path = process.env.PATH ?? "";
+    process.env.PATH = `${bin}:${path}`;
+    const began = Date.now();
+    let read: string | null;
+    try {
+      read = repositoryOfSync(made.repo);
+    } finally {
+      process.env.PATH = path;
+    }
+    const waited = Date.now() - began;
+    expect(read).toBeNull();
+    expect(waited).toBeGreaterThanOrEqual(1900);
+    expect(waited).toBeLessThan(3000);
+  });
+
   it("puts a work item created in a linked worktree's folder under the main checkout, in the worktrees' folder of its name, and plans it there", async () => {
     const made = repository();
     const { inside } = linked(made);
