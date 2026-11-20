@@ -1357,9 +1357,10 @@ describe("asksFetch", () => {
     expect(asksFetch({ ...PLAN, localBases: ["origin/main"] }, "origin/main", "/r/project", false, new Set())).toBe(false);
   });
 
-  it('asks nothing under "Register the repository only", with no base in the menu, and for a plan of another repository\'s text or a refused one', () => {
+  it('asks nothing under "Register the repository only", with no base in the menu, for a base the plan does not list, and for a plan of another repository\'s text or a refused one', () => {
     expect(asksFetch(PLAN, "origin/main", "/r/project", true, new Set())).toBe(false);
     expect(asksFetch(PLAN, null, "/r/project", false, new Set())).toBe(false);
+    expect(asksFetch(PLAN, "origin/gone", "/r/project", false, new Set())).toBe(false);
     expect(asksFetch(null, "origin/main", "/r/project", false, new Set())).toBe(false);
     expect(asksFetch(PLAN, "origin/main", "/r/other", false, new Set())).toBe(false);
     expect(asksFetch({ repo: "/r/project", error: "refused" }, "origin/main", "/r/project", false, new Set())).toBe(false);
