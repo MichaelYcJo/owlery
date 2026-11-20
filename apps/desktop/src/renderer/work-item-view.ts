@@ -11,6 +11,7 @@ import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/pr
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
   askButton,
+  cardStaysAt,
   closeAsks,
   droppedText,
   headlessLines,
@@ -708,8 +709,14 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     },
     { capture: true, passive: true },
   );
-  // A key, and a press of the mouse anywhere but on the card, take the card away at once. Every dialog of the page opens at one of the two.
-  document.addEventListener("keydown", hideCard, { capture: true });
+  // A key, and a press of the mouse anywhere but on the card, take the card away at once. Every dialog of the page opens at one of the two. A modifier key pressed by itself is no such key (./view, `cardStaysAt`): the card's rows name clicks made with one held.
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (!cardStaysAt(event.key)) hideCard();
+    },
+    { capture: true },
+  );
   document.addEventListener(
     "mousedown",
     (event) => {

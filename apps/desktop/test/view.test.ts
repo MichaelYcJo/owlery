@@ -5,6 +5,7 @@ import {
   ahead,
   askButton,
   baseMenu,
+  cardStaysAt,
   changesSince,
   closeAsks,
   commandKey,
@@ -1488,6 +1489,16 @@ const NOW = 1_000_000_000_000;
 function commit(hash: string, subject: string, fields: Partial<CommitInfo> = {}): CommitInfo {
   return { hash, subject, at: NOW - 5 * MINUTE, added: 1, removed: 0, ...fields };
 }
+
+describe("cardStaysAt", () => {
+  it.each(["Meta", "Shift", "Control", "Alt"])("keeps the card at a press of the %s key by itself", (key) => {
+    expect(cardStaysAt(key)).toBe(true);
+  });
+
+  it.each(["a", "A", "Enter", "Escape", "ArrowLeft", "Backspace", " ", "CapsLock", "meta", "Process", ""])("takes the card away at the key %j, with or without a modifier key held", (key) => {
+    expect(cardStaysAt(key)).toBe(false);
+  });
+});
 
 describe("ageOf", () => {
   it("says how long ago a time is, in the words of the sentence of the last look: minutes, hours and minutes, or days", () => {

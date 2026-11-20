@@ -588,9 +588,22 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
     await pointAway();
 
-    // A key pressed in the pane takes the card away at once.
+    // A modifier key pressed by itself leaves the card as it is: a person who reads "⌘ Click" on a row holds the key and then clicks.
     await restOn(9, 0);
     await received.next(0);
+    for (const [key, code, virtualKey, modifiers] of [
+      ["Meta", "MetaLeft", 91, 4],
+      ["Shift", "ShiftLeft", 16, SHIFT],
+      ["Control", "ControlLeft", 17, 2],
+      ["Alt", "AltLeft", 18, OPTION],
+    ] as const) {
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", windowsVirtualKeyCode: virtualKey, code, key, modifiers });
+      expect(await app.evaluate<boolean>(CARD_SHOWN), `the card after a press of ${key} by itself`).toBe(true);
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: virtualKey, code, key });
+    }
+    expect(await handedMeanwhile()).toBe("");
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
+    // Any other key pressed in the pane takes the card away at once, and the pane's process still receives it.
     await app.cdp("Input.dispatchKeyEvent", { type: "keyDown", windowsVirtualKeyCode: 65, code: "KeyA", key: "a", text: "a" });
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: 65, code: "KeyA", key: "a" });

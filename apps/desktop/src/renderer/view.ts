@@ -700,6 +700,17 @@ export function linkCard(target: LinkTarget, mac: boolean): LinkCard {
 }
 
 /**
+ * Whether a link's card stays at a key pressed in the pane, from the key
+ * event's `key`. It stays at a modifier key pressed by itself, the Command,
+ * Shift, Control or Option key: the card's rows name clicks made with those
+ * keys held, so a person who reads one holds the key and then clicks. Any
+ * other key takes the card away, with or without a modifier key held.
+ */
+export function cardStaysAt(key: string): boolean {
+  return key === "Meta" || key === "Shift" || key === "Control" || key === "Alt";
+}
+
+/**
  * The tabs of a work item's view: its panes as the daemon lists them, whether
  * their process runs or has exited, in the order of their ids. An exited
  * pane keeps its tab until it is closed, and the daemon keeps its last output.
