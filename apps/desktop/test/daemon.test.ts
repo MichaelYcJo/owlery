@@ -2009,9 +2009,9 @@ describe("what a person sets on a work item", () => {
     c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Under way", kind: "shell", cols: 80, rows: 24 });
     await c.until(() => (held.waiting() ? true : undefined));
     c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
-    // A delete that did not wait would be answered before the refusal of a start sent after it.
-    await settled(c);
-    expect(c.messages.flatMap((m) => (m.type === "done" || m.type === "error" ? [m.requestId] : [])).filter((requestId) => requestId < 900)).toEqual([]);
+    // A delete that did not wait would have ended the pane and removed the folder well inside a second: it reads git, ends a `sleep` and runs two git commands.
+    await new Promise((r) => setTimeout(r, 1000));
+    expect([c.messages.flatMap((m) => (m.type === "done" || m.type === "error" ? [m.requestId] : [])), existsSync(join(workItem.worktree, "README.md"))]).toEqual([[], true]);
     held.release();
     await c.message("workItemCreated", (m) => m.requestId === 1);
     await c.message("done", (m) => m.requestId === 2);

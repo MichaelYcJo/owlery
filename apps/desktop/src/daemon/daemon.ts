@@ -56,7 +56,7 @@ const isTextOrNull = (value: unknown): value is string | null => value === null 
 /** What a removal carries where the person chose to delete the repository's work items from disk: the stamp of each one's loss, by the work item's id, and whether the deletes are forced. */
 const isDeletion = (value: unknown): value is { stamps: Record<number, unknown>; force: boolean } => {
   const { stamps, force } = (typeof value === "object" && value !== null ? value : {}) as { stamps?: unknown; force?: unknown };
-  return typeof stamps === "object" && stamps !== null && !Array.isArray(stamps) && typeof force === "boolean";
+  return typeof stamps === "object" && stamps !== null && typeof force === "boolean";
 };
 
 /** How many characters a text holds as a person counts them: an emoji of several code points is one. */
