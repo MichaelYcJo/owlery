@@ -50,6 +50,9 @@
         --fact-label: 76px;
         --said-height: 260px;
         --dialog-width: 460px;
+        --menu-width: 208px;
+        --menu-width-most: 340px;
+        --line-mark: 12px;
         --link-card-width: 480px;
         --tab-width: 240px;
         --dot: 6px;
@@ -180,6 +183,9 @@
       /* Where a work item's title and its state's age do not both fit, the age gives way first, down to the width of a short one. */
       .side-item .age { flex: 0 100000 auto; min-width: var(--space-10); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
       .side-item .age:empty { min-width: 0; }
+      /* The mark of a pin and of muted notifications, after a line's title. */
+      .line-mark { flex: none; display: block; color: var(--ink-faint); }
+      .line-mark svg.icon { width: var(--line-mark); height: var(--line-mark); }
       #repositories-head { flex: none; display: flex; align-items: center; gap: 1px; height: 32px; margin-top: 9px; padding: 3px 10px 0 18px; border-top: 1px solid var(--rule); }
       #repositories-head h2 { flex: 1; color: var(--ink-faint); }
       #bell-count { font-weight: 600; color: var(--ink); }
@@ -187,10 +193,19 @@
       /* The dot on the bell where a work item waits, in the strong ink. */
       #bell.ringing::after { content: ""; position: absolute; left: 14px; top: 3px; width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--ink-strong); box-shadow: var(--dot-edge); }
       #repositories { flex: 1; display: flex; flex-direction: column; gap: var(--space-1); min-height: 0; overflow: auto; padding: 0 10px var(--space-4); }
-      .repository .fold { gap: var(--space-3); font-weight: 600; }
+      /* A repository's row: the button that folds it, which takes the width the two buttons after it leave. */
+      .repository-row { display: flex; align-items: center; gap: 1px; }
+      .repository .fold { flex: 1 1 auto; min-width: 0; width: auto; gap: var(--space-3); font-weight: 600; }
       .repository .fold svg.icon { width: var(--space-5); height: var(--space-5); color: var(--ink-faint); }
       .repository .fold[aria-expanded="false"] svg.icon { transform: rotate(-90deg); }
+      /* The one character a person gave a repository, before its name. */
+      .repository-icon { flex: none; }
+      /* The button under the repositories that says how many are hidden. */
+      #hidden-repositories { flex: none; color: var(--ink-faint); font-size: var(--size-second); }
       .repository li .side-item { padding-left: 26px; }
+      /* A group's heading, under a repository's ungrouped work items: the group's name, and how many work items stand under it. */
+      .group-head { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-4) var(--space-2) 26px; font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
+      .group-head .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* The foot: the status line, and the control that chooses the theme, which is its icon with the choices laid over it as the filter's are. */
       #sidebar-foot { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: var(--sidebar-line); padding: var(--space-3) 10px 10px 18px; }
       #status { flex: 1; min-width: 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
@@ -211,7 +226,7 @@
       #summary-lines .change { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); }
       #summary-foot { display: flex; align-items: center; gap: var(--space-4); min-height: 60px; margin-top: var(--space-6); }
 
-      /* The inbox screen and the history screen: a list of lines and the preview of the selected one. */
+      /* The inbox screen, the history screen and the archived screen: a list of lines and the preview of the selected one. */
       .list-screen { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
       .list { display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border-right: 1px solid var(--rule); }
       .list-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) 14px var(--space-4) 18px; border-bottom: 1px solid var(--rule); }
@@ -286,7 +301,8 @@
       #tabs .tab.shown .close:hover { color: var(--terminal-ink); }
       #tabs .tab.shown .close:active { color: var(--terminal-strong); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
-      #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
+      /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
+      #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
       .pane { position: absolute; inset: var(--space-5) 18px 10px; }
       /* "Side by side": the stage's panes are tiles in two columns, in the tabs' order, with two rows from the third pane on. The third of three spans both columns. A rule stands between the tiles. */
       #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
@@ -334,9 +350,41 @@
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
       input::placeholder { color: var(--ink-faint); }
 
-      #work-item-dialog, #close-pane-dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
-      #work-item-dialog::backdrop, #close-pane-dialog::backdrop { background: var(--backdrop); }
-      #work-item-dialog h2 { margin-bottom: var(--space-6); }
+      /* A dialog: the "New work item" form, the rename dialog, and the dialogs of a repository's menu. */
+      dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
+      dialog::backdrop { background: var(--backdrop); }
+      dialog h2 { margin-bottom: var(--space-6); }
+      dialog label { display: block; margin-bottom: var(--space-5); font-size: var(--size-second); color: var(--ink-muted); }
+      dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
+      dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
+      dialog input, dialog select { flex: 1; min-width: 0; font-size: var(--size-text); }
+      /* A choice of a dialog: its box, then its words, on one line. */
+      dialog label.check { display: flex; align-items: center; gap: var(--space-3); color: var(--ink); }
+      dialog label.check:has(input:disabled) { color: var(--ink-faint); }
+      dialog input[type="checkbox"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      #rename-plan { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-faint); overflow-wrap: anywhere; }
+      #rename-error, dialog .refusal { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
+      /* What a dialog says before it asks, and the things it names: each on a line, a long one cut at the dialog's edge. */
+      dialog .says { margin-bottom: var(--space-5); color: var(--ink-muted); }
+      dialog section { margin-bottom: var(--space-5); }
+      dialog section h3 { margin-bottom: var(--space-2); }
+      dialog .named { max-height: var(--said-height); margin-bottom: var(--space-5); overflow: auto; }
+      dialog section .named { margin-bottom: 0; }
+      dialog .named li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--control-height); }
+      dialog .named li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* What a delete would remove is read whole: a long path or subject takes the lines it needs. */
+      dialog .named.whole li > span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+      dialog .more { margin-top: var(--space-2); font-size: var(--size-second); color: var(--ink-faint); }
+      dialog h3.work-item { margin-bottom: var(--space-3); }
+      /* A menu, drawn over the window where it was asked for: its items in a column, and a rule where another part of it begins. */
+      .menu { position: fixed; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; min-width: var(--menu-width); max-width: var(--menu-width-most); padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      /* The menu itself draws no ring when a press on no item puts the keyboard on it. */
+      .menu:focus { outline: none; }
+      .menu [role="menuitem"] { flex: none; box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-5); border-radius: var(--radius-line); overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+      /* The item the keyboard is on is drawn as the one under the pointer is. */
+      .menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus { background: var(--hover); }
+      .menu [role="menuitem"]:active { background: var(--pressed); }
+      .menu [role="separator"] { flex: none; height: 1px; margin: var(--space-2) var(--space-4); background: var(--rule); }
       #close-pane-sentence { margin: 0 0 var(--space-6); overflow-wrap: anywhere; }
       #close-pane-dialog .row { display: flex; justify-content: flex-end; gap: var(--space-4); }
       /* The card of the link under the pointer, in a pane. Its place is the window's own, set where it shows. */
@@ -350,10 +398,6 @@
       #pane-menu button:not(:disabled):hover, #pane-menu button:focus { background: var(--hover); outline: 0; transition: background-color var(--motion); }
       #pane-menu .keys { color: var(--ink-faint); }
       #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
-      #work-item-dialog label { display: block; margin-bottom: var(--space-5); font-size: var(--size-second); color: var(--ink-muted); }
-      #work-item-dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
-      #work-item-dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
-      #work-item-dialog input, #work-item-dialog select { flex: 1; min-width: 0; font-size: var(--size-text); }
       #work-item-plan { display: grid; gap: var(--space-1); min-height: 2.9em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); overflow-wrap: anywhere; }
       #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
       #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
@@ -399,10 +443,7 @@
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
           <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state"></select>
         </label>
-        <button id="add-repository" class="icon-button" title="Add a repository" aria-label="Add a repository">
-          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 4.3a1 1 0 0 1 1-1h3l1.4 1.5h6a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z" /><path d="M8 7.3v3.4M6.3 9h3.4" /></svg>
-        </button>
-        <button id="new-work-item" class="icon-button" title="New work item" aria-label="New work item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg></button>
+        <button id="new-work-item" class="icon-button" aria-label="New work item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg></button>
       </div>
       <div id="repositories"></div>
       <div id="sidebar-foot">
@@ -426,9 +467,10 @@
         <span id="summary-hint" class="hint"></span>
       </div>
     </main>
-    <!-- The inbox screen and the history screen are each a copy of the list screen below, whose parts take the screen's name before their own as their ids. -->
+    <!-- The inbox screen, the history screen and the screen of a repository's archived work items are each a copy of the list screen below, whose parts take the screen's name before their own as their ids. -->
     <main id="inbox-screen" class="screen list-screen" hidden></main>
     <main id="history-screen" class="screen list-screen" hidden></main>
+    <main id="archived-screen" class="screen list-screen" hidden></main>
     <template id="list-screen">
       <section data-part="list" class="list">
         <div data-part="head" class="list-head">
@@ -525,6 +567,7 @@
             <button type="button" id="work-item-browse" class="quiet">Browse…</button>
           </span>
         </label>
+        <label class="check"><input type="checkbox" id="work-item-register-only" />Register the repository only</label>
         <label>
           Name
           <span class="row"><input id="work-item-title" autocomplete="off" /></span>
@@ -546,6 +589,133 @@
         <div class="row end">
           <button type="button" id="work-item-cancel" class="quiet">Cancel</button>
           <button type="submit" id="work-item-create" class="primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="rename-dialog">
+      <form id="rename-form">
+        <h2 class="head">Rename the work item</h2>
+        <label>
+          Name
+          <span class="row"><input id="rename-title" autocomplete="off" /></span>
+        </label>
+        <label class="check"><input type="checkbox" id="rename-branch" disabled />Rename the branch too</label>
+        <p id="rename-plan" aria-live="polite"></p>
+        <p id="rename-error" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="rename-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="rename-submit" class="primary">Rename</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="settings-dialog">
+      <form id="settings-form">
+        <h2 class="head">Repository settings</h2>
+        <label>
+          Name in the sidebar
+          <span class="row"><input id="settings-name" autocomplete="off" /></span>
+        </label>
+        <label>
+          New work items start from
+          <span class="row">
+            <select id="settings-base"></select>
+          </span>
+        </label>
+        <p id="settings-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="settings-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="settings-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="icon-dialog">
+      <form id="icon-form">
+        <h2 class="head">Change the icon</h2>
+        <label>
+          One character, an emoji among them, shown before the repository's name. Leave it empty for no icon.
+          <span class="row"><input id="icon-field" autocomplete="off" /></span>
+        </label>
+        <p id="icon-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="icon-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="icon-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="group-dialog">
+      <form id="group-form">
+        <h2 id="group-head" class="head"></h2>
+        <label>
+          The group's name, which the sidebar shows as a heading under the repository. A work item moves into the group from its own menu.
+          <span class="row"><input id="group-name" autocomplete="off" /></span>
+        </label>
+        <p id="group-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="group-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="group-submit" class="primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="hidden-dialog">
+      <h2 class="head">Hidden repositories</h2>
+      <ul id="hidden-list" class="named"></ul>
+      <div class="row end">
+        <button type="button" id="hidden-close" class="quiet">Done</button>
+      </div>
+    </dialog>
+    <dialog id="sessions-dialog">
+      <form id="sessions-form">
+        <h2 id="sessions-head" class="head"></h2>
+        <p id="sessions-says" class="says">An archive ends the work item's running sessions. Its folder and its branch stay where they are, and a restore brings the work item back.</p>
+        <section id="sessions-list" hidden>
+          <h3 class="caption">Running sessions that end</h3>
+          <ul class="named"></ul>
+        </section>
+        <p id="sessions-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="sessions-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="sessions-submit" class="primary">Archive</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="delete-dialog">
+      <form id="delete-form">
+        <h2 id="delete-head" class="head"></h2>
+        <p id="delete-says" class="says"></p>
+        <div id="delete-loss"></div>
+        <section id="delete-sessions" hidden>
+          <h3 class="caption">Running sessions that end</h3>
+          <ul class="named"></ul>
+        </section>
+        <p id="delete-remote" class="says">Nothing on a remote is removed.</p>
+        <label id="delete-force-label" class="check" hidden><input type="checkbox" id="delete-force" />Force delete</label>
+        <p id="delete-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="delete-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="delete-submit" class="primary">Delete</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="remove-dialog">
+      <form id="remove-form">
+        <h2 id="remove-head" class="head"></h2>
+        <p id="remove-says" class="says"></p>
+        <section id="remove-work-items" hidden>
+          <h3 class="caption">Work items that leave the lists</h3>
+          <ul class="named"></ul>
+        </section>
+        <section id="remove-sessions" hidden>
+          <h3 class="caption">Running sessions that end</h3>
+          <ul class="named"></ul>
+        </section>
+        <label id="remove-delete-label" class="check" hidden><input type="checkbox" id="remove-delete" />Also delete the work items' worktrees and local branches</label>
+        <div id="remove-losses" hidden></div>
+        <label id="remove-force-label" class="check" hidden><input type="checkbox" id="remove-force" />Force delete</label>
+        <label id="remove-trash-label" class="check"><input type="checkbox" id="remove-trash" />Also move the repository's folder to the Trash</label>
+        <p id="remove-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="remove-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="remove-submit" class="primary">Remove</button>
         </div>
       </form>
     </dialog>

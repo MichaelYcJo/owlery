@@ -1,10 +1,13 @@
 // A list of work items' lines beside the preview of the selected one: the
-// inbox screen, and the history screen over the work items whose agent
-// finished. Each is a copy of the page's `list-screen` template.
-import { byId, changedSince, detail, entries, held, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
+// inbox screen, the history screen over the work items whose agent
+// finished, and the archived screen over the archived work items of one
+// repository. Each is a copy of the page's `list-screen` template.
+import { byId, changedSince, detail, entries, held, lineMarkIcons, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
 import {
   ageOf,
   ahead,
+  archivedHead,
+  archivedIn,
   emptyList,
   filterChoices,
   gainedSince,
@@ -19,8 +22,10 @@ import {
   matchSentence,
   matchWorkItems,
   moveSelection,
+  pinnedFirst,
   repoNameOf,
   selectedLine,
+  workItemEntries,
   type Entry,
   type StateFilter,
 } from "./view";
@@ -35,20 +40,25 @@ export interface ListScreen {
   /** Moves the selection one line, as J and K do. */
   move(key: "next" | "previous"): void;
   selected(): number | undefined;
+  /** The line of a work item, where it is displayed. */
+  line(workItemId: number): HTMLElement | null;
 }
 
 export interface ListActions {
   openView(workItemId: number): void;
+  /** Restores an archived work item, at the press of the archived screen's main button. */
+  restore(workItemId: number): void;
   /** Takes the state chosen in the head's filter. */
   filter(state: StateFilter): void;
 }
 
-export function listScreen(name: "inbox" | "history", actions: ListActions, mac: boolean): ListScreen {
+export function listScreen(name: "inbox" | "history" | "archived", actions: ListActions, mac: boolean): ListScreen {
   const root = byId(`${name}-screen`);
   root.append(byId<HTMLTemplateElement>("list-screen").content.cloneNode(true));
   // Each part takes the screen's name before its own as its id.
   for (const element of root.querySelectorAll<HTMLElement>("[data-part]")) element.id = `${name}-${element.dataset.part}`;
   const piece = <E extends HTMLElement = HTMLElement>(of: string) => byId<E>(`${name}-${of}`);
+  const word = piece("word");
   const sentence = piece("summary");
   const lastLooked = piece("last-here");
   const match = piece("match");
@@ -66,22 +76,33 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
   let displayed: number[] = [];
   let selected: number | undefined;
 
-  piece("word").textContent = name === "inbox" ? "Inbox" : "History";
-  piece("list").setAttribute("aria-label", name === "inbox" ? "Inbox" : "History");
   piece("preview-seal").replaceWith(sealPlace("preview"));
   piece("preview-keys").replaceChildren(...keyHints(name, mac).map((keys) => part("key", keys)));
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
+  // An archive ends the work item's sessions, so the archived screen offers no choice among the states.
+  filter.hidden = name === "archived";
+  // An archived work item has no view to open: the main button of its preview restores it.
+  if (name === "archived") piece("open-work-item").textContent = "Restore";
   piece("open-work-item").addEventListener("click", () => {
-    if (selected !== undefined) actions.openView(selected);
+    if (selected === undefined) return;
+    if (name === "archived") actions.restore(selected);
+    else actions.openView(selected);
   });
+
+  /** The screen's own work items, whatever is typed or chosen: every one on the inbox, the ones whose agent finished on the history, and on the archived screen the archived ones of the repository it was opened on, the one archived last first. */
+  function own(): Entry[] {
+    if (name === "inbox") return entries();
+    if (name === "history") return historyLines(entries());
+    return held.archivedOf === undefined ? [] : workItemEntries(archivedIn(held.archivedOf, held.archived), held.sessions, held.paneKinds);
+  }
 
   function lineButton(workItemId: number): HTMLElement | null {
     return lines.querySelector<HTMLElement>(`button[data-work-item="${workItemId}"]`);
   }
 
   function showPreview(): void {
-    const entry = entries().find(({ workItem }) => workItem.id === selected);
+    const entry = own().find(({ workItem }) => workItem.id === selected);
     previewContent.hidden = !entry;
     if (!entry) return;
     showState(previewState, entry.line.state, entry.session?.stateSince);
@@ -111,13 +132,15 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
     button.title = workItem.worktree;
     button.dataset.workItem = String(workItem.id);
     const first = part("first", "");
-    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), part("age", ageOf(session?.stateSince, Date.now())));
+    // A pin and a mute each put a mark after the title.
+    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(session?.stateSince, Date.now())));
     // The second row's text is the branch while a search is typed, with the letters that match marked.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
     second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
     button.append(first, second);
-    button.addEventListener("click", () => actions.openView(workItem.id));
+    // A line of the archived screen opens no view: its press selects it.
+    button.addEventListener("click", () => (name === "archived" ? select(workItem.id) : actions.openView(workItem.id)));
     // The keyboard's place on a line is the selection, so the preview shows the line a person tabbed to.
     button.addEventListener("focus", () => {
       if (selected !== workItem.id) select(workItem.id);
@@ -134,11 +157,13 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
   }
 
   function show(): void {
-    const all = entries();
-    // The screen's own work items, and of them the ones the search and the filter leave.
-    const own = name === "inbox" ? all : historyLines(all);
-    const shown = matchWorkItems(own, held.query, held.filter);
+    // The screen's own work items, and of them the ones the search and the filter leave. The filter leaves every archived one.
+    const all = own();
+    const shown = matchWorkItems(all, held.query, name === "archived" ? "all" : held.filter);
     filter.value = held.filter;
+    const head = name === "inbox" ? "Inbox" : name === "history" ? "History" : archivedHead(held.repositories.find((repository) => repository.id === held.archivedOf)?.name ?? "");
+    word.textContent = head;
+    piece("list").setAttribute("aria-label", head);
     // The inbox's sentence counts every work item, whatever is typed or chosen.
     const said = name === "inbox" ? inboxSummary(all.map(({ line }) => line)) : "";
     sentence.textContent = said;
@@ -146,12 +171,13 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
     const looked = name === "inbox" ? held.lastLook : null;
     lastLooked.textContent = looked ? lastHere(looked.at, Date.now()) : "";
     lastLooked.hidden = !looked;
-    match.textContent = held.query === "" ? "" : matchSentence(shown.length, own.length, held.query);
+    match.textContent = held.query === "" ? "" : matchSentence(shown.length, all.length, held.query);
     match.hidden = held.query === "";
-    empty.textContent = emptyList(name, own.length, shown.length);
+    empty.textContent = emptyList(name, all.length, shown.length);
     empty.hidden = empty.textContent === "";
     if (name === "inbox") {
-      const groups = inboxGroups(shown);
+      // A pinned work item stands first in its state's group.
+      const groups = inboxGroups(pinnedFirst(shown));
       lines.replaceChildren(
         ...groups.flatMap((group) => {
           const heading = document.createElement("h2");
@@ -162,7 +188,7 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
       );
       displayed = groups.flatMap((group) => group.entries).map(({ workItem }) => workItem.id);
     } else {
-      // The history's lines stand in one list, the one that finished last first, under no heading.
+      // The history's lines stand in one list, the pinned ones first and then the one that finished last first, under no heading. So do the archived screen's, the one archived last first.
       lines.replaceChildren(...(shown.length > 0 ? [listOf(shown)] : []));
       displayed = shown.map(({ workItem }) => workItem.id);
     }
@@ -186,5 +212,6 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
       button?.scrollIntoView({ block: "nearest" });
     },
     selected: () => selected,
+    line: lineButton,
   };
 }

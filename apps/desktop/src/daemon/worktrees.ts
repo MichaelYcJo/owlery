@@ -1,12 +1,13 @@
 // The git side of a work item: its branch and its worktree, a separate folder
 // checked out from the same repository. Git runs with execFile and arguments,
 // never through a shell, because titles and folders come from the person.
-import { execFile } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { generateName } from "../shared/names";
-import type { Changes, CommitInfo, FileChange } from "../shared/protocol";
+import type { Changes, CommitInfo, FileChange, WorkItemLoss } from "../shared/protocol";
 
 const SLUG_LENGTH = 40;
 /** How many of a branch's commits, and of the files it changed, the daemon lists. */
@@ -56,7 +57,7 @@ async function branchExists(repo: string, branch: string): Promise<boolean> {
 }
 
 export interface Worktree {
-  /** The repository's top-level folder. */
+  /** The top-level folder of the repository's main checkout. */
   repo: string;
   branch: string;
   /** The worktree's folder, `<root>/<repo name>/<slug>`. */
@@ -86,16 +87,115 @@ interface Naming {
   random?: () => number;
 }
 
-/** The repository's top-level folder, given a folder inside it. A folder outside any git repository is refused. */
-async function repositoryOf(folder: string): Promise<string> {
-  let repo: string;
+/** The base a person chose for a repository's new work items, given the repository's top-level folder, or null where they chose none. */
+type ChosenBase = (repo: string) => string | null;
+
+/**
+ * What git prints of a folder, a line each: the top-level folder of the
+ * checkout the folder is in, that checkout's git directory, and the
+ * repository's common git directory. It fails outside a checkout, inside a
+ * git directory among them. Precondition: git 2.31 or later, the first with
+ * `--path-format`.
+ */
+const WHERE = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir"];
+
+/**
+ * The top-level folder of the main checkout, where `WHERE` printed one git
+ * directory twice: the folder is then in the main checkout, and git names
+ * that checkout's folder wherever its git directory stands. Null in a
+ * linked worktree, whose git directory is not the common one.
+ */
+function checkoutOf(where: string): string | null {
+  const [top = "", gitDir = "", common = ""] = where.trim().split("\n");
+  return top !== "" && gitDir !== "" && gitDir === common ? top : null;
+}
+
+/** What git lists of a repository's worktrees. The first is the main checkout's top-level folder where the git directory is that folder's `.git`, the git directory itself where it stands elsewhere, and a bare repository's folder, marked `bare`. */
+const MAIN_CHECKOUT = ["worktree", "list", "--porcelain"];
+
+/** The first worktree among what `git worktree list --porcelain` printed, which `MAIN_CHECKOUT` says what it is, and whether git marked it `bare`. Null where git printed none. */
+export function mainCheckout(listed: string): { folder: string; bare: boolean } | null {
+  // The first block ends at the first empty line, and its first line is `worktree` and the folder.
+  const [first = "", ...rest] = (listed.split("\n\n")[0] ?? "").split("\n");
+  if (!first.startsWith("worktree ")) return null;
+  return { folder: first.slice("worktree ".length), bare: rest.includes("bare") };
+}
+
+/**
+ * The main checkout of a folder that `WHERE` named no checkout for, a linked
+ * worktree's among them, from the first worktree git lists. Refused where
+ * git lists none, where the first is bare, and where it is a git directory
+ * that stands apart from its checkout, a submodule's or one made with
+ * `--separate-git-dir`: no `.git` stands at its top, and git names no
+ * checkout for it.
+ */
+function mainOf(folder: string, main: { folder: string; bare: boolean } | null): string {
+  if (main === null) throw new Error(`${folder} is not inside a git repository`);
+  if (main.bare) throw new Error(`${folder} belongs to a bare repository, which has no checkout to keep`);
+  if (!existsSync(join(main.folder, ".git"))) throw new Error(`${folder} is a worktree of a repository whose main checkout git does not name`);
+  return main.folder;
+}
+
+/**
+ * The repository a folder is inside: the top-level folder of its main
+ * checkout. Where the folder is in the main checkout, that is the
+ * checkout's own top-level folder, though its git directory stands
+ * elsewhere, as a submodule's does. Where it is in a linked worktree, it is
+ * the first worktree git lists, so the folder names the repository the
+ * worktree belongs to, and never a repository of its own. A folder outside
+ * any git repository is refused, and so is one whose repository has a bare
+ * main checkout, which has no folder to keep, and a linked worktree whose
+ * main checkout git does not name (`mainOf`).
+ */
+export async function repositoryOf(folder: string): Promise<string> {
+  let checkout: string | null = null;
   try {
-    repo = (await git(folder, ["rev-parse", "--show-toplevel"])).trim();
+    checkout = checkoutOf(await git(folder, WHERE));
   } catch {
-    throw new Error(`${folder} is not inside a git repository`);
+    // No checkout holds the folder: a bare repository's folder, or one outside any repository. The list below says which.
   }
-  if (!repo) throw new Error(`${folder} is not inside a git repository`);
-  return repo;
+  if (checkout !== null) return checkout;
+  let main: { folder: string; bare: boolean } | null;
+  try {
+    main = mainCheckout(await git(folder, MAIN_CHECKOUT));
+  } catch {
+    main = null;
+  }
+  return mainOf(folder, main);
+}
+
+/**
+ * How long the daemon's start waits on git for one folder of
+ * `work-items.json`. A folder git does not answer for in that time is one it
+ * cannot read. The app gives a daemon it started ten seconds to answer
+ * (`ensureDaemon` of src/main/daemon-client.ts), and this read stands before
+ * the daemon listens, so the wait for one folder is a fifth of that.
+ */
+const START_READ_MS = 2000;
+
+/**
+ * The repository a folder is inside, as `repositoryOf` reads it, read
+ * without a turn of the event loop: the daemon's store reads each folder of
+ * `work-items.json` this way at its start, before the daemon listens. Null
+ * where `repositoryOf` refuses the folder and where git does not answer
+ * within `START_READ_MS` for the folder, over the two commands a folder
+ * outside a main checkout takes.
+ */
+export function repositoryOfSync(folder: string): string | null {
+  const until = Date.now() + START_READ_MS;
+  const read = (args: string[]): string => execFileSync("git", args, { cwd: folder, encoding: "utf8", timeout: Math.max(1, until - Date.now()), stdio: ["ignore", "pipe", "ignore"] });
+  let checkout: string | null = null;
+  try {
+    checkout = checkoutOf(read(WHERE));
+  } catch {
+    // As in `repositoryOf`.
+  }
+  if (checkout !== null) return checkout;
+  try {
+    return mainOf(folder, mainCheckout(read(MAIN_CHECKOUT)));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -161,13 +261,14 @@ function firstIn(names: string[], held: Set<string>): string | undefined {
  *
  * With the candidate names `init.defaultBranch`'s value, `main` and `master`,
  * in that order, the default base is the first of these that the lists hold:
- * the branch a remote's `HEAD` names, the remote `origin` first and the other
+ * the base `chosenBase` gives for the repository, which a person chose in
+ * its settings; the branch a remote's `HEAD` names, the remote `origin` first and the other
  * remotes in the order of their names; a remote's branch of a candidate name,
  * the remotes in the same order and, within one remote, the names in theirs;
  * the local branch of a candidate name; the local branch the checkout stands
  * on.
  */
-async function basesOf(repo: string): Promise<Pick<WorktreePlan, "localBases" | "remoteBases" | "defaultBase">> {
+async function basesOf(repo: string, chosenBase?: ChosenBase): Promise<Pick<WorktreePlan, "localBases" | "remoteBases" | "defaultBase">> {
   const [refs, checkout, configured, remoteNames] = await Promise.all([
     git(repo, ["for-each-ref", "--sort=-committerdate", "--format=%(refname) %(symref)", "refs/heads", "refs/remotes"], BRANCH_OUTPUT_BYTES),
     branchOfHead(repo),
@@ -196,7 +297,9 @@ async function basesOf(repo: string): Promise<Pick<WorktreePlan, "localBases" | 
   const localBases = [...standsOn, ...local.filter((name) => name !== checkout)];
   const candidates = [configured, "main", "master"].filter((name) => name !== "");
   const ordered = [...remoteNames.filter((name) => name === "origin"), ...remoteNames.filter((name) => name !== "origin").sort()];
+  const chosen = chosenBase?.(repo) ?? null;
   const defaultBase =
+    (chosen !== null && (locals.has(chosen) || remotes.has(chosen)) ? chosen : undefined) ??
     firstIn(ordered.flatMap((name) => heads.get(`${name}/HEAD`) ?? []), remotes) ??
     firstIn(ordered.flatMap((name) => candidates.map((candidate) => `${name}/${candidate}`)), remotes) ??
     firstIn(candidates, locals) ??
@@ -207,27 +310,29 @@ async function basesOf(repo: string): Promise<Pick<WorktreePlan, "localBases" | 
 
 /**
  * What a creation in the folder with this title and name would give, and the
- * repository's bases. Nothing is created. A folder outside any git repository
+ * repository's bases. Nothing is created. A folder that names no repository
  * is refused, as a creation in it is.
  */
-export async function planWorktree(options: Naming & { folder: string; root: string }): Promise<WorktreePlan> {
+export async function planWorktree(options: Naming & { folder: string; root: string; chosenBase?: ChosenBase }): Promise<WorktreePlan> {
   const repo = await repositoryOf(options.folder);
-  const [place, bases] = await Promise.all([placeFor(repo, options.root, options), basesOf(repo)]);
+  const [place, bases] = await Promise.all([placeFor(repo, options.root, options), basesOf(repo, options.chosenBase)]);
   return { ...place, ...bases };
 }
 
 /**
  * Cuts the branch `placeFor` names at a base and checks it out in a new
  * worktree under `root`. The base is the one `base` names, read as `baseRef`
- * reads it, or the repository's default base where none is sent. Where the
+ * reads it, or the repository's default base where none is sent, which is
+ * the base a person chose for the repository where it still lists it. Where the
  * repository has no default base, the branch is cut at the checkout's commit.
  * The new branch has no upstream, whatever its base and the person's
- * `branch.autoSetupMerge`. A folder outside any git repository, and a `base`
- * that is none of the repository's, is refused before anything is created.
+ * `branch.autoSetupMerge`. A folder that names no repository, as
+ * `repositoryOf` reads it, and a `base` that is none of the repository's, is
+ * refused before anything is created.
  */
-export async function createWorktree(options: Naming & { folder: string; root: string; base?: string }): Promise<Worktree> {
+export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; chosenBase?: ChosenBase }): Promise<Worktree> {
   const repo = await repositoryOf(options.folder);
-  const baseBranch = options.base ?? (await basesOf(repo)).defaultBase;
+  const baseBranch = options.base ?? (await basesOf(repo, options.chosenBase)).defaultBase;
   let start = "HEAD";
   if (baseBranch !== null) {
     const ref = await baseRef(repo, baseBranch);
@@ -239,6 +344,64 @@ export async function createWorktree(options: Naming & { folder: string; root: s
   await git(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, start]);
   const baseCommit = (await git(repo, ["rev-parse", "--verify", `refs/heads/${branch}`])).trim();
   return { repo, branch, worktree, baseCommit, baseBranch };
+}
+
+/** What a rename of a work item's branch would give: the branch, or null where the name names none, and why the rename cannot run, or null where it can. */
+export interface RenamePlan {
+  branch: string | null;
+  blocked: string | null;
+}
+
+/**
+ * What renaming `branch` after a work item's new name would give, read in the
+ * repository. Nothing is renamed. The branch is `owlery/<slug of the name>`,
+ * with -2, -3 and so on appended while another local branch bears the name.
+ * The rename can run where the name leaves a slug, the branch exists, that
+ * branch is not the one the name gives, it has no upstream, and no remote of
+ * the clone holds a branch of its name: a branch that was pushed without an
+ * upstream has none, and its rename would leave the remote's branch under the
+ * old name. `blocked` says the first of these that does not hold. Nothing is
+ * fetched: a remote's branches are read as the clone holds them.
+ */
+export async function planBranchRename(repo: string, branch: string, title: string): Promise<RenamePlan> {
+  const slug = slugFor(title);
+  if (slug === "") return { branch: null, blocked: "The name leaves no letter or digit to name a branch by." };
+  let named = `owlery/${slug}`;
+  // The work item's own branch does not stand in the way of its own name.
+  for (let n = 2; named !== branch && (await branchExists(repo, named)); n++) named = `owlery/${slug}-${n}`;
+  const blocked = (sentence: string): RenamePlan => ({ branch: named, blocked: sentence });
+  const local = `refs/heads/${branch}`;
+  let refs: string[];
+  let remotes: string[];
+  try {
+    // A pattern also matches the refs under it, so each line's ref is compared whole.
+    refs = (await git(repo, ["for-each-ref", "--format=%(refname) %(upstream:short)", local])).split("\n");
+    remotes = (await git(repo, ["remote"])).split("\n").filter((name) => name !== "");
+  } catch {
+    return blocked(`The branch ${branch} is gone.`);
+  }
+  const own = refs.find((line) => line.startsWith(`${local} `));
+  if (own === undefined) return blocked(`The branch ${branch} is gone.`);
+  if (named === branch) return blocked(`The branch is already ${branch}.`);
+  const upstream = own.slice(local.length + 1);
+  if (upstream !== "") return blocked(`The branch ${branch} has an upstream, ${upstream}, so it keeps its name.`);
+  if (remotes.length > 0) {
+    // With no pattern git would list every ref, so it is asked only where the clone has a remote.
+    const held = (await git(repo, ["for-each-ref", "--format=%(refname)", ...remotes.map((remote) => `refs/remotes/${remote}/${branch}`)], BRANCH_OUTPUT_BYTES)).split("\n");
+    const holder = remotes.find((remote) => held.includes(`refs/remotes/${remote}/${branch}`));
+    if (holder !== undefined) return blocked(`The remote ${holder} holds a branch ${branch}, so the branch keeps its name.`);
+  }
+  return { branch: named, blocked: null };
+}
+
+/**
+ * Renames a local branch in the repository, with `git branch -m`. A worktree
+ * that has the branch checked out then stands on the new name, and its folder
+ * is untouched. Git refuses a name another branch bears, and its sentence is
+ * the error.
+ */
+export async function renameBranch(repo: string, from: string, to: string): Promise<void> {
+  await git(repo, ["branch", "-m", from, to]);
 }
 
 /**
@@ -352,4 +515,130 @@ export async function branchChanges(repo: string, baseCommit: string, head: stri
     removed: files.reduce((sum, file) => sum + (file.removed ?? 0), 0),
     list: files.slice(0, FILES_LISTED),
   };
+}
+
+/** How many entries each list of a loss carries. */
+const LOSS_LISTED = 500;
+
+/** One worktree as `git worktree list --porcelain` prints it: its folder, the commit its `HEAD` is at, the local branch it has checked out, or null where it has none, and whether it is locked. */
+interface ListedWorktree {
+  folder: string;
+  head: string | null;
+  branch: string | null;
+  locked: boolean;
+}
+
+/** Every worktree `git worktree list --porcelain` printed, the first of them the main checkout or the git directory (`MAIN_CHECKOUT`), and the others the linked worktrees. */
+function listedWorktrees(listed: string): ListedWorktree[] {
+  return listed.split("\n\n").flatMap((block) => {
+    const lines = block.split("\n");
+    const value = (key: string): string | null => lines.find((line) => line.startsWith(`${key} `))?.slice(key.length + 1) ?? null;
+    const folder = value("worktree");
+    if (folder === null) return [];
+    const ref = value("branch");
+    return [{ folder, head: value("HEAD"), branch: ref !== null && ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null, locked: lines.some((line) => line === "locked" || line.startsWith("locked ")) }];
+  });
+}
+
+/** A folder's path with every link in it followed, so two spellings of one folder compare equal. A folder that is gone is spelt by its parent's path, and one whose parent is gone too as it was given. */
+function placeOf(folder: string): string {
+  try {
+    return realpathSync(folder);
+  } catch {
+    try {
+      return join(realpathSync(dirname(folder)), basename(folder));
+    } catch {
+      return folder;
+    }
+  }
+}
+
+/** The linked worktree git lists at a folder, or undefined where it lists none there. The main checkout is none, whatever folder is asked for. */
+function linkedAt(listed: string, folder: string): ListedWorktree | undefined {
+  const place = placeOf(folder);
+  return listedWorktrees(listed)
+    .slice(1)
+    .find((known) => placeOf(known.folder) === place);
+}
+
+/** The first `LOSS_LISTED` of the entries, and how many there are. */
+function cut<T>(entries: T[]): { listed: T[]; count: number } {
+  return { listed: entries.slice(0, LOSS_LISTED), count: entries.length };
+}
+
+/**
+ * What deleting a work item would remove, read in its repository and in its
+ * worktree. Nothing is removed, nothing is fetched, and a remote's branches
+ * are read as the clone holds them.
+ *
+ * The commits are those the branch or the worktree's `HEAD` holds and no
+ * other local branch, no remote's branch and no tag holds. `--all` is not
+ * what they are read against: it takes the worktree's own `HEAD`, which
+ * hides every one of them. The worktree's files are read only where git
+ * lists a linked worktree at the folder and the folder stands: in any other
+ * folder git would answer for whichever repository the folder is inside.
+ * The untracked files are listed each by its own path, and the ignored ones
+ * with a folder as one name, which takes two reads.
+ */
+export async function readLoss(repo: string, branch: string, worktree: string): Promise<WorkItemLoss> {
+  const nothing = { branch: null, worktree: null, commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null };
+  let listed: string;
+  try {
+    listed = await git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES);
+  } catch {
+    return { ...nothing, unreachable: true, stamp: createHash("sha256").update("unreachable").digest("hex") };
+  }
+  const own = linkedAt(listed, worktree);
+  const tip = await branchHead(repo, branch);
+  const elsewhere = listedWorktrees(listed).find((known) => known.branch === branch && known.folder !== own?.folder);
+  const blocked = elsewhere ? `The branch ${branch} is checked out in ${elsewhere.folder}, so it cannot be deleted.` : own?.locked ? `The worktree ${own.folder} is locked, so git does not remove it.` : null;
+  const tips = [...new Set([tip, own?.head ?? null].filter((commit): commit is string => commit !== null))];
+  // Every commit is read, so the stamp differs for one the list leaves out. The names of the refs reach git as patterns under their kinds, and a branch's name holds none of a pattern's characters.
+  const log = tips.length === 0 ? "" : await git(repo, ["log", "--format=%H%x1f%h%x1f%s", ...tips, "--not", `--exclude=${branch}`, "--branches", "--remotes", "--tags", "--"], BRANCH_OUTPUT_BYTES);
+  let status = "";
+  let others = "";
+  if (own !== undefined && existsSync(own.folder)) {
+    // NUL ends each path, so a path is as it is on disk. A moved file is two entries, each with one path.
+    status = await git(own.folder, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], BRANCH_OUTPUT_BYTES);
+    others = await git(own.folder, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], BRANCH_OUTPUT_BYTES);
+  }
+  const entries = status.split("\0").filter((entry) => entry.length > 3);
+  const commits = cut(log.split("\n").filter((line) => line !== "").map((line) => { const [, hash = "", ...subject] = line.split("\x1f"); return { hash, subject: subject.join("\x1f") }; }));
+  const uncommitted = cut(entries.filter((entry) => !entry.startsWith("?? ")).map((entry) => entry.slice(3)));
+  const untracked = cut(entries.filter((entry) => entry.startsWith("?? ")).map((entry) => entry.slice(3)));
+  const ignored = cut(others.split("\0").filter((path) => path !== ""));
+  const held = { branch: tip === null ? null : branch, worktree: own?.folder ?? null, blocked, unreachable: false };
+  return {
+    ...held,
+    commits: commits.listed,
+    commitCount: commits.count,
+    uncommitted: uncommitted.listed,
+    uncommittedCount: uncommitted.count,
+    untracked: untracked.listed,
+    untrackedCount: untracked.count,
+    ignored: ignored.listed,
+    ignoredCount: ignored.count,
+    stamp: createHash("sha256").update(JSON.stringify([held, log, status, others])).digest("hex"),
+  };
+}
+
+/**
+ * Removes the linked worktree git lists at a folder, with `git worktree
+ * remove`, and with `--force` only where `force` is true: without it git
+ * itself refuses a worktree that holds a changed or an untracked file, and
+ * its sentence is the error. The ignored files go with the folder either
+ * way. Where git lists no linked worktree at the folder, the main checkout's
+ * folder among them, nothing is removed: no file is ever removed but through
+ * that one command.
+ */
+export async function removeWorktree(repo: string, worktree: string, force: boolean): Promise<void> {
+  const own = linkedAt(await git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES), worktree);
+  if (own === undefined) return;
+  await git(repo, ["worktree", "remove", ...(force ? ["--force"] : []), own.folder]);
+}
+
+/** Removes a local branch of the repository, with `git branch -D`, where it exists. No ref of a remote is named to git, and nothing is pushed. */
+export async function removeBranch(repo: string, branch: string): Promise<void> {
+  if (!(await branchExists(repo, branch))) return;
+  await git(repo, ["branch", "-D", "--", branch]);
 }

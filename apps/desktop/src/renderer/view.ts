@@ -1,7 +1,8 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
-import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import type { InstalledApp } from "../shared/ipc";
+import { losesWork, type AgentState, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -133,49 +134,257 @@ export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly
     .filter((group) => group.entries.length > 0);
 }
 
-/** A repository's name: the one the daemon sends, or the last part of its folder for a daemon of an earlier build, which sends none. */
+/**
+ * The entries with the pinned work items before the others. The pinned keep
+ * their order among themselves, and so do the others. A list puts it over
+ * the entries of one of its parts: a repository's in the sidebar, a state's
+ * group in the inbox, which `inboxGroups` cuts from entries in this order,
+ * and the whole of the history.
+ */
+export function pinnedFirst<E extends { workItem: WorkItem }>(entries: readonly E[]): E[] {
+  return [...entries.filter((entry) => entry.workItem.pinned), ...entries.filter((entry) => !entry.workItem.pinned)];
+}
+
+/** The marks a work item's line carries after its title, each with the words a pointer and a screen reader are told: one where it is pinned, and one where its notifications are muted. */
+export function lineMarks(workItem: WorkItem): { mark: "pinned" | "muted"; words: string }[] {
+  return [...(workItem.pinned ? [{ mark: "pinned" as const, words: "Pinned" }] : []), ...(workItem.muted ? [{ mark: "muted" as const, words: "Notifications muted" }] : [])];
+}
+
+/** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
 export function repoNameOf(workItem: WorkItem): string {
   return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
 }
 
+/** What the status line says while the daemon is one a build before the repositories started. */
+const EARLIER_DAEMON = "Owlery's background process is from an earlier build. End its sessions and start Owlery again.";
+
+/**
+ * The repositories and the archived work items of a `ready` or an `inbox`,
+ * and what the status line has to say of the daemon that sent it. A daemon
+ * of a build before the repositories sends neither list and answers none of
+ * the messages that came with them: the window then holds no repository,
+ * and the notice says why.
+ */
+export function daemonLists(message: { repositories?: Repository[]; archived?: WorkItem[] }): { repositories: Repository[]; archived: WorkItem[]; notice: string } {
+  if (message.repositories === undefined) return { repositories: [], archived: [], notice: EARLIER_DAEMON };
+  return { repositories: message.repositories, archived: message.archived ?? [], notice: "" };
+}
+
 export interface SidebarRepository {
+  id: number;
   /** The repository's folder, which tells two repositories of one name apart. */
   repo: string;
   name: string;
-  /** How many work items are listed under it: those the search and the filter leave. */
+  /** The one character the sidebar shows before the name, or null where a person set none. */
+  icon: string | null;
+  /** How many work items are listed under it, in its groups and out of them: those the search and the filter leave. */
   count: number;
-  /** Its work items, each with the places of its title that match what is typed. */
+  /** Its work items that stand in no group of its own, each with the places of its title that match what is typed. */
   entries: (Entry & { marks: [number, number][] })[];
+  /** Its groups, in the order they were made, each with the work items that stand in it. */
+  groups: { id: number; name: string; entries: SidebarRepository["entries"] }[];
 }
 
 /**
- * The sidebar's repositories: each repository that has a work item the
- * search and the filter leave, in the order of its first such work item,
- * with those work items in the order given. A repository is its folder, so
- * two of one name are two.
+ * The sidebar's repositories: each repository the daemon keeps that is not
+ * hidden, in the daemon's order, with the work items that name it by its id
+ * and that the search and the filter leave. Its ungrouped work items come
+ * first, and then each of its groups with its own, in the order the groups
+ * were made, a group with no work item among them. In each of those lists
+ * the pinned ones stand first, and each part is in the order given. A work
+ * item whose group its repository does not hold is among the ungrouped. A
+ * repository with no work item is listed. While a search is typed or a
+ * state is chosen, a repository none of whose work items is left is not,
+ * and neither is a group none of whose work items is left. The window makes
+ * up no repository: a work item whose repository the daemon did not send is
+ * under none.
  */
-export function sidebarTree(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
-  const tree: SidebarRepository[] = [];
-  for (const entry of matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state)) {
-    let repository = tree.find((held) => held.repo === entry.workItem.repo);
-    if (!repository) {
-      repository = { repo: entry.workItem.repo, name: repoNameOf(entry.workItem), count: 0, entries: [] };
-      tree.push(repository);
-    }
-    repository.entries.push({ ...entry, marks: markRanges(entry.line.title, query) });
-    repository.count = repository.entries.length;
+export function sidebarTree(repositories: readonly Repository[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
+  const left = matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state);
+  const narrowing = query !== "" || state !== "all";
+  return repositories
+    .filter((repository) => !repository.hidden)
+    .map((repository) => {
+      const own = left.filter((entry) => entry.workItem.repoId === repository.id);
+      const listed = (entries: typeof own) => pinnedFirst(entries).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
+      const groups = repository.groups.map(({ id, name }) => ({ id, name, entries: listed(own.filter((entry) => entry.workItem.groupId === id)) })).filter((group) => !narrowing || group.entries.length > 0);
+      const entries = listed(own.filter((entry) => !repository.groups.some((group) => group.id === entry.workItem.groupId)));
+      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups };
+    })
+    .filter((repository) => !narrowing || repository.count > 0);
+}
+
+/** The repositories the sidebar does not list, in the daemon's order, and what the button under the sidebar's repositories says of them: how many they are, or nothing where none is hidden. */
+export function hiddenRepositories(repositories: readonly Repository[]): { says: string; hidden: Repository[] } {
+  const hidden = repositories.filter((repository) => repository.hidden);
+  return { says: hidden.length === 0 ? "" : hidden.length === 1 ? "1 hidden repository" : `${hidden.length} hidden repositories`, hidden };
+}
+
+/** What a repository's removal takes off Owlery's lists and ends, as its dialog names it: the work items, each by its title, and the running sessions, each by a line of words and, in `running`, by its id. */
+export interface Removal {
+  workItems: { id: number; title: string; archived: boolean }[];
+  sessions: string[];
+  running: Running;
+}
+
+/**
+ * What removing a repository takes with it: every work item the repository
+ * holds, the archived after the others, and every running session of one of
+ * them. A pane runs while its process is alive, and is named by its tab's
+ * label and its work item. A headless session runs while it is working, and
+ * is named by its prompt. `running` is what the removal sends the daemon, so
+ * the daemon ends the sessions the person was told of and no other.
+ */
+export function removalOf(repository: Repository, workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): Removal {
+  const held = [...workItems, ...archived].filter((workItem) => workItem.repoId === repository.id);
+  const running = held.map((workItem) => ({ workItem, ...runningIn(workItem, sessions, headless, paneKinds) }));
+  const panes = running.flatMap(({ workItem, panes }) => panes.map(({ id, label }) => ({ id, says: `${label} in ${workItem.title}` })));
+  const asked = running.flatMap(({ workItem, asked }) => asked.map(({ id, prompt }) => ({ id, says: `Asked in ${workItem.title}: ${prompt}` })));
+  return {
+    workItems: held.map((workItem) => ({ id: workItem.id, title: workItem.title, archived: workItem.archivedAt !== null })),
+    sessions: [...panes, ...asked].map(({ says }) => says),
+    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+  };
+}
+
+/** The running sessions of one work item: its panes whose process is alive, each with its tab's label, and its headless sessions that are working, each with its prompt. */
+function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; asked: { id: number; prompt: string }[] } {
+  const tabs = paneTabs(workItem, sessions);
+  return {
+    panes: tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, label: tabLabel(tab, tabs, paneKinds) })),
+    asked: headless.filter((session) => session.workItemId === workItem.id && session.state === "working").map(({ id, prompt }) => ({ id, prompt })),
+  };
+}
+
+/**
+ * What archiving a work item ends: each of its running sessions, as the
+ * dialog before the archive names it, a pane by its tab's label and a
+ * headless session by its prompt. `running` is what the archive sends the
+ * daemon, so the daemon ends the sessions the person was told of and no
+ * other. Where it names none, the archive asks nothing first.
+ */
+export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { sessions: string[]; running: Running } {
+  const { panes, asked } = runningIn(workItem, sessions, headless, paneKinds);
+  return {
+    sessions: [...panes.map(({ label }) => label), ...asked.map(({ prompt }) => `Asked: ${prompt}`)],
+    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+  };
+}
+
+/** One kind of thing a loss names, as a dialog draws it: its heading, a line for each entry the loss carries, and how many more there are where the list is cut, or nothing. */
+export interface LossSection {
+  caption: string;
+  lines: string[];
+  more: string;
+}
+
+/**
+ * What a dialog names of a loss, a section for each kind the loss holds
+ * something of, in this order: the branch and the folder a delete removes;
+ * the commits nothing else holds, each by its hash and its subject; the
+ * tracked files with a change that is not committed; the untracked files;
+ * and the ignored files and folders, which a removal of the folder takes
+ * with it.
+ */
+export function lossSections(loss: WorkItemLoss): LossSection[] {
+  const section = (caption: string, lines: string[], count: number): LossSection[] => (lines.length === 0 ? [] : [{ caption, lines, more: count > lines.length ? `and ${count - lines.length} more` : "" }]);
+  const removed = [...(loss.branch === null ? [] : [`The branch ${loss.branch}`]), ...(loss.worktree === null ? [] : [`The folder ${loss.worktree}`])];
+  return [
+    ...section("Removed from disk", removed, removed.length),
+    ...section("Commits no other branch, no remote and no tag holds", loss.commits.map(({ hash, subject }) => `${hash} ${subject}`), loss.commitCount),
+    ...section("Files with changes that are not committed", loss.uncommitted, loss.uncommittedCount),
+    ...section("Untracked files", loss.untracked, loss.untrackedCount),
+    ...section("Ignored files and folders, which go with the folder", loss.ignored, loss.ignoredCount),
+  ];
+}
+
+/** What the delete dialog says before its lists, of the loss the daemon answered with, or of none while the answer is awaited: why the delete cannot run, that work would be lost, that the folder stays where git reads nothing in the repository's folder, or what the delete removes. */
+export function deleteSays(loss: WorkItemLoss | null): string {
+  if (loss === null) return "Reading what a delete would remove.";
+  if (loss.blocked !== null) return loss.blocked;
+  if (loss.unreachable) return "Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.";
+  if (losesWork(loss)) return "A delete would lose the work named below. It runs only with Force delete checked.";
+  return "A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists.";
+}
+
+/**
+ * The delete dialog's two controls, for the loss the daemon answered with,
+ * or for none while the answer is awaited, and for whether "Force delete"
+ * is checked. The checkbox is shown where the delete would lose work. The
+ * "Delete" button is off until the loss has arrived, while the delete is
+ * blocked, and while work would be lost and the checkbox is not checked.
+ */
+export function deleteChoice(loss: WorkItemLoss | null, force: boolean): { forceShown: boolean; enabled: boolean } {
+  if (loss === null) return { forceShown: false, enabled: false };
+  const loses = losesWork(loss);
+  return { forceShown: loses, enabled: loss.blocked === null && (!loses || force) };
+}
+
+/**
+ * The controls of a repository's removal dialog and what it says, for how
+ * many work items the repository holds, for its two choices, "Also delete
+ * the work items' worktrees and local branches" and "Also move the
+ * repository's folder to the Trash", for the loss of each work item as far
+ * as the daemon has answered, and for whether "Force delete" is checked.
+ *
+ * The first choice is shown where the repository holds a work item. The
+ * Trash's choice can be taken where it holds none or the first is taken: a
+ * linked worktree of a repository that moved to the Trash no longer works.
+ * Where the work items are deleted, "Force delete" is shown where one of
+ * them would lose work, and "Remove" is off until every loss has arrived,
+ * while one is blocked, and while one would lose work and the checkbox is
+ * not checked.
+ */
+export function removalChoice(workItems: number, deletes: boolean, trash: boolean, losses: readonly (WorkItemLoss | undefined)[], force: boolean): { deleteShown: boolean; trashEnabled: boolean; forceShown: boolean; enabled: boolean; says: string } {
+  const trashEnabled = workItems === 0 || deletes;
+  const trashes = trash && trashEnabled;
+  const loses = deletes && losses.some((loss) => loss !== undefined && losesWork(loss));
+  const lists = workItems === 0 ? "Owlery will no longer list the repository." : "Owlery will no longer list the repository or its work items.";
+  const says = deletes
+    ? trashes
+      ? `${lists} Each work item's worktree and local branch are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.`
+      : `${lists} Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.`
+    : trashes
+      ? `${lists} Its folder moves to the Trash, whole, and nothing in it is erased.`
+      : "Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.";
+  return {
+    deleteShown: workItems > 0,
+    trashEnabled,
+    forceShown: loses,
+    enabled: !deletes || (losses.every((loss) => loss !== undefined && loss.blocked === null) && (!loses || force)),
+    says,
+  };
+}
+
+/** What a removal that deletes its work items sends beside what it names: the stamp of each work item's loss as the dialog showed it, by the work item's id, and whether the person checked "Force delete". */
+export function deletionOf(workItemIds: readonly number[], losses: ReadonlyMap<number, WorkItemLoss>, force: boolean): { stamps: Record<number, string>; force: boolean } {
+  const stamps: Record<number, string> = {};
+  for (const id of workItemIds) {
+    const loss = losses.get(id);
+    if (loss !== undefined) stamps[id] = loss.stamp;
   }
-  return tree;
+  return { stamps, force };
+}
+
+/** A repository's archived work items as its archived screen lists them: the one archived last first, and two archived at one time in the order given. */
+export function archivedIn(repositoryId: number, archived: readonly WorkItem[]): WorkItem[] {
+  return archived.filter((workItem) => workItem.repoId === repositoryId).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
+}
+
+/** The head of the screen that lists a repository's archived work items. */
+export function archivedHead(repositoryName: string): string {
+  return `Archived in ${repositoryName}`;
 }
 
 /**
- * The history screen's lines: the work items whose agent finished, the one
- * that finished last first. Two that finished at one time keep the order
- * given, and one whose time the daemon did not send stands last.
+ * The history screen's lines: the work items whose agent finished, the
+ * pinned ones first, and among the pinned and among the others the one that
+ * finished last first. Two that finished at one time keep the order given,
+ * and one whose time the daemon did not send stands last.
  */
-export function historyLines<E extends { line: InboxLine; session: SessionInfo | undefined }>(entries: readonly E[]): E[] {
+export function historyLines<E extends { workItem: WorkItem; line: InboxLine; session: SessionInfo | undefined }>(entries: readonly E[]): E[] {
   const since = (entry: E) => entry.session?.stateSince ?? Number.NEGATIVE_INFINITY;
-  return entries.filter((entry) => entry.line.state === "finished").sort((a, b) => (since(a) === since(b) ? 0 : since(b) > since(a) ? 1 : -1));
+  return pinnedFirst(entries.filter((entry) => entry.line.state === "finished").sort((a, b) => (since(a) === since(b) ? 0 : since(b) > since(a) ? 1 : -1)));
 }
 
 /**
@@ -233,10 +442,10 @@ export function matchSentence(matched: number, total: number, query: string): st
  * items and `shown` the ones a search and a filter leave: nothing where it
  * has a line.
  */
-export function emptyList(screen: "inbox" | "history", total: number, shown: number): string {
+export function emptyList(screen: "inbox" | "history" | "archived", total: number, shown: number): string {
   if (shown > 0) return "";
   if (total > 0) return "No work item matches.";
-  return screen === "inbox" ? "No work items yet." : "Nothing has finished yet.";
+  return { inbox: "No work items yet.", history: "Nothing has finished yet.", archived: "No work item of this repository is archived." }[screen];
 }
 
 export interface Change {
@@ -491,9 +700,9 @@ export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now:
   ];
 }
 
-/** The keys a list says under its preview: the two that move through it, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
-export function keyHints(screen: "inbox" | "history", mac: boolean): string[] {
-  return [`J K move through the ${screen}`, `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
+/** The keys a list says under its preview: the two that move through it, the one that opens the selected line's menu, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
+export function keyHints(screen: "inbox" | "history" | "archived", mac: boolean): string[] {
+  return [`J K move through the ${screen === "archived" ? "archived work items" : screen}`, "M opens the menu", `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
 }
 
 /**
@@ -514,18 +723,20 @@ export function moveSelection(ids: readonly number[], selected: number | undefin
 }
 
 /**
- * What a key does on a screen that holds a list, the inbox screen or the
- * history screen, or null where the window leaves it alone. J and K are read
+ * What a key does on a screen that holds a list, the inbox screen, the
+ * history screen or the archived screen, or null where the window leaves it
+ * alone. What `open` does there is the window's to say. J and K are read
  * by their place on the keyboard, so they act under any input source. No key
  * is read while a screen the window does not name as one is in front, a
- * dialog or a pane's menu is open, the focus is in a field or a modifier
- * key is held. Enter on a control is that control's own press.
+ * dialog is open, a menu is open (a repository's, a work item's or a
+ * pane's), the focus is in a field or a modifier key is held. Enter on a
+ * control is that control's own press.
  */
 export function inboxKey(
   key: { code: string; modified: boolean },
-  where: { inboxInFront: boolean; dialogOpen: boolean; inField: boolean; onControl: boolean },
+  where: { inboxInFront: boolean; dialogOpen: boolean; menuOpen: boolean; inField: boolean; onControl: boolean },
 ): "next" | "previous" | "open" | null {
-  if (!where.inboxInFront || where.dialogOpen || where.inField || key.modified) return null;
+  if (!where.inboxInFront || where.dialogOpen || where.menuOpen || where.inField || key.modified) return null;
   if (key.code === "KeyJ") return "next";
   if (key.code === "KeyK") return "previous";
   if (key.code === "Enter" && !where.onControl) return "open";
@@ -537,14 +748,14 @@ export function inboxKey(
  * where the window leaves it alone: K puts the focus in the search field,
  * N opens the "New work item" form, and W closes the pane in front. The
  * Control key stands for the Command key where the keyboard has none. The
- * key is read by its place on the keyboard, and not while a dialog or a
- * pane's menu is open or another modifier key is held as well. The application menu binds none
- * of these keys, since a menu takes its key before the page sees it
- * (src/main/menu.ts).
+ * key is read by its place on the keyboard, and not while a dialog is open,
+ * a menu is open or another modifier key is held as well. The application
+ * menu binds none of these keys, since a menu takes its key before the page
+ * sees it (src/main/menu.ts).
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | "new" | "closePane" | null {
+export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean }): "search" | "new" | "closePane" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
-  if (!command || key.alt || key.shift || where.dialogOpen) return null;
+  if (!command || key.alt || key.shift || where.dialogOpen || where.menuOpen) return null;
   if (key.code === "KeyK") return "search";
   if (key.code === "KeyN") return "new";
   return key.code === "KeyW" ? "closePane" : null;
@@ -750,6 +961,155 @@ export function cardStaysAt(key: string): boolean {
 }
 
 /**
+ * Whether a key opens a menu: M alone, read by its place on the keyboard, or
+ * F10 with the Shift key. On macOS no key raises the event a press of the
+ * right button raises, so the window reads the key itself. `modified` says
+ * that the Command, the Control or the Option key is held. The key is not
+ * read in a field, a terminal's among them, while a dialog is open or while
+ * a menu is open.
+ */
+export function menuKey(key: { code: string; shift: boolean; modified: boolean }, where: { dialogOpen: boolean; menuOpen: boolean; inField: boolean }): boolean {
+  if (where.dialogOpen || where.menuOpen || where.inField || key.modified) return false;
+  return key.shift ? key.code === "F10" : key.code === "KeyM";
+}
+
+/**
+ * What the menu's key opens a menu for: the work item of the line the
+ * keyboard is on, or the repository of the row it is on, and where it is on
+ * neither, the work item of the `selected` line of the list in front.
+ * Nothing where no list is in front or the list has no line.
+ */
+export function menuTarget(on: { workItem?: number; repository?: number }, selected: number | undefined): { workItem: number } | { repository: number } | null {
+  if (on.workItem !== undefined) return { workItem: on.workItem };
+  if (on.repository !== undefined) return { repository: on.repository };
+  return selected === undefined ? null : { workItem: selected };
+}
+
+/**
+ * What the press of a menu's item does. On a work item's menu: opens the
+ * rename dialog, sets the work item's pin, its mute or the group it stands
+ * in, where `groupId` null is none, archives it, opens
+ * the dialog of its delete, or, on an archived one's, restores it. On a
+ * repository's: opens its settings, its
+ * icon's dialog or its removal's, hides it, opens the screen of its archived
+ * work items, or, for `group`, opens the dialog of a new group. On both:
+ * opens a folder in Finder, where `app` is null, or in an installed app, or
+ * writes a text to the clipboard.
+ */
+export type MenuAction =
+  | { do: "rename" | "archive" | "restore" | "delete"; id: number }
+  | { do: "open"; folder: string; app: string | null }
+  | { do: "copy"; text: string }
+  | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
+  | { do: "settings" | "icon" | "archived" | "group" | "hide" | "remove"; id: number };
+
+/** One item of a menu: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
+export interface MenuEntry {
+  label: string;
+  /** What a press does, in other words than the label's. */
+  description: string;
+  action: MenuAction;
+  divides: boolean;
+}
+
+/** The items that open a folder in Finder and in each installed app, with `whose` naming the folder in their descriptions. */
+function openEntries(folder: string, whose: string, apps: readonly InstalledApp[]): MenuEntry[] {
+  return [
+    { label: "Open in Finder", description: `Show ${whose} folder in a Finder window.`, action: { do: "open", folder, app: null }, divides: true },
+    ...apps.map(({ name, kind }) => ({ label: `Open in ${name}`, description: `Start ${name}, ${kind === "editor" ? "an editor" : "a terminal"}, on ${whose} folder.`, action: { do: "open" as const, folder, app: name }, divides: false })),
+  ];
+}
+
+/**
+ * A work item's menu, in its order: Rename; Open in Finder, then one item
+ * for each installed editor and terminal; Copy path and Copy branch name;
+ * Pin or Unpin, and Mute notifications or Unmute notifications; "Move to"
+ * for each of `groups`, the groups of its repository, but the one it stands
+ * in, and "Move out of" that one; Archive and Delete. The menu of an
+ * archived work item holds Restore, the items that open its folder, the two
+ * copies and Delete. The folder that is opened and copied is the work
+ * item's worktree.
+ */
+export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[]): MenuEntry[] {
+  const { id, worktree: folder } = workItem;
+  const open = openEntries(folder, "the work item's", apps);
+  const copies: MenuEntry[] = [
+    { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
+    { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
+  ];
+  const remove = (divides: boolean): MenuEntry => ({ label: "Delete", description: "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.", action: { do: "delete", id }, divides });
+  const own = groups.find((group) => group.id === workItem.groupId);
+  const moves: MenuEntry[] = [
+    ...groups.filter((group) => group !== own).map((group) => ({ label: `Move to ${group.name}`, description: `List the work item under the heading ${group.name} of its repository in the sidebar.`, action: { do: "set" as const, id, groupId: group.id }, divides: false })),
+    ...(own ? [{ label: `Move out of ${own.name}`, description: "List the work item among its repository's ungrouped work items again.", action: { do: "set" as const, id, groupId: null }, divides: false }] : []),
+  ].map((entry, at) => ({ ...entry, divides: at === 0 }));
+  if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, ...open, ...copies, remove(true)];
+  return [
+    { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
+    ...open,
+    ...copies,
+    workItem.pinned
+      ? { label: "Unpin", description: "Let the work item stand among the others of its list again.", action: { do: "set", id, pinned: false }, divides: true }
+      : { label: "Pin", description: "Keep the work item at the top of its list.", action: { do: "set", id, pinned: true }, divides: true },
+    workItem.muted
+      ? { label: "Unmute notifications", description: "Let this work item's sessions notify you again.", action: { do: "set", id, muted: false }, divides: false }
+      : { label: "Mute notifications", description: "Raise no notification for this work item's sessions. Its line still shows its state.", action: { do: "set", id, muted: true }, divides: false },
+    ...moves,
+    { label: "Archive", description: "Take the work item off the lists and end its sessions. Its folder and its branch stay on disk, and a restore brings it back.", action: { do: "archive", id }, divides: true },
+    remove(false),
+  ];
+}
+
+/**
+ * A repository's menu, in its order: Settings and Change icon; Show archived
+ * work items and New group; Open in Finder, then one item for each installed
+ * editor and terminal; Copy path; Hide from sidebar and Remove. The folder
+ * that is opened and copied is the repository's.
+ */
+export function repositoryMenu(repository: Repository, apps: readonly InstalledApp[]): MenuEntry[] {
+  const { id, folder } = repository;
+  return [
+    { label: "Settings", description: "Change the name the sidebar shows and the branch new work items start from.", action: { do: "settings", id }, divides: false },
+    { label: "Change icon", description: "Choose one character to show before the repository's name.", action: { do: "icon", id }, divides: false },
+    { label: "Show archived work items", description: "List the work items of this repository that were archived.", action: { do: "archived", id }, divides: true },
+    { label: "New group", description: "Make a heading to gather some of this repository's work items under.", action: { do: "group", id }, divides: false },
+    ...openEntries(folder, "the repository's", apps),
+    { label: "Copy path", description: "Put the repository folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
+    { label: "Hide from sidebar", description: "Take the repository out of the sidebar. Its work items stay in the inbox.", action: { do: "hide", id }, divides: true },
+    { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed unless you choose it in the dialog.", action: { do: "remove", id }, divides: false },
+  ];
+}
+
+/** What a pointer over the "+" button at the sidebar's top is told: it creates a work item, and its form is where a repository is registered alone. */
+export const NEW_WORK_ITEM_SAYS = "Create a work item: a new branch and worktree in a repository. The form can also register a repository alone.";
+/** What a pointer over the form's choice "Register the repository only" is told. */
+export const REGISTER_ONLY_SAYS = "Add the repository to the sidebar without creating a work item, a branch or a worktree.";
+
+/** The two icon buttons of a repository's row: the name of each, which a screen reader is told, and what a pointer over it is told that a press does. */
+export function rowButtons(repositoryName: string): Record<"add" | "menu", { name: string; says: string }> {
+  return {
+    add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new branch and worktree.` },
+    menu: { name: `Menu of ${repositoryName}`, says: `Open the menu of ${repositoryName}: its settings, its icon, hiding it and removing it.` },
+  };
+}
+
+/** What the daemon answered a rename's plan with: what a `renamePlan` carries, or the error it refused the plan with. */
+export type RenamePlanned = { branch: string | null; blocked: string | null } | { error: string };
+
+/**
+ * The rename dialog's choice "Rename the branch too", given the plan the
+ * dialog holds for the name typed, or null until the daemon has answered:
+ * whether it can be taken, and what the dialog says under it, the branch the
+ * rename gives or why the branch keeps its name.
+ */
+export function renameChoice(plan: RenamePlanned | null): { enabled: boolean; says: string } {
+  if (plan === null) return { enabled: false, says: "" };
+  if ("error" in plan) return { enabled: false, says: plan.error };
+  if (plan.blocked !== null || plan.branch === null) return { enabled: false, says: plan.blocked ?? "" };
+  return { enabled: true, says: `The branch becomes ${plan.branch}.` };
+}
+
+/**
  * The tabs of a work item's view: its panes as the daemon lists them, whether
  * their process runs or has exited, in the order of their ids. An exited
  * pane keeps its tab until it is closed, and the daemon keeps its last output.
@@ -939,7 +1299,9 @@ export function screenTurns(term: TerminalWrites): ScreenTurns {
  * The notification for a session whose state was `previous`, or null where
  * none is shown: one is shown when the state becomes waiting or finished, and
  * never where `inFront` holds: the pane is on the stage of a focused window,
- * so the person is looking at it, whether or not it has the keyboard.
+ * so the person is looking at it, whether or not it has the keyboard. None
+ * is shown for a session of a work item whose notifications are muted, nor
+ * for one of an `archived` work item, which `workItems` does not hold.
  */
 export function notificationFor(
   previous: AgentState | null,
@@ -947,10 +1309,12 @@ export function notificationFor(
   inFront: boolean,
   workItems: readonly WorkItem[],
   paneKinds: readonly PaneKindInfo[],
+  archived: readonly WorkItem[] = [],
 ): { title: string; body: string } | null {
   if (session.state === previous || inFront) return null;
   if (session.state !== "waiting" && session.state !== "finished") return null;
   const workItem = workItems.find((item) => item.id === session.workItemId);
+  if (workItem?.muted || archived.some((item) => item.id === session.workItemId)) return null;
   return {
     title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
     body: session.state === "waiting" ? "Waiting for you" : "Finished",
@@ -975,13 +1339,20 @@ export function notificationOpens(session: Pick<SessionInfo, "id" | "workItemId"
  * plan, or why it sends nothing. `name` is the name the window generated for
  * this opening of the form, and the title may be empty: the daemon then names
  * the work item by `name`. `base` is the menu's choice, and null where the
- * menu holds none or the request is a plan. An empty folder is refused here
- * because the daemon would run git with it in the daemon's own folder.
+ * menu holds none or the request is a plan. An empty folder is refused here,
+ * in the form's own words. The daemon refuses every folder that is not
+ * absolute, since it would run git with one in the daemon's own folder.
  */
 export function workItemFields(repo: string, title: string, name: string, base: string | null): { repo: string; title: string; name: string; base?: string } | { error: string } {
   const fields = { repo: repo.trim(), title: title.trim(), name };
   if (!fields.repo) return { error: "Choose the repository folder." };
   return base === null ? fields : { ...fields, base };
+}
+
+/** The folder the form registers a repository by, where "Register the repository only" is chosen: the repository field's text without the spaces around it. An empty one is refused here, in the words a creation's is. */
+export function registerFields(repo: string): { folder: string } | { error: string } {
+  const folder = repo.trim();
+  return folder ? { folder } : { error: "Choose the repository folder." };
 }
 
 /** What the daemon answered a plan with: what a `workItemPlan` carries, or the error it refused the plan with. */
@@ -1047,6 +1418,34 @@ export function baseMenu(plan: FormPlan | null, choice: BaseChoice | null, repo:
   const listed = [...(first === null ? [] : [first]), ...local, ...remote];
   const kept = choice !== null && choice.repo === shown.repo && listed.includes(choice.base) ? choice.base : null;
   return { first, local, remote, value: kept ?? listed[0] ?? null };
+}
+
+/**
+ * The settings dialog's menu of the bases a repository's new work items can
+ * start from: the `local` branches and the `remote` ones, whole, as the plan
+ * the dialog asked for lists them, and the `value` chosen, the base the
+ * repository has, or an empty string for the first choice, the repository's
+ * default branch. A base the repository has and the plan does not list
+ * stands among the local ones, so the menu shows the choice the daemon
+ * keeps. It stands alone until the daemon answers, and where it refuses.
+ */
+export function settingsBases(plan: PlanAnswered | null, chosen: string | null): { local: string[]; remote: string[]; value: string } {
+  const listed = plan !== null && !("error" in plan) ? { local: plan.localBases, remote: plan.remoteBases } : { local: [], remote: [] };
+  const known = chosen === null || listed.local.includes(chosen) || listed.remote.includes(chosen);
+  return { local: known ? [...listed.local] : [...listed.local, chosen], remote: [...listed.remote], value: chosen ?? "" };
+}
+
+/**
+ * What the settings dialog sends for a repository: the name where it is
+ * another than the one a person gave, null for an empty one, and the base
+ * where the menu's value is another than the repository's, null for the
+ * first choice. A field that did not change is left out, and an object with
+ * none is nothing to send.
+ */
+export function settingsFields(repository: Repository, name: string, base: string): { name?: string | null; defaultBase?: string | null } {
+  const named = name.trim() || null;
+  const chosen = base || null;
+  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }) };
 }
 
 /**

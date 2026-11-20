@@ -1,17 +1,17 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { LastLook } from "./last-look";
-import { type StoredWorkItem, WorkItemList } from "./work-items";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, worktreesRoot } from "./worktrees";
+import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
 const STATE_TEXT_CHARS = 2000;
@@ -24,14 +24,45 @@ function cutText(text: string | null): string | null {
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
 }
 
-/** Refuses the fields that name a work item, in a creation and in a plan, where they are not the protocol's. An empty title is one of the protocol's. */
+/**
+ * Refuses the fields that name a work item, in a creation and in a plan, where
+ * they are not the protocol's. An empty title is one of the protocol's. A
+ * repository folder that is not absolute, the empty one among them, is
+ * refused: git would answer for it from the folder the daemon itself runs in.
+ * The path's text alone is read, as a POSIX path.
+ */
 function checkNaming(message: { repo: unknown; title: unknown; name?: unknown }): void {
   if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
+  if (!isAbsolute(message.repo)) throw new Error(`the repository folder has to be a whole path from /, and ${JSON.stringify(message.repo)} is not`);
   if (message.name !== undefined && typeof message.name !== "string") throw new Error("a work item's name, where one is sent, is a string");
 }
 
 /** How long a pane's silent start lasts where the options name no time. */
 const SILENT_START_MS = 10_000;
+
+/**
+ * How long the daemon waits for the processes of the panes it ended to exit,
+ * where the options name no time. A shell exits well inside it: the case
+ * that removes a repository with a running `/bin/sh` pane is answered in
+ * less than two seconds, which it asserts. A person who confirmed a dialog
+ * waits on the answer, so the wait is no longer than this. How long an
+ * agent's CLI takes to exit at the signal was not measured.
+ */
+const END_WAIT_MS = 3000;
+
+const isIds = (value: unknown): value is number[] => Array.isArray(value) && value.every((id) => typeof id === "number");
+const isRunning = (value: unknown): value is Running => typeof value === "object" && value !== null && isIds((value as Running).panes) && isIds((value as Running).headless);
+const isTextOrNull = (value: unknown): value is string | null => value === null || typeof value === "string";
+/** What a removal carries where the person chose to delete the repository's work items from disk: the stamp of each one's loss, by the work item's id, and whether the deletes are forced. */
+const isDeletion = (value: unknown): value is { stamps: Record<number, unknown>; force: boolean } => {
+  const { stamps, force } = (typeof value === "object" && value !== null ? value : {}) as { stamps?: unknown; force?: unknown };
+  return typeof stamps === "object" && stamps !== null && typeof force === "boolean";
+};
+
+/** How many characters a text holds as a person counts them: an emoji of several code points is one. */
+function characters(text: string): number {
+  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+}
 
 export interface PaneCommand {
   command: string;
@@ -49,7 +80,7 @@ export interface DaemonOptions {
   roleAdapter: RoleAdapter;
   /** Where a pane opened without a work item runs. */
   cwd?: string;
-  /** Where the list of work items is kept, in `work-items.json`, and the last look, in `last-look.json`; without it both are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, and the last look, in `last-look.json`; without it both are in memory alone. */
   runDir?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
@@ -63,6 +94,8 @@ export interface DaemonOptions {
   readyWaitMs?: number;
   /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
   silentStartMs?: number;
+  /** How long the daemon waits for the processes of the panes it ended to exit, before it refuses what ended them; 3 seconds when absent. */
+  endWaitMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -78,6 +111,8 @@ interface Session {
   output: OutputBuffer;
   /** The wait for the first event of a pane whose kind reports state. That event, the pane's end and the daemon's close each cancel it. */
   silentStart: NodeJS.Timeout | undefined;
+  /** Settled once the pane's process has exited. */
+  exited: Promise<void>;
 }
 
 interface HeadlessSession {
@@ -104,16 +139,22 @@ export class Daemon {
   private readonly headless = new Map<number, HeadlessSession>();
   private nextHeadlessId = 1;
   private idleTimer: NodeJS.Timeout | undefined;
-  private readonly workItems: WorkItemList;
+  private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
-  // Creations run one after another, so two of one title never pick the same branch and folder. A plan creates nothing and does not wait behind them.
-  private creating: Promise<void> = Promise.resolve();
+  // What takes or gives up a branch runs one after another: a creation, a rename that renames a branch, and a delete. So two creations of one title never pick the same branch and folder, a rename never takes the branch a creation chose, and a creation never takes the name of a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
+  private changing: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
   // How many commits each work item's branch was last read to hold that its base branch does not, by the work item's id.
   private readonly aheadCounts = new Map<number, number | null>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
+  // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
+  private readonly renaming = new Set<number>();
+  // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
+  private readonly archiving = new Set<number>();
+  // The work items a delete is under way for, by their ids, from its first read of the loss until it has removed them or was refused: one delete's, or every work item of a repository whose removal deletes them. No pane and no headless session starts in one meanwhile, in a folder git is about to remove, and no archive ends its sessions beside the delete.
+  private readonly deleting = new Set<number>();
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
   // The read of the counts under way, which a hello that arrives meanwhile waits on.
@@ -121,7 +162,7 @@ export class Daemon {
   private closed = false;
 
   constructor(private readonly options: DaemonOptions) {
-    this.workItems = new WorkItemList(options.runDir, options.now);
+    this.store = new RepositoryStore(options.runDir, options.now);
     this.lastLook = new LastLook(options.runDir);
   }
 
@@ -235,7 +276,7 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -265,13 +306,13 @@ export class Daemon {
             checkNaming(message);
             // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
-            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random });
-            // A work item nobody named is called what its branch and its folder are, the number they got among it.
-            const stored = this.workItems.add({ title: message.title.trim() || basename(place.worktree), ...place });
+            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
+            // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
+            const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
-            this.commitCounts.set(stored.id, 0);
-            if (place.baseBranch !== null) this.aheadCounts.set(stored.id, 0);
-            this.branches.set(stored.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
+            this.commitCounts.set(stored.item.id, 0);
+            if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, 0);
+            this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
             const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
@@ -280,14 +321,14 @@ export class Daemon {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
         };
-        this.creating = this.creating.then(create);
+        this.changing = this.changing.then(create);
         return;
       }
       case "planWorkItem": {
         const plan = async (): Promise<void> => {
           try {
             checkNaming(message);
-            const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random });
+            const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
             this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
@@ -295,6 +336,269 @@ export class Daemon {
         };
         // A plan is a read, so it is answered while a creation is under way and can name what that creation is about to take.
         void plan();
+        return;
+      }
+      case "addRepository": {
+        const add = async (): Promise<void> => {
+          try {
+            // A folder that is not absolute, the empty one among them, would have git answer for the folder the daemon itself runs in.
+            if (typeof message.folder !== "string" || !isAbsolute(message.folder)) throw new Error("a repository is added by a folder inside it");
+            const { changed } = this.store.addRepository(await repositoryOf(message.folder));
+            // The answer first, so the client that asked knows its request was carried out when the inbox lists the repository.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            if (changed) this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // The store holds a folder once however many adds of it arrive together, so an add does not wait behind the creations.
+        void add();
+        return;
+      }
+      case "setRepository": {
+        try {
+          const { name, icon, defaultBase, hidden } = message;
+          if ((name !== undefined && !isTextOrNull(name)) || (icon !== undefined && !isTextOrNull(icon)) || (defaultBase !== undefined && !isTextOrNull(defaultBase)) || (hidden !== undefined && typeof hidden !== "boolean")) {
+            throw new Error("a repository's name, its icon and its base are each a text or null, and whether it is hidden is true or false");
+          }
+          // An empty name and an empty icon are none: the repository is then named by its folder, and shows no icon.
+          const trimmed = (text: string | null | undefined): string | null | undefined => (typeof text === "string" ? text.trim() || null : text);
+          const character = trimmed(icon);
+          if (typeof character === "string" && characters(character) > 1) throw new Error("An icon is one character.");
+          const changed = this.store.setRepository(message.id, { name: trimmed(name), icon: character, defaultBase, hidden });
+          if (changed === undefined) throw new Error(`no repository ${String(message.id)}`);
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (changed) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "removeRepository": {
+        // How many of the repository's work items this removal deleted from disk before it ended, as it was asked or at a refusal.
+        let deleted = 0;
+        const remove = async (): Promise<void> => {
+          try {
+            const { workItems, running, delete: chosen } = message as { workItems: unknown; running: unknown; delete?: unknown };
+            if (!isIds(workItems) || !isRunning(running)) throw new Error("a removal names the repository's work items and its running sessions");
+            const repository = this.store.repository(message.id);
+            if (!repository) throw new Error(`no repository ${String(message.id)}`);
+            const items = [...repository.workItems];
+            const ids = new Set(items.map((item) => item.id));
+            // Every work item that leaves the lists is one the person read by name.
+            if ([...ids].some((id) => !workItems.includes(id))) throw new Error("A work item was added since you looked. Read it again.");
+            if (chosen === undefined) {
+              await this.endSessions(ids, running, "ended when a removal of its repository began", "A session did not end in time, so nothing was removed. Try again.");
+              // Nothing on disk is touched: the repository, each worktree's folder and each branch stay.
+              this.dropWorkItems(ids);
+            } else {
+              // Every work item that is deleted is one whose loss the person read, so each has its stamp before the first is touched.
+              if (!isDeletion(chosen) || items.some((item) => typeof chosen.stamps[item.id] !== "string")) throw new Error("a removal that deletes names the stamp of each work item's loss, and whether it is forced");
+              // No delete begins while an archive is ending the sessions of one of them.
+              const archived = items.find((item) => this.archiving.has(item.id));
+              if (archived) throw new Error(this.archivingSays(archived.id));
+              // Every running session is one the person was told of, before the first delete ends any.
+              this.runningTold(ids, running);
+              for (const id of ids) this.deleting.add(id);
+              try {
+                // One after another, each as a delete of its own. The first that is refused or fails ends the removal, and the ones before it are gone.
+                for (const item of items) {
+                  await this.deleteOne(item.id, chosen.stamps[item.id] as string, chosen.force, running).catch((error: unknown) => {
+                    throw new Error(`${item.title}: ${error instanceof Error ? error.message : String(error)}`);
+                  });
+                  deleted++;
+                }
+              } finally {
+                for (const id of ids) this.deleting.delete(id);
+              }
+            }
+            // The repository's own folder is not touched here, whatever was chosen.
+            this.store.removeRepository(repository.id);
+            // The answer first, so the client that asked knows its request was carried out when the inbox carries the removal.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            this.broadcastInbox();
+            this.checkIdle();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+            // The work items deleted before the refusal are gone, and every client's lists say so.
+            if (deleted > 0) {
+              this.broadcastInbox();
+              this.checkIdle();
+            }
+          }
+        };
+        this.changing = this.changing.then(remove);
+        return;
+      }
+      case "addGroup": {
+        try {
+          if (typeof message.name !== "string") throw new Error("a group is added to a repository under a name");
+          const name = message.name.trim();
+          if (name === "") throw new Error("Give the group a name.");
+          if (this.store.addGroup(message.repoId, name) === undefined) throw new Error(`no repository ${String(message.repoId)}`);
+          // The answer first, so the client that asked knows its request was carried out when the inbox lists the group.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "setWorkItem": {
+        try {
+          const { pinned, muted, groupId } = message;
+          if ((pinned !== undefined && typeof pinned !== "boolean") || (muted !== undefined && typeof muted !== "boolean")) throw new Error("a work item's pin and its mute are each true or false");
+          if (groupId !== undefined && groupId !== null && typeof groupId !== "number") throw new Error("a work item's group is a group's id, or null for none");
+          // A work item stands in a group of its own repository, and in no other's.
+          const held = this.store.workItem(message.id);
+          if (typeof groupId === "number" && held && !held.repository.groups.some((group) => group.id === groupId)) throw new Error(`Group ${String(groupId)} is no group of the work item's repository.`);
+          const changed = this.store.setWorkItem(message.id, { pinned, muted, groupId });
+          if (changed === undefined) throw new Error(`no work item ${String(message.id)}`);
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (changed) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "planRename": {
+        const plan = async (): Promise<void> => {
+          try {
+            if (typeof message.title !== "string") throw new Error("a rename's plan needs the work item's new name");
+            const held = this.store.workItem(message.id);
+            if (!held) throw new Error(`no work item ${String(message.id)}`);
+            this.send(socket, { type: "renamePlan", requestId: message.requestId, ...(await planBranchRename(held.repository.folder, held.item.branch, message.title)) });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A plan is a read, so it is answered while a creation or a rename is under way.
+        void plan();
+        return;
+      }
+      case "renameWorkItem": {
+        const rename = async (): Promise<void> => {
+          // Whether this rename is the one that holds the work item's reads off. A rename of the name alone holds none, and ends no other rename's hold.
+          let holds = false;
+          try {
+            if (typeof message.title !== "string" || typeof message.branch !== "boolean") throw new Error("a rename needs the work item's new name, and whether its branch is renamed too");
+            const title = message.title.trim();
+            if (title === "") throw new Error("Give the work item a name.");
+            const held = this.store.workItem(message.id);
+            if (!held) throw new Error(`no work item ${String(message.id)}`);
+            let branch = held.item.branch;
+            if (message.branch) {
+              // The conditions the person's dialog read are read again here, at the rename, and nothing is changed where one no longer holds or git refuses.
+              const plan = await planBranchRename(held.repository.folder, branch, title);
+              if (plan.blocked !== null || plan.branch === null) throw new Error(plan.blocked ?? "The name names no branch.");
+              this.renaming.add(message.id);
+              holds = true;
+              await renameBranch(held.repository.folder, branch, plan.branch);
+              branch = plan.branch;
+            }
+            // What was read of the branch is kept by the work item's id, and its head did not move, so the counts and the commits stand.
+            const changed = this.store.setWorkItem(message.id, { title, branch });
+            this.send(socket, { type: "done", requestId: message.requestId });
+            if (changed) this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          } finally {
+            if (holds) this.renaming.delete(message.id);
+          }
+        };
+        // A rename that takes a branch waits behind the creations and the other renames. One of the name alone takes none, and runs at once.
+        if (message.branch === true) this.changing = this.changing.then(rename);
+        else void rename();
+        return;
+      }
+      case "archiveWorkItem": {
+        const archive = async (): Promise<void> => {
+          try {
+            const { id } = message;
+            const { running } = message as { running: unknown };
+            if (!isRunning(running)) throw new Error("an archive names the work item's running sessions");
+            const held = this.store.workItem(id);
+            if (!held) throw new Error(`no work item ${String(id)}`);
+            // A delete that is under way ends the work item's sessions itself, and an archive beside it would end them a second time under words of its own.
+            if (this.deleting.has(id)) throw new Error(`work item ${String(id)} is being deleted`);
+            // A work item that is archived, or that another archive is ending the sessions of, is archived by this one no second time.
+            if (held.item.archivedAt === null && !this.archiving.has(id)) {
+              this.archiving.add(id);
+              try {
+                // Nothing on disk is touched, so a pane that outlives the wait holds nothing back: the work item is archived, and the pane is listed as exited once its process ends.
+                await this.endSessions(new Set([id]), running, "ended when the work item was archived", null);
+              } finally {
+                this.archiving.delete(id);
+              }
+              // A removal of its repository can take the work item out of the store while the archive waits.
+              if (this.store.setWorkItem(id, { archivedAt: (this.options.now ?? Date.now)() }) === undefined) throw new Error(`no work item ${String(id)}`);
+              // The answer first, so the client that asked knows its request was carried out when the inbox carries the archive.
+              this.send(socket, { type: "done", requestId: message.requestId });
+              this.broadcastInbox();
+              return;
+            }
+            this.send(socket, { type: "done", requestId: message.requestId });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // An archive takes and gives up no branch, so it does not wait behind the creations.
+        void archive();
+        return;
+      }
+      case "restoreWorkItem": {
+        try {
+          const changed = this.store.setWorkItem(message.id, { archivedAt: null });
+          if (changed === undefined) throw new Error(`no work item ${String(message.id)}`);
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (!changed) return;
+          this.broadcastInbox();
+          // Git was not read for the work item while it was archived, so its branch is read now, and not at the next read of them all.
+          const held = this.store.workItem(message.id);
+          if (held) void this.readBranch(held).then((moved) => { if (moved) this.broadcastInbox(); });
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "readLoss": {
+        const read = async (): Promise<void> => {
+          try {
+            const held = this.store.workItem(message.id);
+            if (!held) throw new Error(`no work item ${String(message.id)}`);
+            this.send(socket, { type: "workItemLoss", requestId: message.requestId, id: held.item.id, loss: await readLoss(held.repository.folder, held.item.branch, held.item.worktree) });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A read of a loss changes nothing, so it is answered while a creation or a delete is under way.
+        void read();
+        return;
+      }
+      case "deleteWorkItem": {
+        const remove = async (): Promise<void> => {
+          try {
+            const { id } = message;
+            const { stamp, force, running } = message as { stamp: unknown; force: unknown; running: unknown };
+            if (typeof stamp !== "string" || typeof force !== "boolean" || !isRunning(running)) throw new Error("a delete names the stamp of the loss the person read, whether it is forced, and the work item's running sessions");
+            this.deleting.add(id);
+            try {
+              await this.deleteOne(id, stamp, force, running);
+            } finally {
+              this.deleting.delete(id);
+            }
+            // The answer first, so the client that asked knows its request was carried out when the inbox carries the delete.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            this.broadcastInbox();
+            this.checkIdle();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A delete gives up a branch, so it waits behind the creations, the renames of a branch and the other deletes.
+        this.changing = this.changing.then(remove);
         return;
       }
       case "attach": {
@@ -371,9 +675,19 @@ export class Daemon {
 
   /** The worktree of the work item a request names; where it has none to run in, the request is answered with an error. */
   private worktreeFor(socket: WebSocket, requestId: number, workItemId: number): string | undefined {
-    const workItem = this.workItems.get(workItemId);
+    const workItem = this.store.workItem(workItemId)?.item;
     if (!workItem) {
       this.send(socket, { type: "error", requestId, message: `no work item ${String(workItemId)}` });
+      return undefined;
+    }
+    // Nothing runs in an archived work item, nor in one an archive is ending the sessions of.
+    if (workItem.archivedAt !== null || this.archiving.has(workItem.id)) {
+      this.send(socket, { type: "error", requestId, message: `work item ${workItem.id} is archived, restore it first` });
+      return undefined;
+    }
+    // Nor in one a delete is under way for: git is about to remove its folder.
+    if (this.deleting.has(workItem.id)) {
+      this.send(socket, { type: "error", requestId, message: `work item ${workItem.id} is being deleted` });
       return undefined;
     }
     // A person can remove a worktree's folder by hand, and a process cannot start in it.
@@ -382,6 +696,122 @@ export class Daemon {
       return undefined;
     }
     return workItem.worktree;
+  }
+
+  /** The base a person chose for the new work items of the repository a folder names, or null where the daemon keeps no such repository or the person chose none. */
+  private readonly chosenBase = (repo: string): string | null => this.store.repositories().find((repository) => repository.folder === repo)?.defaultBase ?? null;
+
+  /** The running sessions of the work items given: the panes whose process is alive, and the headless sessions that are working. */
+  private runningIn(workItemIds: ReadonlySet<number>): { panes: Session[]; headless: HeadlessSession[] } {
+    return {
+      panes: [...this.sessions.values()].filter(({ info }) => info.alive && info.workItemId !== null && workItemIds.has(info.workItemId)),
+      headless: [...this.headless.values()].filter(({ info }) => info.state === "working" && workItemIds.has(info.workItemId)),
+    };
+  }
+
+  /** The running sessions of the work items given, for a request that carries the sessions the person was told of. It refuses where one runs that `told` does not name, and ends none. */
+  private runningTold(workItemIds: ReadonlySet<number>, told: Running): { panes: Session[]; headless: HeadlessSession[] } {
+    const found = this.runningIn(workItemIds);
+    if (found.panes.some(({ info }) => !told.panes.includes(info.id)) || found.headless.some(({ info }) => !told.headless.includes(info.id))) throw new Error("A session started since you looked. Read it again.");
+    return found;
+  }
+
+  /** What a delete is refused with while an archive is ending the work item's sessions: the two would end them at once, each under words of its own. */
+  private archivingSays(id: number): string {
+    return `An archive of work item ${String(id)} is ending its sessions. Try again.`;
+  }
+
+  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, and what was read of each branch. The store is not touched. */
+  private dropWorkItems(ids: ReadonlySet<number>): void {
+    for (const [id, session] of this.sessions) {
+      if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
+      clearTimeout(session.silentStart);
+      this.sessions.delete(id);
+    }
+    for (const [id, session] of this.headless) if (ids.has(session.info.workItemId)) this.headless.delete(id);
+    for (const id of ids) {
+      this.commitCounts.delete(id);
+      this.aheadCounts.delete(id);
+      this.branches.delete(id);
+    }
+  }
+
+  /**
+   * Deletes one work item from disk and from the lists, for a request that
+   * carries the stamp of the loss the person read, whether they chose to
+   * force the delete, and the running sessions they were told of. The caller
+   * holds the work item in `deleting` meanwhile. In this order, each step
+   * only where the one before it did not refuse or fail:
+   *
+   * - It refuses while an archive is ending the work item's sessions.
+   * - It reads the loss and refuses where its stamp is another than the
+   *   one the person read, where the loss is blocked, and where work would
+   *   be lost and the delete is not forced. A delete it refuses here ends no
+   *   session.
+   * - It ends the running sessions, and refuses where one runs that the
+   *   person was not told of or a pane's process outlives the wait. A
+   *   headless session it stopped says that a delete began, which holds
+   *   where the delete is refused after.
+   * - It reads the loss once more and refuses in the same ways, so what a
+   *   session wrote as it ended is not removed unread.
+   * - It has git remove the worktree, with `--force` only for a forced
+   *   delete, and then the branch. Where git reads nothing in the
+   *   repository's folder, nothing on disk is removed.
+   * - It takes the work item, its panes and its headless sessions off the
+   *   lists and out of the store.
+   */
+  private async deleteOne(id: number, stamp: string, force: boolean, told: Running): Promise<void> {
+    const held = this.store.workItem(id);
+    if (!held) throw new Error(`no work item ${String(id)}`);
+    if (this.archiving.has(id)) throw new Error(this.archivingSays(id));
+    const { folder } = held.repository;
+    const { branch, worktree } = held.item;
+    const read = async (): Promise<boolean> => {
+      const loss = await readLoss(folder, branch, worktree);
+      if (loss.stamp !== stamp) throw new Error("What the delete would remove has changed. Read it again.");
+      if (loss.blocked !== null) throw new Error(loss.blocked);
+      if (losesWork(loss) && !force) throw new Error("The work item holds work a delete would lose. Check Force delete to delete it anyway.");
+      return loss.unreachable;
+    };
+    await read();
+    await this.endSessions(new Set([id]), told, "ended when a delete of its work item began", "A session did not end in time, so nothing was deleted. Try again.");
+    if (!(await read())) {
+      await removeWorktree(folder, worktree, force);
+      await removeBranch(folder, branch);
+    }
+    this.dropWorkItems(new Set([id]));
+    this.store.removeWorkItem(id);
+  }
+
+  /**
+   * Ends the running sessions of the work items given, for a request that
+   * carries the sessions the person was told of. Where a session runs that
+   * `told` does not name, it refuses and ends none. Otherwise it kills each
+   * pane's process and stops each headless run, which is then `failed` with
+   * the error `why`, and waits until each pane's process has exited. Where
+   * one has not within the wait, it refuses with the sentence `late`, and
+   * goes on where `late` is null. It refuses where a session started in one
+   * of the work items while it waited. The panes stay listed, as exited
+   * ones.
+   */
+  private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
+    const { panes, headless } = this.runningTold(workItemIds, told);
+    for (const session of headless) {
+      // The run of a session whose adapter is still starting is stopped when it has started.
+      session.run?.stop();
+      session.info.state = "failed";
+      session.info.error = why;
+      this.headlessChanged(session);
+    }
+    for (const session of panes) session.terminal.kill();
+    let waitTimer: NodeJS.Timeout | undefined;
+    const waited = new Promise<void>((resolve) => {
+      waitTimer = setTimeout(resolve, this.options.endWaitMs ?? END_WAIT_MS);
+    });
+    await Promise.race([Promise.all(panes.map((session) => session.exited)), waited]);
+    clearTimeout(waitTimer);
+    if (late !== null && panes.some(({ info }) => info.alive)) throw new Error(late);
+    this.runningTold(workItemIds, told);
   }
 
   /** Starts a headless session's run through the adapter, and keeps what its events say of it. */
@@ -415,8 +845,8 @@ export class Daemon {
     };
     this.options.roleAdapter.start({ prompt: info.prompt, cwd }, onEvent).then(
       (run) => {
-        // A daemon that closed while the adapter was starting stopped no run of this session.
-        if (this.closed) run.stop();
+        // A daemon that closed while the adapter was starting stopped no run of this session, and neither did what ended the session meanwhile.
+        if (this.closed || info.state !== "working") run.stop();
         else session.run = run;
       },
       (error: unknown) => failed(error instanceof Error ? error.message : String(error)),
@@ -441,7 +871,16 @@ export class Daemon {
       rows: pane.rows,
       env: { ...process.env, ...env },
     });
-    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024), silentStart: undefined };
+    let exited = (): void => {};
+    const session: Session = {
+      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null },
+      terminal,
+      output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
+      silentStart: undefined,
+      exited: new Promise<void>((resolve) => {
+        exited = resolve;
+      }),
+    };
     this.sessions.set(id, session);
     if (this.reportsState(pane.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
     // What the session prints is kept for a replay and sent to the clients that receive the session.
@@ -452,6 +891,7 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode) => {
       session.info.alive = false;
+      exited();
       clearTimeout(session.silentStart);
       // A closed pane is on no list, and its end is no client's news.
       if (this.sessions.get(id) === session) {
@@ -504,19 +944,44 @@ export class Daemon {
     return [...this.headless.values()].map((s) => s.info);
   }
 
+  /** The work items that are not archived, as an `inbox` and a look list them. */
   private workItemList(): WorkItem[] {
-    return this.workItems.all().map((item) => this.workItemOf(item));
+    return this.store.workItems().filter(({ item }) => item.archivedAt === null).map((held) => this.workItemOf(held));
   }
 
-  /** A work item as a client is sent it: with its repository's name, and with what was last read of its branch. */
-  private workItemOf(item: StoredWorkItem): WorkItem {
+  /** The four lists a `ready` and an `inbox` carry: the sessions, every repository, the work items that are not archived, and the archived ones. */
+  private lists(): { sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] } {
+    return {
+      sessions: this.sessionList(),
+      repositories: this.store.repositories().map((repository) => this.repositoryOf(repository)),
+      workItems: this.workItemList(),
+      archived: this.store.workItems().filter(({ item }) => item.archivedAt !== null).map((held) => this.workItemOf(held)),
+    };
+  }
+
+  /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
+  private repositoryOf({ id, folder, name, icon, defaultBase, hidden, groups }: StoredRepository): Repository {
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })) };
+  }
+
+  /** A work item as a client is sent it: with its repository's id, folder and name, and with what was last read of its branch. */
+  private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
-    return { ...item, repoName: basename(item.repo), aheadOfBase: this.aheadCounts.get(item.id) ?? null, newCommits: this.commitCounts.get(item.id) ?? null, commits: read?.commits ?? null, changes: read?.changes ?? null };
+    return {
+      ...item,
+      repoId: repository.id,
+      repo: repository.folder,
+      repoName: repository.name ?? basename(repository.folder),
+      aheadOfBase: this.aheadCounts.get(item.id) ?? null,
+      newCommits: this.commitCounts.get(item.id) ?? null,
+      commits: read?.commits ?? null,
+      changes: read?.changes ?? null,
+    };
   }
 
-  /** Sends every client the whole of both lists, after either changed. */
+  /** Sends every client the whole of the four lists, after one of them changed. */
   private broadcastInbox(): void {
-    this.broadcast({ type: "inbox", sessions: this.sessionList(), workItems: this.workItemList() });
+    this.broadcast({ type: "inbox", ...this.lists() });
   }
 
   /**
@@ -550,42 +1015,55 @@ export class Daemon {
   }
 
   /**
-   * Reads each work item's new commits from git, and tells every client where
-   * a count changed or a branch's head moved. How far a branch is ahead of its
+   * Reads from git the new commits of each work item that is not archived,
+   * and tells every client where a count changed or a branch's head moved.
+   * An archived work item keeps what was last read of its branch.
+   */
+  private async readCommits(): Promise<void> {
+    const moved = await Promise.all(
+      this.store
+        .workItems()
+        .filter(({ item }) => item.archivedAt === null)
+        .map((held) => this.readBranch(held)),
+    );
+    if (moved.includes(true)) this.broadcastInbox();
+  }
+
+  /**
+   * Reads one work item's new commits from git, and answers whether a count
+   * changed or its branch's head moved. How far a branch is ahead of its
    * base branch is counted at every read, since the base moves by itself. The
    * commits and the changed files are read only where the head is another
    * commit than the one they were last read at.
    */
-  private async readCommits(): Promise<void> {
+  private async readBranch({ repository, item }: Held): Promise<boolean> {
+    // A work item from before the base commit was recorded has nothing to count from.
+    const { baseCommit, branch } = item;
+    if (baseCommit === null) return false;
     let changed = false;
-    await Promise.all(
-      this.workItems.all().map(async (item) => {
-        // A work item from before the base commit was recorded has nothing to count from.
-        const { baseCommit } = item;
-        if (baseCommit === null) return;
-        const [count, head] = await Promise.all([newCommits(item.repo, item.branch, baseCommit), branchHead(item.repo, item.branch)]);
-        if (count !== (this.commitCounts.get(item.id) ?? null)) {
-          this.commitCounts.set(item.id, count);
-          changed = true;
-        }
-        const ahead = item.baseBranch === null || head === null ? null : await aheadOf(item.repo, item.baseBranch, head);
-        if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
-          this.aheadCounts.set(item.id, ahead);
-          changed = true;
-        }
-        if (head === (this.branches.get(item.id)?.head ?? null)) return;
-        changed = true;
-        if (head === null) {
-          // The branch is gone, and what was read of it with it.
-          this.branches.delete(item.id);
-          return;
-        }
-        // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
-        const [commits, changes] = await Promise.all([branchCommits(item.repo, baseCommit, head), branchChanges(item.repo, baseCommit, head)]);
-        this.branches.set(item.id, { head, commits, changes });
-      }),
-    );
-    if (changed) this.broadcastInbox();
+    const repo = repository.folder;
+    const [count, head] = await Promise.all([newCommits(repo, branch, baseCommit), branchHead(repo, branch)]);
+    // A rename takes the old name away before the store holds the new one, and a read in between finds no branch. It is dropped, and the next read is of the new name.
+    if (this.renaming.has(item.id) || item.branch !== branch) return false;
+    if (count !== (this.commitCounts.get(item.id) ?? null)) {
+      this.commitCounts.set(item.id, count);
+      changed = true;
+    }
+    const ahead = item.baseBranch === null || head === null ? null : await aheadOf(repo, item.baseBranch, head);
+    if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
+      this.aheadCounts.set(item.id, ahead);
+      changed = true;
+    }
+    if (head === (this.branches.get(item.id)?.head ?? null)) return changed;
+    if (head === null) {
+      // The branch is gone, and what was read of it with it.
+      this.branches.delete(item.id);
+      return true;
+    }
+    // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
+    const [commits, changes] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head)]);
+    this.branches.set(item.id, { head, commits, changes });
+    return true;
   }
 
   private send(socket: WebSocket, message: ServerMessage): void {

@@ -25,7 +25,7 @@ export function readAppearance(userData: string): ThemeChoice {
   }
 }
 
-/** Saves a choice, as the daemon writes its list of work items: to a partial file it then renames, readable by the user alone. A save that fails throws what refused it, after removing the partial file. */
+/** Saves a choice, as the daemon writes its repositories: to a partial file it then renames, readable by the user alone. A save that fails throws what refused it, after removing the partial file. */
 export function writeAppearance(userData: string, choice: ThemeChoice): void {
   // A window that loads meanwhile never reads a half-written file.
   writeWholeFile(join(userData, FILE), JSON.stringify({ theme: choice }));

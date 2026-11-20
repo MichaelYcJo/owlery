@@ -2,8 +2,9 @@
 // the window's own state, the connection to the daemon, and the pieces every
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
-import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, Look, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, fileLines, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import type { InstalledApp } from "../shared/ipc";
+import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
+import { commitLines, fileLines, lineMarks, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -13,6 +14,13 @@ export const held = {
   /** The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`, and what this window started or created since. */
   sessions: [] as SessionInfo[],
   workItems: [] as WorkItem[],
+  /** The repositories the daemon keeps, the hidden among them, and the archived work items, as the daemon last listed them. Both are empty against a daemon of a build before the repositories, and `daemonNotice` then says so. */
+  repositories: [] as Repository[],
+  archived: [] as WorkItem[],
+  /** The editors and the terminals the main process found installed, asked for once at load. A menu offers to open a folder in each. */
+  apps: [] as InstalledApp[],
+  /** What the status line says of the daemon in place of its state, or nothing. A notice of the window's own stands before it. */
+  daemonNotice: "",
   /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since. */
   headless: [] as HeadlessInfo[],
   /** The look the daemon held when this window said hello, or null where no person looked before. The window keeps none of its own. */
@@ -21,6 +29,8 @@ export const held = {
   changes: [] as Change[],
   /** The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox. */
   viewing: undefined as number | undefined,
+  /** The repository whose archived work items the archived screen lists: the one it was last opened on, or nothing before it was opened. */
+  archivedOf: undefined as number | undefined,
   /** What is typed in the search field and the state the filter shows. Both narrow the sidebar's work items and the list in front, and neither is kept across a load. */
   query: "",
   filter: "all" as StateFilter,
@@ -150,6 +160,28 @@ export function icon(shapes: readonly (string | { circle: [number, number, numbe
 
 /** The mark of a repository's fold, which the style turns where the repository is folded. */
 export const CHEVRON = ["M4.5 6.5L8 10l3.5-3.5"] as const;
+/** The mark of the button that makes a new work item, as the head of the repositories draws it. */
+export const PLUS = ["M8 3.5v9M3.5 8h9"] as const;
+/** The mark of the button that opens a menu: three dots in a row. */
+export const DOTS = [{ circle: [3.5, 8, 0.5] }, { circle: [8, 8, 0.5] }, { circle: [12.5, 8, 0.5] }] as const satisfies Parameters<typeof icon>[0];
+
+/** The marks of a work item's line: a pin, and a bell struck through for muted notifications. */
+const MARK_SHAPES = {
+  pinned: ["M6 2.5h4l-.5 3.7 2 2.3h-7l2-2.3z", "M8 8.5v5"],
+  muted: ["M4.6 11V7.4a3.4 3.4 0 0 1 6.8 0V11l1 1.3H3.6z", "M2.8 2.8l10.4 10.4"],
+} as const;
+
+/** The marks a work item's line carries after its title, as `lineMarks` gives them: each an icon that says its words to a pointer and to a screen reader. */
+export function lineMarkIcons(workItem: WorkItem): HTMLElement[] {
+  return lineMarks(workItem).map(({ mark, words }) => {
+    const element = part(`line-mark ${mark}`, "");
+    element.append(icon(MARK_SHAPES[mark]));
+    element.setAttribute("role", "img");
+    element.setAttribute("aria-label", words);
+    element.title = words;
+    return element;
+  });
+}
 
 // The shapes of a state's icon: a speech mark for a wait, a ring that turns for work, a check in a circle for an end, a crescent for no agent, and a triangle for a failure.
 type StateShape = "waiting" | "working" | "finished" | "no-agent" | "failed";

@@ -10,9 +10,9 @@ import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
-import { createWorktree } from "../src/daemon/worktrees";
+import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import type { HeadlessInfo, ServerMessage } from "../src/shared/protocol";
+import type { HeadlessInfo, ServerMessage, WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -21,7 +21,11 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "id", "newCommits", "repo", "repoName", "title", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
+/** What a work item holds of the fields a person sets, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
+/** What a repository holds of the fields a person sets, before any is set. */
+const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -101,21 +105,40 @@ function watchedGit(base: string, seconds = 0): { calls: (command: string) => nu
 
 /**
  * Puts a `git` before the real one on the path the daemon runs git from: its
- * `git worktree` waits until `release`, and every other command runs at once.
+ * `git worktree add`, which makes a work item's folder, waits until
+ * `release`, and every other command runs at once, the commands that
+ * read a folder's repository among them. `when` names another command
+ * to hold, as a test of the shell over git's arguments. `waiting` says
+ * whether a held command has arrived.
  */
-function heldGit(base: string): { release: () => void } {
+function heldGit(base: string, when = '[ "$1" = worktree ] && [ "$2" = add ]'): { release: () => void; waiting: () => boolean } {
   const bin = join(base, "held-bin");
   const released = join(base, "git-released");
+  const arrived = join(base, "git-arrived");
   const path = process.env.PATH ?? "";
   mkdirSync(bin);
-  writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$1" = worktree ]; then while [ ! -e '${released}' ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+  // A held command also ends its wait once this script is gone, with the temporary folder of a case that failed before its release.
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nif ${when}; then touch '${arrived}'; while [ ! -e '${released}' ] && [ -e "$0" ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
   process.env.PATH = `${bin}:${path}`;
   const release = (): void => {
     writeFileSync(released, "");
     process.env.PATH = path;
   };
   cleanups.push(release);
-  return { release };
+  return { release, waiting: () => existsSync(arrived) };
+}
+
+/**
+ * Stands the suite's process, and so a daemon of the case and the git it
+ * runs, in a temporary repository's folder `src` until the case ends. A
+ * relative folder a case sends then names that repository, and never the one
+ * the suite itself runs in.
+ */
+function standingIn(repo: string): void {
+  const before = process.cwd();
+  mkdirSync(join(repo, "src", "src"), { recursive: true });
+  process.chdir(join(repo, "src"));
+  cleanups.push(() => process.chdir(before));
 }
 
 /** A temporary clone, removed after the case. */
@@ -135,6 +158,19 @@ async function runFolderWithWorkItem(made: { repo: string; root: string; base: s
   writeFileSync(join(runDir, "work-items.json"), JSON.stringify([workItem]));
   return { runDir, workItem };
 }
+
+/** Every file under a folder with its bytes, and the repository's refs and worktrees as git prints them. */
+function onDisk(repo: string, ...folders: string[]): unknown[] {
+  const files = (folder: string) =>
+    (readdirSync(folder, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name))
+      .sort()
+      .map((file) => [file, readFileSync(file, "base64")]);
+  return [git(repo, "for-each-ref"), git(repo, "worktree", "list", "--porcelain"), ...[repo, ...folders].map(files)];
+}
+/** What a request that ends sessions names where the person was told of none. */
+const NONE_RUNNING = { panes: [], headless: [] };
 
 describe("the daemon's local server", () => {
   it("listens on the loopback address only", async () => {
@@ -392,7 +428,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repo, repoName: "project", branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -425,10 +461,11 @@ describe("work items", () => {
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["headless", "lastLook", "paneKinds", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
-    expect(Object.keys(inbox).sort()).toEqual(["sessions", "type", "workItems"]);
+    expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
     for (const lists of [inbox, ready, ready.lastLook!]) {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
@@ -589,10 +626,11 @@ describe("work items", () => {
     expect(existsSync(root)).toBe(false);
   });
 
-  it("answers a plan in a folder outside any git repository, and one whose fields are not the protocol's, with an error", async () => {
+  it("answers a plan in a folder outside any git repository, one whose fields are not the protocol's, and one in a folder that is not absolute, with an error", async () => {
     const { base, repo, root } = repository();
     const folder = join(base, "plain");
     mkdirSync(folder);
+    standingIn(repo);
     const { url } = await daemon({ worktreesRoot: root });
     const c = await client(url);
     await c.message("ready");
@@ -603,6 +641,8 @@ describe("work items", () => {
     expect(await refused(8, { repo: folder, title: "Anything" })).toEqual({ type: "error", requestId: 8, message: `${folder} is not inside a git repository` });
     expect((await refused(9, { repo, title: 7 })).message).toBe("a work item needs a repository folder and a title");
     expect((await refused(10, { repo, title: "Named", name: 7 })).message).toBe("a work item's name, where one is sent, is a string");
+    // A relative folder would have git answer for the folder the daemon runs in, which is inside a repository here.
+    for (const [requestId, relative] of [[11, "."], [12, "src"], [13, ""]] as const) expect((await refused(requestId, { repo: relative, title: "Anything" })).message).toBe(`the repository folder has to be a whole path from /, and ${JSON.stringify(relative)} is not`);
     expect(c.messages.some((m) => m.type === "workItemPlan")).toBe(false);
     expect(existsSync(root)).toBe(false);
   });
@@ -639,8 +679,9 @@ describe("work items", () => {
     expect(c.messages.some((m) => m.type === "workItemCreated")).toBe(false);
   });
 
-  it("answers a creation whose fields are not the protocol's with an error, and stays up", async () => {
+  it("answers a creation whose fields are not the protocol's, and one in a folder that is not absolute, with an error, and stays up", async () => {
     const { repo, root } = repository();
+    standingIn(repo);
     const { url } = await daemon({ worktreesRoot: root });
     const c = await client(url);
     await c.message("ready");
@@ -650,6 +691,14 @@ describe("work items", () => {
     c.send({ type: "createWorkItem", requestId: 6, repo, title: "Named", name: 7, kind: "shell", cols: 80, rows: 24 });
     expect(await c.message("error", (m) => m.requestId === 6)).toEqual({ type: "error", requestId: 6, message: "a work item's name, where one is sent, is a string" });
     expect(existsSync(root)).toBe(false);
+    // A relative folder would have git answer for the folder the daemon runs in, which is inside a repository here.
+    for (const [requestId, relative] of [[7, "."], [8, "src"], [9, ""]] as const) {
+      c.send({ type: "createWorkItem", requestId, repo: relative, title: "Relative", kind: "shell", cols: 80, rows: 24 });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: `the repository folder has to be a whole path from /, and ${JSON.stringify(relative)} is not` });
+    }
+    expect(existsSync(root)).toBe(false);
+    expect(git(repo, "for-each-ref", "refs/heads/owlery")).toBe("");
+    expect((await (await client(url)).message("ready")).repositories).toEqual([]);
     c.send({ type: "createWorkItem", requestId: 5, repo, title: "After", kind: "shell", cols: 80, rows: 24 });
     await c.message("workItemCreated", (m) => m.requestId === 5);
   });
@@ -666,7 +715,7 @@ describe("work items", () => {
     git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
     git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "two");
     await first.close();
-    expect(statSync(join(runDir, "work-items.json")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(runDir, "repositories.json")).mode & 0o777).toBe(0o600);
 
     const { url } = await daemon({ runDir, worktreesRoot: root });
     const ready = await (await client(url)).message("ready");
@@ -780,6 +829,1325 @@ describe("work items", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 2, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
     expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([session.id]);
+  });
+});
+
+describe("repositories", () => {
+  function repository(name?: string) {
+    const made = temporaryRepository(name);
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  /** A run folder whose store holds what is given, made before the daemon that reads it. */
+  function runFolder(base: string, repositories: object[]): string {
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify(repositories));
+    return runDir;
+  }
+
+  /** A work item as the store keeps one that git is never asked about: it has no base commit. */
+  const stored = (id: number, fields: object = {}) => ({ id, title: `Work item ${id}`, branch: `owlery/work-item-${id}`, worktree: `/w/project/work-item-${id}`, createdAt: id, baseCommit: null, baseBranch: null, ...UNSET, ...fields });
+  const storedRepository = (id: number, folder: string, fields: object = {}) => ({ id, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems: [], ...fields });
+
+  /** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
+  let refused = 700;
+  async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
+    const requestId = refused++;
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+    await c.message("error", (m) => m.requestId === requestId);
+  }
+
+  it("carries in `ready` and in an `inbox` the repository of a work item, which the work item names by its id", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    expect([ready.repositories, ready.workItems, ready.archived]).toEqual([[], [], []]);
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "In a repository", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    const kept = { id: 1, folder: repo, name: "project", ...PLAIN };
+    const inbox = await c.message("inbox");
+    expect(inbox.repositories).toEqual([kept]);
+    expect(inbox.workItems).toEqual([workItem]);
+    expect(inbox.archived).toEqual([]);
+    expect(workItem).toMatchObject({ repoId: 1, repo, repoName: "project", ...UNSET });
+    const later = await (await client(url)).message("ready");
+    expect(later.repositories).toEqual([kept]);
+    expect(later.workItems).toEqual([workItem]);
+    expect(later.archived).toEqual([]);
+  });
+
+  it("lists an archived work item in `archived` and not in `workItems`, each under its repository's id, folder and name, the name a person gave where one is set", async () => {
+    const { base } = repository();
+    const runDir = runFolder(base, [
+      storedRepository(1, "/r/project", { name: "The project", workItems: [stored(1), stored(2, { archivedAt: 50 })] }),
+      storedRepository(4, "/r/docs", { hidden: true, icon: "D", defaultBase: "origin/main", groups: [{ id: 3, name: "Later" }], workItems: [stored(3, { pinned: true, muted: true, groupId: 3 })] }),
+    ]);
+    const { url } = await daemon({ runDir });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    expect(ready.repositories).toEqual([
+      { id: 1, folder: "/r/project", name: "The project", ...PLAIN, customName: "The project" },
+      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }] },
+    ]);
+    expect(ready.workItems.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.pinned, w.muted, w.groupId, w.archivedAt])).toEqual([
+      [1, 1, "/r/project", "The project", false, false, null, null],
+      [3, 4, "/r/docs", "docs", true, true, 3, null],
+    ]);
+    expect(ready.archived.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.archivedAt])).toEqual([[2, 1, "/r/project", "The project", 50]]);
+    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS);
+    // An inbox carries the same lists: a pane's start sends one.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const inbox = await c.message("inbox");
+    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([ready.repositories, ready.workItems, ready.archived]);
+    // The look holds the work items an inbox lists, so none that is archived.
+    c.send({ type: "looked" });
+    await settled(c);
+    expect((await (await client(url)).message("ready")).lastLook?.workItems.map((w) => w.id)).toEqual([1, 3]);
+  });
+
+  it("adds the repository a folder is inside, with no work item, answers before the inbox that lists it, and changes nothing in the repository", async () => {
+    const { repo, root, base } = repository();
+    const inside = join(repo, "src", "deep");
+    mkdirSync(inside, { recursive: true });
+    const read = () => [git(repo, "status", "--porcelain=v1", "--ignored"), git(repo, "for-each-ref"), git(repo, "worktree", "list", "--porcelain"), readdirSync(repo, { recursive: true }).sort()];
+    const before = read();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const { url } = await daemon({ runDir, worktreesRoot: root });
+    const c = await client(url);
+    const other = await client(url);
+    await c.message("ready");
+    await other.message("ready");
+    c.send({ type: "addRepository", requestId: 5, folder: inside });
+    const inbox = await c.message("inbox");
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox"]);
+    expect(c.messages[1]).toEqual({ type: "done", requestId: 5 });
+    const kept = { id: 1, folder: repo, name: "project", ...PLAIN };
+    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([[kept], [], []]);
+    // Every client is told, and the one that asked alone is answered.
+    expect((await other.message("inbox")).repositories).toEqual([kept]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+    expect(read()).toEqual(before);
+    expect(existsSync(root)).toBe(false);
+    // The repository outlives the daemon.
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextRepositoryId: 2, repositories: [{ id: 1, folder: repo, workItems: [] }] });
+  });
+
+  it("adds a repository it keeps no second time: the second add is answered, and no inbox follows it", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    await c.message("inbox");
+    c.send({ type: "addRepository", requestId: 2, folder: repo });
+    expect(await c.message("done", (m) => m.requestId === 2)).toEqual({ type: "done", requestId: 2 });
+    // An inbox for the second add would have arrived before the refusal of a start sent after its answer.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "done", "error"]);
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.folder)).toEqual([repo]);
+    // A work item made in it stands under the repository that was added, and adds no other.
+    c.send({ type: "createWorkItem", requestId: 3, repo, title: "Inside", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated")).workItem.repoId).toBe(1);
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
+  });
+
+  it("answers an add in a folder outside any git repository with the sentence a creation there gets, and one whose folder is no absolute folder's name with an error, and adds nothing", async () => {
+    const { base, repo } = repository();
+    const folder = join(base, "plain");
+    mkdirSync(folder);
+    standingIn(repo);
+    const { url } = await daemon();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: `${folder} is not inside a git repository` });
+    // A relative folder would have git answer for the folder the daemon runs in, which is inside a repository here.
+    for (const [requestId, wrong] of [[2, 7], [3, ""], [4, undefined], [5, "."], [6, "src"]] as const) {
+      c.send({ type: "addRepository", requestId, folder: wrong });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a repository is added by a folder inside it" });
+    }
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "error", "error", "error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).repositories).toEqual([]);
+  });
+
+  it("shows a hidden repository again when its folder is added, and when a work item is created in it", async () => {
+    const one = repository();
+    const two = repository("docs");
+    const runDir = runFolder(one.base, [storedRepository(1, one.repo, { hidden: true }), storedRepository(2, two.repo, { hidden: true })]);
+    const { url } = await daemon({ runDir, worktreesRoot: one.root });
+    const c = await client(url);
+    expect((await c.message("ready")).repositories.map((r) => r.hidden)).toEqual([true, true]);
+    c.send({ type: "addRepository", requestId: 1, folder: one.repo });
+    expect((await c.message("inbox")).repositories.map((r) => [r.id, r.hidden])).toEqual([[1, false], [2, true]]);
+    c.send({ type: "createWorkItem", requestId: 2, repo: two.repo, title: "Shown again", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    expect(workItem.repoId).toBe(2);
+    expect((await c.message("inbox", (m) => m.workItems.length === 1)).repositories.map((r) => [r.id, r.hidden])).toEqual([[1, false], [2, false]]);
+  });
+
+  it("starts from the work items a build before the repositories listed, each under the repository of its folder", async () => {
+    const made = repository();
+    const { runDir, workItem } = await runFolderWithWorkItem(made, "Made before");
+    const { url } = await daemon({ runDir, worktreesRoot: made.root });
+    const ready = await (await client(url)).message("ready");
+    expect(ready.repositories).toEqual([{ id: 1, folder: made.repo, name: "project", ...PLAIN }]);
+    expect(ready.workItems).toMatchObject([{ id: workItem.id, title: "Made before", repoId: 1, repo: made.repo, newCommits: 1, ...UNSET }]);
+    expect(readdirSync(runDir).sort()).toEqual(["work-items.json"]);
+  });
+
+  it("adds the repository a linked worktree belongs to, by a folder inside the worktree, once with its main checkout's folder, and puts a work item created in the worktree's folder under it", async () => {
+    const { repo, root, base } = repository();
+    const linked = join(base, "linked");
+    git(repo, "worktree", "add", "--quiet", "-b", "side", linked);
+    mkdirSync(join(linked, "src"));
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: join(linked, "src") });
+    const kept = { id: 1, folder: repo, name: "project", ...PLAIN };
+    expect((await c.message("inbox")).repositories).toEqual([kept]);
+    // The main checkout's folder names the repository the worktree's folder named.
+    c.send({ type: "addRepository", requestId: 2, folder: repo });
+    await c.message("done", (m) => m.requestId === 2);
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "done", "error"]);
+    c.send({ type: "planWorkItem", requestId: 3, repo: linked, title: "From the worktree" });
+    expect((await c.message("workItemPlan")).worktree).toBe(join(root, "project", "from-the-worktree"));
+    c.send({ type: "createWorkItem", requestId: 4, repo: linked, title: "From the worktree", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated")).workItem).toMatchObject({ repoId: 1, repo, repoName: "project", worktree: join(root, "project", "from-the-worktree") });
+    expect((await (await client(url)).message("ready")).repositories).toEqual([kept]);
+  });
+
+  it("answers an add, a plan and a creation in a linked worktree of a bare repository with the sentence that it has no checkout to keep, and adds nothing", async () => {
+    const { repo, root, base } = repository();
+    const bare = join(base, "bare.git");
+    git(base, "clone", "--quiet", "--bare", repo, bare);
+    const linked = join(base, "of-bare");
+    git(bare, "worktree", "add", "--quiet", "-b", "side", linked);
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    const message = `${linked} belongs to a bare repository, which has no checkout to keep`;
+    c.send({ type: "addRepository", requestId: 1, folder: linked });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message });
+    c.send({ type: "planWorkItem", requestId: 2, repo: linked, title: "Anything" });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message });
+    c.send({ type: "createWorkItem", requestId: 3, repo: linked, title: "Anything", kind: "shell", cols: 80, rows: 24 });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message });
+    expect((await (await client(url)).message("ready")).repositories).toEqual([]);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it("removes a repository with no work item and leaves everything of it on disk, and gives its id to no repository added after, in this daemon or in one that reads the store again", async () => {
+    const one = repository();
+    const two = repository("docs");
+    const before = onDisk(one.repo);
+    const runDir = join(one.base, "run");
+    mkdirSync(runDir);
+    const { url } = await daemon({ runDir, worktreesRoot: one.root });
+    const c = await client(url);
+    const other = await client(url);
+    await c.message("ready");
+    await other.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: one.repo });
+    expect((await c.message("inbox")).repositories.map((r) => r.id)).toEqual([1]);
+    c.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [], running: NONE_RUNNING });
+    expect((await c.message("inbox", (m) => m.repositories.length === 0)).workItems).toEqual([]);
+    // The answer stands before the inbox that carries the removal, and every client is told.
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "done", "inbox"]);
+    expect(c.messages[3]).toEqual({ type: "done", requestId: 2 });
+    expect((await other.message("inbox", (m) => m.repositories.length === 0)).repositories).toEqual([]);
+    expect(onDisk(one.repo)).toEqual(before);
+    c.send({ type: "addRepository", requestId: 3, folder: one.repo });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.id !== undefined && m.repositories[0].id !== 1)).repositories).toEqual([{ id: 2, folder: one.repo, name: "project", ...PLAIN }]);
+    c.send({ type: "removeRepository", requestId: 4, id: 2, workItems: [], running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 4);
+    // A daemon that starts on the same run folder reads the store from its file, which holds no repository.
+    const later = await daemon({ runDir, worktreesRoot: one.root });
+    const l = await client(later.url);
+    expect((await l.message("ready")).repositories).toEqual([]);
+    l.send({ type: "addRepository", requestId: 1, folder: two.repo });
+    expect((await l.message("inbox")).repositories.map((r) => [r.id, r.folder])).toEqual([[3, two.repo]]);
+    // A removal of a repository the daemon does not keep, and one that does not say what the person was told of, is refused.
+    l.send({ type: "removeRepository", requestId: 2, id: 2, workItems: [], running: NONE_RUNNING });
+    expect(await l.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "no repository 2" });
+    for (const [requestId, wrong] of [[3, { workItems: undefined }], [4, { workItems: ["1"] }], [5, { running: undefined }], [6, { running: { panes: [] } }], [7, { running: { panes: ["1"], headless: [] } }]] as const) {
+      l.send({ type: "removeRepository", requestId, id: 3, ...{ workItems: [], running: NONE_RUNNING }, ...wrong });
+      expect(await l.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a removal names the repository's work items and its running sessions" });
+    }
+    expect((await (await client(later.url)).message("ready")).repositories.map((r) => r.id)).toEqual([3]);
+  });
+
+  it("gives a repository the name a person sets, without the white space at its ends, in its work items' `repoName` too, and the last part of its folder again for an empty one", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const { url } = await daemon({ runDir, worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Named", kind: "shell", cols: 80, rows: 24 });
+    await c.message("inbox", (m) => m.workItems.length === 1);
+    const names = (m: { repositories: { name: string; customName: string | null }[]; workItems: { repoName: string }[] }) => [m.repositories.map((r) => [r.name, r.customName]), m.workItems.map((w) => w.repoName)];
+    c.send({ type: "setRepository", requestId: 2, id: 1, name: "  The project " });
+    expect(names(await c.message("inbox", (m) => m.repositories[0]?.customName !== null))).toEqual([[["The project", "The project"]], ["The project"]]);
+    const at = c.messages.findIndex((m) => m.type === "done" && m.requestId === 2);
+    // The pane the creation opened prints meanwhile, and its output is no answer.
+    const since = () => c.messages.slice(at).flatMap((m) => (m.type === "output" ? [] : [m.type]));
+    expect(since()).toEqual(["done", "inbox"]);
+    // The name outlives the daemon.
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ repositories: [{ id: 1, name: "The project" }] });
+    // A set that changes nothing is answered, and no inbox follows it.
+    c.send({ type: "setRepository", requestId: 3, id: 1, name: "The project" });
+    await c.message("done", (m) => m.requestId === 3);
+    await settled(c);
+    expect(since()).toEqual(["done", "inbox", "done", "error"]);
+    c.send({ type: "setRepository", requestId: 4, id: 1, name: "   " });
+    expect(names(await c.message("inbox", (m) => m.repositories[0]?.customName === null))).toEqual([[["project", null]], ["project"]]);
+    c.send({ type: "setRepository", requestId: 5, id: 1, name: "Again" });
+    await c.message("inbox", (m) => m.repositories[0]?.customName === "Again");
+    c.send({ type: "setRepository", requestId: 6, id: 1, name: null });
+    expect(names(await c.message("inbox", (m) => m.repositories[0]?.customName === null && m.repositories[0]?.name === "project" && c.messages.some((d) => d.type === "done" && d.requestId === 6)))).toEqual([[["project", null]], ["project"]]);
+    c.send({ type: "setRepository", requestId: 7, id: 9, name: "Nowhere" });
+    expect(await c.message("error", (m) => m.requestId === 7)).toEqual({ type: "error", requestId: 7, message: "no repository 9" });
+    for (const [requestId, wrong] of [[8, { name: 7 }], [9, { icon: 7 }], [10, { defaultBase: 7 }], [11, { hidden: "yes" }]] as const) {
+      c.send({ type: "setRepository", requestId, id: 1, ...wrong });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a repository's name, its icon and its base are each a text or null, and whether it is hidden is true or false" });
+    }
+  });
+
+  it("starts a repository's new work items from the base a person set for it, in a plan and in a creation without a base, and from the repository's default base where that branch is gone", async () => {
+    const { repo, root } = repository();
+    git(repo, "branch", "--quiet", "develop");
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    await c.message("inbox");
+    c.send({ type: "planWorkItem", requestId: 2, repo, title: "Planned" });
+    expect((await c.message("workItemPlan", (m) => m.requestId === 2)).defaultBase).toBe("main");
+    c.send({ type: "setRepository", requestId: 3, id: 1, defaultBase: "develop" });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.defaultBase === "develop")).repositories[0]).toEqual({ id: 1, folder: repo, name: "project", ...PLAIN, defaultBase: "develop" });
+    c.send({ type: "planWorkItem", requestId: 4, repo, title: "Planned" });
+    expect((await c.message("workItemPlan", (m) => m.requestId === 4)).defaultBase).toBe("develop");
+    c.send({ type: "createWorkItem", requestId: 5, repo, title: "On develop", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated", (m) => m.requestId === 5)).workItem.baseBranch).toBe("develop");
+    git(repo, "branch", "--quiet", "-D", "develop");
+    c.send({ type: "planWorkItem", requestId: 6, repo, title: "Planned" });
+    expect((await c.message("workItemPlan", (m) => m.requestId === 6)).defaultBase).toBe("main");
+    c.send({ type: "createWorkItem", requestId: 7, repo, title: "Develop is gone", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated", (m) => m.requestId === 7)).workItem.baseBranch).toBe("main");
+    // Null gives the repository its default base again.
+    c.send({ type: "setRepository", requestId: 8, id: 1, defaultBase: null });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.defaultBase === null && c.messages.some((d) => d.type === "done" && d.requestId === 8))).repositories[0]?.defaultBase).toBeNull();
+  });
+
+  it("stores an icon of one character, an emoji of several code points among them, takes it away for an empty one, and refuses one of two characters", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    await c.message("inbox");
+    const icon = async (requestId: number, sent: string | null): Promise<string | null | undefined> => {
+      c.send({ type: "setRepository", requestId, id: 1, icon: sent });
+      await c.message("done", (m) => m.requestId === requestId);
+      return (await (await client(url)).message("ready")).repositories[0]?.icon;
+    };
+    expect(await icon(2, "P")).toBe("P");
+    expect(await icon(3, " 🦉 ")).toBe("🦉");
+    // A family of three people is seven code points and one character.
+    const family = "\u{1F469}\u200D\u{1F469}\u200D\u{1F467}";
+    expect(await icon(4, family)).toBe(family);
+    for (const [requestId, two] of [[5, "ab"], [6, "🦉🦉"], [7, "a b"]] as const) {
+      c.send({ type: "setRepository", requestId, id: 1, icon: two });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "An icon is one character." });
+    }
+    expect((await (await client(url)).message("ready")).repositories[0]?.icon).toBe(family);
+    expect(await icon(8, "  ")).toBeNull();
+    expect(await icon(9, "한")).toBe("한");
+    expect(await icon(10, null)).toBeNull();
+  });
+
+  it("hides a repository and shows it again: it stays in `repositories`, hidden, and its work items stay in `workItems`", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Stays listed", kind: "shell", cols: 80, rows: 24 });
+    await c.message("inbox", (m) => m.workItems.length === 1);
+    c.send({ type: "setRepository", requestId: 2, id: 1, hidden: true });
+    const hidden = await c.message("inbox", (m) => m.repositories[0]?.hidden === true);
+    expect(hidden.repositories).toEqual([{ id: 1, folder: repo, name: "project", ...PLAIN, hidden: true }]);
+    expect(hidden.workItems.map((w) => [w.id, w.repoId])).toEqual([[1, 1]]);
+    c.send({ type: "setRepository", requestId: 3, id: 1, hidden: false });
+    const shown = await c.message("inbox", (m) => m.repositories[0]?.hidden === false && c.messages.some((d) => d.type === "done" && d.requestId === 3));
+    expect([shown.repositories.map((r) => r.hidden), shown.workItems.map((w) => w.id)]).toEqual([[false], [1]]);
+  });
+
+  it("removes a repository whose work item has a running pane only where the removal names the work item and the pane: it ends the pane, takes both out of the lists, leaves the folder, the branch and the repository as they were, and gives the next work item an id, a count and a pane the removed one did not bear", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const { url } = await daemon({ runDir, worktreesRoot: root, commitPollMs: 50 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Runs a pane", kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    commitFile(workItem.worktree, "work.txt");
+    writeFileSync(join(workItem.worktree, "untracked.txt"), "kept\n");
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    const before = onDisk(repo, workItem.worktree);
+    const refusals = [
+      [2, { workItems: [], running: NONE_RUNNING }, "A work item was added since you looked. Read it again."],
+      [3, { workItems: [workItem.id], running: NONE_RUNNING }, "A session started since you looked. Read it again."],
+      [4, { workItems: [workItem.id], running: { panes: [session.id + 1], headless: [session.id] } }, "A session started since you looked. Read it again."],
+    ] as const;
+    for (const [requestId, told, message] of refusals) {
+      c.send({ type: "removeRepository", requestId, id: 1, ...told });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message });
+    }
+    // The refusals ended nothing and removed nothing.
+    const still = await (await client(url)).message("ready");
+    expect([still.repositories.map((r) => r.id), still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive])]).toEqual([[1], [1], [[session.id, true]]]);
+    const sent = Date.now();
+    c.send({ type: "removeRepository", requestId: 5, id: 1, workItems: [workItem.id], running: { panes: [session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 5);
+    // The answer comes when the pane's process has exited, and does not wait out the three seconds a process is given.
+    expect(Date.now() - sent).toBeLessThan(2000);
+    const removed = await c.message("inbox", (m) => m.repositories.length === 0);
+    expect([removed.workItems, removed.archived, removed.sessions]).toEqual([[], [], []]);
+    expect((await c.message("exit")).id).toBe(session.id);
+    expect(onDisk(repo, workItem.worktree)).toEqual(before);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toEqual({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [] });
+    // The repository is added again by a creation in it, and nothing of the removed work item is the new one's.
+    c.send({ type: "createWorkItem", requestId: 6, repo, title: "Made after", kind: "shell", cols: 80, rows: 24 });
+    const next = await c.message("workItemCreated", (m) => m.requestId === 6);
+    expect(next.workItem).toMatchObject({ id: 2, repoId: 2, ...NOTHING_NEW });
+    const after = await (await client(url)).message("ready");
+    expect([after.repositories.map((r) => r.id), after.workItems.map((w) => [w.id, w.repoId, w.newCommits, w.commits]), after.sessions.map((s) => [s.id, s.workItemId])]).toEqual([[2], [[2, 2, 0, []]], [[next.session.id, 2]]]);
+    expect(next.session.id).not.toBe(session.id);
+  });
+
+  it("ends a working headless session of a repository it removes, where the removal names it, and refuses one that does not", async () => {
+    const { repo, root } = repository();
+    let stopped = 0;
+    const slow = fakeAdapter({ delayMs: 60_000 });
+    const quick = fakeAdapter();
+    // The prompt "Quick?" is answered at once, and any other after a minute.
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    await c.message("exit");
+    c.send({ type: "ask", requestId: 20, workItemId: workItem.id, prompt: "Quick?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    // The pane has exited and the first headless session has finished, so the second is the one that runs, and the one a removal has to name.
+    c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "A session started since you looked. Read it again." });
+    expect(stopped).toBe(0);
+    c.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(stopped).toBe(1);
+    const after = await (await client(url)).message("ready");
+    expect([after.repositories, after.workItems, after.sessions, after.headless]).toEqual([[], [], [], []]);
+  });
+
+  it("stops the run of a headless session a removal ended while its adapter was still starting, once it has started", async () => {
+    const { repo, root } = repository();
+    let stopped = 0;
+    const inner = fakeAdapter({ delayMs: 60_000 });
+    // The adapter takes a moment to start a run, as one that launches a process does.
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    await c.message("exit");
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked");
+    c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
+    await c.message("done", (m) => m.requestId === 3);
+    // Every client was told that the session failed, and why, before it left the lists.
+    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "failed" ? [m.headless.error] : []))).toEqual(["ended when a removal of its repository began"]);
+    expect(stopped).toBe(0);
+    await c.until(() => (stopped === 1 ? true : undefined));
+  });
+
+  it("removes a repository only after a creation in it that is under way, so the work item that creation adds is one the removal has to name", async () => {
+    const { repo, root, base } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    await c.message("inbox");
+    const held = heldGit(base);
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "Under way", kind: "shell", cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [], running: NONE_RUNNING });
+    // A removal that did not wait would be answered before the refusal of a start sent after it.
+    await settled(c);
+    expect(c.messages.flatMap((m) => (m.type === "done" || m.type === "error" ? [m.requestId] : [])).filter((requestId) => requestId < 700)).toEqual([1]);
+    held.release();
+    const { workItem } = await c.message("workItemCreated");
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "A work item was added since you looked. Read it again." });
+    expect((await (await client(url)).message("ready")).workItems.map((w) => [w.id, w.repoId])).toEqual([[workItem.id, 1]]);
+  });
+
+  it("refuses a removal where a pane's process has not exited within the wait, and one where a session started while it waited, and removes nothing", async () => {
+    const { repo, root } = repository();
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const deaf = (c: Awaited<ReturnType<typeof client>>, id: number) => c.until(() => (c.messages.some((m) => m.type === "output" && m.id === id && m.data.includes("deaf")) ? true : undefined));
+    const { url } = await daemon({ worktreesRoot: root, endWaitMs: 200, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 0.8"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Slow to end", kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    const told = { workItems: [workItem.id], running: { panes: [session.id], headless: [] } };
+    await deaf(c, session.id);
+    c.send({ type: "removeRepository", requestId: 2, id: 1, ...told });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "A session did not end in time, so nothing was removed. Try again." });
+    const still = await (await client(url)).message("ready");
+    expect([still.repositories.map((r) => r.id), still.workItems.map((w) => w.id)]).toEqual([[1], [1]]);
+    await c.message("exit", (m) => m.id === session.id);
+    // A pane that starts in the work item while a removal waits for another to end is one the person was not told of.
+    const later = await daemon({ worktreesRoot: root, endWaitMs: 5000, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 0.6"], env: {} }) });
+    const l = await client(later.url);
+    await l.message("ready");
+    l.send({ type: "createWorkItem", requestId: 1, repo, title: "Gains a pane", kind: "shell", cols: 80, rows: 24 });
+    const made = await l.message("workItemCreated");
+    await deaf(l, made.session.id);
+    l.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [made.workItem.id], running: { panes: [made.session.id], headless: [] } });
+    // The start arrives once the removal has read the sessions and waits: two messages sent together are read in one turn, the start before the removal's first read.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(l.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 2)).toBe(false);
+    l.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: made.workItem.id });
+    await l.message("started", (m) => m.requestId === 3);
+    expect(await l.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "A session started since you looked. Read it again." });
+    expect((await (await client(later.url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
+    // Two daemons, and two processes that each outlive the signal for a moment.
+  }, 15_000);
+
+  it("removes a repository with its work items deleted from disk, one after another: without the force it deletes the one that loses nothing, stops at the one that holds an untracked file, whose pane it leaves running, and keeps the repository; with the force both worktrees and both branches are gone, the repository leaves the lists, and its folder stands", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const { url } = await daemon({ runDir, worktreesRoot: root, commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Nothing to lose", kind: "shell", cols: 80, rows: 24 });
+    const clean = await c.message("workItemCreated", (m) => m.requestId === 1);
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "Holds a file", kind: "shell", cols: 80, rows: 24 });
+    const held = await c.message("workItemCreated", (m) => m.requestId === 2);
+    writeFileSync(join(held.workItem.worktree, "untracked.txt"), "kept\n");
+    const stamps = { [clean.workItem.id]: (await readLoss(repo, clean.workItem.branch, clean.workItem.worktree)).stamp, [held.workItem.id]: (await readLoss(repo, held.workItem.branch, held.workItem.worktree)).stamp };
+    const told = { workItems: [clean.workItem.id, held.workItem.id], running: { panes: [clean.session.id, held.session.id], headless: [] } };
+    // A removal that deletes names the stamp of every work item's loss, and one that does not ends and removes nothing.
+    const refusals = [
+      [3, { stamps: { [clean.workItem.id]: stamps[clean.workItem.id] }, force: false }],
+      [4, { stamps, force: "yes" }],
+      [5, { stamps: [], force: false }],
+      [6, true],
+      [10, { stamps: null, force: false }],
+      [11, { stamps: "stamps", force: false }],
+    ] as const;
+    for (const [requestId, chosen] of refusals) {
+      c.send({ type: "removeRepository", requestId, id: 1, ...told, delete: chosen });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a removal that deletes names the stamp of each work item's loss, and whether it is forced" });
+    }
+    // A removal that deletes ends no session where one runs that it does not name, the first work item's neither.
+    c.send({ type: "removeRepository", requestId: 9, id: 1, workItems: told.workItems, running: { panes: [clean.session.id], headless: [] }, delete: { stamps, force: true } });
+    expect(await c.message("error", (m) => m.requestId === 9)).toEqual({ type: "error", requestId: 9, message: "A session started since you looked. Read it again." });
+    const before = onDisk(repo, clean.workItem.worktree, held.workItem.worktree);
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => s.alive)]).toEqual([[1, 2], [true, true]]);
+    expect(onDisk(repo, clean.workItem.worktree, held.workItem.worktree)).toEqual(before);
+
+    c.messages.length = 0;
+    c.send({ type: "removeRepository", requestId: 7, id: 1, ...told, delete: { stamps, force: false } });
+    expect(await c.message("error", (m) => m.requestId === 7)).toEqual({ type: "error", requestId: 7, message: "Holds a file: The work item holds work a delete would lose. Check Force delete to delete it anyway." });
+    // The first work item is gone, from the lists and from disk, and the second and the repository are as they were.
+    const partly = await c.message("inbox", (m) => m.workItems.length === 1);
+    expect([partly.repositories.map((r) => r.id), partly.workItems.map((w) => w.id), partly.sessions.map((s) => [s.id, s.alive])]).toEqual([[1], [held.workItem.id], [[held.session.id, true]]]);
+    expect([existsSync(clean.workItem.worktree), git(repo, "branch", "--list", "owlery/*").trim()]).toEqual([false, `+ ${held.workItem.branch}`]);
+    expect(readFileSync(join(held.workItem.worktree, "untracked.txt"), "utf8")).toBe("kept\n");
+
+    c.send({ type: "removeRepository", requestId: 8, id: 1, workItems: [held.workItem.id], running: { panes: [held.session.id], headless: [] }, delete: { stamps: { [held.workItem.id]: stamps[held.workItem.id] }, force: true } });
+    await c.message("done", (m) => m.requestId === 8);
+    const removed = await c.message("inbox", (m) => m.repositories.length === 0);
+    expect([removed.workItems, removed.archived, removed.sessions]).toEqual([[], [], []]);
+    expect([existsSync(held.workItem.worktree), git(repo, "branch", "--list", "owlery/*").trim(), git(repo, "worktree", "list", "--porcelain").split("\n\n").filter((block) => block.trim() !== "").length]).toEqual([false, "", 1]);
+    // The repository's own folder is no worktree a delete removes.
+    expect([readFileSync(join(repo, "README.md"), "utf8"), git(repo, "status", "--porcelain")]).toEqual(["a repository\n", ""]);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toEqual({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [] });
+  });
+
+  it("starts no pane in a work item of a repository whose removal is deleting its work items, names the work item whose delete it was refused at, and starts one again after the refusal", async () => {
+    const { repo, root } = repository();
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const { url } = await daemon({ worktreesRoot: root, endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Slow to end", kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    const { stamp } = await readLoss(repo, workItem.branch, workItem.worktree);
+    c.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [workItem.id], running: { panes: [session.id], headless: [] }, delete: { stamps: { [workItem.id]: stamp }, force: false } });
+    // The start arrives once the removal's delete waits for the pane to end.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 2)).toBe(false);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "started" || m.type === "done" || m.type === "error") && m.requestId === requestId));
+    expect(await answer(3)).toEqual({ type: "error", requestId: 3, message: `work item ${workItem.id} is being deleted` });
+    expect(await answer(2)).toEqual({ type: "error", requestId: 2, message: "Slow to end: A session did not end in time, so nothing was deleted. Try again." });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id });
+    expect((await answer(4))?.type).toBe("started");
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
+  });
+});
+
+describe("what a person sets on a work item", () => {
+  function repository() {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  // A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
+  const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
+
+  /** A daemon on a run folder of the repository's temporary folder, a client of it, and a work item the client created. */
+  async function withWorkItem(made: { repo: string; root: string; base: string }, options: Partial<DaemonOptions> = {}) {
+    const title = "First name";
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir, { recursive: true });
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: silent, ...options });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated", (m) => m.requestId === 100);
+    await c.message("inbox", (m) => m.workItems.length === 1);
+    c.messages.length = 0;
+    return { c, url, runDir, workItem, session };
+  }
+
+  /** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
+  let refused = 900;
+  async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
+    const requestId = refused++;
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+    await c.message("error", (m) => m.requestId === requestId);
+  }
+
+  it("pins and mutes a work item at a `setWorkItem`, answers before the inbox that carries it, and keeps both after the daemon starts again", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem } = await withWorkItem(made);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "setWorkItem", requestId: 1, id: workItem.id, pinned: true });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    expect(inbox.workItems).toEqual([{ ...workItem, pinned: true }]);
+    // Every client is told, and the one that asked alone is answered.
+    expect((await other.message("inbox")).workItems).toEqual([{ ...workItem, pinned: true }]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+    c.send({ type: "setWorkItem", requestId: 2, id: workItem.id, muted: true });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.muted === true)).workItems).toEqual([{ ...workItem, pinned: true, muted: true }]);
+    c.send({ type: "setWorkItem", requestId: 3, id: workItem.id, pinned: false });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.pinned === false)).workItems).toEqual([{ ...workItem, muted: true }]);
+    c.send({ type: "setWorkItem", requestId: 4, id: workItem.id, pinned: true });
+    await c.message("done", (m) => m.requestId === 4);
+
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: true, muted: true }]);
+  });
+
+  it("answers a `setWorkItem` that changes nothing, and sends no inbox for it", async () => {
+    const { c, workItem } = await withWorkItem(repository());
+    c.send({ type: "setWorkItem", requestId: 1, id: workItem.id, pinned: false, muted: false });
+    expect(await c.message("done")).toEqual({ type: "done", requestId: 1 });
+    // An inbox for it would have arrived before the refusal of a start sent after its answer.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["done", "error"]);
+  });
+
+  it("answers a `setWorkItem` that names no work item it holds, and one whose pin or mute is no boolean, with an error, and sets nothing", async () => {
+    const { c, url, workItem } = await withWorkItem(repository());
+    c.send({ type: "setWorkItem", requestId: 1, id: 9, pinned: true });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "no work item 9" });
+    for (const [requestId, fields] of [[2, { pinned: "yes" }], [3, { muted: 1 }], [4, { pinned: true, muted: null }]] as const) {
+      c.send({ type: "setWorkItem", requestId, id: workItem.id, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a work item's pin and its mute are each true or false" });
+    }
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: false, muted: false }]);
+  });
+
+  it("adds a group to a repository at an `addGroup`, under the name without the white space at its ends and after the groups it has, answers before the inbox that carries it, and keeps it after the daemon starts again", async () => {
+    const made = repository();
+    const { c, url, runDir } = await withWorkItem(made);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "addGroup", requestId: 1, repoId: 1, name: "  Later " });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    expect(inbox.repositories.map((r) => r.groups)).toEqual([[{ id: 1, name: "Later" }]]);
+    // Every client is told, and the one that asked alone is answered.
+    expect((await other.message("inbox")).repositories[0]?.groups).toEqual([{ id: 1, name: "Later" }]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+    c.send({ type: "addGroup", requestId: 2, repoId: 1, name: "Drafts" });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.groups.length === 2)).repositories[0]?.groups).toEqual([{ id: 1, name: "Later" }, { id: 2, name: "Drafts" }]);
+
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).repositories[0]?.groups).toEqual([{ id: 1, name: "Later" }, { id: 2, name: "Drafts" }]);
+  });
+
+  it("answers an `addGroup` with an empty name, with a name that is no text, and one that names no repository it holds, with an error, and adds no group", async () => {
+    const { c, url } = await withWorkItem(repository());
+    for (const [requestId, name] of [[1, ""], [2, "   "]] as const) {
+      c.send({ type: "addGroup", requestId, repoId: 1, name });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "Give the group a name." });
+    }
+    c.send({ type: "addGroup", requestId: 3, repoId: 1, name: 7 });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "a group is added to a repository under a name" });
+    c.send({ type: "addGroup", requestId: 4, repoId: 9, name: "Later" });
+    expect(await c.message("error", (m) => m.requestId === 4)).toEqual({ type: "error", requestId: 4, message: "no repository 9" });
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.groups)).toEqual([[]]);
+  });
+
+  it("moves a work item into a group of its repository at a `setWorkItem` with the group's id, and out of it with null, answers before the inbox that carries each, leaves the group at a set that names none, and keeps it after the daemon starts again", async () => {
+    const made = repository();
+    const { c, runDir, workItem } = await withWorkItem(made);
+    c.send({ type: "addGroup", requestId: 1, repoId: workItem.repoId, name: "Later" });
+    await c.message("inbox", (m) => m.repositories[0]?.groups.length === 1);
+    c.messages.length = 0;
+    c.send({ type: "setWorkItem", requestId: 2, id: workItem.id, groupId: 1 });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(inbox.workItems).toEqual([{ ...workItem, groupId: 1 }]);
+    // A pin leaves the group, and the group leaves the pin.
+    c.send({ type: "setWorkItem", requestId: 3, id: workItem.id, pinned: true });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.pinned === true)).workItems).toEqual([{ ...workItem, groupId: 1, pinned: true }]);
+    c.send({ type: "setWorkItem", requestId: 4, id: workItem.id, groupId: null });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.groupId === null)).workItems).toEqual([{ ...workItem, pinned: true }]);
+    c.send({ type: "setWorkItem", requestId: 5, id: workItem.id, groupId: 1 });
+    await c.message("done", (m) => m.requestId === 5);
+
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: true, groupId: 1 }]);
+  });
+
+  it("answers a `setWorkItem` whose group is a group of another repository, one no repository holds, or no id, with an error, and sets nothing of that message, its pin neither", async () => {
+    const made = repository();
+    const elsewhere = repository();
+    const { c, url, workItem } = await withWorkItem(made);
+    c.send({ type: "addRepository", requestId: 1, folder: elsewhere.repo });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "addGroup", requestId: 2, repoId: 2, name: "Theirs" });
+    await c.message("done", (m) => m.requestId === 2);
+    await c.message("inbox", (m) => m.repositories[1]?.groups.length === 1);
+    c.messages.length = 0;
+    for (const [requestId, groupId] of [[3, 1], [4, 9]] as const) {
+      c.send({ type: "setWorkItem", requestId, id: workItem.id, groupId, pinned: true });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: `Group ${groupId} is no group of the work item's repository.` });
+    }
+    for (const [requestId, groupId] of [[5, "1"], [6, true]] as const) {
+      c.send({ type: "setWorkItem", requestId, id: workItem.id, groupId, pinned: true });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a work item's group is a group's id, or null for none" });
+    }
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: false, groupId: null }]);
+  });
+
+  it("renames a work item without its branch: the title is the name without the white space at its ends, and the branch and the folder are the ones they were", async () => {
+    const made = repository();
+    const { c, runDir, workItem } = await withWorkItem(made);
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "  Second name ", branch: false });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    expect(inbox.workItems).toEqual([{ ...workItem, title: "Second name" }]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/first-name");
+    // The name outlives the daemon.
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, title: "Second name", branch: "owlery/first-name" }]);
+  });
+
+  it("refuses an empty name, a name of white space, a name that is no string, a branch choice that is neither true nor false and a work item it does not hold, and renames nothing", async () => {
+    const made = repository();
+    const { c, url, workItem } = await withWorkItem(made);
+    for (const [requestId, title] of [[1, ""], [2, "  \t "]] as const) {
+      c.send({ type: "renameWorkItem", requestId, id: workItem.id, title, branch: true });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "Give the work item a name." });
+    }
+    c.send({ type: "renameWorkItem", requestId: 3, id: workItem.id, title: 7, branch: false });
+    expect((await c.message("error", (m) => m.requestId === 3)).message).toBe("a rename needs the work item's new name, and whether its branch is renamed too");
+    c.send({ type: "renameWorkItem", requestId: 4, id: workItem.id, title: "Second name" });
+    expect((await c.message("error", (m) => m.requestId === 4)).message).toBe("a rename needs the work item's new name, and whether its branch is renamed too");
+    c.send({ type: "renameWorkItem", requestId: 5, id: 9, title: "Second name", branch: false });
+    expect((await c.message("error", (m) => m.requestId === 5)).message).toBe("no work item 9");
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, title: "First name", branch: "owlery/first-name" }]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/first-name");
+  });
+
+  it("renames the branch too where the rename says so, on a branch with no upstream that no remote holds: the worktree's HEAD names owlery/<slug>, the folder is the one it was, and the branch's commits are still listed", async () => {
+    const made = clone();
+    const { c, runDir, workItem } = await withWorkItem(made, { commitPollMs: 50 });
+    const commit = commitFile(workItem.worktree, "work.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    c.messages.length = 0;
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(inbox.workItems).toMatchObject([{ id: workItem.id, title: "Second name", branch: "owlery/second-name", worktree: workItem.worktree, newCommits: 1, commits: [{ subject: "add work.txt" }] }]);
+    expect(git(workItem.worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/second-name");
+    expect(git(made.repo, "rev-parse", "refs/heads/owlery/second-name").trim()).toBe(commit);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/second-name");
+    expect(existsSync(join(workItem.worktree, "work.txt"))).toBe(true);
+    // A later read counts the commits of the branch under its new name.
+    commitFile(workItem.worktree, "more.txt");
+    expect((await c.message("inbox", (m) => m.workItems[0]?.newCommits === 2)).workItems[0]?.branch).toBe("owlery/second-name");
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ title: "Second name", branch: "owlery/second-name", newCommits: 2 }]);
+  });
+
+  it("answers a rename of the branch with the reason, on a branch with an upstream and on one a remote holds under its name with no upstream, and the title and the branch are the ones they were", async () => {
+    const made = clone();
+    const { c, url, workItem } = await withWorkItem(made);
+    git(made.repo, "push", "--quiet", "origin", workItem.branch);
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "The remote origin holds a branch owlery/first-name, so the branch keeps its name." });
+    git(made.repo, "branch", "--quiet", `--set-upstream-to=origin/${workItem.branch}`, workItem.branch);
+    c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "Second name", branch: true });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "The branch owlery/first-name has an upstream, origin/owlery/first-name, so it keeps its name." });
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, title: "First name", branch: "owlery/first-name" }]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/first-name");
+  });
+
+  it("answers a `planRename` with the branch a rename would give, -2 where another branch bears the name, and the reason where the branch keeps its name, and renames nothing", async () => {
+    const made = clone();
+    const { c, url, workItem } = await withWorkItem(made);
+    c.send({ type: "planRename", requestId: 1, id: workItem.id, title: "Second name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 1)).toEqual({ type: "renamePlan", requestId: 1, branch: "owlery/second-name", blocked: null });
+    git(made.repo, "branch", "--quiet", "owlery/second-name");
+    c.send({ type: "planRename", requestId: 2, id: workItem.id, title: "Second name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 2)).toEqual({ type: "renamePlan", requestId: 2, branch: "owlery/second-name-2", blocked: null });
+    c.send({ type: "planRename", requestId: 3, id: workItem.id, title: "First name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 3)).toEqual({ type: "renamePlan", requestId: 3, branch: "owlery/first-name", blocked: "The branch is already owlery/first-name." });
+    git(made.repo, "push", "--quiet", "origin", workItem.branch);
+    c.send({ type: "planRename", requestId: 4, id: workItem.id, title: "Second name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 4)).toEqual({ type: "renamePlan", requestId: 4, branch: "owlery/second-name-2", blocked: "The remote origin holds a branch owlery/first-name, so the branch keeps its name." });
+    c.send({ type: "planRename", requestId: 5, id: 9, title: "Second name" });
+    expect(await c.message("error", (m) => m.requestId === 5)).toEqual({ type: "error", requestId: 5, message: "no work item 9" });
+    c.send({ type: "planRename", requestId: 6, id: workItem.id, title: 7 });
+    expect((await c.message("error", (m) => m.requestId === 6)).message).toBe("a rename's plan needs the work item's new name");
+    expect(c.messages.map((m) => m.type)).toEqual(["renamePlan", "renamePlan", "renamePlan", "renamePlan", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ title: "First name", branch: "owlery/first-name" }]);
+  });
+
+  it("sends no list read from a branch's old name while the branch is being renamed", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made, { commitPollMs: 20 });
+    commitFile(workItem.worktree, "work.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    c.messages.length = 0;
+    const held = heldGit(made.base, '[ "$1" = branch ] && [ "$2" = -m ]');
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    await c.until(() => (held.waiting() ? true : undefined));
+    // A rename of the name alone, of the same work item, is answered meanwhile. It changes nothing here, and it does not end the other rename's hold on the reads.
+    c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "First name", branch: false });
+    await c.message("done", (m) => m.requestId === 2);
+    // Git's own rename takes the old name away a moment before the daemon hears that it ended. The case stretches that moment: the branch leaves its old name here, and the reads of several intervals pass.
+    git(made.repo, "branch", "-M", workItem.branch, "owlery/elsewhere");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(c.messages).toEqual([{ type: "done", requestId: 2 }]);
+    c.messages.length = 0;
+    git(made.repo, "branch", "-M", "owlery/elsewhere", workItem.branch);
+    held.release();
+    expect((await c.message("inbox")).workItems).toMatchObject([{ title: "Second name", branch: "owlery/second-name", newCommits: 1, commits: [{ subject: "add work.txt" }] }]);
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+  });
+
+  it("drops a read of a branch's old name that began before the rename and ends after it", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made, { commitPollMs: 20 });
+    commitFile(workItem.worktree, "work.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    c.messages.length = 0;
+    // A read of the commits opens by asking git for the branch's head, with this command, which nothing else of a read and nothing of a rename runs.
+    const held = heldGit(made.base, '[ "$1" = rev-parse ]');
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    expect((await c.message("inbox")).workItems).toMatchObject([{ branch: "owlery/second-name", newCommits: 1 }]);
+    // The read that waited now asks git for the old name, which is gone.
+    held.release();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems.map((w) => [w.branch, w.newCommits, w.commits?.length]) : []))).toEqual([["owlery/second-name", 1, 1]]);
+  });
+
+  it("runs a rename of a branch after a creation that is under way, so the two never take one branch", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made);
+    const held = heldGit(made.base);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Taken name", kind: "shell", cols: 80, rows: 24 });
+    c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "Taken name", branch: true });
+    // The creation chose its branch and waits in `git worktree add`. A plan is a read, and does not wait behind it.
+    c.send({ type: "planRename", requestId: 3, id: workItem.id, title: "Meanwhile" });
+    await c.message("renamePlan", (m) => m.requestId === 3);
+    expect(c.messages.map((m) => m.type)).toEqual(["renamePlan"]);
+    held.release();
+    expect((await c.message("workItemCreated", (m) => m.requestId === 1)).workItem.branch).toBe("owlery/taken-name");
+    await c.message("done", (m) => m.requestId === 2);
+    expect((await c.message("inbox", (m) => m.workItems.some((w) => w.id === workItem.id && w.title === "Taken name"))).workItems.map((w) => w.branch).sort()).toEqual(["owlery/taken-name", "owlery/taken-name-2"]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim().split("\n").map((line) => line.trim())).toEqual(["+ owlery/taken-name", "+ owlery/taken-name-2"]);
+  });
+
+  const ARCHIVED = "work item 1 is archived, restore it first";
+  /** Waits until the daemon lists no pane whose process runs. */
+  async function allExited(url: string): Promise<void> {
+    for (;;) {
+      const ready = await (await client(url)).message("ready");
+      if (ready.sessions.every((s) => !s.alive)) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+  /** The first of a client's messages that is an inbox listing an archived work item, and where it stands among the messages. */
+  const archivedInbox = (c: Awaited<ReturnType<typeof client>>) => c.until(() => { const at = c.messages.findIndex((m) => m.type === "inbox" && m.archived.length > 0); return at === -1 ? undefined : { at, inbox: c.messages[at] as Extract<ServerMessage, { type: "inbox" }> }; });
+
+  it("archives a work item whose pane runs only where the archive names the pane: it ends the pane, lists the work item in `archived` and not in `workItems`, and leaves the folder's files, the branch and its commit as they were; it refuses a pane and an ask in it; and after a restore lists it in `workItems`, with its pane exited and the output the pane printed before the archive", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem, session } = await withWorkItem(made, { now: () => 77, commandFor: () => ({ command: "/bin/sh", args: ["-c", "echo printed before the archive; sleep 30"], env: {} }) });
+    commitFile(workItem.worktree, "work.txt");
+    writeFileSync(join(workItem.worktree, "README.md"), "changed and not committed\n");
+    writeFileSync(join(workItem.worktree, "untracked.txt"), "kept\n");
+    const before = onDisk(made.repo, workItem.worktree);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "A session started since you looked. Read it again." });
+    // The refusal ended nothing and archived nothing.
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.archived, still.sessions.map((s) => [s.id, s.alive])]).toEqual([[workItem.id], [], [[session.id, true]]]);
+
+    c.send({ type: "archiveWorkItem", requestId: 2, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    const { at, inbox } = await archivedInbox(c);
+    // The answer first, then the inbox that carries the archive.
+    expect(c.messages.findIndex((m) => m.type === "done" && m.requestId === 2)).toBeLessThan(at);
+    expect(c.messages.findIndex((m) => m.type === "done" && m.requestId === 2)).not.toBe(-1);
+    expect(inbox.workItems).toEqual([]);
+    expect(inbox.archived).toMatchObject([{ id: workItem.id, title: workItem.title, branch: workItem.branch, worktree: workItem.worktree, archivedAt: 77 }]);
+    expect(inbox.sessions.map((s) => [s.id, s.alive])).toEqual([[session.id, false]]);
+    expect(onDisk(made.repo, workItem.worktree)).toEqual(before);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0].workItems[0].archivedAt).toBe(77);
+
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: ARCHIVED });
+    c.send({ type: "ask", requestId: 4, workItemId: workItem.id, prompt: "Which file?" });
+    expect(await c.message("error", (m) => m.requestId === 4)).toEqual({ type: "error", requestId: 4, message: ARCHIVED });
+    const archived = await (await client(url)).message("ready");
+    expect([archived.workItems, archived.archived.map((w) => w.id), archived.sessions.map((s) => s.id), archived.headless]).toEqual([[], [workItem.id], [session.id], []]);
+
+    c.messages.length = 0;
+    c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
+    const restored = await c.message("inbox", (m) => m.workItems.length === 1);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 5 });
+    expect(restored.archived).toEqual([]);
+    expect(restored.workItems).toMatchObject([{ id: workItem.id, title: workItem.title, branch: workItem.branch, archivedAt: null }]);
+    expect(restored.sessions.map((s) => [s.id, s.workItemId, s.alive])).toEqual([[session.id, workItem.id, false]]);
+    c.send({ type: "attach", id: session.id });
+    expect((await c.message("replay", (m) => m.id === session.id)).data).toContain("printed before the archive");
+    expect(onDisk(made.repo, workItem.worktree)).toEqual(before);
+    // A pane starts in it again.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 6, workItemId: workItem.id });
+    expect((await c.message("started", (m) => m.requestId === 6)).session.workItemId).toBe(workItem.id);
+  });
+
+  it("stops a working headless session of a work item it archives, where the archive names it: the session failed, says that it ended when the work item was archived, and stays listed with the answers of the others after a restore", async () => {
+    const made = repository();
+    let stopped = 0;
+    const slow = fakeAdapter({ delayMs: 60_000 });
+    const quick = fakeAdapter();
+    // The prompt "Quick?" is answered at once, and any other after a minute.
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const { c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    await allExited(url);
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
+    const finished = (await c.message("headless", (m) => m.headless.state === "finished")).headless;
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    c.send({ type: "archiveWorkItem", requestId: 3, id: workItem.id, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "A session started since you looked. Read it again." });
+    expect(stopped).toBe(0);
+    c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: { panes: [], headless: [headless.id] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(stopped).toBe(1);
+    const failed = { ...headless, state: "failed", error: "ended when the work item was archived" };
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
+    c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
+    await c.message("done", (m) => m.requestId === 5);
+    const after = await (await client(url)).message("ready");
+    expect([after.workItems.map((w) => w.id), after.archived, after.headless]).toEqual([[workItem.id], [], [finished, failed]]);
+  });
+
+  it("archives a work item with no running session at once, answers a second archive and a restore of a work item that is not archived with no inbox, and keeps the archive after the daemon starts again", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem } = await withWorkItem(made, { now: () => 77, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    await allExited(url);
+    await settled(c);
+    c.messages.length = 0;
+    c.send({ type: "restoreWorkItem", requestId: 1, id: workItem.id });
+    expect(await c.message("done")).toEqual({ type: "done", requestId: 1 });
+    c.send({ type: "archiveWorkItem", requestId: 2, id: workItem.id, running: NONE_RUNNING });
+    await c.message("inbox", (m) => m.archived.length === 1);
+    c.send({ type: "archiveWorkItem", requestId: 3, id: workItem.id, running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 3);
+    // An inbox for either request that changed nothing would have arrived before the refusal of a start sent after its answer.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["done", "done", "inbox", "done", "error"]);
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    const ready = await (await client(later.url)).message("ready");
+    expect([ready.workItems, ready.archived.map((w) => [w.id, w.archivedAt])]).toEqual([[], [[workItem.id, 77]]]);
+  });
+
+  it("answers an archive and a restore that name no work item it holds, and an archive that names no running sessions, with an error, and archives nothing", async () => {
+    const { c, url, workItem } = await withWorkItem(repository());
+    c.send({ type: "archiveWorkItem", requestId: 1, id: 9, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "no work item 9" });
+    c.send({ type: "restoreWorkItem", requestId: 2, id: 9 });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "no work item 9" });
+    for (const [requestId, running] of [[3, undefined], [4, null], [5, { panes: [1] }], [6, { panes: "all", headless: [] }]] as const) {
+      c.send({ type: "archiveWorkItem", requestId, id: workItem.id, running });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "an archive names the work item's running sessions" });
+    }
+    const ready = await (await client(url)).message("ready");
+    expect([ready.workItems.map((w) => w.id), ready.archived, ready.sessions.map((s) => s.alive)]).toEqual([[workItem.id], [], [true]]);
+  });
+
+  it("reads git for no archived work item, at a hello among them, and reads a restored work item's branch at once", async () => {
+    const made = repository();
+    // The reads follow one another a minute apart, so a count that moves here moved at a hello or at the restore.
+    const { c, url, workItem, session } = await withWorkItem(made, { commitPollMs: 60_000 });
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 1);
+    commitFile(workItem.worktree, "work.txt");
+    const ready = await (await client(url)).message("ready");
+    expect(ready.archived.map((w) => [w.id, w.newCommits])).toEqual([[workItem.id, 0]]);
+    c.send({ type: "restoreWorkItem", requestId: 2, id: workItem.id });
+    const read = await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    expect(read.workItems[0]?.commits?.map((commit) => commit.subject)).toEqual(["add work.txt"]);
+  });
+
+  it("archives a work item though a pane of it outlives the wait for its end, and starts no pane in it meanwhile", async () => {
+    const made = repository();
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const { c, workItem, session } = await withWorkItem(made, { endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    // The start arrives once the archive waits: two messages sent together are read in one turn, the start before the archive.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 1)).toBe(false);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
+    // Whichever way each request is answered, so a pane that started and an archive that was refused are each read as what they are.
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "started" || m.type === "done" || m.type === "error") && m.requestId === requestId));
+    expect(await answer(2)).toEqual({ type: "error", requestId: 2, message: ARCHIVED });
+    expect(await answer(1)).toEqual({ type: "done", requestId: 1 });
+    const { inbox } = await archivedInbox(c);
+    expect([inbox.workItems, inbox.archived.map((w) => w.id), inbox.sessions.map((s) => [s.id, s.alive])]).toEqual([[], [workItem.id], [[session.id, true]]]);
+    // The pane is listed as exited once its process ends.
+    expect((await c.message("inbox", (m) => m.sessions.every((s) => !s.alive))).archived.map((w) => w.id)).toEqual([workItem.id]);
+  });
+
+  const CHANGED = "What the delete would remove has changed. Read it again.";
+  const UNFORCED = "The work item holds work a delete would lose. Check Force delete to delete it anyway.";
+  /** Asks the daemon what a delete of the work item would lose. */
+  async function lossOf(c: Awaited<ReturnType<typeof client>>, id: number): Promise<WorkItemLoss> {
+    const requestId = refused++;
+    c.send({ type: "readLoss", requestId, id });
+    return (await c.message("workItemLoss", (m) => m.requestId === requestId)).loss;
+  }
+  /** Every file under a folder, by its path from the folder, without the worktree's own `.git`. */
+  const pathsIn = (folder: string): string[] =>
+    (readdirSync(folder, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name).slice(folder.length + 1))
+      .filter((path) => path !== ".git")
+      .sort();
+
+  it("answers a `readLoss` with what a delete of the work item would lose, as git reads it then, and one that names no work item it holds with an error", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made);
+    writeFileSync(join(workItem.worktree, "untracked.txt"), "kept\n");
+    c.send({ type: "readLoss", requestId: 1, id: workItem.id });
+    const answer = await c.message("workItemLoss", (m) => m.requestId === 1);
+    expect(answer).toEqual({ type: "workItemLoss", requestId: 1, id: workItem.id, loss: await readLoss(made.repo, workItem.branch, workItem.worktree) });
+    expect(answer.loss).toMatchObject({ branch: workItem.branch, worktree: workItem.worktree, untracked: ["untracked.txt"] });
+    c.send({ type: "readLoss", requestId: 2, id: 9 });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "no work item 9" });
+    // The read changed nothing, and told no other client anything.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["workItemLoss", "error", "error"]);
+  });
+
+  it("deletes a work item that would lose nothing but an ignored file, with the loss's stamp and no force: it ends the pane the delete names, removes the folder and the branch, takes the work item, its pane and its headless sessions off the lists, answers before the inbox, and gives its id to no work item made after", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem, session } = await withWorkItem(made, { roleAdapter: fakeAdapter() });
+    writeFileSync(join(workItem.worktree, ".gitignore"), ".env\n");
+    git(workItem.worktree, "add", ".gitignore");
+    git(workItem.worktree, "commit", "--quiet", "-m", "ignore the environment");
+    git(made.repo, "branch", "keeps", workItem.branch);
+    writeFileSync(join(workItem.worktree, ".env"), "SECRET=1\n");
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    const loss = await lossOf(c, workItem.id);
+    expect(loss).toMatchObject({ commitCount: 0, uncommittedCount: 0, untrackedCount: 0, ignored: [".env"] });
+    const own = [readFileSync(join(made.repo, "README.md"), "base64"), git(made.repo, "status", "--porcelain")];
+    c.messages.length = 0;
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+    const gone = await c.message("inbox", (m) => m.workItems.length === 0);
+    // The answer first, then the inbox that carries the delete.
+    expect(c.messages.findIndex((m) => m.type === "done" && m.requestId === 2)).toBe(c.messages.indexOf(gone) - 1);
+    expect([gone.repositories.map((r) => r.id), gone.archived, gone.sessions]).toEqual([[1], [], []]);
+    expect([existsSync(workItem.worktree), git(made.repo, "branch", "--format=%(refname:short)").trim().split("\n").sort()]).toEqual([false, ["keeps", "main"]]);
+    expect([readFileSync(join(made.repo, "README.md"), "base64"), git(made.repo, "status", "--porcelain")]).toEqual(own);
+    const after = await (await client(url)).message("ready");
+    expect([after.workItems, after.sessions, after.headless]).toEqual([[], [], []]);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextWorkItemId: 2, repositories: [{ id: 1, workItems: [] }] });
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Made after", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated", (m) => m.requestId === 3)).workItem).toMatchObject({ id: 2, repoId: 1, ...NOTHING_NEW });
+  });
+
+  it("refuses a delete of a work item that holds work without the force and leaves everything as it was, the pane running; and with the force removes the folder and the branch and nothing else: no ref of the remote, no remote's branch or tag of the clone, no other branch, no file of another work item or of the repository's own checkout, no path the loss did not name and no commit the loss did not name", async () => {
+    const seed = temporaryRepository("seed");
+    cleanups.push(seed.remove);
+    // A clone of a bare remote, in the seed's temporary folder.
+    const remote = join(seed.base, "remote.git");
+    const repo = join(seed.base, "project");
+    git(seed.base, "clone", "--quiet", "--bare", seed.repo, remote);
+    git(seed.base, "clone", "--quiet", remote, repo);
+    git(repo, "config", "user.name", "Owlery Test");
+    git(repo, "config", "user.email", "test@owlery.invalid");
+    git(repo, "config", "commit.gpgsign", "false");
+    const { c, url, workItem, session } = await withWorkItem({ repo, root: seed.root, base: seed.base });
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Beside it", kind: "shell", cols: 80, rows: 24 });
+    const beside = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    writeFileSync(join(beside.worktree, "beside.txt"), "another work item's\n");
+    const { worktree, branch } = workItem;
+    writeFileSync(join(worktree, ".gitignore"), ".env\nnode_modules/\n");
+    git(worktree, "add", ".gitignore");
+    git(worktree, "commit", "--quiet", "-m", "ignore the environment");
+    const shared = commitFile(worktree, "shared.txt");
+    git(repo, "branch", "keeps", shared);
+    git(repo, "tag", "marked", "main");
+    git(repo, "push", "--quiet", "origin", "keeps", "marked");
+    const lost = commitFile(worktree, "lost.txt");
+    writeFileSync(join(worktree, "README.md"), "changed and not committed\n");
+    mkdirSync(join(worktree, "newdir", "deep"), { recursive: true });
+    writeFileSync(join(worktree, "newdir", "deep", "u.txt"), "untracked\n");
+    writeFileSync(join(worktree, ".env"), "SECRET=1\n");
+    mkdirSync(join(worktree, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(worktree, "node_modules", "left-pad", "index.js"), "\n");
+    const loss = await lossOf(c, workItem.id);
+    expect(loss).toMatchObject({ branch, worktree, commits: [{ hash: git(repo, "rev-parse", "--short", lost).trim(), subject: "add lost.txt" }], uncommitted: ["README.md"], untracked: ["newdir/deep/u.txt"], ignored: [".env", "node_modules/"], blocked: null, unreachable: false });
+    const everything = onDisk(repo, worktree, beside.worktree);
+    const told = { panes: [session.id], headless: [] };
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: told });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: UNFORCED });
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive])]).toEqual([[workItem.id, beside.id], [[session.id, true], [session.id + 1, true]]]);
+    expect(onDisk(repo, worktree, beside.worktree)).toEqual(everything);
+
+    // What stands before the delete that it may not touch, and what it may only touch as the loss named it.
+    const refs = (...patterns: string[]): string => git(repo, "for-each-ref", "--format=%(refname) %(objectname)", ...patterns);
+    const others = (): string => refs("refs/heads").split("\n").filter((line) => !line.startsWith(`refs/heads/${branch} `)).join("\n");
+    const bytesIn = (folder: string) => pathsIn(folder).filter((path) => !path.startsWith(".git/")).map((path) => [path, readFileSync(join(folder, path), "base64")]);
+    const kept = () => [git(repo, "ls-remote", "origin"), refs("refs/remotes", "refs/tags"), others(), bytesIn(beside.worktree), bytesIn(repo), git(repo, "status", "--porcelain")];
+    const before = kept();
+    const stood = pathsIn(worktree);
+    const committed = new Set(git(repo, "ls-tree", "-r", "--name-only", `refs/heads/${branch}`).split("\n"));
+    const reachable = (): Set<string> => new Set(git(repo, "rev-list", "--all").split("\n").filter((commit) => commit !== ""));
+    const commitsBefore = reachable();
+    c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: loss.stamp, force: true, running: told });
+    await c.message("done", (m) => m.requestId === 3);
+    expect([existsSync(worktree), refs(`refs/heads/${branch}`)]).toEqual([false, ""]);
+    expect(kept()).toEqual(before);
+    expect((await c.message("inbox", (m) => m.workItems.length === 1)).workItems.map((w) => w.id)).toEqual([beside.id]);
+    // Every path that stood in the folder is one a commit of the branch holds, or one the loss named, by itself or by the folder it is under.
+    const named = [...loss.uncommitted, ...loss.untracked, ...loss.ignored];
+    expect(stood.filter((path) => !committed.has(path) && !named.some((name) => (name.endsWith("/") ? path.startsWith(name) : path === name)))).toEqual([]);
+    expect(stood).toEqual(expect.arrayContaining(["newdir/deep/u.txt", ".env", "node_modules/left-pad/index.js", "lost.txt"]));
+    // Every commit no ref holds any more is one the loss named.
+    const after = reachable();
+    expect([...commitsBefore].filter((commit) => !after.has(commit)).map((commit) => git(repo, "rev-parse", "--short", commit).trim())).toEqual(loss.commits.map(({ hash }) => hash));
+  });
+
+  it("refuses a delete whose stamp is of an earlier loss, one that does not name a running pane, one of a work item whose loss says it is blocked, and one whose fields are not the protocol's or that names no work item, and ends and removes nothing", async () => {
+    const made = repository();
+    const { c, url, workItem, session } = await withWorkItem(made);
+    const told = { panes: [session.id], headless: [] };
+    const earlier = await lossOf(c, workItem.id);
+    git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "made since the dialog was drawn");
+    const everything = onDisk(made.repo, workItem.worktree);
+    // The force does not stand in for the reading: the person read another loss.
+    c.send({ type: "deleteWorkItem", requestId: 1, id: workItem.id, stamp: earlier.stamp, force: true, running: told });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: CHANGED });
+    const loss = await lossOf(c, workItem.id);
+    expect(loss.commitCount).toBe(1);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: true, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "A session started since you looked. Read it again." });
+    git(made.repo, "worktree", "lock", workItem.worktree);
+    const locked = await lossOf(c, workItem.id);
+    c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: locked.stamp, force: true, running: told });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: `The worktree ${workItem.worktree} is locked, so git does not remove it.` });
+    git(made.repo, "worktree", "unlock", workItem.worktree);
+    for (const [requestId, fields] of [[4, { stamp: 7, force: true, running: told }], [5, { stamp: loss.stamp, force: "yes", running: told }], [6, { stamp: loss.stamp, running: told }], [7, { stamp: loss.stamp, force: true }]] as const) {
+      c.send({ type: "deleteWorkItem", requestId, id: workItem.id, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a delete names the stamp of the loss the person read, whether it is forced, and the work item's running sessions" });
+    }
+    c.send({ type: "deleteWorkItem", requestId: 8, id: 9, stamp: loss.stamp, force: true, running: told });
+    expect(await c.message("error", (m) => m.requestId === 8)).toEqual({ type: "error", requestId: 8, message: "no work item 9" });
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive])]).toEqual([[workItem.id], [[session.id, true]]]);
+    expect(onDisk(made.repo, workItem.worktree)).toEqual(everything);
+  });
+
+  it("reads the loss once more after the sessions ended, and refuses a delete where a pane's end left a file the person was not told of: the folder, the branch and the work item stay, and a headless session the delete stopped says that a delete of its work item began", async () => {
+    const made = repository();
+    const slow = fakeAdapter({ delayMs: 60_000 });
+    // The pane's process writes a file into its folder as it ends.
+    const { c, url, workItem, session } = await withWorkItem(made, { roleAdapter: slow, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap 'echo late > late.txt; exit 0' HUP; echo ready; sleep 30 & wait"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("ready")) ? true : undefined));
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    const loss = await lossOf(c, workItem.id);
+    expect([loss.untrackedCount, loss.commitCount]).toEqual([0, 0]);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [headless.id] } });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: CHANGED });
+    expect([readFileSync(join(workItem.worktree, "late.txt"), "utf8"), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual(["late\n", `+ ${workItem.branch}`]);
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive]), still.headless]).toEqual([[workItem.id], [[session.id, false]], [{ ...headless, state: "failed", error: "ended when a delete of its work item began" }]]);
+    // The loss the person reads next names the file, and a delete with its stamp needs the force.
+    const next = await lossOf(c, workItem.id);
+    expect(next.untracked).toEqual(["late.txt"]);
+    c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: next.stamp, force: false, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: UNFORCED });
+    c.send({ type: "deleteWorkItem", requestId: 4, id: workItem.id, stamp: next.stamp, force: true, running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 4);
+    expect([existsSync(workItem.worktree), (await (await client(url)).message("ready")).headless]).toEqual([false, []]);
+  });
+
+  it("refuses a delete where a pane's process has not exited within the wait, and removes nothing; starts no pane and no headless session in the work item, and archives it at no request, while the delete is under way; and starts one again after", async () => {
+    const made = repository();
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const { c, url, workItem, session } = await withWorkItem(made, { endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    const loss = await lossOf(c, workItem.id);
+    const told = { panes: [session.id], headless: [] };
+    c.send({ type: "deleteWorkItem", requestId: 1, id: workItem.id, stamp: loss.stamp, force: false, running: told });
+    // The requests arrive once the delete waits: messages sent together are read in one turn, before the delete's first read.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 1)).toBe(false);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
+    c.send({ type: "ask", requestId: 3, workItemId: workItem.id, prompt: "Which file?" });
+    c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: told });
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "started" || m.type === "asked" || m.type === "done" || m.type === "error") && m.requestId === requestId));
+    const DELETING = `work item ${workItem.id} is being deleted`;
+    expect([await answer(2), await answer(3), await answer(4)]).toEqual([2, 3, 4].map((requestId) => ({ type: "error", requestId, message: DELETING })));
+    expect(await answer(1)).toEqual({ type: "error", requestId: 1, message: "A session did not end in time, so nothing was deleted. Try again." });
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.archived, existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], [], true, `+ ${workItem.branch}`]);
+    // The refused delete holds the work item no longer.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 5, workItemId: workItem.id });
+    expect((await answer(5))?.type).toBe("started");
+  });
+
+  it("refuses a delete of a work item while an archive of it is ending its sessions, so the two never end one work item's sessions at once, and the archive goes on", async () => {
+    const made = repository();
+    const { c, workItem, session } = await withWorkItem(made, { endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    const loss = await lossOf(c, workItem.id);
+    const told = { panes: [session.id], headless: [] };
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: told });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 1)).toBe(false);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: true, running: told });
+    c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: told, delete: { stamps: { [workItem.id]: loss.stamp }, force: true } });
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "done" || m.type === "error") && m.requestId === requestId));
+    const ARCHIVING = `An archive of work item ${workItem.id} is ending its sessions. Try again.`;
+    expect([await answer(2), await answer(3)]).toEqual([{ type: "error", requestId: 2, message: ARCHIVING }, { type: "error", requestId: 3, message: ARCHIVING }]);
+    expect(await answer(1)).toEqual({ type: "done", requestId: 1 });
+    const { inbox } = await archivedInbox(c);
+    expect([inbox.archived.map((w) => w.id), existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], true, `+ ${workItem.branch}`]);
+  });
+
+  it("leaves the removal of a changed worktree to git where the delete is not forced: git refuses to remove a file that arrived after the daemon's last read, its sentence is the answer, and the work item stays listed with its folder and its branch", async () => {
+    const made = repository();
+    const { c, url, workItem, session } = await withWorkItem(made);
+    const loss = await lossOf(c, workItem.id);
+    const held = heldGit(made.base, '[ "$1" = worktree ] && [ "$2" = remove ]');
+    c.send({ type: "deleteWorkItem", requestId: 1, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+    await c.until(() => (held.waiting() ? true : undefined));
+    writeFileSync(join(workItem.worktree, "arrived.txt"), "after the last read\n");
+    held.release();
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toContain("contains modified or untracked files, use --force to delete it");
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), readFileSync(join(workItem.worktree, "arrived.txt"), "utf8"), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], "after the last read\n", `+ ${workItem.branch}`]);
+  });
+
+  it("deletes an archived work item, and takes a work item whose repository's folder is gone off the lists with nothing removed on disk", async () => {
+    const made = repository();
+    const { c, url, workItem, session } = await withWorkItem(made);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 1);
+    const loss = await lossOf(c, workItem.id);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 2);
+    const after = await (await client(url)).message("ready");
+    expect([after.workItems, after.archived, after.sessions, existsSync(workItem.worktree), git(made.repo, "branch", "--list", "owlery/*")]).toEqual([[], [], [], false, ""]);
+
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Its repository goes", kind: "shell", cols: 80, rows: 24 });
+    const left = await c.message("workItemCreated", (m) => m.requestId === 3);
+    writeFileSync(join(left.workItem.worktree, "untracked.txt"), "kept\n");
+    rmSync(made.repo, { recursive: true });
+    const unreachable = await lossOf(c, left.workItem.id);
+    expect(unreachable).toMatchObject({ branch: null, worktree: null, untracked: [], unreachable: true });
+    // Nothing is named as lost, so the delete needs no force, and removes no file.
+    c.send({ type: "deleteWorkItem", requestId: 4, id: left.workItem.id, stamp: unreachable.stamp, force: false, running: { panes: [left.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect((await (await client(url)).message("ready")).workItems).toEqual([]);
+    expect(pathsIn(left.workItem.worktree)).toEqual(["README.md", "untracked.txt"]);
+  });
+
+  it("runs a delete after a creation that is under way, so the two never take and give up one branch at once", async () => {
+    const made = repository();
+    const { c, workItem, session } = await withWorkItem(made);
+    const loss = await lossOf(c, workItem.id);
+    const held = heldGit(made.base);
+    c.messages.length = 0;
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Under way", kind: "shell", cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+    // A delete that did not wait would have ended the pane and removed the folder well inside a second: it reads git, ends a `sleep` and runs two git commands.
+    await new Promise((r) => setTimeout(r, 1000));
+    expect([c.messages.flatMap((m) => (m.type === "done" || m.type === "error" ? [m.requestId] : [])), existsSync(join(workItem.worktree, "README.md"))]).toEqual([[], true]);
+    held.release();
+    await c.message("workItemCreated", (m) => m.requestId === 1);
+    await c.message("done", (m) => m.requestId === 2);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/under-way");
   });
 });
 
@@ -1523,7 +2891,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoName: "project", aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {

@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
@@ -305,6 +305,139 @@ describe("createWorktree", () => {
   });
 });
 
+describe("the repository of a folder", () => {
+  /** A linked worktree of the repository, on a branch of its own, with a folder inside it. */
+  function linked(made: { repo: string; base: string }): { worktree: string; inside: string } {
+    const worktree = join(made.base, "linked");
+    git(made.repo, "worktree", "add", "--quiet", "-b", "side", worktree);
+    const inside = join(worktree, "src", "deep");
+    mkdirSync(inside, { recursive: true });
+    return { worktree, inside };
+  }
+
+  /** A bare repository with one commit, and a linked worktree of it. */
+  function bare(made: { repo: string; base: string }): { worktree: string } {
+    const folder = join(made.base, "bare.git");
+    git(made.base, "clone", "--quiet", "--bare", made.repo, folder);
+    const worktree = join(made.base, "of-bare");
+    git(folder, "worktree", "add", "--quiet", "-b", "side", worktree);
+    return { worktree };
+  }
+
+  it("reads the main checkout as the first worktree git lists, bare or not, and none where git listed no worktree", () => {
+    const listed = "worktree /r/project\nHEAD 1234\nbranch refs/heads/main\n\nworktree /w/project/linked\nHEAD 1234\nbranch refs/heads/side\n\n";
+    expect(mainCheckout(listed)).toEqual({ folder: "/r/project", bare: false });
+    // A bare repository's folder, with a linked worktree that is not bare after it.
+    expect(mainCheckout("worktree /r/bare.git\nbare\n\nworktree /w/of-bare\nHEAD 1234\nbranch refs/heads/side\n\n")).toEqual({ folder: "/r/bare.git", bare: true });
+    expect(mainCheckout("")).toBeNull();
+    expect(mainCheckout("HEAD 1234\n")).toBeNull();
+  });
+
+  it("is the top-level folder of the main checkout, for a folder inside the main checkout and for one inside a linked worktree alike", async () => {
+    const made = repository();
+    const { worktree, inside } = linked(made);
+    mkdirSync(join(made.repo, "src"));
+    for (const folder of [made.repo, join(made.repo, "src"), worktree, inside]) {
+      expect(await repositoryOf(folder)).toBe(made.repo);
+      expect(repositoryOfSync(folder)).toBe(made.repo);
+    }
+  });
+
+  it("is the checkout's folder where git keeps the git directory elsewhere, a submodule's and one made with a separate git directory, and refuses a linked worktree of either, whose main checkout git does not name", async () => {
+    const made = repository("super");
+    const lib = repository("lib");
+    git(made.repo, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", lib.repo, "sub");
+    const sub = join(made.repo, "sub");
+    mkdirSync(join(sub, "src"));
+    const apart = join(made.base, "apart");
+    git(made.base, "init", "--quiet", "--initial-branch=main", "--separate-git-dir", join(made.base, "apart.git"), apart);
+    git(apart, "-c", "user.name=Owlery Test", "-c", "user.email=test@owlery.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "first");
+    for (const [folder, checkout] of [[sub, sub], [join(sub, "src"), sub], [apart, apart]] as const) {
+      expect(await repositoryOf(folder)).toBe(checkout);
+      expect(repositoryOfSync(folder)).toBe(checkout);
+    }
+    expect((await createWorktree({ folder: sub, title: "In the submodule", root: made.root })).repo).toBe(sub);
+    // For a linked worktree of either, git lists a git directory first, and names no checkout.
+    for (const [checkout, name] of [[sub, "of-sub"], [apart, "of-apart"]] as const) {
+      const worktree = join(made.base, name);
+      git(checkout, "worktree", "add", "--quiet", "-b", "side", worktree);
+      await expect(repositoryOf(worktree)).rejects.toThrow(`${worktree} is a worktree of a repository whose main checkout git does not name`);
+      expect(repositoryOfSync(worktree)).toBeNull();
+    }
+  });
+
+  it("refuses a folder outside any repository with the sentence a creation there gets, and a folder whose repository has a bare main checkout with a sentence of its own", async () => {
+    const made = repository();
+    const plain = join(made.base, "plain");
+    mkdirSync(plain);
+    const { worktree } = bare(made);
+    await expect(repositoryOf(plain)).rejects.toThrow(`${plain} is not inside a git repository`);
+    await expect(repositoryOf(join(made.base, "missing"))).rejects.toThrow(`${join(made.base, "missing")} is not inside a git repository`);
+    await expect(repositoryOf(worktree)).rejects.toThrow(`${worktree} belongs to a bare repository, which has no checkout to keep`);
+    // The bare repository's own folder is refused as its worktree is.
+    const bareFolder = join(made.base, "bare.git");
+    await expect(repositoryOf(bareFolder)).rejects.toThrow(`${bareFolder} belongs to a bare repository, which has no checkout to keep`);
+    // The read at the daemon's start gives no folder for any of the four, and throws for none.
+    expect([repositoryOfSync(plain), repositoryOfSync(join(made.base, "missing")), repositoryOfSync(worktree), repositoryOfSync(bareFolder)]).toEqual([null, null, null, null]);
+  });
+
+  it("waits two seconds in all at the daemon's start for a folder git does not answer for, over the two commands the read can take", () => {
+    const made = repository();
+    const bin = join(made.base, "slow-bin");
+    mkdirSync(bin);
+    // A git that answers no command within the wait, and ends at the signal the timeout sends.
+    writeFileSync(join(bin, "git"), "#!/bin/sh\nexec sleep 6\n", { mode: 0o755 });
+    const path = process.env.PATH ?? "";
+    process.env.PATH = `${bin}:${path}`;
+    const began = Date.now();
+    let read: string | null;
+    try {
+      read = repositoryOfSync(made.repo);
+    } finally {
+      process.env.PATH = path;
+    }
+    const waited = Date.now() - began;
+    expect(read).toBeNull();
+    expect(waited).toBeGreaterThanOrEqual(1900);
+    expect(waited).toBeLessThan(3000);
+  });
+
+  it("puts a work item created in a linked worktree's folder under the main checkout, in the worktrees' folder of its name, and plans it there", async () => {
+    const made = repository();
+    const { inside } = linked(made);
+    const plan = await planWorktree({ folder: inside, title: "From a worktree", root: made.root });
+    expect([plan.branch, plan.worktree]).toEqual(["owlery/from-a-worktree", join(made.root, "project", "from-a-worktree")]);
+    const place = await createWorktree({ folder: inside, title: "From a worktree", root: made.root });
+    expect([place.repo, place.worktree]).toEqual([made.repo, join(made.root, "project", "from-a-worktree")]);
+  });
+});
+
+describe("the base a person chose for a repository", () => {
+  it("is the default base of a plan and the base of a creation without one, where the repository still lists it, and is passed over where it does not", async () => {
+    const made = repository();
+    git(made.repo, "branch", "--quiet", "develop");
+    const asked: string[] = [];
+    const chosenBase = (repo: string): string | null => {
+      asked.push(repo);
+      return "develop";
+    };
+    mkdirSync(join(made.repo, "src"));
+    const plan = await planWorktree({ folder: join(made.repo, "src"), title: "Planned", root: made.root, chosenBase });
+    expect([plan.defaultBase, plan.localBases]).toEqual(["develop", ["main", "develop"]]);
+    const place = await createWorktree({ folder: made.repo, title: "On develop", root: made.root, chosenBase });
+    expect(place.baseBranch).toBe("develop");
+    // The repository is named by its top-level folder, whatever folder inside it was sent.
+    expect(asked).toEqual([made.repo, made.repo]);
+    // A base that is sent stands before the one chosen for the repository.
+    expect((await createWorktree({ folder: made.repo, title: "On main", root: made.root, base: "main", chosenBase })).baseBranch).toBe("main");
+    git(made.repo, "branch", "--quiet", "-D", "develop");
+    expect((await planWorktree({ folder: made.repo, title: "Planned", root: made.root, chosenBase })).defaultBase).toBe("main");
+    expect((await createWorktree({ folder: made.repo, title: "Develop is gone", root: made.root, chosenBase })).baseBranch).toBe("main");
+    // No base is chosen: the repository's own default.
+    expect((await planWorktree({ folder: made.repo, title: "Planned", root: made.root, chosenBase: () => null })).defaultBase).toBe("main");
+  });
+});
+
 describe("newCommits", () => {
   /** Commits a new file in the folder, on whatever branch it has checked out. */
   function commit(folder: string, file: string): void {
@@ -520,5 +653,235 @@ describe("what a branch holds since its base", () => {
     expect(await branchChanges(join(made.base, "missing"), made.baseCommit, head)).toBeNull();
     expect(await branchCommits(made.repo, "0".repeat(40), head)).toBeNull();
     expect(await branchChanges(made.repo, "0".repeat(40), head)).toBeNull();
+  });
+});
+
+describe("renaming a work item's branch", () => {
+  it("plans owlery/<slug of the name> for a branch with no upstream that no remote holds, with -2 where another branch bears the name, and renames nothing", async () => {
+    const { repo, root } = clone();
+    const made = await createWorktree({ folder: repo, title: "First name", root });
+    expect(await planBranchRename(repo, made.branch, "  Second name!  ")).toEqual({ branch: "owlery/second-name", blocked: null });
+    git(repo, "branch", "--quiet", "owlery/second-name");
+    expect(await planBranchRename(repo, made.branch, "Second name")).toEqual({ branch: "owlery/second-name-2", blocked: null });
+    git(repo, "branch", "--quiet", "owlery/second-name-2");
+    expect(await planBranchRename(repo, made.branch, "Second name")).toEqual({ branch: "owlery/second-name-3", blocked: null });
+    expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/first-name");
+  });
+
+  it("says that a name which leaves no slug names no branch, and that a name whose branch the work item has changes none, the numbered one among them", async () => {
+    const { repo, root } = repository();
+    await createWorktree({ folder: repo, title: "Same name", root });
+    const second = await createWorktree({ folder: repo, title: "Same name", root });
+    expect(second.branch).toBe("owlery/same-name-2");
+    expect(await planBranchRename(repo, second.branch, " ?! ")).toEqual({ branch: null, blocked: "The name leaves no letter or digit to name a branch by." });
+    // `owlery/same-name` is another work item's, so the name gives the branch the work item already has.
+    expect(await planBranchRename(repo, second.branch, "Same name")).toEqual({ branch: "owlery/same-name-2", blocked: "The branch is already owlery/same-name-2." });
+  });
+
+  it("says that a branch with an upstream keeps its name, and so does one a remote holds under its name with no upstream", async () => {
+    const { repo, root } = clone();
+    const tracked = await createWorktree({ folder: repo, title: "Tracked", root });
+    git(repo, "push", "--quiet", "-u", "origin", tracked.branch);
+    expect(upstreamOf(repo, tracked.branch)).toBe("refs/remotes/origin/owlery/tracked");
+    expect(await planBranchRename(repo, tracked.branch, "Other")).toEqual({ branch: "owlery/other", blocked: "The branch owlery/tracked has an upstream, origin/owlery/tracked, so it keeps its name." });
+    const pushed = await createWorktree({ folder: repo, title: "Pushed", root });
+    git(repo, "push", "--quiet", "origin", pushed.branch);
+    expect(upstreamOf(repo, pushed.branch)).toBe("");
+    expect(await planBranchRename(repo, pushed.branch, "Other")).toEqual({ branch: "owlery/other", blocked: "The remote origin holds a branch owlery/pushed, so the branch keeps its name." });
+    // A remote's branch of a longer name is not the branch's.
+    const short = await createWorktree({ folder: repo, title: "Push", root });
+    expect(await planBranchRename(repo, short.branch, "Other")).toEqual({ branch: "owlery/other", blocked: null });
+  });
+
+  it("says that a branch which is gone cannot be renamed", async () => {
+    const { repo } = repository();
+    expect(await planBranchRename(repo, "owlery/gone", "Other")).toEqual({ branch: "owlery/other", blocked: "The branch owlery/gone is gone." });
+  });
+
+  it("renames the branch while its worktree has it checked out: the worktree's HEAD names the new branch at the same commit, and the folder is the one it was", async () => {
+    const { repo, root } = repository();
+    const made = await createWorktree({ folder: repo, title: "First name", root });
+    const commit = commitFile(made.worktree, "work.txt");
+    await renameBranch(repo, made.branch, "owlery/second-name");
+    expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/second-name");
+    expect(git(made.worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/second-name");
+    expect(commitOf(repo, "refs/heads/owlery/second-name")).toBe(commit);
+    expect(await branchHead(repo, made.branch)).toBeNull();
+    expect(existsSync(join(made.worktree, "work.txt"))).toBe(true);
+  });
+
+  it("refuses a rename onto a branch that exists, with git's own sentence, and leaves both branches as they were", async () => {
+    const { repo, root } = repository();
+    const made = await createWorktree({ folder: repo, title: "First name", root });
+    git(repo, "branch", "--quiet", "owlery/taken");
+    await expect(renameBranch(repo, made.branch, "owlery/taken")).rejects.toThrow("a branch named 'owlery/taken' already exists");
+    expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/first-name");
+    expect(commitOf(repo, "refs/heads/owlery/taken")).toBe(commitOf(repo, "refs/heads/main"));
+  });
+});
+
+describe("what a delete would lose", () => {
+  /** A work item's branch and worktree in a clone, with `.env` and `node_modules/` ignored by a commit of the branch, which the branch `keeps` holds too. */
+  async function workItem(made: { repo: string; root: string }) {
+    const place = await createWorktree({ folder: made.repo, title: "Lose", root: made.root });
+    writeFileSync(join(place.worktree, ".gitignore"), ".env\nnode_modules/\n");
+    git(place.worktree, "add", ".gitignore");
+    git(place.worktree, "commit", "--quiet", "-m", "ignore the environment");
+    git(made.repo, "branch", "keeps", place.branch);
+    return place;
+  }
+  const short = (repo: string, commit: string): string => git(repo, "rev-parse", "--short", commit).trim();
+  const NOTHING = { commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null, unreachable: false };
+
+  it("names the branch, the folder, the one commit no other branch holds, the changed tracked file, the untracked file by its own path and the ignored file and folder; no commit once the branch is pushed or a tag holds it; and the commit of the worktree's detached HEAD", async () => {
+    const made = clone();
+    const { branch, worktree } = await workItem(made);
+    const second = commitFile(worktree, "second.txt");
+    writeFileSync(join(worktree, "README.md"), "changed and not committed\n");
+    mkdirSync(join(worktree, "newdir", "deep"), { recursive: true });
+    writeFileSync(join(worktree, "newdir", "deep", "u.txt"), "untracked\n");
+    writeFileSync(join(worktree, ".env"), "SECRET=1\n");
+    mkdirSync(join(worktree, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(worktree, "node_modules", "left-pad", "index.js"), "\n");
+    const files = { uncommitted: ["README.md"], uncommittedCount: 1, untracked: ["newdir/deep/u.txt"], untrackedCount: 1, ignored: [".env", "node_modules/"], ignoredCount: 2 };
+    const loss = await readLoss(made.repo, branch, worktree);
+    expect(loss).toEqual({ ...NOTHING, branch, worktree, commits: [{ hash: short(made.repo, second), subject: "add second.txt" }], commitCount: 1, ...files, stamp: loss.stamp });
+    expect(loss.stamp).not.toBe("");
+    // A tag on the branch's head holds its commits, and so does the remote's branch as the clone holds it after a push with no upstream.
+    git(made.repo, "tag", "kept", branch);
+    const tagged = await readLoss(made.repo, branch, worktree);
+    expect(tagged).toMatchObject({ commits: [], commitCount: 0, ...files });
+    // The branch's head did not move, and the loss is another.
+    expect(tagged.stamp).not.toBe(loss.stamp);
+    git(made.repo, "tag", "-d", "kept");
+    expect((await readLoss(made.repo, branch, worktree)).commitCount).toBe(1);
+    git(made.repo, "push", "--quiet", "origin", branch);
+    expect(upstreamOf(made.repo, branch)).toBe("");
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ branch, worktree, commits: [], commitCount: 0, ...files });
+    // A commit on a detached HEAD of the worktree is on no branch at all.
+    git(worktree, "checkout", "--quiet", "--detach");
+    git(worktree, "commit", "--quiet", "--allow-empty", "-m", "on no branch");
+    const detached = commitOf(worktree, "HEAD");
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ branch, worktree, commits: [{ hash: short(made.repo, detached), subject: "on no branch" }], commitCount: 1 });
+  });
+
+  it("says why a delete cannot run: the branch is checked out in the repository's own checkout, or the worktree is locked", async () => {
+    const made = repository();
+    const { branch, worktree } = await workItem(made);
+    const free = await readLoss(made.repo, branch, worktree);
+    expect(free.blocked).toBeNull();
+    git(made.repo, "worktree", "lock", worktree);
+    const locked = await readLoss(made.repo, branch, worktree);
+    expect(locked.blocked).toBe(`The worktree ${worktree} is locked, so git does not remove it.`);
+    expect(locked.stamp).not.toBe(free.stamp);
+    git(made.repo, "worktree", "unlock", worktree);
+    git(worktree, "checkout", "--quiet", "--detach");
+    git(made.repo, "checkout", "--quiet", branch);
+    expect((await readLoss(made.repo, branch, worktree)).blocked).toBe(`The branch ${branch} is checked out in ${made.repo}, so it cannot be deleted.`);
+  });
+
+  it("gives a stamp that stays while nothing changes and differs after a commit, after a new untracked file, and for an entry the lists leave out; each list holds 500 entries beside the count of them all", async () => {
+    const made = repository();
+    const { branch, worktree } = await workItem(made);
+    const stamps = [(await readLoss(made.repo, branch, worktree)).stamp, (await readLoss(made.repo, branch, worktree)).stamp];
+    expect(stamps[0]).toBe(stamps[1]);
+    commitFile(worktree, "second.txt");
+    stamps.push((await readLoss(made.repo, branch, worktree)).stamp);
+    for (let n = 0; n < 501; n++) writeFileSync(join(worktree, `u${String(n).padStart(3, "0")}.txt`), "");
+    const many = await readLoss(made.repo, branch, worktree);
+    expect([many.untracked.length, many.untracked[0], many.untracked[499], many.untrackedCount]).toEqual([500, "u000.txt", "u499.txt", 501]);
+    stamps.push(many.stamp);
+    // The 502nd file is one the list does not carry.
+    writeFileSync(join(worktree, "u501.txt"), "");
+    const more = await readLoss(made.repo, branch, worktree);
+    expect([more.untracked, more.untrackedCount]).toEqual([many.untracked, 502]);
+    stamps.push(more.stamp);
+    // An ignored file is of the loss too.
+    writeFileSync(join(worktree, ".env"), "SECRET=1\n");
+    stamps.push((await readLoss(made.repo, branch, worktree)).stamp);
+    expect(new Set(stamps).size).toBe(5);
+  });
+
+  it("names no branch that is gone, names a folder removed by hand while git still lists it, names no folder git lists no worktree at, though one stands there, and says where git reads nothing in the repository's folder", async () => {
+    const made = repository();
+    const { branch, worktree } = await workItem(made);
+    rmSync(worktree, { recursive: true });
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ ...NOTHING, branch, worktree });
+    git(made.repo, "worktree", "prune");
+    mkdirSync(worktree);
+    writeFileSync(join(worktree, "left.txt"), "no worktree of git's\n");
+    // The folder is inside no worktree now, and git is not asked about it: it would answer for a repository the folder happens to be inside.
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ ...NOTHING, branch, worktree: null });
+    git(made.repo, "branch", "-D", branch);
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ ...NOTHING, branch: null, worktree: null });
+    // The main checkout is no worktree a delete removes, whatever a work item's entry says.
+    expect((await readLoss(made.repo, "main", made.repo)).worktree).toBeNull();
+    rmSync(made.repo, { recursive: true });
+    const gone = await readLoss(made.repo, branch, worktree);
+    expect(gone).toEqual({ ...NOTHING, branch: null, worktree: null, unreachable: true, stamp: gone.stamp });
+  });
+});
+
+describe("removing a work item's worktree and branch", () => {
+  it("removes a worktree that holds nothing but ignored files without the force, refuses one with an untracked file in git's own words and leaves it whole, and removes it with the force", async () => {
+    const made = repository();
+    const first = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    const second = await createWorktree({ folder: made.repo, title: "Second", root: made.root });
+    writeFileSync(join(first.worktree, ".gitignore"), ".env\n");
+    git(first.worktree, "add", ".gitignore");
+    git(first.worktree, "commit", "--quiet", "-m", "ignore the environment");
+    writeFileSync(join(first.worktree, ".env"), "SECRET=1\n");
+    await removeWorktree(made.repo, first.worktree, false);
+    expect([existsSync(first.worktree), Object.keys(worktrees(made.repo))]).toEqual([false, [made.repo, second.worktree]]);
+    // The branch stays until it is removed by its own command.
+    expect(await branchHead(made.repo, first.branch)).not.toBeNull();
+    writeFileSync(join(second.worktree, "untracked.txt"), "kept\n");
+    await expect(removeWorktree(made.repo, second.worktree, false)).rejects.toThrow("contains modified or untracked files, use --force to delete it");
+    expect([readdirSync(second.worktree).sort(), Object.keys(worktrees(made.repo))]).toEqual([[".git", "README.md", "untracked.txt"], [made.repo, second.worktree]]);
+    await removeWorktree(made.repo, second.worktree, true);
+    expect([existsSync(second.worktree), Object.keys(worktrees(made.repo)), existsSync(made.root)]).toEqual([false, [made.repo], true]);
+  });
+
+  it("takes a worktree whose folder was removed by hand off git's list, and removes nothing where git lists no linked worktree at the folder: a folder that is no worktree's, and the main checkout", async () => {
+    const made = repository();
+    const { worktree } = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    rmSync(worktree, { recursive: true });
+    await removeWorktree(made.repo, worktree, false);
+    expect(Object.keys(worktrees(made.repo))).toEqual([made.repo]);
+    mkdirSync(worktree);
+    writeFileSync(join(worktree, "left.txt"), "no worktree of git's\n");
+    await removeWorktree(made.repo, worktree, true);
+    await removeWorktree(made.repo, made.repo, true);
+    expect([readdirSync(worktree), existsSync(join(made.repo, "README.md"))]).toEqual([["left.txt"], true]);
+  });
+
+  it("finds a worktree whose folder a work item names through a link, as git lists it by the folder the link leads to", async () => {
+    const made = repository();
+    mkdirSync(made.root);
+    const link = join(made.base, "linked-root");
+    symlinkSync(made.root, link);
+    const { branch, worktree } = await createWorktree({ folder: made.repo, title: "First", root: link });
+    expect(worktree.startsWith(link)).toBe(true);
+    expect((await readLoss(made.repo, branch, worktree)).worktree).not.toBeNull();
+    await removeWorktree(made.repo, worktree, false);
+    expect([existsSync(worktree), Object.keys(worktrees(made.repo))]).toEqual([false, [made.repo]]);
+  });
+
+  it("removes the local branch though no other branch holds its commit, leaves the remote's branch of its name and every other ref, and does nothing for a branch that is gone", async () => {
+    const made = clone();
+    const { branch, worktree } = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    commitFile(worktree, "work.txt");
+    git(made.repo, "push", "--quiet", "origin", branch);
+    commitFile(worktree, "later.txt");
+    await removeWorktree(made.repo, worktree, false);
+    const refs = (): string[] => git(made.repo, "for-each-ref", "--format=%(refname) %(objectname)").split("\n").filter((line) => line !== "");
+    const before = refs();
+    const remote = git(made.origin, "for-each-ref");
+    await removeBranch(made.repo, branch);
+    expect(refs()).toEqual(before.filter((line) => !line.startsWith(`refs/heads/${branch} `)));
+    expect(before.some((line) => line.startsWith(`refs/remotes/origin/${branch} `))).toBe(true);
+    expect(git(made.origin, "for-each-ref")).toBe(remote);
+    await removeBranch(made.repo, branch);
+    expect(refs()).toEqual(before.filter((line) => !line.startsWith(`refs/heads/${branch} `)));
   });
 });
