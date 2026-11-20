@@ -5,10 +5,12 @@
 // repository's menu, the form's choice to register a repository alone, and
 // a repository's settings, its icon and hiding it; then a work item's
 // archive, the screen of a repository's archived work items and a restore;
-// and last a repository's removal. No case presses an "Open in" item or a
-// "Copy" item: each acts on the desktop and the clipboard of whoever runs
-// the suite.
-import { existsSync, readFileSync } from "node:fs";
+// then a work item's delete, and a removal that deletes a repository's work
+// items from disk; and last a repository's removal that leaves everything
+// on disk. No case presses an "Open in" item or a "Copy" item, and none
+// checks the choice that moves a repository's folder to the Trash: each acts
+// on the desktop, the clipboard and the Trash of whoever runs the suite.
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -16,13 +18,15 @@ import { installedApps } from "../src/main/openers";
 import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, rowButtons } from "../src/renderer/view";
 import { BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
-import { git, temporaryClone, temporaryRepository } from "./repositories";
+import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 describe("the menus in the built app", { timeout: 30_000 }, () => {
   let app: BuiltApp;
   let clone: ReturnType<typeof temporaryClone>;
   /** A second repository, which the form registers with no work item. */
   let second: ReturnType<typeof temporaryRepository>;
+  /** A third repository, whose removal deletes its one work item from disk. */
+  let third: ReturnType<typeof temporaryRepository>;
 
   const SIDEBAR = "#repositories";
   const INBOX = "#inbox-lines";
@@ -31,9 +35,9 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   const line = (within: string, id: number): string => `${within} button[data-work-item="${id}"]`;
   const MENU = `[role="menu"]`;
   /** The items a work item's menu holds on this Mac: the apps are the ones the main process finds installed. */
-  const items = (pin = "Pin", mute = "Mute notifications"): string[] => ["Rename", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", pin, mute, "Archive"];
+  const items = (pin = "Pin", mute = "Mute notifications"): string[] => ["Rename", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", pin, mute, "Archive", "Delete"];
   /** The items the menu of an archived work item holds on this Mac. */
-  const archivedItems = (): string[] => ["Restore", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name"];
+  const archivedItems = (): string[] => ["Restore", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", "Delete"];
 
   /** The items a repository's menu holds on this Mac. */
   const repositoryItems = (): string[] => ["Settings", "Change icon", "Show archived work items", "New group", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Hide from sidebar", "Remove"];
@@ -77,9 +81,11 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
   }
 
-  /** A click on the item of the open menu that says `label`. */
+  /** A click on the item of the open menu that says `label`, which nothing of the window stands over: a press in its middle is the item's. */
   async function pressItem(label: string): Promise<void> {
-    const at = await middleOf(`[...document.querySelectorAll('${MENU} [role="menuitem"]')].find((item) => item.textContent === ${JSON.stringify(label)})`);
+    const item = `[...document.querySelectorAll('${MENU} [role="menuitem"]')].find((item) => item.textContent === ${JSON.stringify(label)})`;
+    const at = await middleOf(item);
+    expect(await value<string>(`(() => { const top = document.elementFromPoint(${at.x}, ${at.y}); return top === (${item}) ? "the item" : (top?.className || top?.id || top?.tagName || "nothing"); })()`), `what stands at the middle of the item ${label}`).toBe("the item");
     await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
   }
@@ -99,7 +105,14 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.cdp("Input.insertText", { text });
   }
 
-  const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
+  /** Waits until a dialog is open, and says what the window shows instead where it never is. */
+  async function dialogOpen(id: string): Promise<void> {
+    try {
+      await app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
+    } catch (error) {
+      throw new Error(`${(error as Error).message}; the open dialogs are ${await value<string>(`JSON.stringify([...document.querySelectorAll("dialog[open]")].map((dialog) => dialog.id))`)}, a menu is ${(await value<boolean>(`document.querySelector('${MENU}') !== null`)) ? "open" : "not open"}, and the status line says ${JSON.stringify(await value<string>(`document.getElementById("status").textContent`))}`);
+    }
+  }
   const dialogClosed = (id: string): Promise<void> => app.until(`!document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id} closed`);
 
   /** Opens a repository's menu from its "…" button, and presses the item that says `label`. */
@@ -115,7 +128,9 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
     if (repo !== undefined) {
+      // Typed over the folder the form last held.
       await app.click("#work-item-repo");
+      await app.evaluate(`document.getElementById("work-item-repo").select()`);
       await app.cdp("Input.insertText", { text: repo });
     }
     await app.click("#work-item-title");
@@ -145,6 +160,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     buildApp();
     clone = temporaryClone();
     second = temporaryRepository("second");
+    third = temporaryRepository("third");
     // The pane's process is the receiver, so no shell of the person's and no agent starts.
     app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") });
     // The app starts in the background, and the page of a window without the system's focus reports none.
@@ -159,6 +175,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app?.stop();
     clone?.remove();
     second?.remove();
+    third?.remove();
   }, 30_000);
 
   it("opens a work item's menu at a press of the right button on its line in the sidebar, with its items in order and the keyboard on the first, moves through them with the arrows, and closes at Escape", async () => {
@@ -558,6 +575,88 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await order(INBOX)).toEqual([1, 2]);
   });
 
+  /** What a dialog names of a loss under an element: each heading with the lines under it. */
+  const lossIn = (id: string): Promise<[string, string[]][]> => value(`[...document.querySelectorAll("#${id} section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])`);
+
+  it("names in the delete dialog the branch, the folder, the commit no other branch holds, the untracked file and the ignored file, and the session the delete ends, with Delete off until Force delete is checked; shows a refusal there and reads the loss again; and after Delete the line is gone from the sidebar and from the inbox, and the clone holds no such branch and no such folder", async () => {
+    await create("Doomed");
+    const worktree = join(clone.root, "project", "doomed");
+    // Ignored by the clone's own list, so no commit of the branch holds the rule.
+    appendFileSync(join(clone.repo, ".git", "info", "exclude"), ".env\n");
+    const commit = git(clone.repo, "rev-parse", "--short", commitFile(worktree, "work.txt")).trim();
+    writeFileSync(join(worktree, "notes.txt"), "kept by no commit\n");
+    writeFileSync(join(worktree, ".env"), "SECRET=1\n");
+    await rightPress(line(SIDEBAR, 3));
+    await menuShown();
+    expect(await menuItems()).toEqual(items());
+    await pressItem("Delete");
+    await menuGone();
+    await dialogOpen("delete-dialog");
+    expect(await value<string>(`document.getElementById("delete-head").textContent`)).toBe("Delete Doomed");
+    // The keyboard starts on the button that deletes nothing.
+    expect(await value<string>(`document.activeElement.id`)).toBe("delete-cancel");
+    await app.until(`document.querySelector("#delete-loss section")`, "the loss in the delete dialog");
+    const named: [string, string[]][] = [
+      ["Removed from disk", ["The branch owlery/doomed", `The folder ${worktree}`]],
+      ["Commits no other branch, no remote and no tag holds", [`${commit} add work.txt`]],
+      ["Untracked files", ["notes.txt"]],
+      ["Ignored files and folders, which go with the folder", [".env"]],
+    ];
+    expect(await lossIn("delete-loss")).toEqual(named);
+    expect(await value<string[]>(`[...document.querySelectorAll("#delete-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell"]);
+    expect(await value<string[]>(`[document.getElementById("delete-says").textContent, document.getElementById("delete-remote").textContent]`)).toEqual(["A delete would lose the work named below. It runs only with Force delete checked.", "Nothing on a remote is removed."]);
+    const controls = (): Promise<boolean[]> => value(`[document.getElementById("delete-force-label").hidden, document.getElementById("delete-force").checked, document.getElementById("delete-submit").disabled]`);
+    expect(await controls()).toEqual([false, false, true]);
+    await app.click("#delete-force");
+    expect(await controls()).toEqual([false, true, false]);
+    // A file that arrives after the dialog was drawn is one the person has not read: the delete is refused, and the dialog reads the loss again.
+    writeFileSync(join(worktree, "later.txt"), "arrived since\n");
+    await app.click("#delete-submit");
+    await says("delete-error", "What the delete would remove has changed. Read it again.");
+    await app.until(`[...document.querySelectorAll("#delete-loss li")].some((item) => item.textContent === "later.txt")`, "the loss read again, with the new file");
+    expect((await lossIn("delete-loss"))[2]).toEqual(["Untracked files", ["later.txt", "notes.txt"]]);
+    expect(await controls()).toEqual([false, false, true]);
+    expect([existsSync(join(worktree, "notes.txt")), git(clone.repo, "branch", "--list", "owlery/doomed").trim()]).toEqual([true, "+ owlery/doomed"]);
+    await app.click("#delete-force");
+    await app.click("#delete-submit");
+    await dialogClosed("delete-dialog");
+    await app.until(`!document.querySelector('${line(SIDEBAR, 3)}')`, "the deleted work item's line gone from the sidebar");
+    expect(await order(SIDEBAR)).toEqual([1, 2]);
+    await app.click("#nav-inbox");
+    await app.until(`!document.getElementById("inbox-screen").hidden`, "the inbox");
+    expect(await order(INBOX)).toEqual([1, 2]);
+    expect(await value<string>(`document.getElementById("status").textContent`)).not.toContain("since you looked");
+    expect([existsSync(worktree), git(clone.repo, "branch", "--list", "owlery/doomed"), existsSync(join(clone.repo, "README.md"))]).toEqual([false, "", true]);
+  });
+
+  it("deletes a repository's work items from disk at its removal where the dialog's choice is taken: it names each work item's loss under it, turns the Trash's choice on, and after Remove the branch and the worktree are gone and the repository's folder stands", async () => {
+    await create("In third", third.repo);
+    const worktree = join(clone.root, "third", "in-third");
+    expect(existsSync(join(worktree, "README.md"))).toBe(true);
+    await fromMenu(3, "Remove");
+    await dialogOpen("remove-dialog");
+    const choices = (): Promise<boolean[]> => value(`[document.getElementById("remove-delete-label").hidden, document.getElementById("remove-delete").checked, document.getElementById("remove-trash").disabled, document.getElementById("remove-trash").checked, document.getElementById("remove-force-label").hidden, document.getElementById("remove-submit").disabled]`);
+    // Both choices are open, and the Trash's cannot be taken while the work item keeps its worktree.
+    expect(await choices()).toEqual([false, false, true, false, true, false]);
+    expect(await value<boolean>(`document.getElementById("remove-losses").hidden`)).toBe(true);
+    await app.click("#remove-delete");
+    await app.until(`document.querySelector("#remove-losses section")`, "the work item's loss in the removal's dialog");
+    expect(await value<string[]>(`[...document.querySelectorAll("#remove-losses h3.work-item")].map((head) => head.textContent)`)).toEqual(["In third"]);
+    expect(await lossIn("remove-losses")).toEqual([["Removed from disk", ["The branch owlery/in-third", `The folder ${worktree}`]]]);
+    expect(await choices()).toEqual([false, true, false, false, true, false]);
+    // A choice that is not offered is not drawn either.
+    expect(await value<string[]>(`["remove-force-label", "remove-delete-label"].map((id) => getComputedStyle(document.getElementById(id)).display)`)).toEqual(["none", "flex"]);
+    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
+    expect(await value<string[]>(`[...document.querySelectorAll("#remove-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell in In third"]);
+    await app.click("#remove-submit");
+    await dialogClosed("remove-dialog");
+    await app.until(`!document.querySelector('${repository(3)}')`, "the removed repository's row gone");
+    expect(await value<string>(`document.getElementById("status").textContent`)).not.toContain("Read it again");
+    expect([existsSync(worktree), git(third.repo, "branch", "--list", "owlery/*"), git(third.repo, "worktree", "list", "--porcelain").split("\n\n").filter((block) => block.trim() !== "").length]).toEqual([false, "", 1]);
+    // The Trash's choice was not taken, and the repository's folder stands as it was.
+    expect([readFileSync(join(third.repo, "README.md"), "utf8"), git(third.repo, "status", "--porcelain")]).toEqual(["a repository\n", ""]);
+  });
+
   it("removes a repository with no work item from its menu, after a dialog that says nothing on disk is removed, and leaves the repository as git held it", async () => {
     const before = [held(second.repo), readFileSync(join(second.repo, "README.md"), "utf8")];
     await fromMenu(2, "Remove");
@@ -565,6 +664,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await value<string>(`document.getElementById("remove-head").textContent`)).toBe("Remove Docs site from Owlery");
     expect(await value<string>(`document.getElementById("remove-says").textContent`)).toContain("Nothing on disk is removed");
     expect(await value<boolean[]>(`[document.getElementById("remove-work-items").hidden, document.getElementById("remove-sessions").hidden]`)).toEqual([true, true]);
+    // It holds no work item to delete, and its folder can go to the Trash, which nothing here chooses.
+    expect(await value<boolean[]>(`[document.getElementById("remove-delete-label").hidden, document.getElementById("remove-trash").disabled, document.getElementById("remove-trash").checked]`)).toEqual([true, false, false]);
     // The keyboard starts on the button that removes nothing.
     expect(await value<string>(`document.activeElement.id`)).toBe("remove-cancel");
     await app.click("#remove-cancel");
@@ -587,6 +688,12 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await listed("remove-work-items")).toEqual(["Renamed here", "Third name"]);
     // The pane of the second work item ended at its archive, and is no running session after the restore.
     expect(await listed("remove-sessions")).toEqual(["Shell in Renamed here"]);
+    // The choice to delete is taken and taken back: the Trash's choice goes off with it, and the removal that follows deletes nothing.
+    await app.click("#remove-delete");
+    await app.until(`document.querySelectorAll("#remove-losses h3.work-item").length === 2 && !document.getElementById("remove-trash").disabled`, "both work items' losses, and the Trash's choice on");
+    await app.click("#remove-delete");
+    expect(await value<boolean[]>(`[document.getElementById("remove-delete").checked, document.getElementById("remove-trash").disabled, document.getElementById("remove-trash").checked, document.getElementById("remove-losses").hidden]`)).toEqual([false, true, false, true]);
+    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toContain("Nothing on disk is removed");
     await app.click("#remove-submit");
     await dialogClosed("remove-dialog");
     await app.until(`document.querySelectorAll('${SIDEBAR} section').length === 0`, "no repository in the sidebar");

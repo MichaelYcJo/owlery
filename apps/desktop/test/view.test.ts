@@ -12,6 +12,9 @@ import {
   commandKey,
   commitLines,
   daemonLists,
+  deleteChoice,
+  deleteSays,
+  deletionOf,
   daemonStatus,
   emptyList,
   fileLines,
@@ -31,6 +34,7 @@ import {
   lineMarks,
   lineSession,
   lineText,
+  lossSections,
   markRanges,
   matchCount,
   matchSentence,
@@ -51,6 +55,7 @@ import {
   recentKept,
   REGISTER_ONLY_SAYS,
   registerFields,
+  removalChoice,
   removalOf,
   renameChoice,
   replayStep,
@@ -80,7 +85,7 @@ import {
   type FormPlan,
   type InboxLine,
 } from "../src/renderer/view";
-import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, Repository, SessionInfo, WorkItem, WorkItemLoss } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -398,7 +403,7 @@ const APPS = [
 const plain = (entries: readonly { label: string; description: string; action: unknown; divides: boolean }[]) => entries.map(({ description: _says, ...entry }) => entry);
 
 describe("workItemMenu", () => {
-  it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin, Mute notifications and Archive, each with what its press does", () => {
+  it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin, Mute notifications, Archive and Delete, each with what its press does", () => {
     expect(plain(workItemMenu(LOGIN, APPS))).toEqual([
       { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
       { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
@@ -409,22 +414,23 @@ describe("workItemMenu", () => {
       { label: "Pin", action: { do: "set", id: 1, pinned: true }, divides: true },
       { label: "Mute notifications", action: { do: "set", id: 1, muted: true }, divides: false },
       { label: "Archive", action: { do: "archive", id: 1 }, divides: true },
+      { label: "Delete", action: { do: "delete", id: 1 }, divides: false },
     ]);
   });
 
   it("offers Finder alone where no app is installed", () => {
-    expect(workItemMenu(LOGIN, []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive"]);
+    expect(workItemMenu(LOGIN, []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive", "Delete"]);
   });
 
   it("offers Unpin for a pinned work item and Unmute notifications for a muted one", () => {
     const items = plain(workItemMenu({ ...LOGIN, pinned: true, muted: true }, []));
-    expect(items.slice(-3, -1)).toEqual([
+    expect(items.slice(-4, -2)).toEqual([
       { label: "Unpin", action: { do: "set", id: 1, pinned: false }, divides: true },
       { label: "Unmute notifications", action: { do: "set", id: 1, muted: false }, divides: false },
     ]);
   });
 
-  it("holds for an archived work item, in this order, Restore, Open in Finder and in each installed app, and the two copies: no rename, no pin, no mute and no archive", () => {
+  it("holds for an archived work item, in this order, Restore, Open in Finder and in each installed app, the two copies and Delete: no rename, no pin, no mute and no archive", () => {
     expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS))).toEqual([
       { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
       { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
@@ -432,6 +438,7 @@ describe("workItemMenu", () => {
       { label: "Open in Warp", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Warp" }, divides: false },
       { label: "Copy path", action: { do: "copy", text: "/w/project/fix-the-login-bug" }, divides: true },
       { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
+      { label: "Delete", action: { do: "delete", id: 1 }, divides: true },
     ]);
   });
 });
@@ -470,7 +477,7 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([9, 9, 10, 6]);
+    expect(menus.map((menu) => menu.length)).toEqual([10, 10, 10, 7]);
   });
 
   it("says of the button at the sidebar's top, of a repository's two buttons and of the form's choice what each does, and tells registering a repository from creating a work item", () => {
@@ -518,6 +525,84 @@ describe("removalOf", () => {
       sessions: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Asked in Fix the login bug: Which file holds the login form?", "Asked in Speed up search: Where is the index built?"],
       running: { panes: [5, 7, 9], headless: [1, 5] },
     });
+  });
+});
+
+describe("what a delete dialog says of a loss", () => {
+  const NOTHING: WorkItemLoss = { branch: null, worktree: null, commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null, unreachable: false, stamp: "s" };
+  const CLEAN: WorkItemLoss = { ...NOTHING, branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", ignored: [".env", "node_modules/"], ignoredCount: 2 };
+  const HOLDS: WorkItemLoss = { ...CLEAN, commits: [{ hash: "abc1234", subject: "add the form" }], commitCount: 1, uncommitted: ["README.md"], uncommittedCount: 1, untracked: ["newdir/deep/u.txt"], untrackedCount: 1 };
+
+  it("names the branch and the folder a delete removes, each commit by its hash and its subject, and each file by its path, under a heading for each kind, and leaves out a kind the loss holds none of", () => {
+    expect(lossSections(HOLDS)).toEqual([
+      { caption: "Removed from disk", lines: ["The branch owlery/fix-the-login-bug", "The folder /w/project/fix-the-login-bug"], more: "" },
+      { caption: "Commits no other branch, no remote and no tag holds", lines: ["abc1234 add the form"], more: "" },
+      { caption: "Files with changes that are not committed", lines: ["README.md"], more: "" },
+      { caption: "Untracked files", lines: ["newdir/deep/u.txt"], more: "" },
+      { caption: "Ignored files and folders, which go with the folder", lines: [".env", "node_modules/"], more: "" },
+    ]);
+    expect(lossSections(CLEAN).map(({ caption }) => caption)).toEqual(["Removed from disk", "Ignored files and folders, which go with the folder"]);
+    expect(lossSections({ ...NOTHING, branch: "owlery/gone-folder" })).toEqual([{ caption: "Removed from disk", lines: ["The branch owlery/gone-folder"], more: "" }]);
+    expect(lossSections({ ...NOTHING, unreachable: true })).toEqual([]);
+  });
+
+  it("says how many more there are where a list is cut, of each kind by its own count", () => {
+    const cut = lossSections({ ...HOLDS, commitCount: 501, uncommittedCount: 2, untrackedCount: 1, ignoredCount: 14 });
+    expect(cut.map(({ more }) => more)).toEqual(["", "and 500 more", "and 1 more", "", "and 12 more"]);
+  });
+
+  it("offers Force delete only where a commit, a changed file or an untracked file would be lost, and turns Delete on once the loss has arrived, unless the delete is blocked or would lose work and is not forced", () => {
+    expect(deleteChoice(null, false)).toEqual({ forceShown: false, enabled: false });
+    expect(deleteChoice(null, true)).toEqual({ forceShown: false, enabled: false });
+    // The ignored files are named and need no force.
+    expect(deleteChoice(CLEAN, false)).toEqual({ forceShown: false, enabled: true });
+    expect(deleteChoice(HOLDS, false)).toEqual({ forceShown: true, enabled: false });
+    expect(deleteChoice(HOLDS, true)).toEqual({ forceShown: true, enabled: true });
+    for (const lost of [{ commitCount: 1 }, { uncommittedCount: 1 }, { untrackedCount: 1 }]) expect(deleteChoice({ ...CLEAN, ...lost }, false)).toEqual({ forceShown: true, enabled: false });
+    expect(deleteChoice({ ...CLEAN, blocked: "The worktree is locked." }, false)).toEqual({ forceShown: false, enabled: false });
+    expect(deleteChoice({ ...HOLDS, blocked: "The worktree is locked." }, true)).toEqual({ forceShown: true, enabled: false });
+    expect(deleteChoice({ ...NOTHING, unreachable: true }, false)).toEqual({ forceShown: false, enabled: true });
+  });
+
+  it("says before the lists what the delete does: that it is being read, why it cannot run, that work would be lost, that the folder stays where git reads nothing, or what it removes", () => {
+    expect(deleteSays(null)).toBe("Reading what a delete would remove.");
+    expect(deleteSays({ ...HOLDS, blocked: "The worktree /w is locked, so git does not remove it." })).toBe("The worktree /w is locked, so git does not remove it.");
+    expect(deleteSays(HOLDS)).toBe("A delete would lose the work named below. It runs only with Force delete checked.");
+    expect(deleteSays(CLEAN)).toBe("A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists.");
+    expect(deleteSays({ ...NOTHING, unreachable: true })).toBe("Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.");
+  });
+
+  describe("removalChoice", () => {
+    const NEITHER = "Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.";
+
+    it("shows the choice to delete the work items only where the repository holds one, and turns the Trash's choice on where it holds none or the work items are deleted", () => {
+      expect(removalChoice(0, false, false, [], false)).toEqual({ deleteShown: false, trashEnabled: true, forceShown: false, enabled: true, says: NEITHER });
+      expect(removalChoice(2, false, false, [], false)).toEqual({ deleteShown: true, trashEnabled: false, forceShown: false, enabled: true, says: NEITHER });
+      expect(removalChoice(2, true, false, [CLEAN, CLEAN], false)).toMatchObject({ deleteShown: true, trashEnabled: true, forceShown: false, enabled: true });
+    });
+
+    it("turns Remove off, where the work items are deleted, until every loss has arrived, while one is blocked, and while one would lose work and Force delete is not checked", () => {
+      expect(removalChoice(2, true, false, [CLEAN, undefined], false)).toMatchObject({ forceShown: false, enabled: false });
+      expect(removalChoice(2, true, false, [CLEAN, { ...CLEAN, blocked: "locked" }], true)).toMatchObject({ forceShown: false, enabled: false });
+      expect(removalChoice(2, true, false, [CLEAN, HOLDS], false)).toMatchObject({ forceShown: true, enabled: false });
+      expect(removalChoice(2, true, false, [CLEAN, HOLDS], true)).toMatchObject({ forceShown: true, enabled: true });
+      // With the choice not taken, a loss decides nothing.
+      expect(removalChoice(2, false, false, [HOLDS, undefined], false)).toMatchObject({ forceShown: false, enabled: true });
+    });
+
+    it("says what the removal does on disk for each choice", () => {
+      expect(removalChoice(2, true, false, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
+      expect(removalChoice(0, false, true, [], false).says).toBe("Owlery will no longer list the repository. Its folder moves to the Trash, whole, and nothing in it is erased.");
+      expect(removalChoice(2, true, true, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.");
+      // The Trash's choice counts only where it can be taken.
+      expect(removalChoice(2, false, true, [], false).says).toBe(NEITHER);
+    });
+  });
+
+  it("gives a removal that deletes the stamp of each work item's loss, by the work item's id, and whether it is forced", () => {
+    expect(deletionOf([1, 4], new Map([[1, CLEAN], [4, { ...HOLDS, stamp: "t" }], [9, HOLDS]]), true)).toEqual({ stamps: { 1: "s", 4: "t" }, force: true });
+    // A work item whose loss has not arrived has no stamp, and the daemon refuses the removal.
+    expect(deletionOf([1, 4], new Map([[1, CLEAN]]), false)).toEqual({ stamps: { 1: "s" }, force: false });
   });
 });
 

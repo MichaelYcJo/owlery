@@ -2,7 +2,7 @@
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, Repository, Running, SessionInfo, WorkItem } from "../shared/protocol";
+import { losesWork, type AgentState, type FileChange, type HeadlessInfo, type HeadlessState, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -259,6 +259,101 @@ export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[],
     sessions: [...panes.map(({ label }) => label), ...asked.map(({ prompt }) => `Asked: ${prompt}`)],
     running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
   };
+}
+
+/** One kind of thing a loss names, as a dialog draws it: its heading, a line for each entry the loss carries, and how many more there are where the list is cut, or nothing. */
+export interface LossSection {
+  caption: string;
+  lines: string[];
+  more: string;
+}
+
+/**
+ * What a dialog names of a loss, a section for each kind the loss holds
+ * something of, in this order: the branch and the folder a delete removes;
+ * the commits nothing else holds, each by its hash and its subject; the
+ * tracked files with a change that is not committed; the untracked files;
+ * and the ignored files and folders, which a removal of the folder takes
+ * with it.
+ */
+export function lossSections(loss: WorkItemLoss): LossSection[] {
+  const section = (caption: string, lines: string[], count: number): LossSection[] => (lines.length === 0 ? [] : [{ caption, lines, more: count > lines.length ? `and ${count - lines.length} more` : "" }]);
+  const removed = [...(loss.branch === null ? [] : [`The branch ${loss.branch}`]), ...(loss.worktree === null ? [] : [`The folder ${loss.worktree}`])];
+  return [
+    ...section("Removed from disk", removed, removed.length),
+    ...section("Commits no other branch, no remote and no tag holds", loss.commits.map(({ hash, subject }) => `${hash} ${subject}`), loss.commitCount),
+    ...section("Files with changes that are not committed", loss.uncommitted, loss.uncommittedCount),
+    ...section("Untracked files", loss.untracked, loss.untrackedCount),
+    ...section("Ignored files and folders, which go with the folder", loss.ignored, loss.ignoredCount),
+  ];
+}
+
+/** What the delete dialog says before its lists, of the loss the daemon answered with, or of none while the answer is awaited: why the delete cannot run, that work would be lost, that the folder stays where git reads nothing in the repository's folder, or what the delete removes. */
+export function deleteSays(loss: WorkItemLoss | null): string {
+  if (loss === null) return "Reading what a delete would remove.";
+  if (loss.blocked !== null) return loss.blocked;
+  if (loss.unreachable) return "Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.";
+  if (losesWork(loss)) return "A delete would lose the work named below. It runs only with Force delete checked.";
+  return "A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists.";
+}
+
+/**
+ * The delete dialog's two controls, for the loss the daemon answered with,
+ * or for none while the answer is awaited, and for whether "Force delete"
+ * is checked. The checkbox is shown where the delete would lose work. The
+ * "Delete" button is off until the loss has arrived, while the delete is
+ * blocked, and while work would be lost and the checkbox is not checked.
+ */
+export function deleteChoice(loss: WorkItemLoss | null, force: boolean): { forceShown: boolean; enabled: boolean } {
+  if (loss === null) return { forceShown: false, enabled: false };
+  const loses = losesWork(loss);
+  return { forceShown: loses, enabled: loss.blocked === null && (!loses || force) };
+}
+
+/**
+ * The controls of a repository's removal dialog and what it says, for how
+ * many work items the repository holds, for its two choices, "Also delete
+ * the work items' worktrees and local branches" and "Also move the
+ * repository's folder to the Trash", for the loss of each work item as far
+ * as the daemon has answered, and for whether "Force delete" is checked.
+ *
+ * The first choice is shown where the repository holds a work item. The
+ * Trash's choice can be taken where it holds none or the first is taken: a
+ * linked worktree of a repository that moved to the Trash no longer works.
+ * Where the work items are deleted, "Force delete" is shown where one of
+ * them would lose work, and "Remove" is off until every loss has arrived,
+ * while one is blocked, and while one would lose work and the checkbox is
+ * not checked.
+ */
+export function removalChoice(workItems: number, deletes: boolean, trash: boolean, losses: readonly (WorkItemLoss | undefined)[], force: boolean): { deleteShown: boolean; trashEnabled: boolean; forceShown: boolean; enabled: boolean; says: string } {
+  const trashEnabled = workItems === 0 || deletes;
+  const trashes = trash && trashEnabled;
+  const loses = deletes && losses.some((loss) => loss !== undefined && losesWork(loss));
+  const lists = workItems === 0 ? "Owlery will no longer list the repository." : "Owlery will no longer list the repository or its work items.";
+  const says = deletes
+    ? trashes
+      ? `${lists} Each work item's worktree and local branch are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.`
+      : `${lists} Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.`
+    : trashes
+      ? `${lists} Its folder moves to the Trash, whole, and nothing in it is erased.`
+      : "Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.";
+  return {
+    deleteShown: workItems > 0,
+    trashEnabled,
+    forceShown: loses,
+    enabled: !deletes || (losses.every((loss) => loss !== undefined && loss.blocked === null) && (!loses || force)),
+    says,
+  };
+}
+
+/** What a removal that deletes its work items sends beside what it names: the stamp of each work item's loss as the dialog showed it, by the work item's id, and whether the person checked "Force delete". */
+export function deletionOf(workItemIds: readonly number[], losses: ReadonlyMap<number, WorkItemLoss>, force: boolean): { stamps: Record<number, string>; force: boolean } {
+  const stamps: Record<number, string> = {};
+  for (const id of workItemIds) {
+    const loss = losses.get(id);
+    if (loss !== undefined) stamps[id] = loss.stamp;
+  }
+  return { stamps, force };
 }
 
 /** A repository's archived work items as its archived screen lists them: the one archived last first, and two archived at one time in the order given. */
@@ -679,15 +774,16 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
 
 /**
  * What the press of a menu's item does. On a work item's menu: opens the
- * rename dialog, sets the work item's pin or its mute, archives it, or, on
- * an archived one's, restores it. On a repository's: opens its settings, its
+ * rename dialog, sets the work item's pin or its mute, archives it, opens
+ * the dialog of its delete, or, on an archived one's, restores it. On a
+ * repository's: opens its settings, its
  * icon's dialog or its removal's, hides it, opens the screen of its archived
  * work items, or, for `group`, opens what a later build draws. On both:
  * opens a folder in Finder, where `app` is null, or in an installed app, or
  * writes a text to the clipboard.
  */
 export type MenuAction =
-  | { do: "rename" | "archive" | "restore"; id: number }
+  | { do: "rename" | "archive" | "restore" | "delete"; id: number }
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean }
@@ -713,10 +809,10 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 /**
  * A work item's menu, in its order: Rename; Open in Finder, then one item
  * for each installed editor and terminal; Copy path and Copy branch name;
- * Pin or Unpin, and Mute notifications or Unmute notifications; Archive.
- * The menu of an archived work item holds Restore, the items that open its
- * folder, and the two copies. The folder that is opened and copied is the
- * work item's worktree.
+ * Pin or Unpin, and Mute notifications or Unmute notifications; Archive and
+ * Delete. The menu of an archived work item holds Restore, the items that
+ * open its folder, the two copies and Delete. The folder that is opened and
+ * copied is the work item's worktree.
  */
 export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]): MenuEntry[] {
   const { id, worktree: folder } = workItem;
@@ -725,7 +821,8 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]):
     { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
     { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
   ];
-  if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, ...open, ...copies];
+  const remove = (divides: boolean): MenuEntry => ({ label: "Delete", description: "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.", action: { do: "delete", id }, divides });
+  if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, ...open, ...copies, remove(true)];
   return [
     { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
     ...open,
@@ -737,6 +834,7 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]):
       ? { label: "Unmute notifications", description: "Let this work item's sessions notify you again.", action: { do: "set", id, muted: false }, divides: false }
       : { label: "Mute notifications", description: "Raise no notification for this work item's sessions. Its line still shows its state.", action: { do: "set", id, muted: true }, divides: false },
     { label: "Archive", description: "Take the work item off the lists and end its sessions. Its folder and its branch stay on disk, and a restore brings it back.", action: { do: "archive", id }, divides: true },
+    remove(false),
   ];
 }
 
@@ -756,7 +854,7 @@ export function repositoryMenu(repository: Repository, apps: readonly InstalledA
     ...openEntries(folder, "the repository's", apps),
     { label: "Copy path", description: "Put the repository folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
     { label: "Hide from sidebar", description: "Take the repository out of the sidebar. Its work items stay in the inbox.", action: { do: "hide", id }, divides: true },
-    { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed.", action: { do: "remove", id }, divides: false },
+    { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed unless you choose it in the dialog.", action: { do: "remove", id }, divides: false },
   ];
 }
 

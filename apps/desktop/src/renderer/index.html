@@ -297,7 +297,8 @@
       #tabs .tab.shown .close:hover { color: var(--terminal-ink); }
       #tabs .tab.shown .close:active { color: var(--terminal-strong); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
-      #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
+      /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
+      #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
       .pane { position: absolute; inset: var(--space-5) 18px 10px; }
       /* "Side by side": the stage's panes are tiles in two columns, in the tabs' order, with two rows from the third pane on. The third of three spans both columns. A rule stands between the tiles. */
       #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
@@ -356,6 +357,8 @@
       /* A choice of a dialog: its box, then its words, on one line. */
       dialog label.check { display: flex; align-items: center; gap: var(--space-3); color: var(--ink); }
       dialog label.check:has(input:disabled) { color: var(--ink-faint); }
+      /* A choice that is not offered is not drawn: `hidden` gives way to any `display` a rule sets. */
+      dialog label.check[hidden] { display: none; }
       dialog input[type="checkbox"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
       #rename-plan { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-faint); overflow-wrap: anywhere; }
       #rename-error, dialog .refusal { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
@@ -367,6 +370,10 @@
       dialog section .named { margin-bottom: 0; }
       dialog .named li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--control-height); }
       dialog .named li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* What a delete would remove is read whole: a long path or subject takes the lines it needs. */
+      dialog .named.whole li > span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+      dialog .more { margin-top: var(--space-2); font-size: var(--size-second); color: var(--ink-faint); }
+      dialog h3.work-item { margin-bottom: var(--space-3); }
       /* A menu, drawn over the window where it was asked for: its items in a column, and a rule where another part of it begins. */
       .menu { position: fixed; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; min-width: var(--menu-width); max-width: var(--menu-width-most); padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
       /* The menu itself draws no ring when a press on no item puts the keyboard on it. */
@@ -642,10 +649,28 @@
         </div>
       </form>
     </dialog>
+    <dialog id="delete-dialog">
+      <form id="delete-form">
+        <h2 id="delete-head" class="head"></h2>
+        <p id="delete-says" class="says"></p>
+        <div id="delete-loss"></div>
+        <section id="delete-sessions" hidden>
+          <h3 class="caption">Running sessions that end</h3>
+          <ul class="named"></ul>
+        </section>
+        <p id="delete-remote" class="says">Nothing on a remote is removed.</p>
+        <label id="delete-force-label" class="check" hidden><input type="checkbox" id="delete-force" />Force delete</label>
+        <p id="delete-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="delete-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="delete-submit" class="primary">Delete</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="remove-dialog">
       <form id="remove-form">
         <h2 id="remove-head" class="head"></h2>
-        <p id="remove-says" class="says">Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.</p>
+        <p id="remove-says" class="says"></p>
         <section id="remove-work-items" hidden>
           <h3 class="caption">Work items that leave the lists</h3>
           <ul class="named"></ul>
@@ -654,6 +679,10 @@
           <h3 class="caption">Running sessions that end</h3>
           <ul class="named"></ul>
         </section>
+        <label id="remove-delete-label" class="check" hidden><input type="checkbox" id="remove-delete" />Also delete the work items' worktrees and local branches</label>
+        <div id="remove-losses" hidden></div>
+        <label id="remove-force-label" class="check" hidden><input type="checkbox" id="remove-force" />Force delete</label>
+        <label id="remove-trash-label" class="check"><input type="checkbox" id="remove-trash" />Also move the repository's folder to the Trash</label>
         <p id="remove-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="remove-cancel" class="quiet">Cancel</button>

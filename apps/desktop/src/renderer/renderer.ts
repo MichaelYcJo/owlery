@@ -3,15 +3,16 @@
 // the daemon for and its choice to register a repository alone, and the
 // menus of a work item and of a repository with what the press of each item
 // does: the rename dialog, a work item's archive with the dialog that names
-// the sessions it ends, its restore, and a repository's settings, its icon,
-// the list of the hidden ones, the screen of its archived work items and
-// its removal. How a menu is drawn is ./menu. The theme
+// the sessions it ends, its restore, its delete with the dialog that names
+// what would be lost, and a repository's settings, its icon, the list of
+// the hidden ones, the screen of its archived work items and its removal,
+// with its two choices to delete from disk. How a menu is drawn is ./menu. The theme
 // and its control are ./theme. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
-import type { AgentState, ClientMessage, HeadlessInfo, Repository, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, ClientMessage, HeadlessInfo, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
@@ -25,8 +26,12 @@ import {
   changesSince,
   commandKey,
   daemonLists,
+  deleteChoice,
+  deleteSays,
+  deletionOf,
   hiddenRepositories,
   inboxKey,
+  lossSections,
   menuKey,
   menuTarget,
   notificationFor,
@@ -35,6 +40,7 @@ import {
   planLine,
   REGISTER_ONLY_SAYS,
   registerFields,
+  removalChoice,
   removalOf,
   renameChoice,
   repositoryMenu,
@@ -120,6 +126,11 @@ const iconField = byId<HTMLInputElement>("icon-field");
 const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
 const removeDialog = byId<HTMLDialogElement>("remove-dialog");
 const sessionsDialog = byId<HTMLDialogElement>("sessions-dialog");
+const deleteDialog = byId<HTMLDialogElement>("delete-dialog");
+const deleteForce = byId<HTMLInputElement>("delete-force");
+const removeDelete = byId<HTMLInputElement>("remove-delete");
+const removeForce = byId<HTMLInputElement>("remove-force");
+const removeTrash = byId<HTMLInputElement>("remove-trash");
 
 /** A dialog that waits on the daemon's answer to one request: where its refusal is shown, and the button that sent it. */
 interface Asking {
@@ -132,6 +143,7 @@ const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error")
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
+const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
 const asking = new Map<number, Asking>();
 // The repository the settings dialog, the icon's dialog and the removal's dialog are each open on.
@@ -143,6 +155,16 @@ let removal: Removal | undefined;
 // The work item the dialog before an archive is open on, and the running sessions the dialog names, which is what its request tells the daemon the person was told of.
 let archiving: number | undefined;
 let archival: ReturnType<typeof archivalOf> | undefined;
+// The losses the removal's dialog read, of the repository's work items, by each one's id, while its choice to delete them is taken, and the reads the daemon has not answered, each with its work item.
+const removeLosses = new Map<number, WorkItemLoss>();
+const removeLossAsked = new Map<number, number>();
+// The removal whose answer moves the repository's folder to the Trash: its request, and the folder the dialog was open on.
+let trashing: { requestId: number; folder: string } | undefined;
+// The work item the delete dialog is open on, the loss the daemon answered with, or null until it answers, the read it waits on, and the running sessions the dialog names.
+let deleting: number | undefined;
+let deleteLoss: WorkItemLoss | null = null;
+let deleteLossRequest: number | undefined;
+let deletion: ReturnType<typeof archivalOf> | undefined;
 // The plan the settings dialog asked for, to list the repository's bases: its request, and what the daemon answered.
 let settingsPlanRequest: number | undefined;
 let settingsPlan: PlanAnswered | null = null;
@@ -303,6 +325,45 @@ function answered(requestId: number, refusal: string | null): boolean {
   return true;
 }
 
+/** Whether a dialog's request is with the daemon, unanswered. Its button stays off meanwhile, whatever the dialog's own choices say. */
+function waiting(of: Asking): boolean {
+  return [...asking.values()].includes(of);
+}
+
+/** The lines a dialog names, each whole on a line of a list. */
+function namedLines(lines: readonly string[], whole = false): HTMLUListElement {
+  const list = document.createElement("ul");
+  list.className = whole ? "named whole" : "named";
+  list.append(
+    ...lines.map((line) => {
+      const item = document.createElement("li");
+      const words = document.createElement("span");
+      words.textContent = line;
+      item.append(words);
+      return item;
+    }),
+  );
+  return list;
+}
+
+/** What a dialog draws of a loss: a section for each kind of thing it names, with its heading, its lines, each read whole, and how many more there are where the list is cut. */
+function lossParts(loss: WorkItemLoss): HTMLElement[] {
+  return lossSections(loss).map(({ caption, lines, more }) => {
+    const section = document.createElement("section");
+    const head = document.createElement("h3");
+    head.className = "caption";
+    head.textContent = caption;
+    section.append(head, namedLines(lines, true));
+    if (more !== "") {
+      const rest = document.createElement("p");
+      rest.className = "more";
+      rest.textContent = more;
+      section.append(rest);
+    }
+    return section;
+  });
+}
+
 function repositoryOf(id: number | undefined): Repository | undefined {
   return held.repositories.find((known) => known.id === id);
 }
@@ -364,6 +425,9 @@ function pressMenu(action: MenuAction): void {
       return;
     case "archive":
       archive(action.id);
+      return;
+    case "delete":
+      openDelete(action.id);
       return;
     case "restore":
       restore(action.id);
@@ -591,7 +655,15 @@ function openHidden(): void {
   hiddenDialog.showModal();
 }
 
-/** Draws what the removal's dialog names, from the daemon's lists as they are now: the repository, each work item it holds and each running session. It closes the dialog where the daemon no longer keeps the repository. */
+/**
+ * Draws what the removal's dialog names, from the daemon's lists as they are
+ * now: the repository, each work item it holds and each running session,
+ * and its two choices as ./view's `removalChoice` has them. Where the
+ * choice to delete the work items is taken, it asks the daemon for the loss
+ * of each work item it holds none of, and names each loss under its work
+ * item. It closes the dialog where the daemon no longer keeps the
+ * repository.
+ */
 function showRemove(): void {
   const repository = repositoryOf(removing);
   if (!repository) {
@@ -615,22 +687,172 @@ function showRemove(): void {
   };
   list("remove-work-items", removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title)));
   list("remove-sessions", removal.sessions);
+  const deletes = removeDelete.checked && removal.workItems.length > 0;
+  if (deletes) {
+    for (const { id } of removal.workItems) {
+      if (removeLosses.has(id) || [...removeLossAsked.values()].includes(id)) continue;
+      const requestId = request();
+      removeLossAsked.set(requestId, id);
+      send({ type: "readLoss", requestId, id });
+    }
+  }
+  const losses = removal.workItems.map(({ id }) => removeLosses.get(id));
+  // A choice that cannot be taken is not taken.
+  if (!removalChoice(removal.workItems.length, deletes, false, losses, false).trashEnabled) removeTrash.checked = false;
+  const choice = removalChoice(removal.workItems.length, deletes, removeTrash.checked, losses, removeForce.checked);
+  byId("remove-says").textContent = choice.says;
+  byId("remove-delete-label").hidden = !choice.deleteShown;
+  byId("remove-force-label").hidden = !choice.forceShown;
+  removeTrash.disabled = !choice.trashEnabled;
+  REMOVE.button.disabled = !choice.enabled || waiting(REMOVE);
+  const named = byId("remove-losses");
+  named.hidden = !deletes;
+  named.replaceChildren(
+    ...(deletes ? removal.workItems : []).flatMap(({ id, title }) => {
+      const head = document.createElement("h3");
+      head.className = "work-item";
+      head.textContent = title;
+      const loss = removeLosses.get(id) ?? null;
+      const says = document.createElement("p");
+      says.className = "says";
+      says.textContent = deleteSays(loss);
+      return [head, says, ...(loss === null ? [] : lossParts(loss))];
+    }),
+  );
+}
+
+/** Forgets the losses the removal's dialog read, and its choice to force, so each is read and chosen anew. */
+function forgetRemoveLosses(): void {
+  removeLosses.clear();
+  removeLossAsked.clear();
+  removeForce.checked = false;
+}
+
+/** Takes the daemon's answer to a read the removal's dialog asked for: a loss, which the dialog then names, or a refusal, which it shows. It answers whether the read was the dialog's. */
+function takeRemoveLoss(requestId: number, answered: { loss: WorkItemLoss } | { error: string }): boolean {
+  const id = removeLossAsked.get(requestId);
+  if (id === undefined) return false;
+  removeLossAsked.delete(requestId);
+  if (!removeDialog.open || !removeDelete.checked) return true;
+  if ("error" in answered) {
+    REMOVE.error.textContent = answered.error;
+    return true;
+  }
+  removeLosses.set(id, answered.loss);
+  showRemove();
+  return true;
 }
 
 /** Opens the dialog of a repository's removal, with the keyboard on the button that removes nothing. */
 function openRemove(repositoryId: number): void {
   if (!repositoryOf(repositoryId) || !opened(REMOVE)) return;
   removing = repositoryId;
+  // Both choices are open at each opening, and no loss is held from the one before.
+  removeDelete.checked = false;
+  removeTrash.checked = false;
+  forgetRemoveLosses();
   showRemove();
   byId("remove-cancel").focus();
 }
 
-/** Sends the removal the dialog holds, with the work items and the running sessions it named, so the daemon removes and ends what the person read and nothing else. */
+/**
+ * Sends the removal the dialog holds, with the work items and the running
+ * sessions it named, so the daemon removes and ends what the person read
+ * and nothing else. Where the choice to delete the work items is taken, it
+ * carries the stamp of each loss the dialog named and whether the deletes
+ * are forced. Where the Trash's choice is taken, the repository's folder is
+ * moved there once the daemon answers that the repository is removed, and
+ * not before.
+ */
 function remove(): void {
   const told = removal;
   const id = removing;
-  if (told === undefined || id === undefined) return;
-  ask(REMOVE, (requestId) => ({ type: "removeRepository", requestId, id, workItems: told.workItems.map((workItem) => workItem.id), running: told.running }));
+  const folder = repositoryOf(id)?.folder;
+  if (told === undefined || id === undefined || folder === undefined) return;
+  const workItems = told.workItems.map((workItem) => workItem.id);
+  const chosen = removeDelete.checked && workItems.length > 0 ? { delete: deletionOf(workItems, removeLosses, removeForce.checked) } : {};
+  const trash = removeTrash.checked && !removeTrash.disabled;
+  ask(REMOVE, (requestId) => {
+    trashing = trash ? { requestId, folder } : undefined;
+    return { type: "removeRepository", requestId, id, workItems, running: told.running, ...chosen };
+  });
+}
+
+/**
+ * Draws the delete dialog, from the daemon's lists as they are now and from
+ * the loss the daemon answered with: the work item, what ./view's
+ * `deleteSays` says of the loss, each thing the loss names, each running
+ * session, and the two controls as `deleteChoice` has them. It closes the
+ * dialog where the window's lists no longer hold the work item.
+ */
+function showDelete(): void {
+  const workItem = [...held.workItems, ...held.archived].find((known) => known.id === deleting);
+  if (!workItem) {
+    if (deleteDialog.open) deleteDialog.close();
+    return;
+  }
+  deletion = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
+  byId("delete-head").textContent = `Delete ${workItem.title}`;
+  byId("delete-says").textContent = deleteSays(deleteLoss);
+  byId("delete-loss").replaceChildren(...(deleteLoss === null ? [] : lossParts(deleteLoss)));
+  const section = byId("delete-sessions");
+  section.hidden = deletion.sessions.length === 0;
+  section.querySelector("ul")?.replaceWith(namedLines(deletion.sessions));
+  const choice = deleteChoice(deleteLoss, deleteForce.checked);
+  byId("delete-force-label").hidden = !choice.forceShown;
+  DELETE.button.disabled = !choice.enabled || waiting(DELETE);
+}
+
+/** Asks the daemon what a delete of the dialog's work item would lose. Until it answers the dialog names no loss, its choice to force is not taken, and its button is off. */
+function readDeleteLoss(): void {
+  const id = deleting;
+  if (id === undefined) return;
+  deleteLoss = null;
+  deleteForce.checked = false;
+  deleteLossRequest = request();
+  send({ type: "readLoss", requestId: deleteLossRequest, id });
+  showDelete();
+}
+
+/** Takes the daemon's answer to the read the delete dialog waits on: a loss, which the dialog then names, or a refusal, which it shows. It answers whether the read was the dialog's. */
+function takeDeleteLoss(requestId: number, answered: { loss: WorkItemLoss } | { error: string }): boolean {
+  if (requestId !== deleteLossRequest) return false;
+  deleteLossRequest = undefined;
+  if (!deleteDialog.open) return true;
+  if ("error" in answered) {
+    DELETE.error.textContent = answered.error;
+    return true;
+  }
+  deleteLoss = answered.loss;
+  showDelete();
+  return true;
+}
+
+/** Opens the delete dialog of a work item, archived or not, with the keyboard on the button that deletes nothing, and asks the daemon what the delete would lose. */
+function openDelete(workItemId: number): void {
+  if (![...held.workItems, ...held.archived].some((known) => known.id === workItemId) || !opened(DELETE)) return;
+  deleting = workItemId;
+  readDeleteLoss();
+  byId("delete-cancel").focus();
+}
+
+/** Sends the delete the dialog holds, with the stamp of the loss it names, whether "Force delete" is checked, and the running sessions it named, so the daemon deletes what the person read and nothing else. */
+function deleteNamed(): void {
+  const told = deletion;
+  const id = deleting;
+  const loss = deleteLoss;
+  if (told === undefined || id === undefined || loss === null) return;
+  const force = deleteChoice(loss, deleteForce.checked).forceShown && deleteForce.checked;
+  ask(DELETE, (requestId) => ({ type: "deleteWorkItem", requestId, id, stamp: loss.stamp, force, running: told.running }));
+}
+
+/** After a refusal of what a dialog sent: the delete dialog and the removal's dialog each read anew what a delete would lose, since a refusal says the loss the person read may no longer stand. */
+function readAgain(): void {
+  if (deleteDialog.open) readDeleteLoss();
+  if (removeDialog.open) {
+    forgetRemoveLosses();
+    showRemove();
+  }
 }
 
 /** Draws what the dialog before an archive names, from the daemon's lists as they are now: the work item, and each of its running sessions. It closes the dialog where the window's list no longer holds the work item. */
@@ -688,11 +910,12 @@ function restore(workItemId: number): void {
   send({ type: "restoreWorkItem", requestId: request(), id: workItemId });
 }
 
-/** Takes a headless session the daemon sent, and names it in the removal's dialog and in the dialog before an archive, where either is open: a session that started or ended is one the dialog has to say. */
+/** Takes a headless session the daemon sent, and names it in the removal's dialog, in the dialog before an archive and in the delete dialog, where one is open: a session that started or ended is one the dialog has to say. */
 function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
   takeHeadless(headless, requestId);
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
+  if (deleteDialog.open) showDelete();
 }
 
 /** Takes the repositories and the archived work items of a `ready` or an `inbox`, and what the status line has to say of the daemon that sent it. */
@@ -739,6 +962,7 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   if (hiddenDialog.open) showHidden();
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
+  if (deleteDialog.open) showDelete();
 }
 
 /** Draws the form as its choice "Register the repository only" has it: with the choice taken, the name, the base and the kind of pane are off, the form shows no plan, and its button reads "Register". */
@@ -910,9 +1134,20 @@ function onMessage(message: ServerMessage): void {
     case "renamePlan":
       takeRenamePlan(message.requestId, { branch: message.branch, blocked: message.blocked });
       return;
+    case "workItemLoss":
+      if (!takeDeleteLoss(message.requestId, { loss: message.loss })) takeRemoveLoss(message.requestId, { loss: message.loss });
+      return;
     case "done":
       // What the request changed arrives in the `inbox` that follows.
       tell("");
+      if (trashing?.requestId === message.requestId) {
+        // The daemon no longer keeps the repository, so its folder goes to the Trash now, as the person chose. A failure is said in the status line.
+        const { folder } = trashing;
+        trashing = undefined;
+        void window.owlery.trashFolder(folder).then((failure) => {
+          if (failure !== null) tell(failure);
+        });
+      }
       if (answered(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
@@ -934,7 +1169,14 @@ function onMessage(message: ServerMessage): void {
       if (takeRenamePlan(message.requestId, { error: message.message })) return;
       // The refusal of the plan that lists a repository's bases is the settings dialog's, and so is a refusal of what a dialog sent that dialog's.
       if (takeSettingsPlan(message.requestId, { error: message.message })) return;
-      if (answered(message.requestId, message.message)) return;
+      // A read of a loss that was refused is its dialog's to show.
+      if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
+      // A removal that was refused moves no folder to the Trash.
+      if (trashing?.requestId === message.requestId) trashing = undefined;
+      if (answered(message.requestId, message.message)) {
+        readAgain();
+        return;
+      }
       if (message.requestId === renameRequest && renameDialog.open) {
         renameRequest = undefined;
         renameError.textContent = message.message;
@@ -1100,6 +1342,19 @@ byId("remove-cancel").addEventListener("click", () => removeDialog.close());
 byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {
   event.preventDefault();
   remove();
+});
+removeDelete.addEventListener("change", () => {
+  // The losses are read when the choice is taken, and not kept once it is taken back.
+  forgetRemoveLosses();
+  showRemove();
+});
+removeForce.addEventListener("change", showRemove);
+removeTrash.addEventListener("change", showRemove);
+byId("delete-cancel").addEventListener("click", () => deleteDialog.close());
+deleteForce.addEventListener("change", showDelete);
+byId<HTMLFormElement>("delete-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  deleteNamed();
 });
 byId("sessions-cancel").addEventListener("click", () => sessionsDialog.close());
 byId<HTMLFormElement>("sessions-form").addEventListener("submit", (event) => {
