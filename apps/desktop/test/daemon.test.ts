@@ -1224,7 +1224,7 @@ describe("repositories", () => {
     c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 3);
     // Every client was told that the session failed, and why, before it left the lists.
-    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "failed" ? [m.headless.error] : []))).toEqual(["ended when the repository was removed"]);
+    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "failed" ? [m.headless.error] : []))).toEqual(["ended when a removal of its repository began"]);
     expect(stopped).toBe(0);
     await c.until(() => (stopped === 1 ? true : undefined));
   });

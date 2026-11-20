@@ -377,7 +377,7 @@ export class Daemon {
             const ids = new Set(repository.workItems.map((item) => item.id));
             // Every work item that leaves the lists is one the person read by name.
             if ([...ids].some((id) => !workItems.includes(id))) throw new Error("A work item was added since you looked. Read it again.");
-            await this.endSessions(ids, running as Running, "ended when the repository was removed");
+            await this.endSessions(ids, running as Running, "ended when a removal of its repository began");
             // Off the daemon's lists: the panes of the work items, the exited among them, the headless sessions, and what was read of each branch.
             for (const [id, session] of this.sessions) {
               if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
