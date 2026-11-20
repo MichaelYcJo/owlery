@@ -45,7 +45,7 @@ export interface OwleryApi {
   saveAppearance(choice: ThemeChoice): Promise<void>;
   /** The editors and the terminals the Mac holds, of those the main process knows, the editors first. */
   installedApps(): Promise<InstalledApp[]>;
-  /** Opens a folder in Finder, where `app` is null, or in the installed app of that name. It answers null, or why nothing was opened, as a sentence the window shows as it is. */
+  /** Opens a folder in Finder, where `app` is null, or in the installed app of that name. The folder is a work item's worktree or a repository's folder, and the main process opens no other path. It answers null, or why nothing was opened, as a sentence the window shows as it is. */
   openFolder(folder: string, app: string | null): Promise<string | null>;
   /** Writes a text to the system's clipboard. */
   copyText(text: string): Promise<void>;

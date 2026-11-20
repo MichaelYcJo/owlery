@@ -41,7 +41,7 @@ export function installedApps(exists: (path: string) => boolean, home: string): 
 
 /** What opening a folder needs of the main process. */
 export interface Openers {
-  /** Whether a bundle stands at a path. */
+  /** Whether anything stands at a path: a bundle, a folder, or the `.git` at a folder's top. A symlink is followed, as `existsSync` follows one. */
   exists(path: string): boolean;
   /** The person's home folder. */
   home: string;
@@ -57,10 +57,17 @@ export interface Openers {
  * or why nothing was opened, as a sentence the window shows as it is. An app
  * that is not of the list is never run, whatever stands on the disk under
  * its name. The folder is a whole path from /: `open` would read one that
- * starts with a dash as an option.
+ * starts with a dash as an option. It is a work item's worktree or a
+ * repository's folder, each of which holds `.git` at its top, and any other
+ * path is opened nowhere: Finder opens a file, and an app's bundle, in the
+ * app the system gives it, which is no app of the list. A path nothing
+ * stands at is answered as a folder that is gone.
  */
 export async function openFolder(folder: unknown, app: unknown, openers: Openers): Promise<string | null> {
   if (typeof folder !== "string" || !isAbsolute(folder)) return "A folder is opened by its whole path.";
+  // A person can remove a worktree's folder by hand, and the sentence then says so.
+  if (!openers.exists(folder)) return `${folder} is gone.`;
+  if (!openers.exists(join(folder, ".git"))) return "Owlery opens a work item's folder or a repository's folder, and nothing else.";
   if (app === null) return (await openers.openPath(folder)) || null;
   if (!KNOWN_APPS.some((known) => known.name === app)) return `${String(app)} is not an app Owlery opens a folder in.`;
   const installed = installedApps(openers.exists, openers.home).find((known) => known.name === app);
