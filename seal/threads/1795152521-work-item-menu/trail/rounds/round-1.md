@@ -32,6 +32,11 @@ The store gives a new work item one more than the highest id it holds, and a new
 - A new work item's id is one more than the highest id of the whole store, and a new repository's one more than the highest repository's. **Phase 3 has to look at this again, and phase 5 after it**: once a repository's removal (phase 3, `frame/design.md` *Scope* item 16) or a delete (phase 5) takes the work item with the highest id out, the next creation gets that id. A pane, the daemon's reads of a branch kept by the work item's id, or a look that still names the old work item would then name the new one. A removed repository's id is given again the same way, and the window's fold of the removed repository passes to the new one.
 ```
 
+```seal
+verdict: fixed 749af84
+answer: The finding holds. Both sentences now hand the point to phase 3. They are written in the fix pass's own words and not the paste-ready ones, which had phase 3 decide the point: the framer has since decided it (`e0cc7bf`), and `frame/plan.md` *Phases* row 3 gives phase 3 the counts that keep an id from being given twice, before its removal. `gaps.md` says so and cites the row, and the bullet of `trail/phases/phase-1.md` names what a reused id would break, a repository's id and the window's fold among it.
+```
+
 ### 2. The fold's sentence says `done` answers every new request, `planRename` and `readLoss` among them
 
 ```seal
@@ -46,6 +51,11 @@ The fold `80c8a03` rewrote the sentence from "`done` answers each of those that 
 
 ```markdown
 - New server messages. `done { requestId: number }` answers each of them that has no answer of its own, which is every one but `planRename` and `readLoss`, before the `inbox` that carries a change; a request that changed nothing, such as an `addRepository` of a repository already stored and shown, gets `done` and no `inbox`. `renamePlan { requestId: number; branch: string | null; blocked: string | null }` answers a `planRename`. `workItemLoss { requestId: number; id: number; loss: WorkItemLoss }` answers a `readLoss`. A request that fails is answered with the `error` message of `95decb6`.
+```
+
+```seal
+verdict: fixed e0cc7bf
+answer: The finding holds, and the framer's commit `e0cc7bf` repaired the sentence in `frame/design.md` *Data & interfaces*: `done` answers each new request that has no answer of its own, every one but `planRename` and `readLoss`, and the bullet says which request `renamePlan` and `workItemLoss` each answer. The fix pass read the sentence at `ad2f240` and changed nothing for it.
 ```
 
 ### 3. `addRepository` refuses an empty folder and adds the daemon's own repository for a relative one
@@ -78,6 +88,12 @@ for (const [requestId, wrong] of [[2, 7], [3, ""], [4, undefined], [5, "."], [6,
 ```
 
 The case's name at `apps/desktop/test/daemon.test.ts:803`, "one whose folder is no folder's name", then reads "one whose folder is no absolute folder's name". The bullet at `trail/phases/phase-1.md:12` then reads: "A `folder` that is no string, and one that is not absolute, the empty one among them, is refused with \"a repository is added by a folder inside it\". Git run with a relative folder answers for the folder the daemon runs in, so the daemon would add that repository."
+
+```seal
+verdict: fixed 6f7a15c
+location: `apps/desktop/src/daemon/daemon.ts`, `apps/desktop/test/daemon.test.ts`, `seal/threads/1795152521-work-item-menu/trail/phases/phase-1.md`, `apps/desktop/src/renderer/view.ts`, `apps/desktop/src/shared/protocol.ts`
+answer: The finding holds, for `addRepository` and for the two places of the base code. `addRepository` refuses a `folder` that is not absolute, as the paste-ready fix has it. `checkNaming` refuses a `repo` that is not absolute, in a creation and in a plan, with "the repository folder has to be a whole path from /, and <the folder> is not": a creation stores its folder's repository since phase 1, so it is inside this work item's reach. `workItemFields` keeps its code, since the daemon's refusal reaches the form as a plan's and a creation's error, and its comment now says who refuses what. `8a27255` says the same in the protocol's comments, which is why `location:` names `view.ts` and `protocol.ts`. The cases differ from the paste-ready ones in one way: each stands the suite's process in a temporary repository first (`standingIn`), because a relative folder resolves against the suite's own folder, and the red run of the creation's case would otherwise have cut a branch in the repository the suite runs in. Seen red at `ad2f240` with the cases alone, exit 1: the three cases ended at their 5 seconds, each waiting for a refusal the daemon did not send. `seal mutate` at `6f7a15c`: 3 mutants, 3 red, exit 0, the two guards put back to the empty folder alone and the sentence's words. The record's bullet reads as the round proposes, with a sentence on the creation and the plan.
+```
 
 ## Confirmations
 
