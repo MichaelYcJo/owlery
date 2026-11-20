@@ -1,0 +1,11 @@
+#!/bin/sh
+# A stand-in for the `claude` CLI in a pane of the terminal basics cases. It
+# is started as the daemon starts the CLI, `claude --settings <file>`, and
+# does the one thing of the CLI the cases need: it runs the hook that file
+# names for a prompt a person submitted, so the daemon lists the pane's
+# session as working, and then stays until the pane closes. It asks no model
+# anything and reads no setting of the person's.
+[ "$1" = "--settings" ] || exit 64
+: "${OWLERY_STAND_IN_NODE:?}"
+# The suite's binary is Electron, which runs a script as Node while the variable is set.
+ELECTRON_RUN_AS_NODE=1 exec "$OWLERY_STAND_IN_NODE" "${0%/*}/prompt.cjs" "$2"

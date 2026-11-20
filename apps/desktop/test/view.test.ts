@@ -6,6 +6,7 @@ import {
   askButton,
   baseMenu,
   changesSince,
+  closeAsks,
   commandKey,
   commitLines,
   daemonStatus,
@@ -1181,12 +1182,40 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, meta: true, ctrl: true }, { ...free, mac: false })).toBeNull();
   });
 
+  it("reads W with the Command key as the key that closes the pane in front, under the conditions it reads K and N", () => {
+    const w = { ...plain, code: "KeyW" };
+    expect(commandKey({ ...w, meta: true }, free)).toBe("closePane");
+    expect(commandKey({ ...w, ctrl: true }, { ...free, mac: false })).toBe("closePane");
+    expect(commandKey({ ...w, ctrl: true }, free)).toBeNull();
+    expect(commandKey(w, free)).toBeNull();
+    expect(commandKey({ ...w, meta: true }, { ...free, dialogOpen: true })).toBeNull();
+    // With the Shift key it is the menu's key, which closes the window.
+    expect(commandKey({ ...w, meta: true, shift: true }, free)).toBeNull();
+    expect(commandKey({ ...w, meta: true, alt: true }, free)).toBeNull();
+  });
+
   it("reads no key while a dialog is open, with no modifier key, or with another one held as well", () => {
     expect(commandKey({ ...plain, meta: true }, { ...free, dialogOpen: true })).toBeNull();
     expect(commandKey(plain, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, shift: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, alt: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, ctrl: true }, free)).toBeNull();
+  });
+});
+
+describe("closeAsks", () => {
+  it("asks before a pane whose session runs and is working closes", () => {
+    expect(closeAsks(session(1, { state: "working" }))).toBe(true);
+  });
+
+  it.each([
+    ["is waiting", session(1, { state: "waiting" })],
+    ["has finished its turn", session(1, { state: "finished" })],
+    ["has no state yet", session(1)],
+    ["is of a kind that reports no state", session(1, { kind: "shell" })],
+    ["was working when its process ended", session(1, { state: "working", alive: false })],
+  ])("asks nothing where the session %s", (_name, closing) => {
+    expect(closeAsks(closing)).toBe(false);
   });
 });
 

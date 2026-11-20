@@ -513,16 +513,30 @@ export function inboxKey(
 /**
  * What a key pressed with the Command key does on every screen, or null
  * where the window leaves it alone: K puts the focus in the search field,
- * and N opens the "New work item" form. The Control key stands for the
- * Command key where the keyboard has none. The key is read by its place on
- * the keyboard, and not while a dialog is open or another modifier key is
- * held as well.
+ * N opens the "New work item" form, and W closes the pane in front. The
+ * Control key stands for the Command key where the keyboard has none. The
+ * key is read by its place on the keyboard, and not while a dialog is open
+ * or another modifier key is held as well. The application menu binds none
+ * of these keys, since a menu takes its key before the page sees it
+ * (src/main/menu.ts).
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | "new" | null {
+export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | "new" | "closePane" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
   if (!command || key.alt || key.shift || where.dialogOpen) return null;
   if (key.code === "KeyK") return "search";
-  return key.code === "KeyN" ? "new" : null;
+  if (key.code === "KeyN") return "new";
+  return key.code === "KeyW" ? "closePane" : null;
+}
+
+/**
+ * Whether a pane's close asks the person first: its session is working, so
+ * the close would end an agent in the middle of a turn. A session works
+ * where its process runs and its state is `working`. A kind that reports no
+ * state never asks, and the function reads no kind (docs/architecture.md,
+ * "Rules that keep it portable").
+ */
+export function closeAsks(session: SessionInfo): boolean {
+  return session.alive && session.state === "working";
 }
 
 /**

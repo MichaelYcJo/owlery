@@ -12,7 +12,7 @@ import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from 
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import { agentKind, baseMenu, changesSince, commandKey, inboxKey, notificationFor, planAnswer, planLine, workItemFields, type BaseChoice, type FormPlan, type PlanAnswered, type StateFilter } from "./view";
-import { detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -118,14 +118,20 @@ function filter(state: StateFilter): void {
   showNarrowed();
 }
 
-/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, and N opens the "New work item" form. */
+/** Whether a dialog of the page is open: the "New work item" form, or the question before a working pane closes. The window reads none of its keys then. */
+function dialogOpen(): boolean {
+  return document.querySelector("dialog[open]") !== null;
+}
+
+/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, and W closes the pane in front. The key is kept from the terminal whatever it did. */
 function onCommandKey(event: KeyboardEvent): void {
-  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: workItemDialog.open });
+  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen() });
   if (key === null) return;
   event.preventDefault();
   event.stopPropagation();
   if (key === "search") focusSearch();
-  else openWorkItemForm();
+  else if (key === "new") openWorkItemForm();
+  else closeFront();
 }
 
 /**
@@ -140,7 +146,7 @@ function onKey(event: KeyboardEvent): void {
     { code: event.code, modified: event.ctrlKey || event.metaKey || event.altKey || event.shiftKey },
     {
       inboxInFront: front === "summary" || front === "inbox" || front === "history",
-      dialogOpen: workItemDialog.open,
+      dialogOpen: dialogOpen(),
       inField: target?.closest("input, textarea, select, [contenteditable]") != null,
       onControl: target?.closest("button, a") != null,
     },

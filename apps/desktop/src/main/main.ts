@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { themeChoice } from "../shared/appearance";
@@ -6,6 +6,8 @@ import { Channel, type DaemonConnection, type DaemonFailure } from "../shared/ip
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { quitsWithLastWindow, takeBackground } from "./background";
 import { ensureDaemon } from "./daemon-client";
+import { menuTemplate } from "./menu";
+import { staysOnPage } from "./navigation";
 import { pickFolder } from "./pick-folder";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
@@ -37,6 +39,11 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+  // The window shows Owlery's own page and nothing else. Nothing a pane prints and nothing a person drops on the window can take it to another page, where the panes would be out of sight, or open a second window (docs/architecture.md, Memory design). The page's reload asks for the URL the window shows, and passes.
+  win.webContents.on("will-navigate", (event, url) => {
+    if (!staysOnPage(url, win.webContents.getURL())) event.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   void win.loadFile(join(__dirname, "index.html"));
   if (background) win.showInactive();
   return win;
@@ -70,6 +77,8 @@ app.whenReady().then(() => {
       // setIcon throws on a file it cannot load. The Dock then keeps Electron's icon, and the window opens all the same.
     }
   }
+  // Set before the window is made, so the keys Electron's own menu binds are never the window's: that menu closes the window on Command+W.
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate(process.platform) as MenuItemConstructorOptions[]));
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

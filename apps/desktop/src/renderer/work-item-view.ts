@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
-import { askButton, headlessLines, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
+import { askButton, closeAsks, headlessLines, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
 interface Screen {
@@ -39,6 +39,8 @@ let askingIn: number | undefined;
 let askRequest: number | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
+// The pane the dialog asks about, while the dialog that asks before a working pane closes is open.
+let asking: number | undefined;
 
 const viewTitle = byId("view-title");
 const viewBranch = byId("view-branch");
@@ -59,6 +61,9 @@ const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
 const headlessList = byId<HTMLUListElement>("headless");
+const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
+const closeSentence = byId("close-pane-sentence");
+const closeCancel = byId<HTMLButtonElement>("close-pane-cancel");
 
 /** The work item whose view is on screen, where the window holds it. */
 function viewed(): WorkItem | undefined {
@@ -209,6 +214,8 @@ export function dropClosed(listed: ReadonlySet<number>): void {
     if (front === pane) front = undefined;
     giveBack(screen);
   }
+  // The pane the dialog asks about ended some other way, so there is nothing left to ask.
+  if (asking !== undefined && !listed.has(asking)) closeDialog.close();
   // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first four panes of the stage order, which hold tabs never in front where fewer than four of the tabs were in front, or the one of the four with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
@@ -267,6 +274,31 @@ function showAskSection(): void {
   );
 }
 
+/**
+ * Closes a pane, as a press of its tab's "×" asks. The daemon ends the
+ * process and takes the session off its lists, and the tab goes at the
+ * `inbox` that follows. A pane whose session is working (./view,
+ * `closeAsks`) is not closed here: a dialog names it and asks, with the
+ * keyboard on "Cancel", and only its "Close pane" sends the close.
+ */
+function closePane(session: SessionInfo): void {
+  if (!closeAsks(session)) {
+    send({ type: "close", id: session.id });
+    return;
+  }
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  asking = session.id;
+  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds)} is working. Closing the pane ends its session.`;
+  closeDialog.showModal();
+  closeCancel.focus();
+}
+
+/** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view, it does nothing. */
+export function closeFront(): void {
+  const session = held.sessions.find((listed) => listed.id === front);
+  if (session) closePane(session);
+}
+
 /** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. */
 function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean): HTMLElement {
   const tab = document.createElement("span");
@@ -283,8 +315,7 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
     broughtToFront(held.viewing, session.id);
     showView();
   });
-  // The daemon ends the process and takes the session off its lists; the tab goes at the `inbox` that follows.
-  close.addEventListener("click", () => send({ type: "close", id: session.id }));
+  close.addEventListener("click", () => closePane(session));
   tab.append(label, close);
   return tab;
 }
@@ -429,6 +460,16 @@ export function initView(onLeave: () => void): void {
   askForm.addEventListener("submit", (event) => {
     event.preventDefault();
     ask();
+  });
+  closeCancel.addEventListener("click", () => closeDialog.close());
+  byId("close-pane-confirm").addEventListener("click", () => {
+    if (asking !== undefined) send({ type: "close", id: asking });
+    closeDialog.close();
+  });
+  // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front.
+  closeDialog.addEventListener("close", () => {
+    asking = undefined;
+    screenOf(front)?.term.focus();
   });
   sideBySideButton.addEventListener("click", () => {
     sideBySide = !sideBySide;
