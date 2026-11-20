@@ -47,7 +47,7 @@ Constraints of the run, which every party of this work item keeps.
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 7, in `src/shared/ipc.ts`, `src/preload/preload.ts`, `src/main/forward.ts`, `src/main/main.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts` and `src/renderer/renderer.ts`, with the changelog fragment `changelog.md` | Scenarios 1 and 2 as cases, each seen red before its code. Scenario 3 as the new file, run by itself, seen red at the first notification's handler before `renderer.ts` assigns one | |
+| 1 | `frame/design.md` *Scope* items 1 to 7, in `src/shared/ipc.ts`, `src/preload/preload.ts`, `src/main/forward.ts`, `src/main/main.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts` and `src/renderer/renderer.ts`, with the changelog fragment `changelog.md` | Scenarios 1 and 2 as cases, each seen red before its code. Scenario 3 as the new file, run by itself, seen red at the first notification's handler before `renderer.ts` assigns one | `0beea5a` |
 
 The phase leaves the app working: a notification is raised as at `ce9c41d`, and a click on it now does something.
 
