@@ -141,6 +141,15 @@ export interface HeadlessInfo {
   startedAt: number;
 }
 
+/** When the daemon keeps the machine it runs on from idle sleep: while an agent works, for as long as the daemon runs, or never. */
+export type KeepAwakeChoice = "working" | "always" | "never";
+
+/** The daemon's choice of when to keep its machine awake, and whether it holds the machine awake now. */
+export interface KeepAwake {
+  choice: KeepAwakeChoice;
+  held: boolean;
+}
+
 export type ClientMessage =
   | { type: "hello"; token: string }
   // `continueLatest` starts the pane on the latest conversation of its folder, the work item's worktree where `workItemId` names one. The daemon answers it with an `error` for a kind that does not declare `continues`.
@@ -161,12 +170,14 @@ export type ClientMessage =
   | { type: "ask"; requestId: number; workItemId: number; prompt: string }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }
+  // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
+  | { type: "setKeepAwake"; choice: KeepAwakeChoice }
   | { type: "input"; id: number; data: string }
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  // `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`.
-  | { type: "ready"; sessions: SessionInfo[]; workItems: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null }
+  // `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice.
+  | { type: "ready"; sessions: SessionInfo[]; workItems: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake }
   // The whole of both lists, sent to every client whenever either changes.
   | { type: "inbox"; sessions: SessionInfo[]; workItems: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
@@ -178,6 +189,8 @@ export type ServerMessage =
   | { type: "asked"; requestId: number; headless: HeadlessInfo }
   // One headless session whole, sent to every client whenever it changes.
   | { type: "headless"; headless: HeadlessInfo }
+  // The choice and whether the hold stands, sent to every client whenever either changes.
+  | { type: "keepAwake"; keepAwake: KeepAwake }
   // Answers a request that failed; nothing was created or started.
   | { type: "error"; requestId: number; message: string }
   | { type: "output"; id: number; data: string }
