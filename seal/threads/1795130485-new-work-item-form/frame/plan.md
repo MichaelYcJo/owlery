@@ -48,7 +48,7 @@ Constraints the tree sets.
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 6 and 10, in `src/shared/names.ts`, `src/shared/protocol.ts`, `src/daemon/worktrees.ts` and `src/daemon/daemon.ts`, with `## Removes` rows 3 to 7 | Scenarios 1 to 7 and 13 as cases, each seen red before its code. Scenario 12's search | `cdcedfc` |
-| 2 | `frame/design.md` *Scope* items 7 to 9, in `src/renderer/index.html`, `src/renderer/view.ts` and `src/renderer/renderer.ts`, with `## Removes` rows 1 and 2, and the changelog fragment `changelog.md` | Scenario 8 as cases, each seen red before its code. Scenario 9 as the new file, run by itself, which starts the app once in the background. Scenario 10's case run by itself and its `git diff --stat`. Scenario 11's search | |
+| 2 | `frame/design.md` *Scope* items 7 to 9, in `src/renderer/index.html`, `src/renderer/view.ts` and `src/renderer/renderer.ts`, with `## Removes` rows 1 and 2, and the changelog fragment `changelog.md` | Scenario 8 as cases, each seen red before its code. Scenario 9 as the new file, run by itself, which starts the app once in the background. Scenario 10's case run by itself and its `git diff --stat`. Scenario 11's search |`769ccc5` |
 
 Each phase leaves the app working. After phase 1 the form of `47c4f61` still creates a work item, which then starts from the default base, and it still refuses an empty title in the window.
 
