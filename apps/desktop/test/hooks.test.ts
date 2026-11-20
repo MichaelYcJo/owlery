@@ -193,4 +193,10 @@ describe("claudePaneCommand", () => {
     const { args } = claudePaneCommand({ SHELL: "/bin/zsh" }, "/Users/a b/it's.json");
     expect(args[3]).toBe(`exec claude --settings '/Users/a b/it'\\''s.json'`);
   });
+
+  it("adds --continue after the settings where the pane starts on the latest conversation of its folder, in the same shell", () => {
+    const { command, args } = claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", true);
+    expect(command).toBe("/bin/zsh");
+    expect(args).toEqual(["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"]);
+  });
 });

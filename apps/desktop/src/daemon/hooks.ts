@@ -78,11 +78,14 @@ function shellQuote(value: string): string {
 /**
  * The command of a Claude Code pane: the user's interactive login shell, so
  * `claude` is found on the PATH their profile sets, replaced by `claude` with
- * Owlery's hook settings. The pane ends when `claude` does.
+ * Owlery's hook settings. The pane ends when `claude` does. With
+ * `continueLatest`, `claude` starts on the latest conversation of the folder
+ * the pane runs in, which Claude Code chooses, and ends at once where the
+ * folder holds none.
  */
-export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string): { command: string; args: string[] } {
+export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false): { command: string; args: string[] } {
   const shell = env.SHELL || "/bin/zsh";
-  return { command: shell, args: ["-l", "-i", "-c", `exec claude --settings ${shellQuote(settingsFile)}`] };
+  return { command: shell, args: ["-l", "-i", "-c", `exec claude --settings ${shellQuote(settingsFile)}${continueLatest ? " --continue" : ""}`] };
 }
 
 /** Reads the pane's id on the first line and the hook's JSON after it; anything else is no event. */

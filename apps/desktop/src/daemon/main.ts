@@ -45,8 +45,8 @@ async function main(): Promise<void> {
     runDir,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
-    commandFor: (kind, id) => ({
-      ...(kind === "claude" ? claudePaneCommand(process.env, hookSettingsFile) : loginShell(process.env)),
+    commandFor: (kind, id, start) => ({
+      ...(kind === "claude" ? claudePaneCommand(process.env, hookSettingsFile, start.continueLatest) : loginShell(process.env)),
       env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: hooks.socketPath },
     }),
     // Every headless session is the user's own CLI, found once through their login shell.
