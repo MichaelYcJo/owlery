@@ -16,6 +16,9 @@ writeFileSync(join(home, "notes", "today.md"), "");
 symlinkSync(join(worktree, "src"), join(base, "link-to-src"));
 // A bundle is a folder whose name holds a dot. One of the two is a checkout as well.
 mkdirSync(join(base, "Thing.app"));
+// A link whose own name holds no dot, to a folder named as a bundle, and one whose name holds a dot, to a plain folder.
+symlinkSync(join(base, "Thing.app"), join(base, "link-to-thing"));
+symlinkSync(join(worktree, "src"), join(base, "link.to-src"));
 mkdirSync(join(base, "my.project", ".git"), { recursive: true });
 // A linked worktree holds `.git` as a file.
 mkdirSync(join(base, "linked.tree"));
@@ -142,6 +145,15 @@ describe("showInFinder", () => {
     expect(await showInFinder(join(base, "my.project"), finder)).toBe(true);
     expect(await showInFinder(join(base, "linked.tree"), finder)).toBe(true);
     expect({ selected, opened }).toEqual({ selected: [join(base, "Thing.app")], opened: [join(base, "my.project"), join(base, "linked.tree")] });
+  });
+
+  it("reads a link by what it leads to, its name too, and hands the act the link's own path", async () => {
+    const { selected, opened, finder } = noting();
+    // A link to a bundle is a bundle, whatever the link is called: opening it would start the app.
+    expect(await showInFinder(join(base, "link-to-thing"), finder)).toBe(true);
+    // A link to a plain folder is a plain folder, though the link's own name holds a dot.
+    expect(await showInFinder(join(base, "link.to-src"), finder)).toBe(true);
+    expect({ selected, opened }).toEqual({ selected: [join(base, "link-to-thing")], opened: [join(base, "link.to-src")] });
   });
 
   it("hands the act the whole path, with every dot and every step up resolved", async () => {

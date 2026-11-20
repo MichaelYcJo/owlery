@@ -1,7 +1,7 @@
 // What stands at a path a pane printed, and how Finder shows one. It imports
 // nothing of Electron, and Finder's two acts are passed in, so the cases
 // read it on the disk of a temporary folder and open no Finder window.
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import type { PathFound } from "../shared/ipc";
 import { chooseOpener, type Opener } from "./links";
@@ -76,14 +76,19 @@ export function chooseFinder(program: string | null, background: boolean, system
  * Has `finder` show a path a person chose in a pane, and answers whether it
  * was shown. The disk is read again here, since the path comes from the
  * window: nothing is shown where the path is no text, does not open with
- * `/`, or has neither a file nor a folder at it. The act is `finderAct`'s,
- * and it is handed the whole path.
+ * `/`, or has neither a file nor a folder at it. A link is read as what it
+ * leads to, its name too, so a link to an app's bundle is a bundle whatever
+ * the link is called. The act is `finderAct`'s, and it is handed the whole
+ * path, which for a link is the link's own.
  */
 export async function showInFinder(path: unknown, finder: Finder): Promise<boolean> {
   if (typeof path !== "string" || !path.startsWith("/")) return false;
   const whole = resolve(path);
   const kind = await kindAt(whole);
   if (kind === null) return false;
-  const checkout = kind === "folder" && (await kindAt(join(whole, ".git"))) !== null;
-  return finder[finderAct(basename(whole), kind === "folder", checkout)](whole);
+  // Where the path went away since it was read, nothing is shown.
+  const real = await realpath(whole).catch(() => null);
+  if (real === null) return false;
+  const checkout = kind === "folder" && (await kindAt(join(real, ".git"))) !== null;
+  return finder[finderAct(basename(real), kind === "folder", checkout)](whole);
 }
