@@ -201,6 +201,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     // The mark is the page's own, so it is gone once the page has loaded again.
     await app.evaluate(`void (window.__beforeReload = true, location.reload())`);
     await app.until(`window.__beforeReload === undefined && ${SCREEN_IN_FRONT} !== undefined`, "the page loaded again, with a screen in front");
+    // A page that loaded shows no card of a link before the pointer rested on one.
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
     expect(await app.evaluate<string>("location.href")).toBe(own);
     expect(await app.pages()).toEqual([own]);
   });
@@ -581,7 +583,9 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
     expect(await app.evaluate<number>(`document.getElementById("link-card").getBoundingClientRect().left`)).toBe(shownAt);
-    // It leaves once the pointer is on neither.
+    // It leaves once the pointer is on neither, and not at once: the pointer has a moment to reach the card across what lies between.
+    await pointAt(9, EMPTY_ROW);
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
     await pointAway();
 
     // A key pressed in the pane takes the card away at once.
@@ -684,7 +688,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const at = await restOn(columns - 1, 4);
     expect((await card()).title).toBe(wrapped);
     const box = await app.evaluate<{ left: number; right: number; inner: number }>(`(() => { const box = document.getElementById("link-card").getBoundingClientRect(); return { left: box.left, right: box.right, inner: window.innerWidth }; })()`);
-    expect(box.left).toBeLessThan(at.x);
+    // Its left edge stands well left of the pointer, by more than the part of a cell a pointer's place is rounded by.
+    expect(at.x - box.left).toBeGreaterThan(10);
     expect(box.right).toBeLessThanOrEqual(box.inner);
     await pointAway();
 
