@@ -12,7 +12,7 @@ export interface MenuEntry {
 
 const SEPARATOR: MenuEntry = { type: "separator" };
 
-// The role closes the window, and brings Command+W with it where the entry names no key of its own. The window reads that key in its page, to close the pane in front.
+// The role closes the window, which on macOS hides it (./background, `closeHides`), and brings Command+W with it where the entry names no key of its own. The window reads that key in its page, to close the pane in front.
 const CLOSE_WINDOW: MenuEntry = { label: "Close Window", role: "close", accelerator: "Shift+CommandOrControl+W" };
 
 /**
