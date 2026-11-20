@@ -1304,6 +1304,8 @@ describe("repositories", () => {
       [4, { stamps, force: "yes" }],
       [5, { stamps: [], force: false }],
       [6, true],
+      [10, { stamps: null, force: false }],
+      [11, { stamps: "stamps", force: false }],
     ] as const;
     for (const [requestId, chosen] of refusals) {
       c.send({ type: "removeRepository", requestId, id: 1, ...told, delete: chosen });
