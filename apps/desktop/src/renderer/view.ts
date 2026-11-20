@@ -592,9 +592,111 @@ export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: 
   return key.key === "Enter" && key.shift && !key.ctrl && !key.alt && !key.meta ? "lineFeed" : null;
 }
 
-/** Whether a click on a link in a pane opens it: only with the Command key held, or the Control key where the keyboard has no Command key. A click without it stays the terminal's, which selects text with it. */
-export function linkOpens(click: { meta: boolean; ctrl: boolean }, mac: boolean): boolean {
-  return mac ? click.meta : click.ctrl;
+/** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */
+export interface PathCandidate {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * The texts of a line a pane printed that may each name a path, for the
+ * main process to say what stands there (src/main/paths.ts). A candidate is
+ * a run of characters between spaces that holds a slash and not `://`, the
+ * mark of an address, which the link add-on finds. Around it are cut the
+ * quotes and the brackets a sentence puts there, the punctuation that
+ * closes one, and a line number with its column, written as `:12` or
+ * `:12:5`. A run that names nothing but its slashes, dots and tildes is no
+ * candidate: `//` opens a comment on every other line of a program, and
+ * would read as the root folder. A bare name is none either, since `docs`
+ * is a word of a sentence and a folder of most worktrees.
+ */
+export function pathCandidates(line: string): PathCandidate[] {
+  const found: PathCandidate[] = [];
+  for (const run of line.matchAll(/\S+/g)) {
+    if (!run[0].includes("/") || run[0].includes("://")) continue;
+    let start = /^["'`([{<]*/.exec(run[0])?.[0].length ?? 0;
+    let text = run[0].slice(start);
+    // A path that ends in the folder above keeps its dots.
+    while (/["'`)\]}>.,;:!?]$/.test(text) && !/\/\.\.?$/.test(text)) text = text.slice(0, -1);
+    text = text.replace(/:\d+(?::\d+)?$/, "");
+    if (!text.includes("/") || /^[/.~]*$/.test(text)) continue;
+    start += run.index;
+    found.push({ text, start, end: start + text.length });
+  }
+  return found;
+}
+
+/** What a link of a pane leads to: an address of the web, the worktree of another work item the window lists, or any other path a file or a folder stands at. */
+export type LinkTarget = { kind: "web"; address: string } | { kind: "workItem"; path: string; workItemId: number } | { kind: "path"; path: string };
+
+/** What a person does with a link: open its address in the browser, put its work item's view in front, show its path in Finder, or copy the address or the path. */
+export type LinkAct = "browser" | "workItem" | "finder" | "copy";
+
+/** The target of a link the terminal found as an address: a web address, as the URL's parser writes it, where it is an `http` or `https` one, and none otherwise. The main process opens no other address (src/main/links.ts). */
+export function webTarget(address: string): LinkTarget | null {
+  if (!URL.canParse(address)) return null;
+  const url = new URL(address);
+  return url.protocol === "http:" || url.protocol === "https:" ? { kind: "web", address: url.href } : null;
+}
+
+/**
+ * The target of a path the main process found a file or a folder at, whole:
+ * the worktree of a work item the window lists, where it is one, and
+ * another path otherwise. The worktree of the work item whose view is on
+ * screen, `viewing`, is another path, since a click that opened the view
+ * already on screen would do nothing.
+ */
+export function pathTarget(path: string, workItems: readonly WorkItem[], viewing: number | undefined): LinkTarget {
+  const workItem = workItems.find((listed) => listed.worktree === path && listed.id !== viewing);
+  return workItem ? { kind: "workItem", path, workItemId: workItem.id } : { kind: "path", path };
+}
+
+// What a person can do with a link of each kind of target, in the order the card's rows stand in, and the click that does it: one with the key held, one with the key and the Shift key held, or none. `linkClick` and `linkCard` both read it, so a row never names a click that does something else.
+const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAct; click: "key" | "shiftKey" | null }[]> = {
+  web: [
+    { text: "Open in browser", act: "browser", click: "key" },
+    { text: "Copy link", act: "copy", click: null },
+  ],
+  workItem: [
+    { text: "Open work item", act: "workItem", click: "key" },
+    { text: "Open in Finder", act: "finder", click: "shiftKey" },
+  ],
+  path: [
+    { text: "Show in Finder", act: "finder", click: "key" },
+    { text: "Copy path", act: "copy", click: null },
+  ],
+};
+
+/**
+ * What a click on a link in a pane does, from the kind of its target and
+ * the keys held, or null where the click stays the terminal's, which
+ * selects text with it. The key is the Command key, and the Control key
+ * where the keyboard has none: on a Mac the Control key with a click is the
+ * secondary click. With the Shift key held as well the click does what the
+ * target's rows give that click, and what the click with the key alone does
+ * where they give it nothing.
+ */
+export function linkClick(kind: LinkTarget["kind"], click: { meta: boolean; ctrl: boolean; shift: boolean }, mac: boolean): LinkAct | null {
+  if (!(mac ? click.meta : click.ctrl)) return null;
+  const rows = LINK_ROWS[kind];
+  const row = (click.shift ? rows.find((listed) => listed.click === "shiftKey") : undefined) ?? rows.find((listed) => listed.click === "key");
+  return row ? row.act : null;
+}
+
+/** A link's card: the whole target on its first line, and a row for each thing a person can do with it, with the keys that do it, empty where no click does. */
+export interface LinkCard {
+  title: string;
+  rows: { text: string; keys: string; act: LinkAct }[];
+}
+
+/** The card of a link: its target whole, the address or the path, and its rows, each with the click that does what it names, as `linkClick` answers that click on a keyboard that is a Mac's or is not. A row that copies names no click. */
+export function linkCard(target: LinkTarget, mac: boolean): LinkCard {
+  const keys = { key: mac ? "\u2318 Click" : "Ctrl Click", shiftKey: mac ? "\u21e7 \u2318 Click" : "Shift Ctrl Click" };
+  return {
+    title: target.kind === "web" ? target.address : target.path,
+    rows: LINK_ROWS[target.kind].map(({ text, act, click }) => ({ text, keys: click === null ? "" : keys[click], act })),
+  };
 }
 
 /**

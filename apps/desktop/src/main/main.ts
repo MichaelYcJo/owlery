@@ -1,14 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { themeChoice } from "../shared/appearance";
-import { Channel, type DaemonConnection, type DaemonFailure } from "../shared/ipc";
+import { Channel, type DaemonConnection, type DaemonFailure, type PathFound } from "../shared/ipc";
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { quitsWithLastWindow, takeBackground } from "./background";
+import { chooseClipboard } from "./clipboard";
 import { ensureDaemon } from "./daemon-client";
 import { chooseOpener, openLink, takeOpener } from "./links";
 import { menuTemplate } from "./menu";
 import { staysOnPage } from "./navigation";
+import { chooseFinder, pathsOf, showInFinder } from "./paths";
 import { comeForward } from "./forward";
 import { pickFolder } from "./pick-folder";
 
@@ -16,20 +18,37 @@ import { pickFolder } from "./pick-folder";
 // over WebSocket. The main process finds or starts it, opens the folder
 // dialog the window asks for, and keeps the theme a person chose. It sets
 // the app's menu, keeps the one window on Owlery's own page, opens the
-// address of a link a person clicked in a pane outside Owlery, and brings
-// the window forward when the window asks.
+// address of a link a person clicked in a pane outside Owlery, says what
+// stands at a path a pane printed and shows one in Finder, reads and writes
+// the clipboard, and brings the window forward when the window asks.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
 // A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard.
 // The variable leaves the environment here, so the daemon and the panes' processes start without it.
 const background = takeBackground(process.env);
-// Who opens a link's address: the program `OWLERY_OPENER` names, nobody in the background, and the system's opener otherwise (./links). The variable leaves the environment here too.
-const opener = chooseOpener(takeOpener(process.env), background, (address) =>
+// The program `OWLERY_OPENER` names, which acts in place of the system's browser and of Finder. The variable leaves the environment here too.
+const program = takeOpener(process.env);
+// Who opens a link's address: that program, nobody in the background, and the system's opener otherwise (./links).
+const opener = chooseOpener(program, background, (address) =>
   shell.openExternal(address).then(
     () => true,
     () => false,
   ),
 );
+// Who shows a path in Finder, chosen the same way for each of Finder's two acts (./paths). `openPath` answers with an empty text where it opened the folder.
+const finder = chooseFinder(program, background, {
+  select: async (path) => {
+    shell.showItemInFolder(path);
+    return true;
+  },
+  open: (path) =>
+    shell.openPath(path).then(
+      (failure) => failure === "",
+      () => false,
+    ),
+});
+// The clipboard a copy and a paste of the window reach: the app's own in the background, and the system's otherwise (./clipboard).
+const held = chooseClipboard(background, clipboard);
 // Set before the app is ready, so the start does not make it the front app. On macOS the app then has no Dock icon and no menu bar.
 if (background && process.platform === "darwin") app.setActivationPolicy("accessory");
 
@@ -84,6 +103,12 @@ app.whenReady().then(() => {
   ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, themeChoice(choice)));
   // The address comes from what a pane printed, so it is opened only where it is an `http` or `https` one (./links).
   ipcMain.handle(Channel.openLink, (_event, address: unknown): Promise<boolean> => openLink(address, opener));
+  // The texts come from what a pane printed. The answer says only whether a file or a folder stands at each, and where.
+  ipcMain.handle(Channel.pathsOf, (_event, worktree: unknown, texts: unknown): Promise<(PathFound | null)[]> => pathsOf(worktree, texts, app.getPath("home")));
+  // The disk is read again at the request, and a file is never opened (./paths).
+  ipcMain.handle(Channel.showInFinder, (_event, path: unknown): Promise<boolean> => showInFinder(path, finder));
+  ipcMain.handle(Channel.copyText, (_event, text: unknown): Promise<void> => held.writeText(text as string));
+  ipcMain.handle(Channel.clipboardText, (): Promise<string> => held.readText());
   // The window asks at a person's click on its notification, so the app takes the front from whichever app the person is in.
   ipcMain.handle(Channel.comeForward, (event): boolean => comeForward(BrowserWindow.fromWebContents(event.sender), background, () => app.focus({ steal: true })));
   if (process.platform === "darwin") {

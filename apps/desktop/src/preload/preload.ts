@@ -26,6 +26,10 @@ const api: OwleryApi = {
   appearance,
   saveAppearance: (choice) => ipcRenderer.invoke(Channel.saveAppearance, choice),
   openLink: (url) => ipcRenderer.invoke(Channel.openLink, url),
+  pathsOf: (worktree, texts) => ipcRenderer.invoke(Channel.pathsOf, worktree, texts),
+  showInFinder: (path) => ipcRenderer.invoke(Channel.showInFinder, path),
+  copyText: (text) => ipcRenderer.invoke(Channel.copyText, text),
+  clipboardText: () => ipcRenderer.invoke(Channel.clipboardText),
   pathOf: (file) => webUtils.getPathForFile(file),
   comeForward: () => ipcRenderer.invoke(Channel.comeForward),
 };

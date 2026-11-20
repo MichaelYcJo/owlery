@@ -9,7 +9,10 @@
 # with a prompt of its own does, so a case tells a paste from typed keys.
 # It prints two links for the cases that click one: an address as plain
 # text on its first row, and on its second row a name that carries another
-# address (the OSC 8 sequence).
+# address (the OSC 8 sequence). Under them it prints the lines of the file
+# OWLERY_BASICS_LINES names, each on a row of its own, where that file is
+# there: a case writes into it the paths it will point at, before it opens
+# the pane.
 #
 # A Claude Code pane has the shell replace itself with `claude`. The folder
 # beside this file holds a stand-in of that name, and it is put first on the
@@ -28,5 +31,8 @@ fi
 # Raw and without echo: no byte is changed, held back or answered.
 stty raw -echo
 printf '\033[?2004hhttps://example.com/owlery-basics\r\n\033]8;;https://example.com/owlery-named\033\\a named link\033]8;;\033\\\r\n'
+if [ -f "${OWLERY_BASICS_LINES:-}" ]; then
+  while IFS= read -r line; do printf '%s\r\n' "$line"; done < "$OWLERY_BASICS_LINES"
+fi
 echo "$$" > "$OWLERY_RECEIVER_FILE-$OWLERY_PANE_ID.pid"
 exec cat > "$OWLERY_RECEIVER_FILE-$OWLERY_PANE_ID"

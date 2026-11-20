@@ -1,14 +1,42 @@
 // A work item's view: its header, its tabs with the terminals of the panes
 // on the stage and the strip under them, and its right column, which says what the
 // daemon sends of the work item above the "Ask" section and the seal's
-// place. The pool of terminal screens the window holds lives here.
+// place. The pool of terminal screens the window holds lives here, and so
+// does the card of the link under the pointer.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import { type ILink, Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
-import { askButton, closeAsks, droppedText, headlessLines, linkOpens, paneChoices, paneKey, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
+import {
+  askButton,
+  closeAsks,
+  droppedText,
+  headlessLines,
+  type LinkAct,
+  linkCard,
+  linkClick,
+  type LinkTarget,
+  paneChoices,
+  paneKey,
+  paneTabs,
+  pathCandidates,
+  pathTarget,
+  recentKept,
+  replayStep,
+  repoNameOf,
+  screenMoves,
+  type ScreenTurns,
+  screenTurns,
+  stageOf,
+  stateWithAge,
+  tabLabel,
+  tellsSize,
+  viewFacts,
+  webTarget,
+  withHeadless,
+} from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
 interface Screen {
@@ -44,6 +72,17 @@ let leave: () => void = () => {};
 let asking: number | undefined;
 // Whether the keyboard is a Mac's, which has the Command key.
 let mac = false;
+// What puts a work item's view in front, for a click on a link that is another work item's worktree.
+let openWorkItem: (workItemId: number) => void = () => {};
+// How long the pointer rests on a link before its card shows, and how long the card stays once the pointer is on neither the link nor the card, which is the time the pointer has to go from one to the other.
+const CARD_SHOW_MS = 300;
+const CARD_LEAVE_MS = 200;
+// The target of the link the pointer is on, for the card that shows once the pointer has rested there.
+let cardFor: LinkTarget | undefined;
+// Where the pointer is in the window, as its last move said. The card shows at it.
+let pointer = { x: 0, y: 0 };
+let cardShowTimer: ReturnType<typeof setTimeout> | undefined;
+let cardLeaveTimer: ReturnType<typeof setTimeout> | undefined;
 
 const viewTitle = byId("view-title");
 const viewBranch = byId("view-branch");
@@ -66,6 +105,7 @@ const askSubmit = byId<HTMLButtonElement>("ask-submit");
 const headlessList = byId<HTMLUListElement>("headless");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
 const closeSentence = byId("close-pane-sentence");
+const linkCardElement = byId("link-card");
 
 /** The work item whose view is on screen, where the window holds it. */
 function viewed(): WorkItem | undefined {
@@ -97,9 +137,161 @@ function screenOf(pane: number | undefined): Screen | undefined {
   return pane === undefined ? undefined : pool.find((screen) => screen.turns.pane === pane);
 }
 
-/** Opens a link of a pane outside Owlery, where the click that chose it held the key that opens one (./view, `linkOpens`). The main process decides whether the address is one it opens. */
-function openLink(event: MouseEvent, address: string): void {
-  if (linkOpens({ meta: event.metaKey, ctrl: event.ctrlKey }, mac)) void window.owlery.openLink(address);
+/** Does with a link's target what a click or a row of the card chose (./view, `LinkAct`). The main process decides whether an address is one it opens, and reads the disk again before it shows a path. */
+function act(chosen: LinkAct, target: LinkTarget): void {
+  if (chosen === "copy") void window.owlery.copyText(target.kind === "web" ? target.address : target.path);
+  else if (target.kind === "web") void window.owlery.openLink(target.address);
+  else if (chosen === "workItem" && target.kind === "workItem") openWorkItem(target.workItemId);
+  else void window.owlery.showInFinder(target.path);
+}
+
+/** Answers a click on a link the terminal found as an address, printed as text or behind a name: it opens outside Owlery where the click held the key that opens one (./view, `linkClick`). An address that is no web address is handed on as it is, and the main process opens nothing for it. */
+function clickAddress(event: MouseEvent, address: string): void {
+  if (linkClick("web", { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey }, mac) === "browser") void window.owlery.openLink(address);
+}
+
+/** Takes the card away at once, and forgets the link it was for. */
+function hideCard(): void {
+  clearTimeout(cardShowTimer);
+  clearTimeout(cardLeaveTimer);
+  cardFor = undefined;
+  linkCardElement.hidden = true;
+}
+
+/** Has the card leave once the pointer has been on neither the link nor the card for `CARD_LEAVE_MS`. A card that only waits to show does not show. */
+function cardLeaves(): void {
+  clearTimeout(cardShowTimer);
+  clearTimeout(cardLeaveTimer);
+  cardLeaveTimer = setTimeout(hideCard, CARD_LEAVE_MS);
+}
+
+/**
+ * Draws the card of a link's target (./view, `linkCard`) under the row of
+ * the terminal the pointer is on, with its left edge at the pointer, and
+ * moved to stand inside the window where it would pass an edge. Each row is
+ * a button that does what it names and takes the card away.
+ */
+function showCard(target: LinkTarget, term: Terminal): void {
+  const { title, rows } = linkCard(target, mac);
+  linkCardElement.replaceChildren(
+    part("target", title),
+    ...rows.map(({ text, keys, act: chosen }) => {
+      const button = document.createElement("button");
+      button.append(part("does", text), part("keys", keys));
+      button.addEventListener("click", () => {
+        hideCard();
+        act(chosen, target);
+      });
+      return button;
+    }),
+  );
+  linkCardElement.hidden = false;
+  const screen = (term.element?.querySelector(".xterm-screen") ?? term.element)?.getBoundingClientRect();
+  const rowHeight = screen ? screen.height / term.rows : 0;
+  // The row the pointer is on, by its top and its bottom in the window.
+  const rowTop = screen ? screen.top + Math.floor((pointer.y - screen.top) / rowHeight) * rowHeight : pointer.y;
+  const card = linkCardElement.getBoundingClientRect();
+  const under = rowTop + rowHeight;
+  linkCardElement.style.left = `${Math.max(0, Math.min(pointer.x, window.innerWidth - card.width))}px`;
+  // Above the row where the window has no room under it.
+  linkCardElement.style.top = `${under + card.height > window.innerHeight ? Math.max(0, rowTop - card.height) : under}px`;
+}
+
+/** Notes that the pointer came over a link with `target`, or over one with none: the card of a target shows once the pointer has rested there for `CARD_SHOW_MS`, and a link with no target has no card. */
+function overLink(target: LinkTarget | null, term: Terminal): void {
+  clearTimeout(cardShowTimer);
+  if (target === null) return;
+  clearTimeout(cardLeaveTimer);
+  // The card of this very link is still there: the pointer came back from the card.
+  if (!linkCardElement.hidden && cardFor !== undefined && JSON.stringify(cardFor) === JSON.stringify(target)) return;
+  cardShowTimer = setTimeout(() => {
+    cardFor = target;
+    showCard(target, term);
+  }, CARD_SHOW_MS);
+}
+
+/**
+ * The text of the line a row of a terminal belongs to, read whole where the
+ * terminal wrapped it over several rows, and for each character of the text
+ * the cell it stands in: the cell's column and row, both from 1 as the
+ * terminal counts them for a link, and its width, which is 2 for a wide
+ * character such as a Korean syllable.
+ */
+function wholeLine(term: Terminal, row: number): { text: string; cells: { x: number; y: number; width: number }[] } {
+  const buffer = term.buffer.active;
+  let first = row - 1;
+  while (first > 0 && buffer.getLine(first)?.isWrapped) first -= 1;
+  let last = row - 1;
+  while (buffer.getLine(last + 1)?.isWrapped) last += 1;
+  let text = "";
+  const cells: { x: number; y: number; width: number }[] = [];
+  for (let y = first; y <= last; y += 1) {
+    const line = buffer.getLine(y);
+    for (let x = 0; line && x < Math.min(line.length, term.cols); x += 1) {
+      const cell = line.getCell(x);
+      const width = cell?.getWidth() ?? 0;
+      // The second cell of a wide character holds nothing of its own.
+      if (width === 0) continue;
+      const characters = cell?.getChars() || " ";
+      text += characters;
+      for (let unit = 0; unit < characters.length; unit += 1) cells.push({ x: x + 1, y: y + 1, width });
+    }
+  }
+  return { text, cells };
+}
+
+/**
+ * Has a terminal find the paths a pane printed, beside the addresses the
+ * link add-on finds. For the line under the pointer, the main process is
+ * asked once what stands at each candidate of the line (./view,
+ * `pathCandidates`), read from the worktree of the pane's work item, and a
+ * candidate is a link only where a file or a folder stands there. Nothing
+ * is kept between two requests. A click does what `linkClick` answers for
+ * the path's target, and the pointer's rest on the link shows its card.
+ */
+function findsPaths(term: Terminal, turns: ScreenTurns): void {
+  term.registerLinkProvider({
+    provideLinks(row, callback) {
+      const { text, cells } = wholeLine(term, row);
+      const candidates = pathCandidates(text);
+      const pane = turns.pane;
+      const session = held.sessions.find((listed) => listed.id === pane);
+      if (candidates.length === 0 || !session) {
+        callback(undefined);
+        return;
+      }
+      const worktree = held.workItems.find((item) => item.id === session.workItemId)?.worktree ?? null;
+      void window.owlery
+        .pathsOf(
+          worktree,
+          candidates.map((candidate) => candidate.text),
+        )
+        .then((found) => {
+          // The screen went to another pane while the main process read the disk.
+          if (turns.pane !== pane) return callback(undefined);
+          const links: ILink[] = [];
+          candidates.forEach((candidate, index) => {
+            const stands = found[index];
+            const start = cells[candidate.start];
+            const end = cells[candidate.end - 1];
+            if (!stands || !start || !end) return;
+            // What the path leads to is read from the window's lists at the moment it is asked for.
+            const target = (): LinkTarget => pathTarget(stands.path, held.workItems, held.viewing);
+            links.push({
+              range: { start: { x: start.x, y: start.y }, end: { x: end.x + end.width - 1, y: end.y } },
+              text: candidate.text,
+              activate(event) {
+                const chosen = linkClick(target().kind, { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey }, mac);
+                if (chosen !== null) act(chosen, target());
+              },
+              hover: () => overLink(target(), term),
+              leave: cardLeaves,
+            });
+          });
+          callback(links.length > 0 ? links : undefined);
+        });
+    },
+  });
 }
 
 /**
@@ -134,7 +326,9 @@ function takesDrops(element: HTMLElement, term: Terminal): void {
  * go where the screen's turns say (./view, `screenTurns`), and so do the
  * line feed of Shift+Enter and the paths of dropped files. A press inside
  * the screen gives its pane the keyboard, so that pane is in front. A link
- * the pane printed opens outside Owlery at a click with the Command key.
+ * the pane printed opens outside Owlery at a click with the Command key,
+ * a path it printed is a link where something stands at it (`findsPaths`),
+ * and the pointer's rest on either shows the link's card.
  */
 function newScreen(): Screen {
   const element = document.createElement("div");
@@ -150,12 +344,12 @@ function newScreen(): Screen {
     macOptionIsMeta: true,
     allowProposedApi: true,
     // A link a program printed behind a name (the OSC 8 sequence). Without a handler the terminal asks through the browser's own question and opens a window.
-    linkHandler: { activate: openLink },
+    linkHandler: { activate: clickAddress, hover: (_event, address) => overLink(webTarget(address), term), leave: cardLeaves },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
   // An address a program printed as plain text.
-  term.loadAddon(new WebLinksAddon(openLink));
+  term.loadAddon(new WebLinksAddon(clickAddress, { hover: (_event, address) => overLink(webTarget(address), term), leave: cardLeaves }));
   term.open(element);
   try {
     const webgl = new WebglAddon();
@@ -181,6 +375,7 @@ function newScreen(): Screen {
     return false;
   });
   takesDrops(element, term);
+  findsPaths(term, turns);
   term.onResize(({ cols, rows }) => {
     if (turns.pane === undefined) return;
     if (tellsSize(held.sessions, turns.pane)) send({ type: "resize", id: turns.pane, cols, rows });
@@ -497,9 +692,31 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void, isMac: boolean): void {
+export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void): void {
   leave = onLeave;
   mac = isMac;
+  openWorkItem = openView;
+  // The card stays while the pointer is on it, and leaves a moment after the pointer left it for somewhere that is not its link.
+  linkCardElement.addEventListener("mouseenter", () => clearTimeout(cardLeaveTimer));
+  linkCardElement.addEventListener("mouseleave", cardLeaves);
+  // A press on the card does not take the keyboard from the terminal.
+  linkCardElement.addEventListener("mousedown", (event) => event.preventDefault());
+  document.addEventListener(
+    "mousemove",
+    (event) => {
+      pointer = { x: event.clientX, y: event.clientY };
+    },
+    { capture: true, passive: true },
+  );
+  // A key, and a press of the mouse anywhere but on the card, take the card away at once. Every dialog of the page opens at one of the two.
+  document.addEventListener("keydown", hideCard, { capture: true });
+  document.addEventListener(
+    "mousedown",
+    (event) => {
+      if (!(event.target instanceof Node && linkCardElement.contains(event.target))) hideCard();
+    },
+    { capture: true },
+  );
   byId("view-seal-place").replaceWith(sealPlace("view"));
   askField.addEventListener("input", () => {
     const workItem = viewed();

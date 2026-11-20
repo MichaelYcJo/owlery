@@ -27,7 +27,9 @@ import {
   lineCounts,
   lineSession,
   lineText,
-  linkOpens,
+  linkCard,
+  linkClick,
+  type LinkTarget,
   markRanges,
   matchCount,
   matchSentence,
@@ -40,6 +42,8 @@ import {
   paneInFront,
   paneKey,
   paneTabs,
+  pathCandidates,
+  pathTarget,
   planAnswer,
   planLine,
   recentKept,
@@ -59,6 +63,7 @@ import {
   tabLabel,
   tellsSize,
   viewFacts,
+  webTarget,
   withHeadless,
   workItemEntries,
   workItemFields,
@@ -1324,18 +1329,155 @@ describe("paneKey", () => {
   });
 });
 
-describe("linkOpens", () => {
-  it("opens a link at a click with the Command key held, and not at a click without it", () => {
-    expect(linkOpens({ meta: true, ctrl: false }, true)).toBe(true);
-    expect(linkOpens({ meta: false, ctrl: false }, true)).toBe(false);
-    // The Control key with a click is the secondary click on a Mac.
-    expect(linkOpens({ meta: false, ctrl: true }, true)).toBe(false);
+describe("pathCandidates", () => {
+  const texts = (line: string): string[] => pathCandidates(line).map(({ text }) => text);
+
+  it.each([
+    ["a path from the root", "/etc/hosts"],
+    ["a path from the home folder", "~/notes/a.txt"],
+    ["a path from the folder itself", "./a.ts"],
+    ["a path from the folder above", "../b/a.ts"],
+    ["a path with no mark before it", "src/a.ts"],
+    ["a folder's path that ends in a slash", "src/main/"],
+    ["a path that ends in the folder above", "src/main/.."],
+    ["a path in Korean", "문서/메모.txt"],
+  ])("takes %s as a candidate, whole", (_name, path) => {
+    expect(pathCandidates(path)).toEqual([{ text: path, start: 0, end: path.length }]);
   });
 
-  it("reads the Control key where the keyboard has no Command key, and not the key that stands at the Command key's place there", () => {
-    expect(linkOpens({ meta: false, ctrl: true }, false)).toBe(true);
-    expect(linkOpens({ meta: false, ctrl: false }, false)).toBe(false);
-    expect(linkOpens({ meta: true, ctrl: false }, false)).toBe(false);
+  it("takes each run between spaces that holds a slash, with where it stands in the line's text", () => {
+    expect(pathCandidates("edit src/a.ts  and /tmp/b now")).toEqual([
+      { text: "src/a.ts", start: 5, end: 13 },
+      { text: "/tmp/b", start: 19, end: 25 },
+    ]);
+    // A place is counted in the text's characters, whatever width a terminal draws each in.
+    expect(pathCandidates("한글 src/a.ts")).toEqual([{ text: "src/a.ts", start: 3, end: 11 }]);
+  });
+
+  it("takes no run without a slash, and none that holds the mark of an address", () => {
+    expect(texts("README.md docs test ~ .. 12:5")).toEqual([]);
+    expect(texts("https://example.com/a/b file:///etc/hosts")).toEqual([]);
+    expect(texts("")).toEqual([]);
+  });
+
+  it("takes no run of slashes, dots and tildes alone, such as the mark that opens a comment", () => {
+    expect(texts("// a comment")).toEqual([]);
+    expect(texts("a / b ./ ../ ~/ ../.. /.")).toEqual([]);
+  });
+
+  it("cuts the quotes, the brackets and the punctuation that stand around a path in a sentence", () => {
+    expect(pathCandidates("see `src/a.ts`, 'src/b.ts' and (\"/tmp/c\").")).toEqual([
+      { text: "src/a.ts", start: 5, end: 13 },
+      { text: "src/b.ts", start: 17, end: 25 },
+      { text: "/tmp/c", start: 33, end: 39 },
+    ]);
+    expect(texts("[src/a.ts] {src/b.ts} <src/c.ts> src/d.ts; src/e.ts! src/f.ts? src/g.ts: src/h.ts.")).toEqual(["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts", "src/g.ts", "src/h.ts"]);
+  });
+
+  it("cuts a line number, and a column after it, from a path's end", () => {
+    expect(pathCandidates("at src/a.ts:12 and src/b.ts:12:5")).toEqual([
+      { text: "src/a.ts", start: 3, end: 11 },
+      { text: "src/b.ts", start: 19, end: 27 },
+    ]);
+    // As a search prints a match, and as a sentence closes on one.
+    expect(texts("src/a.ts:12: const a = 1")).toEqual(["src/a.ts"]);
+    expect(texts("(src/a.ts:12:5).")).toEqual(["src/a.ts"]);
+    // A number that is part of the name stays.
+    expect(texts("logs/2026-11-20 v1/a:b")).toEqual(["logs/2026-11-20", "v1/a:b"]);
+  });
+});
+
+describe("webTarget and pathTarget", () => {
+  it("reads an http or https address as a web address, as the URL's parser writes it", () => {
+    expect(webTarget("https://example.com/a")).toEqual({ kind: "web", address: "https://example.com/a" });
+    expect(webTarget("HTTP://Example.com/a b")).toEqual({ kind: "web", address: "http://example.com/a%20b" });
+  });
+
+  it.each(["file:///etc/hosts", "javascript:alert(1)", "vscode://file/etc/hosts", "example.com/a", ""])("gives %j no target", (address) => {
+    expect(webTarget(address)).toBeNull();
+  });
+
+  it("reads the worktree of another work item the window lists as that work item's", () => {
+    expect(pathTarget(SEARCH.worktree, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id });
+    expect(pathTarget(SEARCH.worktree, [LOGIN, SEARCH], undefined)).toEqual({ kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id });
+  });
+
+  it("reads the worktree of the view on screen, a folder inside a worktree and any other path as another path", () => {
+    expect(pathTarget(LOGIN.worktree, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: LOGIN.worktree });
+    expect(pathTarget(`${SEARCH.worktree}/src`, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: `${SEARCH.worktree}/src` });
+    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: "/etc/hosts" });
+    expect(pathTarget(SEARCH.worktree, [LOGIN], LOGIN.id)).toEqual({ kind: "path", path: SEARCH.worktree });
+  });
+});
+
+describe("linkClick and linkCard", () => {
+  const WEB: LinkTarget = { kind: "web", address: "https://example.com/a" };
+  const WORK_ITEM: LinkTarget = { kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id };
+  const PATH: LinkTarget = { kind: "path", path: "/etc/hosts" };
+  const none = { meta: false, ctrl: false, shift: false };
+
+  it.each([
+    ["a Mac keyboard", true, { ...none, meta: true }, { ...none, ctrl: true }],
+    ["a keyboard without the Command key", false, { ...none, ctrl: true }, { ...none, meta: true }],
+  ])("answers a click on %s from the link's target and the keys held", (_name, mac, key, other) => {
+    expect(linkClick("web", key, mac)).toBe("browser");
+    expect(linkClick("web", { ...key, shift: true }, mac)).toBe("browser");
+    expect(linkClick("workItem", key, mac)).toBe("workItem");
+    expect(linkClick("workItem", { ...key, shift: true }, mac)).toBe("finder");
+    expect(linkClick("path", key, mac)).toBe("finder");
+    expect(linkClick("path", { ...key, shift: true }, mac)).toBe("finder");
+    for (const kind of ["web", "workItem", "path"] as const) {
+      // A click without the key stays the terminal's, which selects text with it. On a Mac the Control key with a click is the secondary click.
+      expect(linkClick(kind, none, mac)).toBeNull();
+      expect(linkClick(kind, { ...none, shift: true }, mac)).toBeNull();
+      expect(linkClick(kind, other, mac)).toBeNull();
+      expect(linkClick(kind, { ...other, shift: true }, mac)).toBeNull();
+    }
+  });
+
+  it("gives a card the whole target, and a row for each thing a person can do, with the keys of a Mac keyboard", () => {
+    expect(linkCard(WEB, true)).toEqual({
+      title: "https://example.com/a",
+      rows: [
+        { text: "Open in browser", keys: "⌘ Click", act: "browser" },
+        { text: "Copy link", keys: "", act: "copy" },
+      ],
+    });
+    expect(linkCard(WORK_ITEM, true)).toEqual({
+      title: SEARCH.worktree,
+      rows: [
+        { text: "Open work item", keys: "⌘ Click", act: "workItem" },
+        { text: "Open in Finder", keys: "⇧ ⌘ Click", act: "finder" },
+      ],
+    });
+    expect(linkCard(PATH, true)).toEqual({
+      title: "/etc/hosts",
+      rows: [
+        { text: "Show in Finder", keys: "⌘ Click", act: "finder" },
+        { text: "Copy path", keys: "", act: "copy" },
+      ],
+    });
+  });
+
+  it("names the Control key on a keyboard without the Command key", () => {
+    expect(linkCard(WEB, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", ""]);
+    expect(linkCard(WORK_ITEM, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", "Shift Ctrl Click"]);
+    expect(linkCard(PATH, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", ""]);
+  });
+
+  it.each([true, false])("names on no row a key the click does not answer with that row's act (a Mac keyboard: %s)", (mac) => {
+    // The click a row's keys name, read from the row's own words.
+    const clickOf = (keys: string) => ({ meta: keys.includes("⌘"), ctrl: keys.includes("Ctrl"), shift: keys.includes("⇧") || keys.includes("Shift") });
+    let named = 0;
+    for (const target of [WEB, WORK_ITEM, PATH]) {
+      for (const { keys, act } of linkCard(target, mac).rows) {
+        if (keys === "") continue;
+        expect(keys.endsWith(" Click")).toBe(true);
+        expect(linkClick(target.kind, clickOf(keys), mac)).toBe(act);
+        named += 1;
+      }
+    }
+    expect(named).toBe(4);
   });
 });
 

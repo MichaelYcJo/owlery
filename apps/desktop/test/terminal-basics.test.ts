@@ -2,12 +2,15 @@
 // built app: the window stays on its own page, the menu leaves the page its
 // keys, the Command key with W closes the pane in front, a pane whose
 // session is working asks before it closes, a file dropped on a pane types
-// its path, a link opens at a click with the Command key, and Shift+Enter
-// sends a line feed. One start of the app serves every case, so the cases
-// run in the order they stand in. No case opens the system's browser: the
-// app is started with `OWLERY_OPENER` naming a program that notes the
-// address it was handed.
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+// its path, a link opens at a click with the Command key, Shift+Enter
+// sends a line feed, a path a pane printed is a link where something stands
+// at it, and a link under the pointer shows a card of what a click does.
+// One start of the app serves every case, so the cases run in the order
+// they stand in. No case opens the system's browser or Finder: the app is
+// started with `OWLERY_OPENER` naming a program that notes the address or
+// the path it was handed. No case reads or writes the system's clipboard:
+// the app starts in the background, where it keeps a clipboard of its own.
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -35,6 +38,13 @@ const TABS = `[...document.querySelectorAll("#tabs .tab .label")].map((label) =>
 const TAB_IN_FRONT = `document.querySelector("#tabs .tab.active .label")?.textContent`;
 const PANE_HAS_KEYBOARD = `document.activeElement === document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea")`;
 const DIALOG_OPEN = `document.getElementById("close-pane-dialog")?.open === true`;
+const CARD_SHOWN = `document.getElementById("link-card")?.hidden === false`;
+const OVER_LINK = `document.querySelector("#stage .pane:not([hidden]) .xterm-cursor-pointer") !== null`;
+/** The keys a card's row names for a click with the key that opens a link, and for one with the Shift key as well. */
+const KEY_CLICK = process.platform === "darwin" ? "\u2318 Click" : "Ctrl Click";
+const SHIFT_KEY_CLICK = process.platform === "darwin" ? "\u21e7 \u2318 Click" : "Shift Ctrl Click";
+/** A row of the screen no case prints on, where the pointer is over no link. */
+const EMPTY_ROW = 15;
 const SCREEN_IN_FRONT = `["summary-screen", "inbox-screen", "history-screen", "work-item-view"].find((id) => document.getElementById(id)?.hidden === false)`;
 
 /** One entry of the application menu, as Electron built it. */
@@ -58,8 +68,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   let receivedFile: string;
   /** The bytes the first pane's process was handed. */
   let received: Received;
-  /** The file the opener writes each address it was handed to, a line each. */
+  /** The file the opener writes each address and each path it was handed to, a line each. */
   let openedFile: string;
+  /** The file whose lines a shell pane prints under its two links as it starts (./fixtures/basics-shell.sh). */
+  let linesFile: string;
   /** The panes the cases opened so far. A daemon numbers the panes it starts from 1. */
   let panes = 0;
 
@@ -75,7 +87,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const opener = join(repository.base, "opener.sh");
     writeFileSync(opener, `#!/bin/sh\nprintf '%s\\n' "$@" >> '${openedFile}'\n`);
     chmodSync(opener, 0o755);
-    app = await BuiltApp.start({ SHELL, OWLERY_WORKTREES: repository.root, OWLERY_RECEIVER_FILE: receivedFile, OWLERY_STAND_IN_NODE: process.execPath, OWLERY_OPENER: opener }, { inspectMain: true });
+    linesFile = join(repository.base, "lines");
+    app = await BuiltApp.start({ SHELL, OWLERY_WORKTREES: repository.root, OWLERY_RECEIVER_FILE: receivedFile, OWLERY_STAND_IN_NODE: process.execPath, OWLERY_OPENER: opener, OWLERY_BASICS_LINES: linesFile }, { inspectMain: true });
     // The app starts in the background, and the page of a window without the system's focus reports none.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     await openReceiverPane(app, repository.repo, `${receivedFile}-1`);
@@ -308,16 +321,78 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     })()`);
   }
 
-  /** A click on the link of a row of the pane in front, with the modifier keys held, as a person's click arrives: the pointer comes over the link first. Afterwards the pointer is over no link. */
-  async function clickLink(row: number, modifiers: number): Promise<void> {
-    const overLink = `document.querySelector("#stage .pane:not([hidden]) .xterm-cursor-pointer") !== null`;
-    const at = await cell(9, row);
+  /** Brings the pointer to a cell of the pane in front, as a person's pointer arrives there. */
+  async function pointAt(column: number, row: number, modifiers = 0): Promise<{ x: number; y: number }> {
+    const at = await cell(column, row);
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at, modifiers });
-    await app.until(overLink, `a link under the pointer on row ${row + 1}`);
+    return at;
+  }
+
+  /** Takes the pointer to a row of the pane in front that holds no link, and waits until the terminal has it over none and the card of the link it was on is gone: a card stands over the rows under its link, and the pointer would come onto it and not onto a link there. */
+  async function pointAway(): Promise<void> {
+    await pointAt(9, EMPTY_ROW);
+    await app.until(`!(${OVER_LINK}) && !(${CARD_SHOWN})`, "no link under the pointer, and no card");
+  }
+
+  /** A click on the link of a row of the pane in front, with the modifier keys held, as a person's click arrives: the pointer comes over the link first. Afterwards the pointer is over no link. */
+  async function clickLink(row: number, modifiers: number, column = 9): Promise<void> {
+    await pointAway();
+    const at = await pointAt(column, row, modifiers);
+    await app.until(OVER_LINK, `a link under the pointer on row ${row + 1}`);
     await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1, modifiers });
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1, modifiers });
-    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await cell(9, 5)) });
-    await app.until(`!(${overLink})`, "no link under the pointer");
+    await pointAway();
+  }
+
+  /** Whether the terminal finds a link under the pointer at a cell of the pane in front. The pointer comes from a row with no link, and a link that asks the main process is there within the second this waits. */
+  async function linkAt(column: number, row: number): Promise<boolean> {
+    await pointAway();
+    await pointAt(column, row);
+    const deadline = Date.now() + 1_000;
+    while (Date.now() < deadline) {
+      if (await app.evaluate<boolean>(OVER_LINK)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  }
+
+  /** Rests the pointer on a cell of the pane in front until the link's card shows, and answers where the pointer is. The pointer comes from a row with no link, so the link is one the pointer newly came over. */
+  async function restOn(column: number, row: number): Promise<{ x: number; y: number }> {
+    await pointAway();
+    const at = await pointAt(column, row);
+    await app.until(CARD_SHOWN, `the card of the link on row ${row + 1}`);
+    return at;
+  }
+
+  /** What the card says: its first line, and each row's words with the keys at its end. */
+  function card(): Promise<{ title: string; rows: string[][] }> {
+    return app.evaluate(`(() => {
+      const card = document.getElementById("link-card");
+      return { title: card.querySelector(".target").textContent, rows: [...card.querySelectorAll("button")].map((row) => [...row.children].map((part) => part.textContent)) };
+    })()`);
+  }
+
+  /** The middle of a row of the card, the first being 0. */
+  function cardRow(row: number): Promise<{ x: number; y: number }> {
+    return app.evaluate(`(() => { const box = document.querySelectorAll("#link-card button")[${row}].getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+  }
+
+  /** A press of a row of the card, as a person's arrives: the pointer comes onto the row first. */
+  async function pressCardRow(row: number): Promise<void> {
+    const at = await cardRow(row);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+  }
+
+  /** The text the app's clipboard holds, as the window reads it. The app started in the background, so the clipboard is its own. */
+  const clipboard = (): Promise<string> => app.evaluate<string>("window.owlery.clipboardText()");
+
+  /** Puts the view of the work item with a title in front, by its line in the sidebar. */
+  async function viewOf(title: string): Promise<void> {
+    const id = await app.evaluate<string>(`[...document.querySelectorAll("#repositories [data-work-item]")].find((line) => line.textContent.includes(${JSON.stringify(title)})).dataset.workItem`);
+    await app.click(`#repositories [data-work-item="${id}"]`);
+    await app.until(`document.getElementById("view-title").textContent === ${JSON.stringify(title)} && ${PANE_HAS_KEYBOARD}`, `the view of "${title}" with the keyboard in its pane`);
   }
 
   /** The addresses the opener was handed so far: it waits until `count` of them are there, five seconds at most, and then a moment longer, in which one more would have arrived. A case that expects no address more gives the count there was. */
@@ -453,5 +528,230 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await opened(2)).toEqual([PRINTED, NAMED]);
     expect(await app.evaluate<boolean>("window.__asked === undefined")).toBe(true);
     expect(await app.pages()).toHaveLength(1);
+  });
+
+  it("shows a card under a link the pointer rests on, with what a click does, and copies the address from its row", async () => {
+    const before = await opened(2);
+    expect(before).toEqual([PRINTED, NAMED]);
+    // The clipboard of an app started in the background is its own, and starts empty.
+    expect(await clipboard()).toBe("");
+    await pointAway();
+    const at = await pointAt(9, 0);
+    await app.until(OVER_LINK, "a link under the pointer");
+    // The card waits until the pointer has rested on the link.
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
+    await app.until(CARD_SHOWN, "the card of the address");
+    expect(await card()).toEqual({
+      title: PRINTED,
+      rows: [
+        ["Open in browser", KEY_CLICK],
+        ["Copy link", ""],
+      ],
+    });
+    // It stands under the row the pointer is on, with its left edge at the pointer.
+    const rowHeight = (await cell(9, 1)).y - (await cell(9, 0)).y;
+    const box = await app.evaluate<{ left: number; top: number }>(`(() => { const box = document.getElementById("link-card").getBoundingClientRect(); return { left: box.left, top: box.top }; })()`);
+    expect(Math.abs(box.left - at.x)).toBeLessThan(1);
+    expect(Math.abs(box.top - (at.y + rowHeight / 2))).toBeLessThan(1.5);
+    // The pointer may move along the link while it rests there, and the card shows where the pointer then is.
+    await pointAway();
+    await pointAt(9, 0);
+    const moved = await pointAt(14, 0);
+    await app.until(CARD_SHOWN, "the card of the address, again");
+    expect(Math.abs((await app.evaluate<number>(`document.getElementById("link-card").getBoundingClientRect().left`)) - moved.x)).toBeLessThan(1);
+
+    // The card of a link behind a name says the address, not the name.
+    await restOn(3, 1);
+    expect((await card()).title).toBe(NAMED);
+    await pressCardRow(1);
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
+    expect(await clipboard()).toBe(NAMED);
+    // The press took nothing from the terminal, and opened nothing.
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    expect(await opened(2)).toEqual(before);
+
+    // The pointer goes from the link onto the card, and the card stays under it.
+    await restOn(9, 0);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await cardRow(0)) });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
+    // It leaves once the pointer is on neither.
+    await pointAway();
+
+    // A key pressed in the pane takes the card away at once.
+    await restOn(9, 0);
+    await received.next(0);
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyDown", windowsVirtualKeyCode: 65, code: "KeyA", key: "a", text: "a" });
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: 65, code: "KeyA", key: "a" });
+    expect((await received.next(1)).toString("utf8")).toBe("a");
+
+    // So does a press of the mouse outside the card, on the link itself too.
+    const on = await restOn(9, 0);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...on, button: "left", clickCount: 1 });
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...on, button: "left", clickCount: 1 });
+    await pointAway();
+    expect(await opened(2)).toEqual(before);
+  });
+
+  /** The worktree of the work item whose view is in front, as the strip says it. */
+  const worktreeInFront = (): Promise<string> => app.evaluate<string>(`document.getElementById("strip-worktree").textContent`);
+  /** The path a case prints in a pane: a file of the first work item's worktree, written from the worktree. */
+  const PRINTED_PATH = "notes/owlery-path.txt";
+  /** A whole path that takes twenty cells more than the screen is wide, so the terminal wraps it onto a second row. */
+  let wrapped: string;
+
+  it("makes a path a pane printed a link only where a file or a folder stands at it, after wide characters and over two rows as well", async () => {
+    const worktree = await worktreeInFront();
+    mkdirSync(join(worktree, "notes"));
+    writeFileSync(join(worktree, PRINTED_PATH), "");
+    const columns = Number((await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×")[0]);
+    const folder = "w".repeat(columns + 20 - `${repository.base}//wrapped.txt`.length);
+    expect(folder.length).toBeGreaterThan(0);
+    wrapped = join(repository.base, folder, "wrapped.txt");
+    expect(wrapped).toHaveLength(columns + 20);
+    mkdirSync(join(repository.base, folder));
+    writeFileSync(wrapped, "");
+    // Under the two links the pane prints on its first two rows: the path, the path after two syllables that are each two cells wide, the path that wraps, and a path nothing stands at.
+    writeFileSync(linesFile, `${PRINTED_PATH}\n한글 ${PRINTED_PATH}\n${wrapped}\nnotes/no-such-file.txt\n`);
+    const pane = await openPane("Shell");
+    await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+
+    const last = PRINTED_PATH.length - 1;
+    expect(await linkAt(0, 2)).toBe(true);
+    expect(await linkAt(last, 2)).toBe(true);
+    expect(await linkAt(last + 1, 2)).toBe(false);
+    // The two syllables take four cells and the space after them the fifth, so the path starts at the sixth.
+    expect(await linkAt(4, 3)).toBe(false);
+    expect(await linkAt(5, 3)).toBe(true);
+    expect(await linkAt(5 + last, 3)).toBe(true);
+    expect(await linkAt(5 + last + 1, 3)).toBe(false);
+    expect(await linkAt(0, 4)).toBe(true);
+    expect(await linkAt(columns - 1, 4)).toBe(true);
+    expect(await linkAt(0, 5)).toBe(true);
+    expect(await linkAt(19, 5)).toBe(true);
+    expect(await linkAt(20, 5)).toBe(false);
+    expect(await linkAt(3, 6)).toBe(false);
+    // The links of the first two rows are still found, beside the paths'.
+    expect(await linkAt(9, 0)).toBe(true);
+    expect(await linkAt(3, 1)).toBe(true);
+  });
+
+  it("shows a path's file in Finder at a click with the Command key held, and copies the whole path from its card", async () => {
+    const file = join(await worktreeInFront(), PRINTED_PATH);
+    const before = await opened(2);
+    await clickLink(2, COMMAND);
+    expect(await opened(3)).toEqual([...before, file]);
+    await clickLink(2, 0);
+    await clickLink(2, SHIFT);
+    expect(await opened(3)).toEqual([...before, file]);
+    // The second row of the path that wraps is the same link.
+    await clickLink(5, COMMAND | SHIFT, 3);
+    expect(await opened(4)).toEqual([...before, file, wrapped]);
+
+    await restOn(9, 3);
+    expect(await card()).toEqual({
+      title: file,
+      rows: [
+        ["Show in Finder", KEY_CLICK],
+        ["Copy path", ""],
+      ],
+    });
+    await pressCardRow(1);
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
+    expect(await clipboard()).toBe(file);
+    expect(await opened(4)).toHaveLength(4);
+    await restOn(9, 2);
+    await pressCardRow(0);
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
+    expect(await opened(5)).toEqual([...before, file, wrapped, file]);
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+
+    // A card that would pass the window's right edge is moved to stand inside it.
+    const columns = Number((await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×")[0]);
+    const at = await restOn(columns - 1, 4);
+    expect((await card()).title).toBe(wrapped);
+    const box = await app.evaluate<{ left: number; right: number; inner: number }>(`(() => { const box = document.getElementById("link-card").getBoundingClientRect(); return { left: box.left, right: box.right, inner: window.innerWidth }; })()`);
+    expect(box.left).toBeLessThan(at.x);
+    expect(box.right).toBeLessThanOrEqual(box.inner);
+    await pointAway();
+
+    const pane = panes;
+    await closeFromElsewhere(pane);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it("puts another work item's view in front at a click on its worktree with the Command key held, and shows the folder in Finder with the Shift key as well", async () => {
+    const first = await worktreeInFront();
+    await app.click("#new-work-item");
+    await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
+    // The page loaded again since the first work item, so the form holds no folder.
+    expect(await app.evaluate<string>(`document.getElementById("work-item-repo").value`)).toBe("");
+    await app.click("#work-item-repo");
+    await app.cdp("Input.insertText", { text: repository.repo });
+    await app.click("#work-item-title");
+    await app.cdp("Input.insertText", { text: "Second item" });
+    await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+    await app.click("#work-item-create");
+    await app.until(`document.getElementById("view-title").textContent === "Second item" && ${PANE_HAS_KEYBOARD}`, "the second work item's view");
+    panes += 1;
+    await pidOf(panes);
+    const second = await worktreeInFront();
+    expect(second).not.toBe(first);
+
+    await viewOf("Korean input");
+    writeFileSync(linesFile, `${second}\n${first}\n`);
+    const pane = await openPane("Shell");
+    await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+
+    await restOn(9, 2);
+    expect(await card()).toEqual({
+      title: second,
+      rows: [
+        ["Open work item", KEY_CLICK],
+        ["Open in Finder", SHIFT_KEY_CLICK],
+      ],
+    });
+    // The worktree of the view on screen is a folder as any other. It stands under the rows the first path takes, which wraps where it is longer than the screen is wide.
+    const columns = Number((await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×")[0]);
+    const ownRow = 2 + Math.ceil(second.length / columns);
+    await restOn(9, ownRow);
+    expect(await card()).toEqual({
+      title: first,
+      rows: [
+        ["Show in Finder", KEY_CLICK],
+        ["Copy path", ""],
+      ],
+    });
+    await pointAway();
+
+    const before = await opened(5);
+    await clickLink(2, COMMAND);
+    await app.until(`document.getElementById("view-title").textContent === "Second item"`, "the second work item's view, at the click");
+    expect(await opened(before.length)).toEqual(before);
+
+    await viewOf("Korean input");
+    await clickLink(2, COMMAND | SHIFT);
+    expect(await opened(before.length + 1)).toEqual([...before, second]);
+    expect(await app.evaluate<string>(`document.getElementById("view-title").textContent`)).toBe("Korean input");
+    // The row of the card does what the click it names does.
+    await restOn(9, 2);
+    await pressCardRow(0);
+    await app.until(`document.getElementById("view-title").textContent === "Second item"`, "the second work item's view, at the card's row");
+    expect(await opened(before.length + 1)).toHaveLength(before.length + 1);
+    await viewOf("Korean input");
+    await restOn(9, 2);
+    await pressCardRow(1);
+    expect(await opened(before.length + 2)).toEqual([...before, second, second]);
+    await clickLink(ownRow, COMMAND);
+    expect(await opened(before.length + 3)).toEqual([...before, second, second, first]);
+
+    await closeFromElsewhere(pane);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 });

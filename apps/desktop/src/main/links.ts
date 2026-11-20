@@ -26,7 +26,9 @@ export async function openLink(address: unknown, opener: Opener): Promise<boolea
  * its one argument, without a shell, and it opened the address where it
  * exits with 0. Otherwise an app started in the background opens nothing,
  * so a start a test or an agent makes never opens the browser of the person
- * at the machine. Otherwise it is the system's opener.
+ * at the machine. Otherwise it is the system's opener. Who shows a path in
+ * Finder is chosen here as well, with the path in the address's place
+ * (./paths, `chooseFinder`).
  */
 export function chooseOpener(program: string | null, background: boolean, system: Opener): Opener {
   if (program !== null) return (address) => new Promise((resolve) => execFile(program, [address], (error) => resolve(error === null)));
