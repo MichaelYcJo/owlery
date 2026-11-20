@@ -1,6 +1,7 @@
 // The channels between the window and the main process: where the daemon is,
-// the native folder dialog, which a page cannot open, and the theme a person
-// chose, which the main process keeps (./appearance). Everything else goes
+// the native folder dialog, which a page cannot open, the theme a person
+// chose, which the main process keeps (./appearance), and the window's coming
+// forward, which a sandboxed page cannot do itself. Everything else goes
 // between the window and the daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
 
@@ -10,6 +11,7 @@ export const Channel = {
   /** Answered at once, not by a promise: the preload reads the saved choice before the page is drawn. */
   appearance: "owlery:appearance",
   saveAppearance: "owlery:save-appearance",
+  comeForward: "owlery:come-forward",
 } as const;
 
 export interface DaemonConnection {
@@ -31,4 +33,6 @@ export interface OwleryApi {
   appearance: ThemeChoice;
   /** Has the main process keep a new choice, so the next window opens in it. */
   saveAppearance(choice: ThemeChoice): Promise<void>;
+  /** Asks the main process to bring the window in front of the person, and answers whether it did: an app started in the background brings nothing forward. */
+  comeForward(): Promise<boolean>;
 }
