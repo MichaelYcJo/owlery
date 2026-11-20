@@ -1,8 +1,9 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
+import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { InstalledApp } from "../shared/ipc";
-import { losesWork, type AgentState, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { losesWork, type AgentState, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -529,10 +530,21 @@ export function summaryControls(changes: readonly { workItem: WorkItem; line: In
   return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that waits." };
 }
 
-/** The status line where the window has nothing else to say: that the daemon runs, and how many agents do, an agent being a live pane of a kind that reports its state. */
-export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): string {
+/** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */
+export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], keepsAwake: boolean): string {
   const agents = sessions.filter((session) => session.alive && paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState)).length;
-  return `Daemon running, ${agents === 0 ? "no agent" : agents === 1 ? "1 agent" : `${agents} agents`}`;
+  return `Daemon running, ${agents === 0 ? "no agent" : agents === 1 ? "1 agent" : `${agents} agents`}${keepsAwake ? ", keeping the Mac awake" : ""}`;
+}
+
+/**
+ * What the control that chooses when the Mac is kept awake shows: the
+ * daemon's choice, and the words that name it to a pointer. Nothing against
+ * a daemon that sent no `keepAwake`, one of an earlier build or one that can
+ * hold nothing, and the control is then hidden.
+ */
+export function keepAwakeControl(keepAwake: KeepAwake | null): { choice: KeepAwakeChoice; title: string } | null {
+  if (!keepAwake) return null;
+  return { choice: keepAwake.choice, title: `Keep awake: ${KEEP_AWAKE_CHOICES.find(({ value }) => value === keepAwake.choice)?.label ?? keepAwake.choice}` };
 }
 
 /** What the status line tells once `taken` is taken back: nothing where it still told `taken`, and any other notice as it stands. */

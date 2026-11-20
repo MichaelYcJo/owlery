@@ -82,10 +82,10 @@ export function untell(text: string): void {
   tell(noticeWithout(notice, text));
 }
 
-function showStatus(): void {
-  // The window's own notice first, then what there is to say of the daemon, then the daemon's state.
+/** Draws the status line: the window's own notice first, then what there is to say of the daemon, then the daemon's state, once the daemon said it. */
+export function showStatus(): void {
   const said = notice || held.daemonNotice;
-  status.textContent = said || (held.ready ? daemonStatus(held.sessions, held.paneKinds) : "");
+  status.textContent = said || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false) : "");
   status.classList.toggle("notice", said !== "");
 }
 

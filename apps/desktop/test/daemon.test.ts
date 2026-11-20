@@ -9,10 +9,11 @@ import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { readDiscovery, writeDiscovery } from "../src/daemon/discovery";
+import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import type { HeadlessInfo, ServerMessage, WorkItemLoss } from "../src/shared/protocol";
+import type { HeadlessInfo, KeepAwake, ServerMessage, WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -3414,5 +3415,279 @@ describe("discovery", () => {
     const dir = mkdtempSync(join(tmpdir(), "owlery-discovery-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     expect(readDiscovery(dir)).toBeUndefined();
+  });
+});
+
+describe("keeping the Mac awake", () => {
+  const START = { type: "start", cols: 80, rows: 24 };
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const told = (c: { messages: ServerMessage[] }): KeepAwake[] => c.messages.flatMap((m) => (m.type === "keepAwake" ? [m.keepAwake] : []));
+  const stateOf = (m: Extract<ServerMessage, { type: "inbox" }>, id: number) => m.sessions.find((s) => s.id === id)?.state;
+
+  /** A holder that starts no process: it counts the holds asked of it and those released, and `lose` ends the last hold as a child that ended by itself does. */
+  function holder() {
+    const seen = { held: 0, released: 0, lose: (): void => undefined };
+    const holdAwake: HoldAwake = (lost) => {
+      seen.held++;
+      seen.lose = lost;
+      return { release: () => void seen.released++ };
+    };
+    return { holdAwake, seen };
+  }
+
+  /** A run folder of the case's own, removed after it. */
+  function runFolder(): string {
+    const dir = mkdtempSync(join(tmpdir(), "owlery-keep-awake-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    return dir;
+  }
+
+  /** A daemon given a counting holder, with two clients, and panes whose process ends when a line arrives. */
+  async function held(options: Partial<DaemonOptions> = {}) {
+    const { holdAwake, seen } = holder();
+    const { daemon: d, url } = await daemon({ holdAwake, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    let requestId = 1;
+    /** Opens a pane of a kind that reports state. */
+    const pane = async () => {
+      const asked = requestId++;
+      c.send({ ...START, kind: "claude", requestId: asked });
+      return (await c.message("started", (m) => m.requestId === asked)).session;
+    };
+    /** Opens a pane whose agent then sends a prompt, and waits until the inbox lists it as working. */
+    const workingPane = async () => {
+      const session = await pane();
+      d.agentEvent(session.id, "UserPromptSubmit", {});
+      await c.message("inbox", (m) => stateOf(m, session.id) === "working");
+      return session;
+    };
+    /** Sends a message that has no answer, and after it a start the daemon refuses: the refusal arrives once the daemon has handled both. */
+    const sendAndWait = async (message: object) => {
+      const asked = requestId++;
+      c.send(message);
+      c.send({ ...START, kind: "shell", requestId: asked, workItemId: 999 });
+      await c.message("error", (m) => m.requestId === asked);
+    };
+    return { daemon: d, url, c, bystander, both: [c, bystander], ready, seen, pane, workingPane, sendAndWait };
+  }
+
+  it("says in `ready` that the choice is `working` and nothing is held where its run folder holds no choice, and holds nothing", async () => {
+    const runDir = runFolder();
+    const { ready, seen } = await held({ runDir });
+    expect(ready.keepAwake).toEqual({ choice: "working", held: false });
+    expect(seen).toMatchObject({ held: 0, released: 0 });
+    expect(existsSync(join(runDir, "keep-awake.json"))).toBe(false);
+  });
+
+  it("holds once when a pane's agent begins to work, tells every client, and holds no second time for a second working pane", async () => {
+    const { daemon: d, c, both, seen, pane } = await held();
+    const first = await pane();
+    const second = await pane();
+    expect(seen.held).toBe(0);
+    d.agentEvent(first.id, "UserPromptSubmit", {});
+    for (const each of both) expect((await each.message("keepAwake")).keepAwake).toEqual({ choice: "working", held: true });
+    expect(seen.held).toBe(1);
+    d.agentEvent(second.id, "UserPromptSubmit", {});
+    await c.message("inbox", (m) => stateOf(m, second.id) === "working");
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+    for (const each of both) expect(told(each)).toEqual([{ choice: "working", held: true }]);
+  });
+
+  it.each(["asks a permission", "exits", "is closed"] as const)("keeps the hold while one of two panes still works, and releases it once when the other %s, telling every client", async (end) => {
+    const { daemon: d, url, c, both, seen, workingPane } = await held();
+    const first = await workingPane();
+    const second = await workingPane();
+    d.agentEvent(first.id, "Stop", {});
+    await c.message("inbox", (m) => stateOf(m, first.id) === "finished");
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+    expect(told(c)).toEqual([{ choice: "working", held: true }]);
+    if (end === "asks a permission") d.agentEvent(second.id, "PermissionRequest", {});
+    if (end === "exits") c.send({ type: "input", id: second.id, data: "go\n" });
+    if (end === "is closed") c.send({ type: "close", id: second.id });
+    for (const each of both) expect((await each.message("keepAwake", (m) => !m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: false });
+    expect(seen).toMatchObject({ held: 1, released: 1 });
+    // A pane that exited keeps `working` as its last state, and no longer counts.
+    expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "working", held: false });
+  });
+
+  it.each([
+    ["finishes", {}, "finished"],
+    ["fails", { fail: "exit" }, "failed"],
+  ] as const)("holds while a headless session works, with no pane working, and releases the hold when it %s", async (_, adapter, last) => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { c, both, seen } = await held({ worktreesRoot: made.root, roleAdapter: fakeAdapter({ ...adapter, delayMs: 100 }) });
+    c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    expect(seen.held).toBe(0);
+    c.send({ type: "ask", requestId: 101, workItemId: workItem.id, prompt: "Which owl?" });
+    for (const each of both) expect((await each.message("keepAwake")).keepAwake).toEqual({ choice: "working", held: true });
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+    await c.message("headless", (m) => m.headless.state === last);
+    for (const each of both) expect((await each.message("keepAwake", (m) => !m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: false });
+    expect(seen).toMatchObject({ held: 1, released: 1 });
+  });
+
+  it("holds under `always` with no session, tells every client the choice and the hold in one message, still asks to exit once it is idle, and releases the hold when it closes", async () => {
+    let idle = 0;
+    const { daemon: d, c, bystander, both, seen } = await held({ idleExitMs: 100, onIdle: () => idle++ });
+    bystander.send({ type: "setKeepAwake", choice: "always" });
+    for (const each of both) expect((await each.message("keepAwake")).keepAwake).toEqual({ choice: "always", held: true });
+    for (const each of both) expect(told(each)).toEqual([{ choice: "always", held: true }]);
+    c.socket.close();
+    bystander.socket.close();
+    await pause(400);
+    expect(idle).toBe(1);
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+    await d.close();
+    expect(seen).toMatchObject({ held: 1, released: 1 });
+  });
+
+  it("releases the hold of a working pane when a client chooses `never`, and holds for no pane that begins to work afterwards", async () => {
+    const { c, both, seen, workingPane } = await held();
+    await workingPane();
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+    c.send({ type: "setKeepAwake", choice: "never" });
+    for (const each of both) expect((await each.message("keepAwake", (m) => m.keepAwake.choice === "never")).keepAwake).toEqual({ choice: "never", held: false });
+    expect(seen).toMatchObject({ held: 1, released: 1 });
+    await workingPane();
+    expect(seen).toMatchObject({ held: 1, released: 1 });
+    for (const each of both) expect(told(each)).toEqual([{ choice: "working", held: true }, { choice: "never", held: false }]);
+  });
+
+  it("tells every client of a choice that leaves the hold as it was, and holds again for a working pane when the choice returns to `working`", async () => {
+    const { c, both, seen, workingPane } = await held();
+    c.send({ type: "setKeepAwake", choice: "never" });
+    for (const each of both) expect((await each.message("keepAwake")).keepAwake).toEqual({ choice: "never", held: false });
+    await workingPane();
+    expect(seen.held).toBe(0);
+    c.send({ type: "setKeepAwake", choice: "working" });
+    for (const each of both) expect((await each.message("keepAwake", (m) => m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: true });
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+  });
+
+  it("holds from its start, and says so in `ready`, where the daemon before it on the same run folder was told `always`, from a file the user alone can read", async () => {
+    const runDir = runFolder();
+    const before = await held({ runDir });
+    before.c.send({ type: "setKeepAwake", choice: "always" });
+    await before.c.message("keepAwake");
+    await before.daemon.close();
+    expect(readFileSync(join(runDir, "keep-awake.json"), "utf8")).toBe('{"choice":"always"}');
+    expect(statSync(join(runDir, "keep-awake.json")).mode & 0o777).toBe(0o600);
+
+    const { holdAwake, seen } = holder();
+    const { url } = await daemon({ runDir, holdAwake });
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+    expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
+  });
+
+  it.each([
+    ["a choice that is none of the three", '{"choice":"sometimes"}'],
+    ["text that is no JSON", "always"],
+    ["JSON that is no record", "null"],
+  ])("reads a file that holds %s as the choice `working`", async (_, text) => {
+    const runDir = runFolder();
+    writeFileSync(join(runDir, "keep-awake.json"), text);
+    const { ready, seen } = await held({ runDir });
+    expect(ready.keepAwake).toEqual({ choice: "working", held: false });
+    expect(seen.held).toBe(0);
+  });
+
+  it("tells no client and writes no file for a choice that is none of the three, and for the choice that already stands", async () => {
+    const runDir = runFolder();
+    const { both, seen, sendAndWait } = await held({ runDir });
+    await sendAndWait({ type: "setKeepAwake", choice: "sometimes" });
+    await sendAndWait({ type: "setKeepAwake" });
+    await sendAndWait({ type: "setKeepAwake", choice: "working" });
+    for (const each of both) expect(told(each)).toEqual([]);
+    expect(existsSync(join(runDir, "keep-awake.json"))).toBe(false);
+    expect(seen.held).toBe(0);
+    // The choice still stands, and the daemon still takes one of the three.
+    await sendAndWait({ type: "setKeepAwake", choice: "never" });
+    for (const each of both) expect(told(each)).toEqual([{ choice: "never", held: false }]);
+    expect(readFileSync(join(runDir, "keep-awake.json"), "utf8")).toBe('{"choice":"never"}');
+  });
+
+  it("tells every client when the hold ends by itself, releases nothing, and holds again when another pane's agent begins to work", async () => {
+    const { both, seen, workingPane } = await held();
+    await workingPane();
+    seen.lose();
+    for (const each of both) expect((await each.message("keepAwake", (m) => !m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: false });
+    expect(seen).toMatchObject({ held: 1, released: 0 });
+    await workingPane();
+    for (const each of both) await each.until(() => (told(each).length === 3 ? true : undefined));
+    expect(seen).toMatchObject({ held: 2, released: 0 });
+    for (const each of both) expect(told(each).map((k) => k.held)).toEqual([true, false, true]);
+  });
+
+  it("holds nothing, and tells no client of a hold, where the holder reports the hold lost before it returns", async () => {
+    let asked = 0;
+    const { both, workingPane, ready } = await held({
+      holdAwake: (lost) => {
+        asked++;
+        lost();
+        return { release: () => undefined };
+      },
+    });
+    expect(ready.keepAwake).toEqual({ choice: "working", held: false });
+    await workingPane();
+    expect(asked).toBeGreaterThan(0);
+    for (const each of both) expect(told(each)).toEqual([]);
+  });
+
+  it("takes no loss of a hold it released for the loss of the hold that stands", async () => {
+    const { url, c, both, seen } = await held();
+    c.send({ type: "setKeepAwake", choice: "always" });
+    await c.message("keepAwake", (m) => m.keepAwake.held);
+    const loseFirst = seen.lose;
+    c.send({ type: "setKeepAwake", choice: "never" });
+    await c.message("keepAwake", (m) => m.keepAwake.choice === "never");
+    c.send({ type: "setKeepAwake", choice: "always" });
+    for (const each of both) await each.until(() => (told(each).length === 3 ? true : undefined));
+    loseFirst();
+    expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
+    for (const each of both) expect(told(each).map((k) => k.held)).toEqual([true, false, true]);
+    expect(seen).toMatchObject({ held: 2, released: 1 });
+  });
+
+  it("holds nothing once it closed, though its choice is `always` and a pane's process ends afterwards", async () => {
+    const { daemon: d, c, seen, pane } = await held();
+    await pane();
+    c.send({ type: "setKeepAwake", choice: "always" });
+    await c.message("keepAwake", (m) => m.keepAwake.held);
+    await d.close();
+    await pause(300);
+    expect(seen).toMatchObject({ held: 1, released: 1 });
+  });
+
+  it("sends no `keepAwake` in `ready`, and takes no choice, where it is given no holder", async () => {
+    const runDir = runFolder();
+    const { url } = await daemon({ runDir });
+    const c = await client(url);
+    expect(Object.keys(await c.message("ready")).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    c.send({ type: "setKeepAwake", choice: "always" });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 999 });
+    await c.message("error", (m) => m.requestId === 1);
+    expect(told(c)).toEqual([]);
+    expect(existsSync(join(runDir, "keep-awake.json"))).toBe(false);
+    expect("keepAwake" in (await (await client(url)).message("ready"))).toBe(false);
+  });
+
+  it("stays up and keeps the choice where its run folder cannot be written, and says so in its log", async () => {
+    const said: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void said.push(args);
+    cleanups.push(() => {
+      console.error = error;
+    });
+    const { url, c, seen } = await held({ runDir: join(runFolder(), "removed") });
+    c.send({ type: "setKeepAwake", choice: "always" });
+    expect((await c.message("keepAwake")).keepAwake).toEqual({ choice: "always", held: true });
+    expect(seen.held).toBe(1);
+    expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
+    expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the choice of when to keep the Mac awake was not written: /)]);
   });
 });
