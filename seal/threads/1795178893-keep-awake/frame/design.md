@@ -38,7 +38,7 @@ In scope, numbered for `frame/plan.md`:
 1. **The choice.** The daemon keeps one choice of three values: `working` ("While an agent works"), `always` ("Always") and `never` ("Never"). It is `working` until a person chooses. The daemon keeps it in `keep-awake.json` in its run directory and reads it at its start. A file that holds none of the three values is read as `working`.
 2. **When the daemon wants the Mac awake.** Under `never`, never. Under `always`, from its start to its end. Under `working`, while at least one pane is alive with the state `working`, or at least one headless session has the state `working`.
 3. **The hold.** While the daemon wants the Mac awake it runs one child process, `/usr/bin/caffeinate -i -w <the daemon's own process id>`. It starts the child when the want of item 2 becomes true and ends it when the want becomes false and when the daemon closes. It runs one such child at most.
-4. **A hold that ends by itself.** Where the child ends and the daemon did not end it, the daemon holds nothing and tells every client so. It starts another child at the next change of a session's state or of the choice that leaves the want true.
+4. **A hold that ends by itself.** Where the child ends and the daemon did not end it, the daemon holds nothing and tells every client so. It starts another child at the next list of sessions the daemon sends to its clients, or the next change of the choice, that leaves the want true. The daemon sends that list at every change of a session's state and also when a branch gains a commit, so the new child never comes later than the next change of a session's state.
 5. **The protocol.** `ready` carries the choice and whether the hold stands. A message of its own tells every client whenever either changes. A client's message sets the choice.
 6. **Where the daemon holds.** The daemon process holds on macOS. On another platform it is given no way to hold, sends no such field in `ready`, and ignores a client's choice.
 7. **The control.** The sidebar's foot gains a control beside the theme's, built the same way: an icon with the three choices laid over it. It shows the daemon's choice, and a person's choice goes to the daemon.
@@ -90,14 +90,14 @@ A "holder" below is the function the daemon is given to hold the Mac awake (*Dat
 - A new server message, `{ type: "keepAwake"; keepAwake: KeepAwake }`, sent to every client whenever the choice or `held` changes.
 - A new client message, `{ type: "setKeepAwake"; choice: KeepAwakeChoice }`. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three.
 
-`src/shared/keep-awake.ts` is new, as `src/shared/appearance.ts` is for the theme. It holds the three choices in the order the control offers them, each with the words a person reads, and the function that says whether a value from a file or from another process is one of the three.
+`src/shared/keep-awake.ts` is new, as `src/shared/appearance.ts` is for the theme. It holds the three choices in the order the control offers them, each with the words a person reads, the default choice (`DEFAULT_KEEP_AWAKE`, "While an agent works"), and the function that says whether a value from a file or from another process is one of the three.
 
 `src/daemon/keep-awake.ts` is new and imports nothing of the `Daemon` class:
 
 - The function of *Scope* item 2: the choice, the panes and the headless sessions in, a boolean out.
 - The store of *Scope* item 1. It writes `{"choice":"<value>"}` through `writeWholeFile`, holds the choice in memory before it writes, and with no run directory keeps it in memory alone, as `LastLook` does. A write that throws is logged as `daemon.ts:352-355` logs the look's, and the choice stands in memory.
 - `type HoldAwake = (lost: () => void) => { release(): void }`. A call starts a hold, `release` ends it, and `lost` is called once where the hold ends and `release` was not called.
-- The real holder for a process id, *Scope* item 3. It starts the child with no shell and no input or output, and reports a child that could not start as a hold lost, so a Mac without the program leaves the daemon running.
+- The real holder for a process id, *Scope* item 3, `holdAwakeFor(pid, program)`, whose program is `/usr/bin/caffeinate` unless a case names one that cannot start. It starts the child with no shell and no input or output, and reports a child that could not start as a hold lost, so a Mac without the program leaves the daemon running.
 
 `src/daemon/daemon.ts`: `DaemonOptions` gains `holdAwake?: HoldAwake`. The class settles the hold after every change of a pane's `alive` or `state`, of a headless session's `state`, and of the choice, and once at `listen`. `Daemon#close` releases it. `Daemon#handle` gains the case for `setKeepAwake`. `Daemon#checkIdle` is not changed.
 
