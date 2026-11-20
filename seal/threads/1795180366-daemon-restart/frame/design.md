@@ -107,7 +107,7 @@ Each case is seen red before it is kept, as contract rule 15 states. Scenarios 1
 - `DaemonConnection` gains `otherBuild: boolean`.
 - `Channel` gains `endDaemon` and `daemonMenu`. `OwleryApi` gains `endDaemon(then: "restart" | "quit"): Promise<string | null>` and `onDaemonMenu(listener: (chosen: "restart" | "quit") => void): void`. `src/preload/preload.ts` gains both. `daemonMenu` is the first channel the main process sends on without being asked.
 
-`src/main/menu.ts`: `MenuEntry` gains `id?: string`, and the template gains the entries of *Scope* item 3. The module still imports nothing of Electron. `src/main/main.ts` gives each entry that has an id its click before it builds the menu, answers the two channels through the control, and computes `otherBuild` from the discovery it found and `buildOf` of the script it would start.
+`src/main/menu.ts`: `MenuEntry` gains `id?: string`, and the template gains the entries of *Scope* item 3. The module still imports nothing of Electron. `src/main/main.ts` gives each entry that has an id its click before it builds the menu, answers the two channels through the control, and answers `otherBuild` through `src/main/daemon-client.ts#otherBuild(found, daemonScript)`, which compares the discovery it found with `buildOf` of the script it would start. The comparison stands in `daemon-client.ts` because `main.ts` imports Electron, so its cases run without the app.
 
 `src/renderer/view.ts`:
 
