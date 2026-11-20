@@ -9,9 +9,9 @@ A pane lacked the basics every terminal has. A file dropped on it typed nothing.
 | A dropped file typed nothing | Its path is typed into the pane, escaped as a shell reads it |
 | A URL or a path in a pane was plain text | A click with the Command key held opens the URL in the browser, shows the path in Finder, or brings another work item's worktree to the front |
 | Resting the pointer on a link showed nothing | A card shows the whole target and a row for each action, with the click that does the same |
-| A right click did nothing | A menu: Copy, Paste, Select All, Clear Screen, Reset Terminal, Close Pane |
+| A right click offered no terminal action | A menu: Copy, Paste, Select All, Clear Screen, Reset Terminal, Close Pane |
 | Shift+Enter sent Enter | It sends a line feed, which Claude Code reads as a line break |
-| Command with ←, → and ⌫ did nothing | They send Control+A, Control+E and Control+U, as other macOS terminals do |
+| Command with ← and → did nothing, and Command+⌫ deleted one character | They send Control+A, Control+E and Control+U, as other macOS terminals do |
 
 **Nothing a pane prints can act on its own.** Every action needs a click with the Command key held, or a press of a card row or a menu item.
 
@@ -27,8 +27,9 @@ A pane lacked the basics every terminal has. A file dropped on it typed nothing.
 Not verified, for the owner's hand run of #24:
 
 - **Window hiding.** On macOS, the red button and Shift+Command+W hide the window. A notification comes while the window is hidden, and a click on it or on the Dock icon shows the window again. "Quit Owlery" ends the app, and a full-screen window first leaves full screen and then hides.
-- **Keys and drags a person makes.** Cmd+W pressed through the system menu, and Shift+Enter in a real Claude Code. A file dragged from Finder, and a screenshot dragged from its thumbnail.
+- **Keys and drags a person makes.** Cmd+W and Cmd+V pressed by a person, past the app's own menu. Shift+Enter in a real Claude Code. A file dragged from Finder, a screenshot dragged from its thumbnail, and whether Claude Code reads a dropped image's escaped path as an image. A Control click opening the pane's menu.
 - **The system's own apps and clipboard.** A Command click showing a path in Finder or opening the browser. Copy and Paste against the system clipboard.
-- **What a person's editing keys do.** Command+Backspace in Claude Code. In zsh it deletes the whole line.
+- **What a person's editing keys do.** Command with ←, → and ⌫ in bash and in Claude Code. In zsh, Command+⌫ deletes the whole line.
+- **A key typed right after a tab change.** A pane takes no input until it has drawn its output again, which an earlier change of this release set. How long that moment is in a window a person looks at was not measured.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
