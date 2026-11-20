@@ -99,8 +99,8 @@ const baseAnswers = new Map<string, { base: string; requestId: number; answer: B
 const basesAsked = new Set<number>();
 // The waits for the answers of this opening's fetches.
 const baseTimers = new Set<ReturnType<typeof setTimeout>>();
-// The key of the base whose fetch was still awaited when the person pressed Create, and what the status line says of that fetch once the creation is answered.
-let createdAwaiting: string | undefined;
+// The key of the base the person pressed Create with, and what the status line says, once the creation is answered, of a fetch of that base that was answered after the press.
+let createdBase: string | undefined;
 let createdSays = "";
 // How long the form waits after a key before it asks for a plan. A plan took 28 ms in a clone of one branch and 130 ms beside 2,000 more, so keys closer together than this ask once, after the last of them. The rename dialog waits as long.
 const PLAN_WAIT_MS = 150;
@@ -1066,7 +1066,7 @@ function forgetBases(): void {
   for (const timer of baseTimers) clearTimeout(timer);
   baseTimers.clear();
   baseAnswers.clear();
-  createdAwaiting = undefined;
+  createdBase = undefined;
   createdSays = "";
 }
 
@@ -1095,7 +1095,7 @@ function takeBase(requestId: number, answer: BaseAnswer): boolean {
   for (const [key, asked] of baseAnswers) {
     if (asked.requestId !== requestId) continue;
     asked.answer = answer;
-    if (key === createdAwaiting) createdSays = lateSays(asked.base, answer, Date.now());
+    if (key === createdBase) createdSays = lateSays(asked.base, answer, Date.now());
     if (workItemDialog.open) showBase();
   }
   return true;
@@ -1147,8 +1147,7 @@ function createWorkItem(): void {
   formRequest = requestId;
   formError.textContent = "";
   // The button did not wait for the base's fetch. Where its answer is still to come, the daemon cuts the work item after that fetch, and the status line says what a failed one gave.
-  const awaited = fields.base === undefined ? undefined : baseKey(fields.repo, fields.base);
-  createdAwaiting = awaited !== undefined && baseAnswers.get(awaited)?.answer === "awaited" ? awaited : undefined;
+  createdBase = fields.base === undefined ? undefined : baseKey(fields.repo, fields.base);
   createdSays = "";
   // One creation per answer: the button stays off until the daemon answers.
   createButton.disabled = true;
