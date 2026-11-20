@@ -942,6 +942,11 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
     await openMenu();
     expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-menu [role=menuitem]")].filter((item) => item.disabled).map((item) => item.firstChild.textContent)`)).toEqual([]);
+    // From the menu itself the up arrow goes to the last item, and the down arrow goes on from there to the first, which "Copy" now is.
+    await press("ArrowUp", 38);
+    expect(await app.evaluate<string | null>(FOCUSED_ITEM)).toBe("Close Pane");
+    await press("ArrowDown", 40);
+    expect(await app.evaluate<string | null>(FOCUSED_ITEM)).toBe("Copy");
     await press("Escape", 27);
     await pressMenuItem("Copy");
     expect((await clipboard()).trimEnd()).toBe(`${PRINTED}\na named link`);
