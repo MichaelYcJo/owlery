@@ -85,11 +85,13 @@ Each phase leaves the app working. After phase 1 the window lists the repositori
 
 ## Overlap with the release
 
-The spawn names no other open work item of `release/v0.0.1` and says none is in progress. `gh pr list --state open --json number --jq length` on 2026-11-20 printed 0 (`executed`), so none meets this work.
+The spawn names no other open work item of `release/v0.0.1` and says none is in progress. `gh pr list --state open --json number --jq length` on 2026-11-20 printed 0 (`executed`). Three work items of the release then merged first, and this branch took each in by merging `release/v0.0.1`.
 
 | Work item | Where both change | Merges first | Grounds |
 |---|---|---|---|
-| | | | |
+| #31, the notification click (`485ba74`) | `apps/desktop/src/main/main.ts`, `src/preload/preload.ts`, `src/shared/ipc.ts`, `src/renderer/renderer.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts`, `test/view.test.ts` | #31 | Merged into this branch at `bb7e314`. The order #31, #94, #95, then #93 is the one `seal/threads/1795158088-terminal-basics/frame/plan.md` states |
+| #94, the continue pane (`02dea83`) | `apps/desktop/src/daemon/daemon.ts`, `src/daemon/main.ts`, `src/shared/protocol.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts`, `test/daemon.test.ts`, `test/view.test.ts` | #94 | Merged into this branch at `bb7e314` |
+| #95, terminal basics (`5413f0b`, pull request #103) | `apps/desktop/src/daemon/daemon.ts`, `src/main/main.ts`, `src/preload/preload.ts`, `src/shared/ipc.ts`, `src/shared/protocol.ts`, `src/renderer/index.html`, `src/renderer/renderer.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts`, `test/daemon.test.ts`, `test/view.test.ts` | #95 | Merged into this branch at `dc715b7`, with seven files in conflict. A menu's Copy writes #95's clipboard (`src/main/clipboard.ts`). The window's read of an open dialog reads every menu. The page draws a pane's menu in `work-item-view.ts` beside this work's `menu.ts`, and review round 7 found no defect a person meets from the two |
 
 ## Operational impact
 
