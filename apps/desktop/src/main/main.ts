@@ -18,7 +18,8 @@ import { comeForward } from "./forward";
 import { pickFolder } from "./pick-folder";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
-// over WebSocket. The main process finds or starts it, stops it where a
+// over WebSocket. The main process finds or starts it, tells the window
+// whether it is of another build than the one it would start, stops it where a
 // person chose "Restart Daemon…" or "Quit Owlery Completely…" in the menu
 // and confirmed it in the window, opens the folder
 // dialog the window asks for, and keeps the theme a person chose. It sets

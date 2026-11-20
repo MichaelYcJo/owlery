@@ -1,4 +1,5 @@
-// The channels between the window and the main process: where the daemon is,
+// The channels between the window and the main process: where the daemon is
+// and whether it is of another build than the one the app would start,
 // the native folder dialog, which a page cannot open, the theme a person
 // chose, which the main process keeps (./appearance), the address of a
 // link a person clicked in a pane, which only the main process may open

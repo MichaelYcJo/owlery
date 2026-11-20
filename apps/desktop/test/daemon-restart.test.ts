@@ -1,8 +1,9 @@
-// The menu's two entries that end the daemon, in the built app. The app is
-// started twice, in the background and with the main process's inspector,
-// where the built menu and its entries' clicks are: once for a restart and
-// the plain quit after it, and once for a complete quit, since each quit
-// ends the app. Each pane's process is the receiver of ./fixtures, so no
+// The menu's two entries that end the daemon, and the status line's sentence
+// for a daemon of another build, in the built app. The app is started
+// twice, in the background and with the main process's inspector, where the
+// built menu and its entries' clicks are: once for the sentence, the restart
+// that takes it away and the plain quit after it, and once for a complete
+// quit, since each quit ends the app. Each pane's process is the receiver of ./fixtures, so no
 // shell of the person's and no agent starts. The cases signal only what
 // they started: the bystander daemon by the id its start gave, and the
 // app's own daemon through `BuiltApp.stop`.

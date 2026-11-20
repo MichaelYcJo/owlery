@@ -171,8 +171,9 @@ export function daemonNotice(otherBuild: boolean): string {
  * The repositories and the archived work items of a `ready` or an `inbox`.
  * A daemon of a build before the repositories sends neither list and
  * answers none of the messages that came with them: the window then holds
- * no repository. Such a daemon wrote no build either, so `daemonNotice`
- * says of it that it is of another build.
+ * no repository. Such a daemon wrote no build into its `daemon.json`
+ * either, so the main process answers that it is of another build, and
+ * `daemonNotice` gives the sentence for it.
  */
 export function daemonLists(message: { repositories?: Repository[]; archived?: WorkItem[] }): { repositories: Repository[]; archived: WorkItem[] } {
   if (message.repositories === undefined) return { repositories: [], archived: [] };
