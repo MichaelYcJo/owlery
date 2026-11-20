@@ -618,7 +618,7 @@ export async function readLoss(repo: string, branch: string, worktree: string): 
     untrackedCount: untracked.count,
     ignored: ignored.listed,
     ignoredCount: ignored.count,
-    stamp: createHash("sha256").update(JSON.stringify([held, tips, log, status, others])).digest("hex"),
+    stamp: createHash("sha256").update(JSON.stringify([held, log, status, others])).digest("hex"),
   };
 }
 

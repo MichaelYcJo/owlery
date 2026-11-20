@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -749,7 +749,10 @@ describe("what a delete would lose", () => {
     expect(loss.stamp).not.toBe("");
     // A tag on the branch's head holds its commits, and so does the remote's branch as the clone holds it after a push with no upstream.
     git(made.repo, "tag", "kept", branch);
-    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ commits: [], commitCount: 0, ...files });
+    const tagged = await readLoss(made.repo, branch, worktree);
+    expect(tagged).toMatchObject({ commits: [], commitCount: 0, ...files });
+    // The branch's head did not move, and the loss is another.
+    expect(tagged.stamp).not.toBe(loss.stamp);
     git(made.repo, "tag", "-d", "kept");
     expect((await readLoss(made.repo, branch, worktree)).commitCount).toBe(1);
     git(made.repo, "push", "--quiet", "origin", branch);
@@ -765,9 +768,12 @@ describe("what a delete would lose", () => {
   it("says why a delete cannot run: the branch is checked out in the repository's own checkout, or the worktree is locked", async () => {
     const made = repository();
     const { branch, worktree } = await workItem(made);
-    expect((await readLoss(made.repo, branch, worktree)).blocked).toBeNull();
+    const free = await readLoss(made.repo, branch, worktree);
+    expect(free.blocked).toBeNull();
     git(made.repo, "worktree", "lock", worktree);
-    expect((await readLoss(made.repo, branch, worktree)).blocked).toBe(`The worktree ${worktree} is locked, so git does not remove it.`);
+    const locked = await readLoss(made.repo, branch, worktree);
+    expect(locked.blocked).toBe(`The worktree ${worktree} is locked, so git does not remove it.`);
+    expect(locked.stamp).not.toBe(free.stamp);
     git(made.repo, "worktree", "unlock", worktree);
     git(worktree, "checkout", "--quiet", "--detach");
     git(made.repo, "checkout", "--quiet", branch);
@@ -790,7 +796,10 @@ describe("what a delete would lose", () => {
     const more = await readLoss(made.repo, branch, worktree);
     expect([more.untracked, more.untrackedCount]).toEqual([many.untracked, 502]);
     stamps.push(more.stamp);
-    expect(new Set(stamps).size).toBe(4);
+    // An ignored file is of the loss too.
+    writeFileSync(join(worktree, ".env"), "SECRET=1\n");
+    stamps.push((await readLoss(made.repo, branch, worktree)).stamp);
+    expect(new Set(stamps).size).toBe(5);
   });
 
   it("names no branch that is gone, names a folder removed by hand while git still lists it, names no folder git lists no worktree at, though one stands there, and says where git reads nothing in the repository's folder", async () => {
@@ -844,6 +853,18 @@ describe("removing a work item's worktree and branch", () => {
     await removeWorktree(made.repo, worktree, true);
     await removeWorktree(made.repo, made.repo, true);
     expect([readdirSync(worktree), existsSync(join(made.repo, "README.md"))]).toEqual([["left.txt"], true]);
+  });
+
+  it("finds a worktree whose folder a work item names through a link, as git lists it by the folder the link leads to", async () => {
+    const made = repository();
+    mkdirSync(made.root);
+    const link = join(made.base, "linked-root");
+    symlinkSync(made.root, link);
+    const { branch, worktree } = await createWorktree({ folder: made.repo, title: "First", root: link });
+    expect(worktree.startsWith(link)).toBe(true);
+    expect((await readLoss(made.repo, branch, worktree)).worktree).not.toBeNull();
+    await removeWorktree(made.repo, worktree, false);
+    expect([existsSync(worktree), Object.keys(worktrees(made.repo))]).toEqual([false, [made.repo]]);
   });
 
   it("removes the local branch though no other branch holds its commit, leaves the remote's branch of its name and every other ref, and does nothing for a branch that is gone", async () => {
