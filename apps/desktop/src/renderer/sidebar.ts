@@ -83,8 +83,9 @@ export function untell(text: string): void {
   tell(noticeWithout(notice, text));
 }
 
-function showStatus(): void {
-  status.textContent = notice || (held.ready ? daemonStatus(held.sessions, held.paneKinds) : "");
+/** Draws the status line: the notice where there is one, and otherwise the daemon's state, once the daemon said it. */
+export function showStatus(): void {
+  status.textContent = notice || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false) : "");
   status.classList.toggle("notice", notice !== "");
 }
 

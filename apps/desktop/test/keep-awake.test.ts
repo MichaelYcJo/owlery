@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { holdAwakeFor } from "../src/daemon/keep-awake";
+import { BuiltApp, buildApp } from "./built-app";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -26,10 +27,10 @@ function runs(pid: number): boolean {
   }
 }
 
-async function until<T>(find: () => T | undefined, ms = 5000): Promise<T> {
+async function until<T>(find: () => T | undefined | Promise<T | undefined>, ms = 5000): Promise<T> {
   const stop = Date.now() + ms;
   for (;;) {
-    const found = find();
+    const found = await find();
     if (found !== undefined) return found;
     if (Date.now() > stop) throw new Error("timed out");
     await new Promise((r) => setTimeout(r, 20));
@@ -44,12 +45,12 @@ function watched(): number {
   return pid;
 }
 
-/** The ids of this process's children that run `caffeinate` for the watched process, each ended after the case by its id. */
-function holdsOf(watchedPid: number): number[] {
+/** The ids of the children of `parent`, this process where none is named, that run `caffeinate` for the watched process, each ended after the case by its id. */
+function holdsOf(watchedPid: number, parent = process.pid): number[] {
   const pids = execFileSync("ps", ["-axo", "pid=,ppid=,args="], { encoding: "utf8" })
     .split("\n")
     .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
-    .flatMap((found) => (found && Number(found[2]) === process.pid && found[3]!.includes("caffeinate") && found[3]!.trim().endsWith(` ${String(watchedPid)}`) ? [Number(found[1])] : []));
+    .flatMap((found) => (found && Number(found[2]) === parent && found[3]!.includes("caffeinate") && found[3]!.trim().endsWith(` ${String(watchedPid)}`) ? [Number(found[1])] : []));
   for (const pid of pids) cleanups.push(() => end(pid));
   return pids;
 }
@@ -104,5 +105,58 @@ describe.skipIf(process.platform !== "darwin")("the hold on the Mac's idle sleep
     await new Promise((r) => setTimeout(r, 200));
     expect(lost).toBe(1);
     expect(holdsOf(pid)).toEqual([]);
+  });
+});
+
+// The window's control and its status line against the daemon the app starts, which holds through the real program.
+describe.skipIf(process.platform !== "darwin")("keeping the Mac awake in the built app", { timeout: 120_000 }, () => {
+  it("offers the three choices in the sidebar's foot, shows the daemon's, and says in the status line that the daemon holds while its one `caffeinate` child runs", async () => {
+    buildApp();
+    // No work item and no pane: the app starts once, in the background, with a user data folder of its own.
+    const app = await BuiltApp.start({});
+    let child: number | undefined;
+    let left: number[];
+    try {
+      const status = (): Promise<string> => app.evaluate<string>(`document.getElementById("status").textContent`);
+      const shown = (): Promise<{ hidden: boolean; value: string; title: string }> =>
+        app.evaluate(`(() => { const control = document.getElementById("keep-awake-control"); return { hidden: control.hidden, value: document.getElementById("keep-awake").value, title: control.title }; })()`);
+      /** A person's choice in the control. */
+      const choose = (choice: string): Promise<void> =>
+        app.evaluate(`(() => { const choices = document.getElementById("keep-awake"); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+      await app.until(`document.getElementById("status")?.textContent === "Daemon running, no agent"`, "the daemon's state in the status line");
+      const daemon = app.daemonPid();
+      if (daemon === undefined) throw new Error("the daemon wrote no process id");
+
+      expect(await app.evaluate<string[]>(`[...document.getElementById("keep-awake").options].map((option) => option.textContent)`)).toEqual(["While an agent works", "Always", "Never"]);
+      expect(await app.evaluate<string | null>(`document.getElementById("keep-awake").getAttribute("aria-label")`)).toBe("Keep awake");
+      expect(await shown()).toEqual({ hidden: false, value: "working", title: "Keep awake: While an agent works" });
+      expect(holdsOf(daemon, daemon)).toEqual([]);
+
+      await choose("always");
+      await app.until(`document.getElementById("status").textContent === "Daemon running, no agent, keeping the Mac awake"`, "that the daemon keeps the Mac awake");
+      const [held, ...others] = holdsOf(daemon, daemon);
+      child = held;
+      expect(others).toEqual([]);
+      expect(execFileSync("ps", ["-o", "args=", "-p", String(child)], { encoding: "utf8" }).trim()).toBe(`/usr/bin/caffeinate -i -w ${String(daemon)}`);
+      expect(await shown()).toEqual({ hidden: false, value: "always", title: "Keep awake: Always" });
+
+      // A page loaded again holds nothing of the page before it, so what it shows is what the daemon's `ready` said.
+      await app.evaluate(`window.__beforeReload = true`);
+      await app.cdp("Page.reload");
+      await until(async () => ((await app.evaluate<boolean>(`window.__beforeReload === undefined && document.getElementById("status")?.textContent === "Daemon running, no agent, keeping the Mac awake"`).catch(() => false)) ? true : undefined), 15_000);
+      expect(await shown()).toEqual({ hidden: false, value: "always", title: "Keep awake: Always" });
+      expect(holdsOf(daemon, daemon)).toEqual([child]);
+
+      await choose("never");
+      await app.until(`document.getElementById("status").textContent === "Daemon running, no agent"`, "that the daemon holds no longer");
+      await until(() => (runs(child!) ? undefined : true));
+      expect(holdsOf(daemon, daemon)).toEqual([]);
+      expect(await shown()).toEqual({ hidden: false, value: "never", title: "Keep awake: Never" });
+    } finally {
+      // The app and its daemon end here whatever failed above, and the daemon's end ends a child it still had.
+      left = await app.stop();
+    }
+    expect(left).toEqual([]);
+    expect(runs(child!)).toBe(false);
   });
 });
