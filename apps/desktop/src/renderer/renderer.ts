@@ -57,7 +57,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -174,11 +174,6 @@ let deletion: ReturnType<typeof archivalOf> | undefined;
 let settingsPlanRequest: number | undefined;
 let settingsPlan: PlanAnswered | null = null;
 
-/** Whether a dialog of the window is open, the form or any other. */
-function dialogOpen(): boolean {
-  return document.querySelector("dialog[open]") !== null;
-}
-
 const lists: Record<"inbox" | "history" | "archived", ListScreen> = {
   inbox: listScreen("inbox", { openView, filter, restore }, MAC),
   history: listScreen("history", { openView, filter, restore }, MAC),
@@ -248,14 +243,20 @@ function filter(state: StateFilter): void {
   showNarrowed();
 }
 
-/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, and N opens the "New work item" form. */
+/** Whether a dialog of the page is open, any of them, or a menu stands in the page: a repository's or a work item's (./menu), or a pane's while it is open (./work-item-view). The window reads none of its keys then. */
+function dialogOpen(): boolean {
+  return document.querySelector('dialog[open], [role="menu"]') !== null;
+}
+
+/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, and W closes the pane in front. The key is kept from the terminal whatever it did. */
 function onCommandKey(event: KeyboardEvent): void {
   const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen() });
   if (key === null) return;
   event.preventDefault();
   event.stopPropagation();
   if (key === "search") focusSearch();
-  else openWorkItemForm();
+  else if (key === "new") openWorkItemForm();
+  else closeFront();
 }
 
 /**
@@ -1271,7 +1272,7 @@ initSidebar(
   MAC,
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
-initView(() => openList("inbox"));
+initView(() => openList("inbox"), MAC, openView);
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
   save: (choice) => window.owlery.saveAppearance(choice),

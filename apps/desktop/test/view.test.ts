@@ -8,7 +8,9 @@ import {
   archivedIn,
   askButton,
   baseMenu,
+  cardStaysAt,
   changesSince,
+  closeAsks,
   commandKey,
   commitLines,
   daemonLists,
@@ -16,6 +18,7 @@ import {
   deleteSays,
   deletionOf,
   daemonStatus,
+  droppedText,
   emptyList,
   fileLines,
   filterChoices,
@@ -35,6 +38,9 @@ import {
   lineSession,
   lineText,
   lossSections,
+  linkCard,
+  linkClick,
+  type LinkTarget,
   markRanges,
   matchCount,
   matchSentence,
@@ -48,8 +54,12 @@ import {
   notificationOpens,
   paneChoices,
   paneInFront,
+  paneKey,
+  paneMenu,
   paneTabs,
   pinnedFirst,
+  pathCandidates,
+  pathTarget,
   planAnswer,
   planLine,
   recentKept,
@@ -78,6 +88,7 @@ import {
   tabLabel,
   tellsSize,
   viewFacts,
+  webTarget,
   withHeadless,
   workItemEntries,
   workItemFields,
@@ -1770,6 +1781,18 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, meta: true, ctrl: true }, { ...free, mac: false })).toBeNull();
   });
 
+  it("reads W with the Command key as the key that closes the pane in front, under the conditions it reads K and N", () => {
+    const w = { ...plain, code: "KeyW" };
+    expect(commandKey({ ...w, meta: true }, free)).toBe("closePane");
+    expect(commandKey({ ...w, ctrl: true }, { ...free, mac: false })).toBe("closePane");
+    expect(commandKey({ ...w, ctrl: true }, free)).toBeNull();
+    expect(commandKey(w, free)).toBeNull();
+    expect(commandKey({ ...w, meta: true }, { ...free, dialogOpen: true })).toBeNull();
+    // With the Shift key it is the menu's key, which closes the window.
+    expect(commandKey({ ...w, meta: true, shift: true }, free)).toBeNull();
+    expect(commandKey({ ...w, meta: true, alt: true }, free)).toBeNull();
+  });
+
   it("reads no key while a dialog is open, while a menu is open, with no modifier key, or with another one held as well", () => {
     expect(commandKey({ ...plain, meta: true }, { ...free, dialogOpen: true })).toBeNull();
     expect(commandKey({ ...plain, meta: true }, { ...free, menuOpen: true })).toBeNull();
@@ -1781,6 +1804,300 @@ describe("commandKey", () => {
   });
 });
 
+describe("closeAsks", () => {
+  it("asks before a pane whose session runs and is working closes", () => {
+    expect(closeAsks(session(1, { state: "working" }))).toBe(true);
+  });
+
+  it.each([
+    ["is waiting", session(1, { state: "waiting" })],
+    ["has finished its turn", session(1, { state: "finished" })],
+    ["has no state yet", session(1)],
+    ["is of a kind that reports no state", session(1, { kind: "shell" })],
+    ["was working when its process ended", session(1, { state: "working", alive: false })],
+  ])("asks nothing where the session %s", (_name, closing) => {
+    expect(closeAsks(closing)).toBe(false);
+  });
+});
+
+describe("droppedText", () => {
+  it("types a path of safe characters alone as it is, with one space after it", () => {
+    expect(droppedText(["/Users/x/Shots_2026-11-20/a+b=c:d,e@f%g.PNG"])).toBe("/Users/x/Shots_2026-11-20/a+b=c:d,e@f%g.PNG ");
+  });
+
+  it.each([..." '\"\\()[]{}<>&;|$`!*?~#^"])("writes a backslash before %j", (character) => {
+    expect(droppedText([`/t/a${character}b.png`])).toBe(`/t/a\\${character}b.png `);
+  });
+
+  it("writes a character outside ASCII as it is, a Korean syllable among them", () => {
+    expect(droppedText(["/t/스크린샷 한 it's.png"])).toBe("/t/스크린샷\\ 한\\ it\\'s.png ");
+    expect(droppedText(["/t/café—é.png"])).toBe("/t/café—é.png ");
+  });
+
+  it("joins two paths by one space, in the order given, with one space after the last", () => {
+    expect(droppedText(["/t/a b.png", "/t/c.png"])).toBe("/t/a\\ b.png /t/c.png ");
+  });
+
+  it.each([
+    ["a line feed", "/t/a\nb.png"],
+    ["a carriage return", "/t/a\rb.png"],
+    ["an escape", "/t/a\u001bb.png"],
+    ["a tab", "/t/a\tb.png"],
+    ["a null", "/t/a\u0000b.png"],
+    ["a delete", "/t/a\u007fb.png"],
+  ])("leaves out a path that holds %s", (_name, path) => {
+    expect(droppedText([path, "/t/c.png"])).toBe("/t/c.png ");
+    expect(droppedText([path])).toBe("");
+  });
+
+  it("leaves out a file that has no path, and types nothing where no path is left", () => {
+    expect(droppedText(["", "/t/c.png", ""])).toBe("/t/c.png ");
+    expect(droppedText([""])).toBe("");
+    expect(droppedText([])).toBe("");
+  });
+});
+
+describe("paneKey", () => {
+  const enter = { key: "Enter", shift: false, ctrl: false, alt: false, meta: false, isComposing: false, keyCode: 13 };
+  /** The three editing keys, each pressed with the Command key and no other modifier, and what each does. */
+  const EDITING = [
+    ["ArrowLeft", 37, "lineStart"],
+    ["ArrowRight", 39, "lineEnd"],
+    ["Backspace", 8, "deleteToLineStart"],
+  ] as const;
+  const command = (key: string, keyCode: number) => ({ ...enter, key, keyCode, meta: true });
+
+  it("reads Enter with the Shift key as the key that sends a line feed, on a Mac keyboard and on another", () => {
+    expect(paneKey({ ...enter, shift: true }, true)).toBe("lineFeed");
+    expect(paneKey({ ...enter, shift: true }, false)).toBe("lineFeed");
+  });
+
+  it("leaves Shift+Enter to the terminal during a composition, told by the event and told by the key code of a key the input source took", () => {
+    expect(paneKey({ ...enter, shift: true, isComposing: true }, true)).toBeNull();
+    expect(paneKey({ ...enter, shift: true, keyCode: 229 }, true)).toBeNull();
+  });
+
+  it.each(["ctrl", "alt", "meta"] as const)("leaves Shift+Enter to the terminal where the %s key is held as well", (modifier) => {
+    expect(paneKey({ ...enter, shift: true, [modifier]: true }, true)).toBeNull();
+  });
+
+  it("leaves Enter without the Shift key to the terminal, and every other key with it", () => {
+    expect(paneKey(enter, true)).toBeNull();
+    expect(paneKey({ ...enter, alt: true }, true)).toBeNull();
+    expect(paneKey({ ...enter, key: "Tab", keyCode: 9, shift: true }, true)).toBeNull();
+    expect(paneKey({ ...enter, key: "J", keyCode: 74, shift: true }, true)).toBeNull();
+  });
+
+  it.each(EDITING)("reads %s with the Command key on a Mac keyboard as an editing key of macOS", (key, keyCode, does) => {
+    expect(paneKey(command(key, keyCode), true)).toBe(does);
+  });
+
+  it.each(EDITING)("leaves %s with the Command key to the terminal during a composition", (key, keyCode) => {
+    expect(paneKey({ ...command(key, keyCode), isComposing: true }, true)).toBeNull();
+    expect(paneKey({ ...command(key, 229) }, true)).toBeNull();
+  });
+
+  it.each(EDITING)("leaves %s to the terminal without the Command key, and with another modifier held as well", (key, keyCode) => {
+    expect(paneKey({ ...command(key, keyCode), meta: false }, true)).toBeNull();
+    for (const modifier of ["shift", "ctrl", "alt"] as const) expect(paneKey({ ...command(key, keyCode), [modifier]: true }, true)).toBeNull();
+  });
+
+  it.each(EDITING)("leaves %s to the terminal on a keyboard without the Command key, with the Control key and with a key the event names as the Command key", (key, keyCode) => {
+    expect(paneKey(command(key, keyCode), false)).toBeNull();
+    expect(paneKey({ ...command(key, keyCode), meta: false, ctrl: true }, false)).toBeNull();
+  });
+
+  it("leaves every other key with the Command key to the terminal", () => {
+    for (const [key, keyCode] of [["ArrowUp", 38], ["ArrowDown", 40], ["Delete", 46], ["Enter", 13], ["a", 65]] as const) expect(paneKey(command(key, keyCode), true)).toBeNull();
+  });
+});
+
+describe("paneMenu", () => {
+  const texts = (mac: boolean, selection: boolean) => paneMenu(mac, selection).map((item) => (item === null ? "-" : item.text));
+
+  it("holds the six items in their order, with a rule before the two that clear and before the one that closes", () => {
+    expect(texts(true, false)).toEqual(["Copy", "Paste", "Select All", "-", "Clear Screen", "Reset Terminal", "-", "Close Pane"]);
+    expect(texts(false, true)).toEqual(texts(true, false));
+  });
+
+  it("names each item's act", () => {
+    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [item.act]))).toEqual(["copy", "paste", "selectAll", "clear", "reset", "close"]);
+  });
+
+  it("shows the keys of Copy, Paste and Close Pane on a Mac keyboard, and no key on any other item", () => {
+    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [[item.text, item.keys]]))).toEqual([
+      ["Copy", "\u2318C"],
+      ["Paste", "\u2318V"],
+      ["Select All", ""],
+      ["Clear Screen", ""],
+      ["Reset Terminal", ""],
+      ["Close Pane", "\u2318W"],
+    ]);
+  });
+
+  it("shows no key on a keyboard without the Command key", () => {
+    expect(paneMenu(false, true).flatMap((item) => (item === null ? [] : [item.keys]))).toEqual(["", "", "", "", "", ""]);
+  });
+
+  it("disables Copy where the terminal holds no selection, and no other item", () => {
+    const disabled = (selection: boolean) => paneMenu(true, selection).flatMap((item) => (item !== null && !item.enabled ? [item.text] : []));
+    expect(disabled(false)).toEqual(["Copy"]);
+    expect(disabled(true)).toEqual([]);
+  });
+});
+
+describe("pathCandidates", () => {
+  const texts = (line: string): string[] => pathCandidates(line).map(({ text }) => text);
+
+  it.each([
+    ["a path from the root", "/etc/hosts"],
+    ["a path from the home folder", "~/notes/a.txt"],
+    ["a path from the folder itself", "./a.ts"],
+    ["a path from the folder above", "../b/a.ts"],
+    ["a path with no mark before it", "src/a.ts"],
+    ["a folder's path that ends in a slash", "src/main/"],
+    ["a path that ends in the folder above", "src/main/.."],
+    ["a path in Korean", "문서/메모.txt"],
+  ])("takes %s as a candidate, whole", (_name, path) => {
+    expect(pathCandidates(path)).toEqual([{ text: path, start: 0, end: path.length }]);
+  });
+
+  it("takes each run between spaces that holds a slash, with where it stands in the line's text", () => {
+    expect(pathCandidates("edit src/a.ts  and /tmp/b now")).toEqual([
+      { text: "src/a.ts", start: 5, end: 13 },
+      { text: "/tmp/b", start: 19, end: 25 },
+    ]);
+    // A place is counted in the text's characters, whatever width a terminal draws each in.
+    expect(pathCandidates("한글 src/a.ts")).toEqual([{ text: "src/a.ts", start: 3, end: 11 }]);
+  });
+
+  it("takes no run without a slash, and none that holds the mark of an address", () => {
+    expect(texts("README.md docs test ~ .. 12:5")).toEqual([]);
+    expect(texts("https://example.com/a/b file:///etc/hosts")).toEqual([]);
+    expect(texts("")).toEqual([]);
+  });
+
+  it("takes no run of slashes, dots and tildes alone, such as the mark that opens a comment", () => {
+    expect(texts("// a comment")).toEqual([]);
+    expect(texts("a / b ./ ../ ~/ ../.. /.")).toEqual([]);
+  });
+
+  it("cuts the quotes, the brackets and the punctuation that stand around a path in a sentence", () => {
+    expect(pathCandidates("see `src/a.ts`, 'src/b.ts' and (\"/tmp/c\").")).toEqual([
+      { text: "src/a.ts", start: 5, end: 13 },
+      { text: "src/b.ts", start: 17, end: 25 },
+      { text: "/tmp/c", start: 33, end: 39 },
+    ]);
+    expect(texts("[src/a.ts] {src/b.ts} <src/c.ts> src/d.ts; src/e.ts! src/f.ts? src/g.ts: src/h.ts.")).toEqual(["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts", "src/g.ts", "src/h.ts"]);
+  });
+
+  it("cuts a line number, and a column after it, from a path's end", () => {
+    expect(pathCandidates("at src/a.ts:12 and src/b.ts:12:5")).toEqual([
+      { text: "src/a.ts", start: 3, end: 11 },
+      { text: "src/b.ts", start: 19, end: 27 },
+    ]);
+    // As a search prints a match, and as a sentence closes on one.
+    expect(texts("src/a.ts:12: const a = 1")).toEqual(["src/a.ts"]);
+    expect(texts("(src/a.ts:12:5).")).toEqual(["src/a.ts"]);
+    // A number that is part of the name stays.
+    expect(texts("logs/2026-11-20 v1/a:b")).toEqual(["logs/2026-11-20", "v1/a:b"]);
+  });
+});
+
+describe("webTarget and pathTarget", () => {
+  it("reads an http or https address as a web address, as the URL's parser writes it", () => {
+    expect(webTarget("https://example.com/a")).toEqual({ kind: "web", address: "https://example.com/a" });
+    expect(webTarget("HTTP://Example.com/a b")).toEqual({ kind: "web", address: "http://example.com/a%20b" });
+  });
+
+  it.each(["file:///etc/hosts", "javascript:alert(1)", "vscode://file/etc/hosts", "example.com/a", ""])("gives %j no target", (address) => {
+    expect(webTarget(address)).toBeNull();
+  });
+
+  it("reads the worktree of another work item the window lists as that work item's", () => {
+    expect(pathTarget(SEARCH.worktree, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id });
+    expect(pathTarget(SEARCH.worktree, [LOGIN, SEARCH], undefined)).toEqual({ kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id });
+  });
+
+  it("reads the worktree of the view on screen, a folder inside a worktree and any other path as another path", () => {
+    expect(pathTarget(LOGIN.worktree, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: LOGIN.worktree });
+    expect(pathTarget(`${SEARCH.worktree}/src`, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: `${SEARCH.worktree}/src` });
+    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: "/etc/hosts" });
+    expect(pathTarget(SEARCH.worktree, [LOGIN], LOGIN.id)).toEqual({ kind: "path", path: SEARCH.worktree });
+  });
+});
+
+describe("linkClick and linkCard", () => {
+  const WEB: LinkTarget = { kind: "web", address: "https://example.com/a" };
+  const WORK_ITEM: LinkTarget = { kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id };
+  const PATH: LinkTarget = { kind: "path", path: "/etc/hosts" };
+  const none = { meta: false, ctrl: false, shift: false };
+
+  it.each([
+    ["a Mac keyboard", true, { ...none, meta: true }, { ...none, ctrl: true }],
+    ["a keyboard without the Command key", false, { ...none, ctrl: true }, { ...none, meta: true }],
+  ])("answers a click on %s from the link's target and the keys held", (_name, mac, key, other) => {
+    expect(linkClick("web", key, mac)).toBe("browser");
+    expect(linkClick("web", { ...key, shift: true }, mac)).toBe("browser");
+    expect(linkClick("workItem", key, mac)).toBe("workItem");
+    expect(linkClick("workItem", { ...key, shift: true }, mac)).toBe("finder");
+    expect(linkClick("path", key, mac)).toBe("finder");
+    expect(linkClick("path", { ...key, shift: true }, mac)).toBe("finder");
+    for (const kind of ["web", "workItem", "path"] as const) {
+      // A click without the key stays the terminal's, which selects text with it. On a Mac the Control key with a click is the secondary click.
+      expect(linkClick(kind, none, mac)).toBeNull();
+      expect(linkClick(kind, { ...none, shift: true }, mac)).toBeNull();
+      expect(linkClick(kind, other, mac)).toBeNull();
+      expect(linkClick(kind, { ...other, shift: true }, mac)).toBeNull();
+    }
+  });
+
+  it("gives a card the whole target, and a row for each thing a person can do, with the keys of a Mac keyboard", () => {
+    expect(linkCard(WEB, true)).toEqual({
+      title: "https://example.com/a",
+      rows: [
+        { text: "Open in browser", keys: "⌘ Click", act: "browser" },
+        { text: "Copy link", keys: "", act: "copy" },
+      ],
+    });
+    expect(linkCard(WORK_ITEM, true)).toEqual({
+      title: SEARCH.worktree,
+      rows: [
+        { text: "Open work item", keys: "⌘ Click", act: "workItem" },
+        { text: "Open in Finder", keys: "⇧ ⌘ Click", act: "finder" },
+      ],
+    });
+    expect(linkCard(PATH, true)).toEqual({
+      title: "/etc/hosts",
+      rows: [
+        { text: "Show in Finder", keys: "⌘ Click", act: "finder" },
+        { text: "Copy path", keys: "", act: "copy" },
+      ],
+    });
+  });
+
+  it("names the Control key on a keyboard without the Command key", () => {
+    expect(linkCard(WEB, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", ""]);
+    expect(linkCard(WORK_ITEM, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", "Shift Ctrl Click"]);
+    expect(linkCard(PATH, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", ""]);
+  });
+
+  it.each([true, false])("names on no row a key the click does not answer with that row's act (a Mac keyboard: %s)", (mac) => {
+    // The click a row's keys name, read from the row's own words.
+    const clickOf = (keys: string) => ({ meta: keys.includes("⌘"), ctrl: keys.includes("Ctrl"), shift: keys.includes("⇧") || keys.includes("Shift") });
+    let named = 0;
+    for (const target of [WEB, WORK_ITEM, PATH]) {
+      for (const { keys, act } of linkCard(target, mac).rows) {
+        if (keys === "") continue;
+        expect(keys.endsWith(" Click")).toBe(true);
+        expect(linkClick(target.kind, clickOf(keys), mac)).toBe(act);
+        named += 1;
+      }
+    }
+    expect(named).toBe(4);
+  });
+});
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const NOW = 1_000_000_000_000;
@@ -1788,6 +2105,16 @@ const NOW = 1_000_000_000_000;
 function commit(hash: string, subject: string, fields: Partial<CommitInfo> = {}): CommitInfo {
   return { hash, subject, at: NOW - 5 * MINUTE, added: 1, removed: 0, ...fields };
 }
+
+describe("cardStaysAt", () => {
+  it.each(["Meta", "Shift", "Control", "Alt"])("keeps the card at a press of the %s key by itself", (key) => {
+    expect(cardStaysAt(key)).toBe(true);
+  });
+
+  it.each(["a", "A", "Enter", "Escape", "ArrowLeft", "Backspace", " ", "CapsLock", "meta", "Process", ""])("takes the card away at the key %j, with or without a modifier key held", (key) => {
+    expect(cardStaysAt(key)).toBe(false);
+  });
+});
 
 describe("ageOf", () => {
   it("says how long ago a time is, in the words of the sentence of the last look: minutes, hours and minutes, or days", () => {

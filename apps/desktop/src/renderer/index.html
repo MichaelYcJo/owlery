@@ -53,6 +53,7 @@
         --menu-width: 208px;
         --menu-width-most: 340px;
         --line-mark: 12px;
+        --link-card-width: 480px;
         --tab-width: 240px;
         --dot: 6px;
         --seal-size-line: 18px;
@@ -384,6 +385,19 @@
       .menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus { background: var(--hover); }
       .menu [role="menuitem"]:active { background: var(--pressed); }
       .menu [role="separator"] { flex: none; height: 1px; margin: var(--space-2) var(--space-4); background: var(--rule); }
+      #close-pane-sentence { margin: 0 0 var(--space-6); overflow-wrap: anywhere; }
+      #close-pane-dialog .row { display: flex; justify-content: flex-end; gap: var(--space-4); }
+      /* The card of the link under the pointer, in a pane. Its place is the window's own, set where it shows. */
+      #link-card { position: fixed; z-index: 10; box-sizing: border-box; max-width: var(--link-card-width); padding: var(--space-3); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      #link-card .target { display: block; padding: var(--space-2) var(--space-4) var(--space-3); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; user-select: text; }
+      #link-card button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-7); box-sizing: border-box; width: 100%; height: var(--control-height); padding: 0 var(--space-4); border-radius: var(--radius-control); font-size: var(--size-second); white-space: nowrap; text-align: left; }
+      #link-card button:hover { background: var(--hover); transition: background-color var(--motion); }
+      #link-card .keys { color: var(--ink-faint); }
+      #pane-menu { position: fixed; z-index: 11; box-sizing: border-box; padding: var(--space-3); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); outline: 0; }
+      #pane-menu button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-7); box-sizing: border-box; width: 100%; height: var(--control-height); padding: 0 var(--space-4); border-radius: var(--radius-control); font-size: var(--size-second); white-space: nowrap; text-align: left; }
+      #pane-menu button:not(:disabled):hover, #pane-menu button:focus { background: var(--hover); outline: 0; transition: background-color var(--motion); }
+      #pane-menu .keys { color: var(--ink-faint); }
+      #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
       #work-item-plan { display: grid; gap: var(--space-1); min-height: 2.9em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); overflow-wrap: anywhere; }
       #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
       #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
@@ -705,6 +719,14 @@
         </div>
       </form>
     </dialog>
+    <dialog id="close-pane-dialog" aria-labelledby="close-pane-sentence">
+      <p id="close-pane-sentence"></p>
+      <div class="row">
+        <button type="button" id="close-pane-cancel" class="quiet">Cancel</button>
+        <button type="button" id="close-pane-confirm" class="primary">Close pane</button>
+      </div>
+    </dialog>
+    <div id="link-card" hidden></div>
     <script src="./renderer.js"></script>
   </body>
 </html>

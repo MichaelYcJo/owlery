@@ -83,8 +83,8 @@ export async function openFolder(folder: unknown, app: unknown, openers: Openers
 }
 
 /** Writes a text to the clipboard through the writer it is handed. What is no text is not written. */
-export function copyText(text: unknown, write: (text: string) => void): void {
-  if (typeof text === "string") write(text);
+export async function copyText(text: unknown, write: (text: string) => unknown): Promise<void> {
+  if (typeof text === "string") await write(text);
 }
 
 /**

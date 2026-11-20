@@ -728,8 +728,9 @@ export function moveSelection(ids: readonly number[], selected: number | undefin
  * alone. What `open` does there is the window's to say. J and K are read
  * by their place on the keyboard, so they act under any input source. No key
  * is read while a screen the window does not name as one is in front, a
- * dialog is open, a menu is open, the focus is in a field or a modifier key
- * is held. Enter on a control is that control's own press.
+ * dialog is open, a menu is open (a repository's, a work item's or a
+ * pane's), the focus is in a field or a modifier key is held. Enter on a
+ * control is that control's own press.
  */
 export function inboxKey(
   key: { code: string; modified: boolean },
@@ -745,16 +746,218 @@ export function inboxKey(
 /**
  * What a key pressed with the Command key does on every screen, or null
  * where the window leaves it alone: K puts the focus in the search field,
- * and N opens the "New work item" form. The Control key stands for the
- * Command key where the keyboard has none. The key is read by its place on
- * the keyboard, and not while a dialog is open, a menu is open or another
- * modifier key is held as well.
+ * N opens the "New work item" form, and W closes the pane in front. The
+ * Control key stands for the Command key where the keyboard has none. The
+ * key is read by its place on the keyboard, and not while a dialog is open,
+ * a menu is open or another modifier key is held as well. The application
+ * menu binds none of these keys, since a menu takes its key before the page
+ * sees it (src/main/menu.ts).
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean }): "search" | "new" | null {
+export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean }): "search" | "new" | "closePane" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
   if (!command || key.alt || key.shift || where.dialogOpen || where.menuOpen) return null;
   if (key.code === "KeyK") return "search";
-  return key.code === "KeyN" ? "new" : null;
+  if (key.code === "KeyN") return "new";
+  return key.code === "KeyW" ? "closePane" : null;
+}
+
+/**
+ * Whether a pane's close asks the person first: its session is working, so
+ * the close would end an agent in the middle of a turn. A session works
+ * where its process runs and its state is `working`. A kind that reports no
+ * state never asks, and the function reads no kind (docs/architecture.md,
+ * "Rules that keep it portable").
+ */
+export function closeAsks(session: SessionInfo): boolean {
+  return session.alive && session.state === "working";
+}
+
+/**
+ * The text a pane is handed for the files dropped on it, `paths` being each
+ * file's path in the order of the drop, empty for a file that is on no
+ * disk. Each path is written as a shell reads one word: a backslash stands
+ * before every ASCII character that is not a letter, a digit or one of
+ * `/ . _ - + = : , @ %`, and a character outside ASCII is written as it is.
+ * The paths are joined by one space, and one space follows the last, so the
+ * person types on after it. A file with no path is left out, and so is a
+ * path that holds a control character, which a terminal would read as a
+ * key. Where no path is left the text is empty.
+ */
+export function droppedText(paths: readonly string[]): string {
+  return paths
+    .filter((path) => path !== "" && !/[\u0000-\u001f\u007f]/.test(path))
+    .map((path) => `${path.replace(/[ -~]/g, (character) => (/[A-Za-z0-9/._\-+=:,@%]/.test(character) ? character : `\\${character}`))} `)
+    .join("");
+}
+
+/** What a key of a pane that the window reads does: it sends a line feed, or one of the three bytes a shell reads as an editing key. */
+export type PaneKeyAct = "lineFeed" | "lineStart" | "lineEnd" | "deleteToLineStart";
+
+/** The byte the pane's process is handed for each: a line feed, and Control+A, Control+E and Control+U. A shell reads the first two as the line's start and its end. bash reads Control+U as a deletion of what stands before the cursor, and zsh as a deletion of the whole line. */
+export const PANE_KEY_BYTES: Record<PaneKeyAct, string> = { lineFeed: "\n", lineStart: "\u0001", lineEnd: "\u0005", deleteToLineStart: "\u0015" };
+
+/**
+ * What a key pressed in a pane does in place of what the terminal would
+ * send for it, or null where the terminal reads the key itself. Enter with
+ * the Shift key and no other modifier is the key that sends a line feed,
+ * which a program such as Claude Code reads as a line break where Enter
+ * submits. On a Mac keyboard, `mac`, three keys with the Command key and no
+ * other modifier are the editing keys of macOS: the left arrow goes to the
+ * line's start, the right arrow to its end, and Backspace sends Control+U,
+ * which deletes what stands before the cursor in bash and the whole line in
+ * zsh. On a keyboard without the Command key the three stay the
+ * terminal's. During a composition every key is the terminal's: the event
+ * says so, or its key code is 229, the code of a key the input source took.
+ * The application menu binds none of these keys (src/main/menu.ts).
+ */
+export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: boolean; meta: boolean; isComposing: boolean; keyCode: number }, mac: boolean): PaneKeyAct | null {
+  if (key.isComposing || key.keyCode === 229) return null;
+  if (key.key === "Enter") return key.shift && !key.ctrl && !key.alt && !key.meta ? "lineFeed" : null;
+  if (!mac || !key.meta || key.shift || key.ctrl || key.alt) return null;
+  if (key.key === "ArrowLeft") return "lineStart";
+  if (key.key === "ArrowRight") return "lineEnd";
+  return key.key === "Backspace" ? "deleteToLineStart" : null;
+}
+
+/** What an item of a pane's menu does. */
+export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "close";
+
+/** An item of a pane's menu: its words, the keys that do the same, empty where no key of the window does, what it does, and whether it can be pressed. */
+export interface PaneMenuItem {
+  text: string;
+  keys: string;
+  act: PaneMenuAct;
+  enabled: boolean;
+}
+
+/**
+ * The items of a pane's menu, in their order, with null where a rule stands
+ * between two groups. On a Mac keyboard "Copy", "Paste" and "Close Pane"
+ * show the keys that do the same, and no other item shows one, since no key
+ * of the window does what it does. On another keyboard no item shows a key.
+ * "Copy" can be pressed only where the terminal holds a `selection`.
+ */
+export function paneMenu(mac: boolean, selection: boolean): (PaneMenuItem | null)[] {
+  const item = (text: string, act: PaneMenuAct, keys = "", enabled = true): PaneMenuItem => ({ text, keys: mac ? keys : "", act, enabled });
+  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, item("Close Pane", "close", "\u2318W")];
+}
+
+/** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */
+export interface PathCandidate {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * The texts of a line a pane printed that may each name a path, for the
+ * main process to say what stands there (src/main/paths.ts). A candidate is
+ * a run of characters between spaces that holds a slash and not `://`, the
+ * mark of an address, which the link add-on finds. Around it are cut the
+ * quotes and the brackets a sentence puts there, the punctuation that
+ * closes one, and a line number with its column, written as `:12` or
+ * `:12:5`. A run that names nothing but its slashes, dots and tildes is no
+ * candidate: `//` opens a comment on every other line of a program, and
+ * would read as the root folder. A bare name is none either, since `docs`
+ * is a word of a sentence and a folder of most worktrees.
+ */
+export function pathCandidates(line: string): PathCandidate[] {
+  const found: PathCandidate[] = [];
+  for (const run of line.matchAll(/\S+/g)) {
+    if (run[0].includes("://")) continue;
+    let start = /^["'`([{<]*/.exec(run[0])?.[0].length ?? 0;
+    let text = run[0].slice(start);
+    // A path that ends in the folder above keeps its dots.
+    while (/["'`)\]}>.,;:!?]$/.test(text) && !/\/\.\.?$/.test(text)) text = text.slice(0, -1);
+    text = text.replace(/:\d+(?::\d+)?$/, "");
+    if (!text.includes("/") || /^[/.~]*$/.test(text)) continue;
+    start += run.index;
+    found.push({ text, start, end: start + text.length });
+  }
+  return found;
+}
+
+/** What a link of a pane leads to: an address of the web, the worktree of another work item the window lists, or any other path a file or a folder stands at. */
+export type LinkTarget = { kind: "web"; address: string } | { kind: "workItem"; path: string; workItemId: number } | { kind: "path"; path: string };
+
+/** What a person does with a link: open its address in the browser, put its work item's view in front, show its path in Finder, or copy the address or the path. */
+export type LinkAct = "browser" | "workItem" | "finder" | "copy";
+
+/** The target of a link the terminal found as an address: a web address, as the URL's parser writes it, where it is an `http` or `https` one, and none otherwise. The main process opens no other address (src/main/links.ts). */
+export function webTarget(address: string): LinkTarget | null {
+  if (!URL.canParse(address)) return null;
+  const url = new URL(address);
+  return url.protocol === "http:" || url.protocol === "https:" ? { kind: "web", address: url.href } : null;
+}
+
+/**
+ * The target of a path the main process found a file or a folder at, whole:
+ * the worktree of a work item the window lists, where it is one, and
+ * another path otherwise. The worktree of the work item whose view is on
+ * screen, `viewing`, is another path, since a click that opened the view
+ * already on screen would do nothing.
+ */
+export function pathTarget(path: string, workItems: readonly WorkItem[], viewing: number | undefined): LinkTarget {
+  const workItem = workItems.find((listed) => listed.worktree === path && listed.id !== viewing);
+  return workItem ? { kind: "workItem", path, workItemId: workItem.id } : { kind: "path", path };
+}
+
+// What a person can do with a link of each kind of target, in the order the card's rows stand in, and the click that does it: one with the key held, one with the key and the Shift key held, or none. `linkClick` and `linkCard` both read it, so a row never names a click that does something else.
+const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAct; click: "key" | "shiftKey" | null }[]> = {
+  web: [
+    { text: "Open in browser", act: "browser", click: "key" },
+    { text: "Copy link", act: "copy", click: null },
+  ],
+  workItem: [
+    { text: "Open work item", act: "workItem", click: "key" },
+    { text: "Open in Finder", act: "finder", click: "shiftKey" },
+  ],
+  path: [
+    { text: "Show in Finder", act: "finder", click: "key" },
+    { text: "Copy path", act: "copy", click: null },
+  ],
+};
+
+/**
+ * What a click on a link in a pane does, from the kind of its target and
+ * the keys held, or null where the click stays the terminal's, which
+ * selects text with it. The key is the Command key, and the Control key
+ * where the keyboard has none: on a Mac the Control key with a click is the
+ * secondary click. With the Shift key held as well the click does what the
+ * target's rows give that click, and what the click with the key alone does
+ * where they give it nothing.
+ */
+export function linkClick(kind: LinkTarget["kind"], click: { meta: boolean; ctrl: boolean; shift: boolean }, mac: boolean): LinkAct | null {
+  if (!(mac ? click.meta : click.ctrl)) return null;
+  const rows = LINK_ROWS[kind];
+  const row = (click.shift ? rows.find((listed) => listed.click === "shiftKey") : undefined) ?? rows.find((listed) => listed.click === "key");
+  return row ? row.act : null;
+}
+
+/** A link's card: the whole target on its first line, and a row for each thing a person can do with it, with the keys that do it, empty where no click does. */
+export interface LinkCard {
+  title: string;
+  rows: { text: string; keys: string; act: LinkAct }[];
+}
+
+/** The card of a link: its target whole, the address or the path, and its rows, each with the click that does what it names, as `linkClick` answers that click on a keyboard that is a Mac's or is not. A row that copies names no click. */
+export function linkCard(target: LinkTarget, mac: boolean): LinkCard {
+  const keys = { key: mac ? "\u2318 Click" : "Ctrl Click", shiftKey: mac ? "\u21e7 \u2318 Click" : "Shift Ctrl Click" };
+  return {
+    title: target.kind === "web" ? target.address : target.path,
+    rows: LINK_ROWS[target.kind].map(({ text, act, click }) => ({ text, keys: click === null ? "" : keys[click], act })),
+  };
+}
+
+/**
+ * Whether a link's card stays at a key pressed in the pane, from the key
+ * event's `key`. It stays at a modifier key pressed by itself, the Command,
+ * Shift, Control or Option key: the card's rows name clicks made with those
+ * keys held, so a person who reads one holds the key and then clicks. Any
+ * other key takes the card away, with or without a modifier key held.
+ */
+export function cardStaysAt(key: string): boolean {
+  return key === "Meta" || key === "Shift" || key === "Control" || key === "Alt";
 }
 
 /**

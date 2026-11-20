@@ -255,6 +255,8 @@ export type ClientMessage =
   | { type: "attach"; id: number }
   // Ends this client's receiving of the session's output until it attaches again. The session and its process are untouched, and the daemon answers nothing.
   | { type: "detach"; id: number }
+  // Has the daemon forget the session's kept output, after a person cleared or reset the pane's terminal. Without `keepModes`, which a reset sends, the next `replay` holds only what the session prints afterwards. With it, which a clear sends, the daemon first reads the kept output for the private modes the session's program set or reset (`ESC [ ? Pm h` and `ESC [ ? Pm l`), and the next `replay` opens with one sequence for each mode's last state, before what the session prints afterwards. Where the kept output stopped inside an escape alone or with its intermediate characters, a CSI sequence that holds only parameter characters followed only by intermediate characters, or an OSC string with no end, that unfinished sequence follows the modes, so what the session prints next completes it. The daemon keeps no other unfinished sequence. The daemon answers nothing, and does nothing for an id it does not list.
+  | { type: "forget"; id: number; keepModes?: true }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
   // Starts a headless session that answers `prompt` in the work item's worktree.
