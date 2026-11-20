@@ -139,6 +139,19 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await value<string>(`document.getElementById("view-title").textContent`)).toBe("Second item");
   });
 
+  it("keeps the keyboard in the menu after a press inside it on no item, its rule, so the arrows still move from there and Escape still closes it", async () => {
+    await rightPress(line(SIDEBAR, 1));
+    await menuShown();
+    const at = await middleOf(`document.querySelector('${MENU} [role="separator"]')`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+    expect(await value<boolean>(`document.activeElement?.closest('${MENU}') != null`)).toBe(true);
+    await press("ArrowDown", 40);
+    expect(await itemInFocus()).toBe("Rename");
+    await escape();
+    await menuGone();
+  });
+
   it("opens the menu at the same press on a line of the inbox, and at a press outside it closes", async () => {
     await app.click("#nav-inbox");
     await app.until(`!document.getElementById("inbox-screen").hidden`, "the inbox");

@@ -357,6 +357,8 @@
       #rename-error { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
       /* A menu, drawn over the window where it was asked for: its items in a column, and a rule where another part of it begins. */
       .menu { position: fixed; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; min-width: var(--menu-width); max-width: var(--menu-width-most); padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      /* The menu itself draws no ring when a press on no item puts the keyboard on it. */
+      .menu:focus { outline: none; }
       .menu [role="menuitem"] { flex: none; box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-5); border-radius: var(--radius-line); overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
       /* The item the keyboard is on is drawn as the one under the pointer is. */
       .menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus { background: var(--hover); }

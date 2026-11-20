@@ -35,7 +35,7 @@ function onKey(event: KeyboardEvent): void {
   all[Math.min(Math.max(at, 0), all.length - 1)]?.focus();
 }
 
-/** A press outside the open menu closes it. The press goes on to what it was made on, so the keyboard is not returned. */
+/** A press outside the open menu closes it. The press goes on to what it was made on, so the keyboard is not returned. A press inside the menu on no item, on a rule or on the menu's edge, leaves it open with the keyboard on the menu itself. */
 function onPress(event: Event): void {
   if (shown && !(event.target instanceof Node && shown.element.contains(event.target))) closeMenu(false);
 }
@@ -69,6 +69,8 @@ export function openMenu(says: string, entries: readonly MenuEntry[], at: { x: n
   menu.className = "menu";
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", says);
+  // A press inside the menu that lands on no item puts the keyboard on the menu itself, where its keys are still read. Without it the keyboard falls to the page's body, and Escape no longer closes the menu.
+  menu.tabIndex = -1;
   for (const entry of entries) {
     if (entry.divides) {
       const rule = document.createElement("div");
