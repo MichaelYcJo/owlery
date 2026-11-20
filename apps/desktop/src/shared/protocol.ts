@@ -93,6 +93,42 @@ export interface Running {
 }
 
 /**
+ * What deleting a work item would remove, as the daemon reads it from git,
+ * so a person reads each thing by name before the delete. Each list holds
+ * 500 entries at most, and the count beside it says how many there are in
+ * all.
+ */
+export interface WorkItemLoss {
+  /** The work item's local branch, where it exists: a delete removes it with `git branch -D`. */
+  branch: string | null;
+  /** The worktree's folder, where git lists a linked worktree there: a delete removes it with `git worktree remove`. A folder git lists none at stays on disk. */
+  worktree: string | null;
+  /** The commits that the branch or the worktree's `HEAD` holds and that no other local branch, no remote's branch as the clone holds it and no tag holds, the newest first. */
+  commits: { hash: string; subject: string }[];
+  commitCount: number;
+  /** The tracked files of the worktree with a change that is not committed, by path. */
+  uncommitted: string[];
+  uncommittedCount: number;
+  /** The untracked files of the worktree, each by its own path. */
+  untracked: string[];
+  untrackedCount: number;
+  /** The files and the folders of the worktree that git ignores, a folder as one name, such as `node_modules/`. The removal of the worktree removes them, and they make no delete a forced one. */
+  ignored: string[];
+  ignoredCount: number;
+  /** Why the delete cannot run, as a sentence the window shows as it is: another worktree has the branch checked out, or the worktree is locked. Null where it can. */
+  blocked: string | null;
+  /** True where git reads nothing in the repository's folder. A delete then takes the work item off the list and removes nothing on disk. */
+  unreachable: boolean;
+  /** A text that differs wherever anything above differs, the entries a list leaves out among it. A delete carries the stamp of the loss the person read. */
+  stamp: string;
+}
+
+/** Whether a delete would lose work: the loss names a commit, a tracked file with a change or an untracked file. Such a delete runs only where the person chose to force it. The ignored files and folders lose none. */
+export function losesWork(loss: Pick<WorkItemLoss, "commitCount" | "uncommittedCount" | "untrackedCount">): boolean {
+  return loss.commitCount > 0 || loss.uncommittedCount > 0 || loss.untrackedCount > 0;
+}
+
+/**
  * One piece of work, in a worktree of its own, of one repository: `repoId` is
  * that repository's id and `repo` its main checkout's top-level folder, `branch` the branch
  * cut for the work item, `worktree` its folder.

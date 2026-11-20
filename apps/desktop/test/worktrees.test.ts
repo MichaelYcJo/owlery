@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, mainCheckout, newCommits, planBranchRename, planWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
@@ -717,5 +717,150 @@ describe("renaming a work item's branch", () => {
     await expect(renameBranch(repo, made.branch, "owlery/taken")).rejects.toThrow("a branch named 'owlery/taken' already exists");
     expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/first-name");
     expect(commitOf(repo, "refs/heads/owlery/taken")).toBe(commitOf(repo, "refs/heads/main"));
+  });
+});
+
+describe("what a delete would lose", () => {
+  /** A work item's branch and worktree in a clone, with `.env` and `node_modules/` ignored by a commit of the branch, which the branch `keeps` holds too. */
+  async function workItem(made: { repo: string; root: string }) {
+    const place = await createWorktree({ folder: made.repo, title: "Lose", root: made.root });
+    writeFileSync(join(place.worktree, ".gitignore"), ".env\nnode_modules/\n");
+    git(place.worktree, "add", ".gitignore");
+    git(place.worktree, "commit", "--quiet", "-m", "ignore the environment");
+    git(made.repo, "branch", "keeps", place.branch);
+    return place;
+  }
+  const short = (repo: string, commit: string): string => git(repo, "rev-parse", "--short", commit).trim();
+  const NOTHING = { commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null, unreachable: false };
+
+  it("names the branch, the folder, the one commit no other branch holds, the changed tracked file, the untracked file by its own path and the ignored file and folder; no commit once the branch is pushed or a tag holds it; and the commit of the worktree's detached HEAD", async () => {
+    const made = clone();
+    const { branch, worktree } = await workItem(made);
+    const second = commitFile(worktree, "second.txt");
+    writeFileSync(join(worktree, "README.md"), "changed and not committed\n");
+    mkdirSync(join(worktree, "newdir", "deep"), { recursive: true });
+    writeFileSync(join(worktree, "newdir", "deep", "u.txt"), "untracked\n");
+    writeFileSync(join(worktree, ".env"), "SECRET=1\n");
+    mkdirSync(join(worktree, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(worktree, "node_modules", "left-pad", "index.js"), "\n");
+    const files = { uncommitted: ["README.md"], uncommittedCount: 1, untracked: ["newdir/deep/u.txt"], untrackedCount: 1, ignored: [".env", "node_modules/"], ignoredCount: 2 };
+    const loss = await readLoss(made.repo, branch, worktree);
+    expect(loss).toEqual({ ...NOTHING, branch, worktree, commits: [{ hash: short(made.repo, second), subject: "add second.txt" }], commitCount: 1, ...files, stamp: loss.stamp });
+    expect(loss.stamp).not.toBe("");
+    // A tag on the branch's head holds its commits, and so does the remote's branch as the clone holds it after a push with no upstream.
+    git(made.repo, "tag", "kept", branch);
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ commits: [], commitCount: 0, ...files });
+    git(made.repo, "tag", "-d", "kept");
+    expect((await readLoss(made.repo, branch, worktree)).commitCount).toBe(1);
+    git(made.repo, "push", "--quiet", "origin", branch);
+    expect(upstreamOf(made.repo, branch)).toBe("");
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ branch, worktree, commits: [], commitCount: 0, ...files });
+    // A commit on a detached HEAD of the worktree is on no branch at all.
+    git(worktree, "checkout", "--quiet", "--detach");
+    git(worktree, "commit", "--quiet", "--allow-empty", "-m", "on no branch");
+    const detached = commitOf(worktree, "HEAD");
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ branch, worktree, commits: [{ hash: short(made.repo, detached), subject: "on no branch" }], commitCount: 1 });
+  });
+
+  it("says why a delete cannot run: the branch is checked out in the repository's own checkout, or the worktree is locked", async () => {
+    const made = repository();
+    const { branch, worktree } = await workItem(made);
+    expect((await readLoss(made.repo, branch, worktree)).blocked).toBeNull();
+    git(made.repo, "worktree", "lock", worktree);
+    expect((await readLoss(made.repo, branch, worktree)).blocked).toBe(`The worktree ${worktree} is locked, so git does not remove it.`);
+    git(made.repo, "worktree", "unlock", worktree);
+    git(worktree, "checkout", "--quiet", "--detach");
+    git(made.repo, "checkout", "--quiet", branch);
+    expect((await readLoss(made.repo, branch, worktree)).blocked).toBe(`The branch ${branch} is checked out in ${made.repo}, so it cannot be deleted.`);
+  });
+
+  it("gives a stamp that stays while nothing changes and differs after a commit, after a new untracked file, and for an entry the lists leave out; each list holds 500 entries beside the count of them all", async () => {
+    const made = repository();
+    const { branch, worktree } = await workItem(made);
+    const stamps = [(await readLoss(made.repo, branch, worktree)).stamp, (await readLoss(made.repo, branch, worktree)).stamp];
+    expect(stamps[0]).toBe(stamps[1]);
+    commitFile(worktree, "second.txt");
+    stamps.push((await readLoss(made.repo, branch, worktree)).stamp);
+    for (let n = 0; n < 501; n++) writeFileSync(join(worktree, `u${String(n).padStart(3, "0")}.txt`), "");
+    const many = await readLoss(made.repo, branch, worktree);
+    expect([many.untracked.length, many.untracked[0], many.untracked[499], many.untrackedCount]).toEqual([500, "u000.txt", "u499.txt", 501]);
+    stamps.push(many.stamp);
+    // The 502nd file is one the list does not carry.
+    writeFileSync(join(worktree, "u501.txt"), "");
+    const more = await readLoss(made.repo, branch, worktree);
+    expect([more.untracked, more.untrackedCount]).toEqual([many.untracked, 502]);
+    stamps.push(more.stamp);
+    expect(new Set(stamps).size).toBe(4);
+  });
+
+  it("names no branch that is gone, names a folder removed by hand while git still lists it, names no folder git lists no worktree at, though one stands there, and says where git reads nothing in the repository's folder", async () => {
+    const made = repository();
+    const { branch, worktree } = await workItem(made);
+    rmSync(worktree, { recursive: true });
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ ...NOTHING, branch, worktree });
+    git(made.repo, "worktree", "prune");
+    mkdirSync(worktree);
+    writeFileSync(join(worktree, "left.txt"), "no worktree of git's\n");
+    // The folder is inside no worktree now, and git is not asked about it: it would answer for a repository the folder happens to be inside.
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ ...NOTHING, branch, worktree: null });
+    git(made.repo, "branch", "-D", branch);
+    expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ ...NOTHING, branch: null, worktree: null });
+    // The main checkout is no worktree a delete removes, whatever a work item's entry says.
+    expect((await readLoss(made.repo, "main", made.repo)).worktree).toBeNull();
+    rmSync(made.repo, { recursive: true });
+    const gone = await readLoss(made.repo, branch, worktree);
+    expect(gone).toEqual({ ...NOTHING, branch: null, worktree: null, unreachable: true, stamp: gone.stamp });
+  });
+});
+
+describe("removing a work item's worktree and branch", () => {
+  it("removes a worktree that holds nothing but ignored files without the force, refuses one with an untracked file in git's own words and leaves it whole, and removes it with the force", async () => {
+    const made = repository();
+    const first = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    const second = await createWorktree({ folder: made.repo, title: "Second", root: made.root });
+    writeFileSync(join(first.worktree, ".gitignore"), ".env\n");
+    git(first.worktree, "add", ".gitignore");
+    git(first.worktree, "commit", "--quiet", "-m", "ignore the environment");
+    writeFileSync(join(first.worktree, ".env"), "SECRET=1\n");
+    await removeWorktree(made.repo, first.worktree, false);
+    expect([existsSync(first.worktree), Object.keys(worktrees(made.repo))]).toEqual([false, [made.repo, second.worktree]]);
+    // The branch stays until it is removed by its own command.
+    expect(await branchHead(made.repo, first.branch)).not.toBeNull();
+    writeFileSync(join(second.worktree, "untracked.txt"), "kept\n");
+    await expect(removeWorktree(made.repo, second.worktree, false)).rejects.toThrow("contains modified or untracked files, use --force to delete it");
+    expect([readdirSync(second.worktree).sort(), Object.keys(worktrees(made.repo))]).toEqual([[".git", "README.md", "untracked.txt"], [made.repo, second.worktree]]);
+    await removeWorktree(made.repo, second.worktree, true);
+    expect([existsSync(second.worktree), Object.keys(worktrees(made.repo)), existsSync(made.root)]).toEqual([false, [made.repo], true]);
+  });
+
+  it("takes a worktree whose folder was removed by hand off git's list, and removes nothing where git lists no linked worktree at the folder: a folder that is no worktree's, and the main checkout", async () => {
+    const made = repository();
+    const { worktree } = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    rmSync(worktree, { recursive: true });
+    await removeWorktree(made.repo, worktree, false);
+    expect(Object.keys(worktrees(made.repo))).toEqual([made.repo]);
+    mkdirSync(worktree);
+    writeFileSync(join(worktree, "left.txt"), "no worktree of git's\n");
+    await removeWorktree(made.repo, worktree, true);
+    await removeWorktree(made.repo, made.repo, true);
+    expect([readdirSync(worktree), existsSync(join(made.repo, "README.md"))]).toEqual([["left.txt"], true]);
+  });
+
+  it("removes the local branch though no other branch holds its commit, leaves the remote's branch of its name and every other ref, and does nothing for a branch that is gone", async () => {
+    const made = clone();
+    const { branch, worktree } = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    commitFile(worktree, "work.txt");
+    git(made.repo, "push", "--quiet", "origin", branch);
+    commitFile(worktree, "later.txt");
+    await removeWorktree(made.repo, worktree, false);
+    const refs = (): string[] => git(made.repo, "for-each-ref", "--format=%(refname) %(objectname)").split("\n").filter((line) => line !== "");
+    const before = refs();
+    const remote = git(made.origin, "for-each-ref");
+    await removeBranch(made.repo, branch);
+    expect(refs()).toEqual(before.filter((line) => !line.startsWith(`refs/heads/${branch} `)));
+    expect(before.some((line) => line.startsWith(`refs/remotes/origin/${branch} `))).toBe(true);
+    expect(git(made.origin, "for-each-ref")).toBe(remote);
+    await removeBranch(made.repo, branch);
+    expect(refs()).toEqual(before.filter((line) => !line.startsWith(`refs/heads/${branch} `)));
   });
 });

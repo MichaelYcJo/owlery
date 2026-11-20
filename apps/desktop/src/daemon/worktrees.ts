@@ -2,11 +2,12 @@
 // checked out from the same repository. Git runs with execFile and arguments,
 // never through a shell, because titles and folders come from the person.
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { generateName } from "../shared/names";
-import type { Changes, CommitInfo, FileChange } from "../shared/protocol";
+import type { Changes, CommitInfo, FileChange, WorkItemLoss } from "../shared/protocol";
 
 const SLUG_LENGTH = 40;
 /** How many of a branch's commits, and of the files it changed, the daemon lists. */
@@ -514,4 +515,130 @@ export async function branchChanges(repo: string, baseCommit: string, head: stri
     removed: files.reduce((sum, file) => sum + (file.removed ?? 0), 0),
     list: files.slice(0, FILES_LISTED),
   };
+}
+
+/** How many entries each list of a loss carries. */
+const LOSS_LISTED = 500;
+
+/** One worktree as `git worktree list --porcelain` prints it: its folder, the commit its `HEAD` is at, the local branch it has checked out, or null where it has none, and whether it is locked. */
+interface ListedWorktree {
+  folder: string;
+  head: string | null;
+  branch: string | null;
+  locked: boolean;
+}
+
+/** Every worktree `git worktree list --porcelain` printed, the first of them the main checkout or the git directory (`MAIN_CHECKOUT`), and the others the linked worktrees. */
+function listedWorktrees(listed: string): ListedWorktree[] {
+  return listed.split("\n\n").flatMap((block) => {
+    const lines = block.split("\n");
+    const value = (key: string): string | null => lines.find((line) => line.startsWith(`${key} `))?.slice(key.length + 1) ?? null;
+    const folder = value("worktree");
+    if (folder === null) return [];
+    const ref = value("branch");
+    return [{ folder, head: value("HEAD"), branch: ref !== null && ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null, locked: lines.some((line) => line === "locked" || line.startsWith("locked ")) }];
+  });
+}
+
+/** A folder's path with every link in it followed, so two spellings of one folder compare equal. A folder that is gone is spelt by its parent's path, and one whose parent is gone too as it was given. */
+function placeOf(folder: string): string {
+  try {
+    return realpathSync(folder);
+  } catch {
+    try {
+      return join(realpathSync(dirname(folder)), basename(folder));
+    } catch {
+      return folder;
+    }
+  }
+}
+
+/** The linked worktree git lists at a folder, or undefined where it lists none there. The main checkout is none, whatever folder is asked for. */
+function linkedAt(listed: string, folder: string): ListedWorktree | undefined {
+  const place = placeOf(folder);
+  return listedWorktrees(listed)
+    .slice(1)
+    .find((known) => placeOf(known.folder) === place);
+}
+
+/** The first `LOSS_LISTED` of the entries, and how many there are. */
+function cut<T>(entries: T[]): { listed: T[]; count: number } {
+  return { listed: entries.slice(0, LOSS_LISTED), count: entries.length };
+}
+
+/**
+ * What deleting a work item would remove, read in its repository and in its
+ * worktree. Nothing is removed, nothing is fetched, and a remote's branches
+ * are read as the clone holds them.
+ *
+ * The commits are those the branch or the worktree's `HEAD` holds and no
+ * other local branch, no remote's branch and no tag holds. `--all` is not
+ * what they are read against: it takes the worktree's own `HEAD`, which
+ * hides every one of them. The worktree's files are read only where git
+ * lists a linked worktree at the folder and the folder stands: in any other
+ * folder git would answer for whichever repository the folder is inside.
+ * The untracked files are listed each by its own path, and the ignored ones
+ * with a folder as one name, which takes two reads.
+ */
+export async function readLoss(repo: string, branch: string, worktree: string): Promise<WorkItemLoss> {
+  const nothing = { branch: null, worktree: null, commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null };
+  let listed: string;
+  try {
+    listed = await git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES);
+  } catch {
+    return { ...nothing, unreachable: true, stamp: createHash("sha256").update("unreachable").digest("hex") };
+  }
+  const own = linkedAt(listed, worktree);
+  const tip = await branchHead(repo, branch);
+  const elsewhere = listedWorktrees(listed).find((known) => known.branch === branch && known.folder !== own?.folder);
+  const blocked = elsewhere ? `The branch ${branch} is checked out in ${elsewhere.folder}, so it cannot be deleted.` : own?.locked ? `The worktree ${own.folder} is locked, so git does not remove it.` : null;
+  const tips = [...new Set([tip, own?.head ?? null].filter((commit): commit is string => commit !== null))];
+  // Every commit is read, so the stamp differs for one the list leaves out. The names of the refs reach git as patterns under their kinds, and a branch's name holds none of a pattern's characters.
+  const log = tips.length === 0 ? "" : await git(repo, ["log", "--format=%H%x1f%h%x1f%s", ...tips, "--not", `--exclude=${branch}`, "--branches", "--remotes", "--tags", "--"], BRANCH_OUTPUT_BYTES);
+  let status = "";
+  let others = "";
+  if (own !== undefined && existsSync(own.folder)) {
+    // NUL ends each path, so a path is as it is on disk. A moved file is two entries, each with one path.
+    status = await git(own.folder, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], BRANCH_OUTPUT_BYTES);
+    others = await git(own.folder, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], BRANCH_OUTPUT_BYTES);
+  }
+  const entries = status.split("\0").filter((entry) => entry.length > 3);
+  const commits = cut(log.split("\n").filter((line) => line !== "").map((line) => { const [, hash = "", ...subject] = line.split("\x1f"); return { hash, subject: subject.join("\x1f") }; }));
+  const uncommitted = cut(entries.filter((entry) => !entry.startsWith("?? ")).map((entry) => entry.slice(3)));
+  const untracked = cut(entries.filter((entry) => entry.startsWith("?? ")).map((entry) => entry.slice(3)));
+  const ignored = cut(others.split("\0").filter((path) => path !== ""));
+  const held = { branch: tip === null ? null : branch, worktree: own?.folder ?? null, blocked, unreachable: false };
+  return {
+    ...held,
+    commits: commits.listed,
+    commitCount: commits.count,
+    uncommitted: uncommitted.listed,
+    uncommittedCount: uncommitted.count,
+    untracked: untracked.listed,
+    untrackedCount: untracked.count,
+    ignored: ignored.listed,
+    ignoredCount: ignored.count,
+    stamp: createHash("sha256").update(JSON.stringify([held, tips, log, status, others])).digest("hex"),
+  };
+}
+
+/**
+ * Removes the linked worktree git lists at a folder, with `git worktree
+ * remove`, and with `--force` only where `force` is true: without it git
+ * itself refuses a worktree that holds a changed or an untracked file, and
+ * its sentence is the error. The ignored files go with the folder either
+ * way. Where git lists no linked worktree at the folder, the main checkout's
+ * folder among them, nothing is removed: no file is ever removed but through
+ * that one command.
+ */
+export async function removeWorktree(repo: string, worktree: string, force: boolean): Promise<void> {
+  const own = linkedAt(await git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES), worktree);
+  if (own === undefined) return;
+  await git(repo, ["worktree", "remove", ...(force ? ["--force"] : []), own.folder]);
+}
+
+/** Removes a local branch of the repository, with `git branch -D`, where it exists. No ref of a remote is named to git, and nothing is pushed. */
+export async function removeBranch(repo: string, branch: string): Promise<void> {
+  if (!(await branchExists(repo, branch))) return;
+  await git(repo, ["branch", "-D", "--", branch]);
 }
