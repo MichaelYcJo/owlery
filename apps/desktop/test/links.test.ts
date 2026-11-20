@@ -43,7 +43,7 @@ describe("openLink", () => {
     ["a text that is no URL", "example.com/owlery"],
     ["a file's path", "/Applications/Calculator.app"],
     ["an empty text", ""],
-    ["a value that is no text", { href: "https://example.com/" }],
+    ["a value that is no text and reads as an address", ["https://example.com/"]],
     ["no value", undefined],
   ])("refuses %s, and calls no opener", async (_name, address) => {
     const { handed, opener } = noting();

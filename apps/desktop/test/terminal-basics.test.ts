@@ -24,6 +24,9 @@ const COMMAND = process.platform === "darwin" ? 4 : 2;
 const OPTION = 1;
 const SHIFT = 8;
 
+/** A paste as a pane's process receives it where it asked for pastes in brackets, which a shell pane of these cases does (./fixtures/basics-shell.sh). */
+const pasted = (text: string): string => `\u001b[200~${text}\u001b[201~`;
+
 /** The two links a shell pane prints (./fixtures/basics-shell.sh): the address on its first row, and the address the name on its second row carries. */
 const PRINTED = "https://example.com/owlery-basics";
 const NAMED = "https://example.com/owlery-named";
@@ -363,7 +366,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.evaluate("document.activeElement.blur()");
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(false);
     await drop(`document.querySelector("#stage .pane:not([hidden])")`, [file]);
-    const text = `${repository.base}/shot\\ 한\\ it\\'s.png `;
+    const text = pasted(`${repository.base}/shot\\ 한\\ it\\'s.png `);
     expect((await received.next(Buffer.byteLength(text))).toString("utf8")).toBe(text);
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
     expect(await app.pages()).toEqual([own]);
@@ -381,7 +384,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await received.next(0);
     // The tile of the pane that is not in front: the one without the keyboard.
     await drop(`[...document.querySelectorAll("#stage .pane:not([hidden])")].find((tile) => !tile.contains(document.activeElement))`, files);
-    const text = `${files[0]} ${files[1]} `;
+    const text = pasted(`${files[0]} ${files[1]} `);
     expect((await received.next(Buffer.byteLength(text))).toString("utf8")).toBe(text);
     expect(readFileSync(`${receivedFile}-${second}`, "utf8")).toBe("");
     await app.until(`${TAB_IN_FRONT} === "Shell 1"`, "the pane that took the drop in front");
@@ -389,6 +392,27 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await closeFromElsewhere(second);
     await app.until(`${TABS}.length === 1`, "one tab");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it("types nothing, not an empty paste either, where the one file dropped has a control character in its name", async () => {
+    const file = join(repository.base, "a\tb.png");
+    writeFileSync(file, "");
+    await received.next(0);
+    await drop(`document.querySelector("#stage .pane:not([hidden])")`, [file]);
+    expect((await received.next(1)).toString("hex")).toBe("");
+  });
+
+  it("takes no drag that carries a text and no file", async () => {
+    await received.next(0);
+    await app.evaluate("document.activeElement.blur()");
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector("#stage .pane:not([hidden])").getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    const data = { items: [{ mimeType: "text/plain", data: "dragged text" }], dragOperationsMask: 1 };
+    for (const type of ["dragEnter", "dragOver", "drop"]) await app.cdp("Input.dispatchDragEvent", { type, ...at, data });
+    expect((await received.next(1)).toString("hex")).toBe("");
+    // A pane that took the drop would have taken the keyboard.
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(false);
+    await app.click("#stage .pane:not([hidden])");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane, at a click");
   });
 
   it("types nothing where a file is dropped outside a pane", async () => {
