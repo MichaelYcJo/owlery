@@ -80,7 +80,7 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
   piece("preview-keys").replaceChildren(...keyHints(name, mac).map((keys) => part("key", keys)));
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
-  // No session of an archived work item runs, so the archived screen offers no choice among the states.
+  // An archive ends the work item's sessions, so the archived screen offers no choice among the states.
   filter.hidden = name === "archived";
   // An archived work item has no view to open: the main button of its preview restores it.
   if (name === "archived") piece("open-work-item").textContent = "Restore";

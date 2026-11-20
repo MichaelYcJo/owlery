@@ -508,7 +508,7 @@ export class Daemon {
           this.send(socket, { type: "done", requestId: message.requestId });
           if (!changed) return;
           this.broadcastInbox();
-          // No read passed over the work item's branch while it was archived, so it is read now, and not at the next read of them all.
+          // Git was not read for the work item while it was archived, so its branch is read now, and not at the next read of them all.
           const held = this.store.workItem(message.id);
           if (held) void this.readBranch(held).then((moved) => { if (moved) this.broadcastInbox(); });
         } catch (error) {

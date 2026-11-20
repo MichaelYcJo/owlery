@@ -618,8 +618,9 @@ export function moveSelection(ids: readonly number[], selected: number | undefin
 }
 
 /**
- * What a key does on a screen that holds a list, the inbox screen or the
- * history screen, or null where the window leaves it alone. J and K are read
+ * What a key does on a screen that holds a list, the inbox screen, the
+ * history screen or the archived screen, or null where the window leaves it
+ * alone. What `open` does there is the window's to say. J and K are read
  * by their place on the keyboard, so they act under any input source. No key
  * is read while a screen the window does not name as one is in front, a
  * dialog is open, a menu is open, the focus is in a field or a modifier key
