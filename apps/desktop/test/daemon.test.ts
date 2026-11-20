@@ -1064,8 +1064,8 @@ describe("what a person sets on a work item", () => {
     commitFile(workItem.worktree, "work.txt");
     await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
     c.messages.length = 0;
-    // A read of the commits asks git with these two commands, and a rename with neither.
-    const held = heldGit(made.base, '[ "$1" = rev-list ] || [ "$1" = rev-parse ]');
+    // A read of the commits opens by asking git for the branch's head, with this command, which nothing else of a read and nothing of a rename runs.
+    const held = heldGit(made.base, '[ "$1" = rev-parse ]');
     await c.until(() => (held.waiting() ? true : undefined));
     c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
     expect((await c.message("inbox")).workItems).toMatchObject([{ branch: "owlery/second-name", newCommits: 1 }]);
