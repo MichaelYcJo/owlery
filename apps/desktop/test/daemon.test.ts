@@ -2270,6 +2270,31 @@ describe("keeping the Mac awake", () => {
     for (const each of both) expect(told(each)).toEqual([]);
   });
 
+  it("takes no loss of a hold it released for the loss of the hold that stands", async () => {
+    const { url, c, both, seen } = await held();
+    c.send({ type: "setKeepAwake", choice: "always" });
+    await c.message("keepAwake", (m) => m.keepAwake.held);
+    const loseFirst = seen.lose;
+    c.send({ type: "setKeepAwake", choice: "never" });
+    await c.message("keepAwake", (m) => m.keepAwake.choice === "never");
+    c.send({ type: "setKeepAwake", choice: "always" });
+    for (const each of both) await each.until(() => (told(each).length === 3 ? true : undefined));
+    loseFirst();
+    expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
+    for (const each of both) expect(told(each).map((k) => k.held)).toEqual([true, false, true]);
+    expect(seen).toMatchObject({ held: 2, released: 1 });
+  });
+
+  it("holds nothing once it closed, though its choice is `always` and a pane's process ends afterwards", async () => {
+    const { daemon: d, c, seen, pane } = await held();
+    await pane();
+    c.send({ type: "setKeepAwake", choice: "always" });
+    await c.message("keepAwake", (m) => m.keepAwake.held);
+    await d.close();
+    await pause(300);
+    expect(seen).toMatchObject({ held: 1, released: 1 });
+  });
+
   it("sends no `keepAwake` in `ready`, and takes no choice, where it is given no holder", async () => {
     const runDir = runFolder();
     const { url } = await daemon({ runDir });
