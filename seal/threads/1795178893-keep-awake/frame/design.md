@@ -106,10 +106,10 @@ A "holder" below is the function the daemon is given to hold the Mac awake (*Dat
 `src/renderer/`:
 
 - `shared.ts#held` gains `keepAwake: KeepAwake | null`, set at `ready` and at each `keepAwake` message.
-- `view.ts#daemonStatus` takes a third argument, whether the daemon holds, and its expectations at `test/view.test.ts:1192-1198` pass `false`. `view.ts` gains the function of scenario 14.
+- `view.ts#daemonStatus` takes a third argument, whether the daemon holds, and its expectations at `test/view.test.ts:1192-1198` pass `false`. `view.ts` gains the function of scenario 14, `keepAwakeControl(keepAwake | null)`, which answers the control's choice and its title, the words a person reads on hover, or `null` where the daemon sent no `keepAwake`.
 - `keep-awake.ts` is new, as `theme.ts` is for the theme: it fills the control, shows the daemon's choice in it and in its `title` (`Keep awake: While an agent works`), and sends a person's choice.
-- `index.html` gains the control in `#sidebar-foot`, before `#theme-control`: a `label` with the id `keep-awake-control` and the class `icon-button`, an icon drawn as the foot's other icon is, and a `select` with the id `keep-awake` and the `aria-label` "Keep awake".
-- `renderer.ts` handles the `keepAwake` message and starts the control. `sidebar.ts` passes `daemonStatus` whether the daemon holds, and draws the status line again at each `keepAwake` message.
+- `index.html` gains the control in `#sidebar-foot`, before `#theme-control`: a `label` with the id `keep-awake-control` and the class `icon-button`, an icon drawn as the foot's other icon is, and a `select` with the id `keep-awake` and the `aria-label` "Keep awake". The label stands `hidden` in the page, and `renderer/keep-awake.ts#showKeepAwake` shows it when `ready` carries `keepAwake`.
+- `renderer.ts` handles the `keepAwake` message and starts the control. `sidebar.ts` passes `daemonStatus` whether the daemon holds, and exports `showStatus`, which `renderer.ts` calls at each `keepAwake` message to draw the status line again.
 
 The main process, the preload and `src/shared/ipc.ts` are not changed.
 
