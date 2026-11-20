@@ -55,6 +55,12 @@ it("keeps the keyboard in the menu after a press inside it on no item, its rule,
 
 The snippet leaves two statements for the fix pass. The docstring of `onPress` (`menu.ts:38`) says the press goes on to what it was made on; it then also says that a press inside on no item keeps the keyboard in the menu. The bullet *The menu's own rules* of `trail/phases/phase-2.md` names the menu's rules and owes the same sentence.
 
+```seal
+verdict: fixed 81839c2
+location: `seal/threads/1795152521-work-item-menu/trail/phases/phase-2.md`
+answer: The finding holds, and the fix is the proposed one: the menu element takes the keyboard (`menu.tabIndex = -1`) and draws no ring when it does. The case is the proposed one with one more step, an ArrowDown after the press, which puts the keyboard on "Rename". Against the code without the fix it failed on the keyboard's place, "expected false to be true", in one start of the built app, and the other eight cases of the file passed. With the fix the nine pass. That red run is the tree a mutant of the one new line would be, so no `seal mutate` run, which is two more starts, was made for it. The docstring of `onPress` says the new rule. The bullet *The menu's own rules* of `trail/phases/phase-2.md` says it too, in `3cd4b24`, which is why this block names that path.
+```
+
 ### 2. The main process opens any absolute path in Finder, so a path to an app's bundle or a file opens an app not of its list
 
 ```seal
@@ -81,6 +87,12 @@ if (app === null) return (await openers.openPath(folder)) || null;
 ```
 
 The snippet changes a sentence a person reads in the status line, so the fix pass owes a case that pins it in `apps/desktop/test/openers.test.ts`, by contract rule 14: an absolute path with no `.git`, in Finder and in an installed app, opened nowhere and answered with the sentence. The existing cases hand `mac()` the bundles alone, so each that expects a folder to open, and the case at `:77` whose refusals of an app come first, owes the `.git` path of its folder in that list. The snippet also leaves the docstring of `openFolder` (`openers.ts:54-61`), the doc of `OwleryApi.openFolder` in `apps/desktop/src/shared/ipc.ts` and the bullet *What the main process refuses* of `trail/phases/phase-2.md`. Each states what the main process refuses, and each owes the new refusal.
+
+```seal
+verdict: fixed 9664a0b
+location: `apps/desktop/src/shared/ipc.ts`, `seal/threads/1795152521-work-item-menu/trail/phases/phase-2.md`
+answer: The finding holds. `openFolder` opens a path only where `.git` stands at its top, in Finder and in an app, and answers any other with the proposed sentence. The fix is in the fix pass's own words in one point: a path nothing stands at is answered first, with "<folder> is gone.". A person can remove a worktree's folder by hand, and the proposed sentence alone would tell that person that Owlery opens no such folder. `apps/desktop/src/main/main.ts` is unchanged, since it already hands `existsSync` in. Two new cases of `apps/desktop/test/openers.test.ts` pin the two sentences, and failed against the code before the fix on "expected null to be" each sentence. Three mutants of the two refusals are red (`seal mutate`, exit 0). The cases that expect a folder to open now hand a worktree and a repository's folder with their `.git`. The docstring of `openFolder`, the doc of `Openers.exists` and the doc of `OwleryApi.openFolder` in `apps/desktop/src/shared/ipc.ts` state the refusal, and so does the bullet *What the main process refuses* of `trail/phases/phase-2.md`, in `3cd4b24`. This block names those two paths because the finding's own line does not. That Finder starts an app for a bundle's path was read by the round and run by nobody, and the fix was run against a disk the cases made up alone.
+```
 
 ## Confirmations
 
