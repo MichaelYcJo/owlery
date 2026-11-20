@@ -483,11 +483,9 @@ function newScreen(): Screen {
   });
   takesDrops(element, term);
   findsPaths(term, turns);
-  // A press of the right button, and a press with the Control key, ask for a menu. The pane's own opens in place of the system's, and the pane is the one in front. The terminal has read the press by then, and on a Mac it selected the word under it.
+  // A press of the right button, and a press with the Control key, ask for a menu. The pane's own opens in place of the system's. The terminal has read the press by then: it took the keyboard, so the pane is the one in front, and on a Mac it selected the word under the pointer.
   element.addEventListener("contextmenu", (event) => {
-    if (turns.pane === undefined) return;
     event.preventDefault();
-    term.focus();
     openMenu(screen, { x: event.clientX, y: event.clientY });
   });
   term.onResize(({ cols, rows }) => {
