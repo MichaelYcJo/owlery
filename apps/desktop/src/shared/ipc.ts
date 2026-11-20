@@ -1,8 +1,9 @@
 // The channels between the window and the main process: where the daemon is,
 // the native folder dialog, which a page cannot open, the theme a person
-// chose, which the main process keeps (./appearance), and the address of a
+// chose, which the main process keeps (./appearance), the address of a
 // link a person clicked in a pane, which only the main process may open
-// (src/main/links.ts). Everything else goes between the window and the
+// (src/main/links.ts), and the window's coming forward, which a sandboxed
+// page cannot do itself. Everything else goes between the window and the
 // daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
 
@@ -13,6 +14,7 @@ export const Channel = {
   appearance: "owlery:appearance",
   saveAppearance: "owlery:save-appearance",
   openLink: "owlery:open-link",
+  comeForward: "owlery:come-forward",
 } as const;
 
 export interface DaemonConnection {
@@ -38,4 +40,6 @@ export interface OwleryApi {
   openLink(url: string): Promise<boolean>;
   /** The path of a file a person dropped on the window, or an empty string for a file that is on no disk. A page cannot read it. */
   pathOf(file: File): string;
+  /** Asks the main process to bring the window in front of the person, and answers whether it did: an app started in the background brings nothing forward. */
+  comeForward(): Promise<boolean>;
 }

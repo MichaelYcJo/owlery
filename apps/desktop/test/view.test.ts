@@ -35,6 +35,8 @@ import {
   moveSelection,
   noticeWithout,
   notificationFor,
+  notificationOpens,
+  paneChoices,
   paneInFront,
   paneKey,
   paneTabs,
@@ -84,8 +86,8 @@ const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "o
 
 // What the daemon offers today, as `ready` carries it.
 const KINDS: PaneKindInfo[] = [
-  { kind: "shell", label: "Shell", reportsState: false },
-  { kind: "claude", label: "Claude Code", reportsState: true },
+  { kind: "shell", label: "Shell", reportsState: false, continues: false },
+  { kind: "claude", label: "Claude Code", reportsState: true, continues: true },
 ];
 
 function session(id: number, fields: Partial<SessionInfo> = {}): SessionInfo {
@@ -114,7 +116,7 @@ describe("tabLabel", () => {
   });
 
   it("reads a kind's label from the daemon's list, whatever the daemon calls it", () => {
-    const renamed: PaneKindInfo[] = [{ kind: "claude", label: "Agent", reportsState: true }];
+    const renamed: PaneKindInfo[] = [{ kind: "claude", label: "Agent", reportsState: true, continues: true }];
     expect(tabLabel(session(6), [session(6)], renamed)).toBe("Agent");
   });
 
@@ -125,12 +127,33 @@ describe("tabLabel", () => {
 
 describe("agentKind", () => {
   it("gives the first kind that reports its agent's state", () => {
-    const two: PaneKindInfo[] = [...KINDS, { kind: "shell", label: "Second agent", reportsState: true }];
+    const two: PaneKindInfo[] = [...KINDS, { kind: "shell", label: "Second agent", reportsState: true, continues: false }];
     expect(agentKind(two)).toBe("claude");
   });
 
   it("gives nothing where no kind reports state", () => {
-    expect(agentKind([{ kind: "shell", label: "Shell", reportsState: false }])).toBeUndefined();
+    expect(agentKind([{ kind: "shell", label: "Shell", reportsState: false, continues: false }])).toBeUndefined();
+  });
+});
+
+describe("paneChoices", () => {
+  const HINT = "Start on the latest conversation of this worktree";
+
+  it("offers a kind that continues twice, the continuing choice after the kind's own, in the daemon's order of kinds", () => {
+    expect(paneChoices(KINDS)).toEqual([
+      { kind: "shell", text: "+ Shell", hint: null, continueLatest: false },
+      { kind: "claude", text: "+ Claude Code", hint: null, continueLatest: false },
+      { kind: "claude", text: "+ Claude Code (continue)", hint: HINT, continueLatest: true },
+    ]);
+  });
+
+  it("offers a kind that does not continue once, whatever else it declares", () => {
+    expect(paneChoices([{ kind: "claude", label: "Agent", reportsState: true, continues: false }])).toEqual([{ kind: "claude", text: "+ Agent", hint: null, continueLatest: false }]);
+  });
+
+  it("offers a kind once where the daemon, one of an earlier build, sent no `continues`", () => {
+    const earlier = [{ kind: "claude", label: "Claude Code", reportsState: true }] as unknown as PaneKindInfo[];
+    expect(paneChoices(earlier)).toEqual([{ kind: "claude", text: "+ Claude Code", hint: null, continueLatest: false }]);
   });
 });
 
@@ -751,6 +774,24 @@ describe("notificationFor", () => {
   });
 });
 
+describe("notificationOpens", () => {
+  it("opens the session's work item with the session's pane, where both are listed", () => {
+    expect(notificationOpens({ id: 4, workItemId: 2 }, [LOGIN, SEARCH], [session(3), session(4, { workItemId: 2 })])).toEqual({ workItemId: 2, pane: 4 });
+  });
+
+  it("opens the work item with no pane named, where the session's pane is no longer listed", () => {
+    expect(notificationOpens({ id: 4, workItemId: 2 }, [LOGIN, SEARCH], [session(3)])).toEqual({ workItemId: 2, pane: null });
+  });
+
+  it("opens nothing for a session whose work item is not in the list, though its pane is", () => {
+    expect(notificationOpens({ id: 4, workItemId: 2 }, [LOGIN], [session(4, { workItemId: 2 })])).toBeNull();
+  });
+
+  it("opens nothing for a session without a work item", () => {
+    expect(notificationOpens({ id: 4, workItemId: null }, [LOGIN, SEARCH], [session(4, { workItemId: null })])).toBeNull();
+  });
+});
+
 describe("workItemFields", () => {
   it("gives the folder and the title without the spaces around them, with the generated name and the chosen base", () => {
     expect(workItemFields("  /r/project ", " Fix the login bug  ", "amber-heron", "origin/main")).toEqual({ repo: "/r/project", title: "Fix the login bug", name: "amber-heron", base: "origin/main" });
@@ -1360,7 +1401,7 @@ describe("stateSays", () => {
   });
 
   it("reads the label from the daemon's list, and gives the kind as the daemon spells it where the list does not hold it", () => {
-    expect(stateSays(session(3, { state: "finished", stateText: "Done." }), [{ kind: "claude", label: "The agent", reportsState: true }])?.head).toBe("The agent said");
+    expect(stateSays(session(3, { state: "finished", stateText: "Done." }), [{ kind: "claude", label: "The agent", reportsState: true, continues: true }])?.head).toBe("The agent said");
     expect(stateSays(session(3, { state: "finished", stateText: "Done." }), [])?.head).toBe("claude said");
   });
 

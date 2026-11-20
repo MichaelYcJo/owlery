@@ -27,6 +27,7 @@ const api: OwleryApi = {
   saveAppearance: (choice) => ipcRenderer.invoke(Channel.saveAppearance, choice),
   openLink: (url) => ipcRenderer.invoke(Channel.openLink, url),
   pathOf: (file) => webUtils.getPathForFile(file),
+  comeForward: () => ipcRenderer.invoke(Channel.comeForward),
 };
 
 contextBridge.exposeInMainWorld("owlery", api);

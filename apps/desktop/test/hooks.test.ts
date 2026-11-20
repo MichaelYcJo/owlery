@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { claudePaneCommand, HOOK_EVENTS, HookServer, hookSettings, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
+import { claudePaneCommand, HOOK_EVENTS, HookServer, hookSettings, paneCommands, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
 
 const dirs: string[] = [];
 function scratch(): string {
@@ -192,5 +192,21 @@ describe("claudePaneCommand", () => {
   it("quotes a settings path that holds a space or a quote", () => {
     const { args } = claudePaneCommand({ SHELL: "/bin/zsh" }, "/Users/a b/it's.json");
     expect(args[3]).toBe(`exec claude --settings '/Users/a b/it'\\''s.json'`);
+  });
+
+  it("adds --continue after the settings where the pane starts on the latest conversation of its folder, in the same shell", () => {
+    const { command, args } = claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", true);
+    expect(command).toBe("/bin/zsh");
+    expect(args).toEqual(["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"]);
+  });
+});
+
+describe("paneCommands", () => {
+  it("asks a Claude Code pane's command to continue only where the start asks it, gives a shell its login shell whatever the start asks, and puts the pane's id and the hook socket in the environment of both", () => {
+    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/x/hooks.json", "/x/hooks.sock");
+    const env = (id: number) => ({ OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: "/x/hooks.sock" });
+    expect(commandFor("claude", 3, { continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"], env: env(3) });
+    expect(commandFor("claude", 4, { continueLatest: false })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json'"], env: env(4) });
+    expect(commandFor("shell", 5, { continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(5) });
   });
 });

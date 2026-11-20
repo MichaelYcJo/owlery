@@ -8,7 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
-import { askButton, closeAsks, droppedText, headlessLines, linkOpens, paneKey, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
+import { askButton, closeAsks, droppedText, headlessLines, linkOpens, paneChoices, paneKey, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
 interface Screen {
@@ -279,19 +279,20 @@ function showSize(): void {
   stripSize.textContent = screen ? `${screen.term.cols} \u00d7 ${screen.term.rows}` : "";
 }
 
-/** Starts a pane of `kind` in the work item whose view is on screen. */
-function start(kind: PaneKind): void {
+/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`. */
+function start(kind: PaneKind, continueLatest: boolean): void {
   if (held.viewing === undefined) return;
-  send({ type: "start", kind, ...startSize(), requestId: request(), workItemId: held.viewing });
+  send({ type: "start", kind, ...startSize(), requestId: request(), workItemId: held.viewing, ...(continueLatest ? { continueLatest: true } : {}) });
 }
 
-/** Builds, once per connection, the view's button for each kind of pane the daemon offers. */
+/** Builds, once per connection, the view's button for each choice the kinds of pane the daemon offers give. */
 export function showPaneButtons(): void {
   paneButtons.replaceChildren(
-    ...held.paneKinds.map(({ kind, label }) => {
+    ...paneChoices(held.paneKinds).map(({ kind, text, hint, continueLatest }) => {
       const button = document.createElement("button");
-      button.textContent = `+ ${label}`;
-      button.addEventListener("click", () => start(kind));
+      button.textContent = text;
+      if (hint !== null) button.title = hint;
+      button.addEventListener("click", () => start(kind, continueLatest));
       return button;
     }),
   );
@@ -415,13 +416,14 @@ export function showView(): void {
   showAskSection();
 }
 
-/** Makes a work item the one whose view is drawn, before the view is put in front. */
-export function enterView(workItemId: number): void {
+/** Makes a work item the one whose view is drawn, before the view is put in front. Where `pane` is given, that pane is the one in front when the view is drawn, as after a press of its tab. */
+export function enterView(workItemId: number, pane?: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
   held.viewing = workItemId;
   front = undefined;
+  if (pane !== undefined) broughtToFront(workItemId, pane);
 }
 
 /** Leaves the view for another screen, and gives the work item that was on screen. Every pane leaves the stage, and its screen goes back to the pool. */

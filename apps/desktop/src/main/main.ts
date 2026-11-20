@@ -9,13 +9,15 @@ import { ensureDaemon } from "./daemon-client";
 import { chooseOpener, openLink, takeOpener } from "./links";
 import { menuTemplate } from "./menu";
 import { staysOnPage } from "./navigation";
+import { comeForward } from "./forward";
 import { pickFolder } from "./pick-folder";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
 // over WebSocket. The main process finds or starts it, opens the folder
 // dialog the window asks for, and keeps the theme a person chose. It sets
-// the app's menu, keeps the one window on Owlery's own page, and opens the
-// address of a link a person clicked in a pane outside Owlery.
+// the app's menu, keeps the one window on Owlery's own page, opens the
+// address of a link a person clicked in a pane outside Owlery, and brings
+// the window forward when the window asks.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
 // A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard.
@@ -82,6 +84,8 @@ app.whenReady().then(() => {
   ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, themeChoice(choice)));
   // The address comes from what a pane printed, so it is opened only where it is an `http` or `https` one (./links).
   ipcMain.handle(Channel.openLink, (_event, address: unknown): Promise<boolean> => openLink(address, opener));
+  // The window asks at a person's click on its notification, so the app takes the front from whichever app the person is in.
+  ipcMain.handle(Channel.comeForward, (event): boolean => comeForward(BrowserWindow.fromWebContents(event.sender), background, () => app.focus({ steal: true })));
   if (process.platform === "darwin") {
     try {
       app.dock?.setIcon(join(__dirname, "app-icon.png"));

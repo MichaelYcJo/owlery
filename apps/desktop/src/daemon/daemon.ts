@@ -43,8 +43,8 @@ export interface DaemonOptions {
   token: string;
   /** The kinds of pane a client may open, as `ready` offers them. */
   paneKinds: readonly PaneKindInfo[];
-  /** The command of a new pane of that kind, given the pane's id. */
-  commandFor: (kind: PaneKind, id: number) => PaneCommand;
+  /** The command of a new pane of that kind, given the pane's id and whether the pane starts on the latest conversation of its folder. */
+  commandFor: (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
   /** Where a pane opened without a work item runs. */
@@ -242,13 +242,18 @@ export class Daemon {
   private handle(socket: WebSocket, message: ClientMessage): void {
     switch (message.type) {
       case "start": {
+        const continueLatest = message.continueLatest === true;
+        if (continueLatest && !this.continues(message.kind)) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: `a pane of kind ${message.kind} continues no conversation` });
+          return;
+        }
         let cwd = this.options.cwd ?? process.cwd();
         if (message.workItemId !== undefined) {
           const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
           if (worktree === undefined) return;
           cwd = worktree;
         }
-        const info = this.startSession(socket, message, cwd, message.workItemId ?? null);
+        const info = this.startSession(socket, message, cwd, message.workItemId ?? null, continueLatest);
         // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
         this.send(socket, { type: "started", requestId: message.requestId, session: info });
         this.broadcastInbox();
@@ -420,10 +425,10 @@ export class Daemon {
     this.checkIdle();
   }
 
-  /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. */
-  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number | null): SessionInfo {
+  /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. */
+  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number | null, continueLatest = false): SessionInfo {
     const id = this.nextId++;
-    const { command, args, env } = this.options.commandFor(pane.kind, id);
+    const { command, args, env } = this.options.commandFor(pane.kind, id, { continueLatest });
     const terminal = TerminalSession.spawn({
       command,
       args,
@@ -481,6 +486,10 @@ export class Daemon {
 
   private reportsState(kind: PaneKind): boolean {
     return this.options.paneKinds.some((offered) => offered.kind === kind && offered.reportsState);
+  }
+
+  private continues(kind: PaneKind): boolean {
+    return this.options.paneKinds.some((offered) => offered.kind === kind && offered.continues);
   }
 
   private sessionList(): SessionInfo[] {
