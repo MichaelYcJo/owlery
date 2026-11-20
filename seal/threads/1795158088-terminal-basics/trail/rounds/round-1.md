@@ -50,6 +50,11 @@ The snippet below replaces the last case. It opens two Claude Code panes so the 
 
 The fix pass owes contract rule 15 for the new assertion: it is shown red with `tabLabel`'s second argument at `work-item-view.ts:290` replaced by `[session]`, and the row of `phase-1.md:74` names that mutant.
 
+```seal
+verdict: fixed 597307b
+answer: The finding holds. `597307b` replaces the last case of `apps/desktop/test/terminal-basics.test.ts` with the record's snippet, read against `frame/design.md` *Scope* item 8 and `view.ts#lineSession`, `paneTabs` and `tabLabel`; the snippet's assumption about the strip holds, because `work-item-view.ts#showView` writes the strip and the tabs from one list. Two things differ from the snippet: the case's name says "its tab's label", and one assertion more reads "Claude Code 2" as the tab in front before the key. The case was seen red under `seal mutate` at `597307b`, one mutant per call, each failing on the sentence's line `terminal-basics.test.ts:267` with "Claude Code is working." received: `tabLabel`'s second argument replaced by `[session]`, and the label read from the kind's label in `held.paneKinds`. Scenario 11's assertion at `:222` passed under both, which is the finding. A third call removed `dropClosed`'s close of the dialog, and the case failed at `:270`, so it still holds what the case it replaces held. `f29df97` rewrites the row of `trail/phases/phase-1.md:74` to name the two mutants and says under the table that the phase's own mutant of the sentence left no text, so which of the two readings it was is not known; the same commit adds the pass's run to row 1 of `gaps.md` *Not verified*. No code under `apps/desktop/src` changed.
+```
+
 ## Confirmations
 
 What matched: the two points the crafter left for this round, rows 4 and 5 of `gaps.md` *Not verified*, hold by reading.
