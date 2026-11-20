@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { InstalledApp } from "../shared/ipc";
-import { losesWork, type AgentState, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -1430,6 +1430,65 @@ export function baseMenu(plan: FormPlan | null, choice: BaseChoice | null, repo:
   const listed = [...(first === null ? [] : [first]), ...local, ...remote];
   const kept = choice !== null && choice.repo === shown.repo && listed.includes(choice.base) ? choice.base : null;
   return { first, local, remote, value: kept ?? listed[0] ?? null };
+}
+
+/**
+ * What the "New work item" form holds of the fetch of one base it asked the
+ * daemon for: `awaited` until an answer comes, then what a `baseFetched`
+ * carries, or the error the daemon refused the request with.
+ */
+export type BaseAnswer = "awaited" | BaseFetch | { error: string };
+
+/** How long, in milliseconds, the form says that it fetches a base with no answer: the daemon's own limit for a fetch and two seconds more. A daemon of an earlier build never answers. */
+export const BASE_ANSWER_MS = BASE_FETCH_MS + 2_000;
+
+/** The name the form keeps the fetch of a base under: the repository field's text without the spaces around it, and the base. No branch's name holds a line break. */
+export function baseKey(repo: string, base: string): string {
+  return `${repo.trim()}\n${base}`;
+}
+
+/**
+ * Whether the form asks the daemon to fetch `base`, the value its menu
+ * holds: where the plan it holds for the repository field's text lists the
+ * base among the remotes' branches and not among the local ones, which the
+ * daemon reads first, and `asked`, the keys of the bases asked for since the
+ * form opened, does not hold it. Never under `only`, the choice "Register
+ * the repository only", which starts no work item.
+ */
+export function asksFetch(plan: FormPlan | null, base: string | null, repo: string, only: boolean, asked: { has(key: string): boolean }): boolean {
+  const shown = planOf(plan, repo);
+  if (only || base === null || shown === null || "error" in shown) return false;
+  return shown.remoteBases.includes(base) && !shown.localBases.includes(base) && !asked.has(baseKey(repo, base));
+}
+
+/**
+ * What the form says under its menu "Starts from" of `base`, the menu's
+ * value, from what it holds of that base's fetch: that the branch is being
+ * fetched, the commit the remote's branch is at, or why it could not be
+ * fetched, the commit it starts at and how long the clone has held that
+ * commit, which is not how long ago the clone last fetched. A refusal is said
+ * in its own words. Nothing for a local base, for a base no fetch was asked
+ * of or answered for, and with no base in the menu.
+ */
+export function baseSays(base: string | null, answer: BaseAnswer | null | undefined, now: number): string {
+  if (base === null || answer == null) return "";
+  if (answer === "awaited") return `Fetching ${base}…`;
+  if ("error" in answer) return answer.error;
+  const commit = answer.commit.slice(0, 7);
+  if (answer.fetch === "fetched") return `Fetched: ${base} is at ${commit}.`;
+  if (answer.fetch === "none") return "";
+  const held = answer.since === null ? "" : `, which the clone has held for ${ageOf(answer.since, now)}`;
+  return `${base} could not be fetched (${String(answer.failure)}). It starts as last fetched, at ${commit}${held}.`;
+}
+
+/** What the window's status line says once a creation is answered whose base's fetch was answered after the person pressed Create: `baseSays`'s sentence of a branch that could not be fetched, and nothing of any other answer. */
+export function lateSays(base: string, answer: BaseAnswer | null, now: number): string {
+  return answer !== null && answer !== "awaited" && "fetch" in answer && answer.fetch === "kept" ? baseSays(base, answer, now) : "";
+}
+
+/** What the form holds of a base's fetch once `BASE_ANSWER_MS` has passed since it asked: nothing where no answer came, and the answer where one did. */
+export function unanswered(answer: BaseAnswer | null): BaseAnswer | null {
+  return answer === "awaited" ? null : answer;
 }
 
 /**
