@@ -66,6 +66,12 @@ The same file, `clear` at lines 82 to 86, with its comment's last sentence added
 
 The snippet does not cover a DCS string (`ESC P`). That stays a limit of the read and is no longer a silent one once the frame names it. The snippet stops at the code. *Scope* item 17 (`frame/design.md:137`) says the daemon keeps "one sequence for each such number" and nothing else, so the kept tail needs the sentence "Where the output stops inside a sequence, the daemon keeps that unfinished sequence after the modes, so that what the pane prints next completes it." Scenario 22 needs the matching clause. Both are the frame's and not the crafter's, so the hand-back names them for the orchestrator to fold. Where the fix pass declines the fix instead, the case belongs in `frame/plan.md:46` among the failure scenarios of the fold.
 
+```seal
+verdict: fixed aa36414
+location: `apps/desktop/src/shared/protocol.ts:156`, `seal/threads/1795158088-terminal-basics/gaps.md:7`, `seal/threads/1795158088-terminal-basics/gaps.md:42`
+answer: The finding holds. The record's case was added as written, with three more lines for an emptying without the modes, and it was seen red at `6f8cf13` on its first `expect`, which read `ESC[?1000h` alone. The fix is the pass's own and not the snippet as written, on two points. xterm 6.0.0's parser was read (`apps/desktop/node_modules/@xterm/xterm/src/common/parser/EscapeSequenceParser.ts:129`, `:154-156`). An escape followed by an intermediate character, as in `ESC ( B`, waits for its final character as a CSI sequence does, and the snippet's pattern kept the escape alone, so `OPEN_SEQUENCE` reads the intermediate characters too. A cancel (`18`, `1a`) ends an OSC string as a bell and an escape do, so the pattern stops an OSC string at each of the four. `clear` reads the text only where the modes are kept. `aa36414` adds two more cases: one row for each kind of unfinished sequence, each seen red before the code, and one case that a sequence that ended is not kept. `147ade9` adds to that last case an OSC string its terminator ended, after the mutant without the escape in the pattern's class survived. Nine mutants of the pattern and of `clear` then each went red under `seal mutate`. `test/daemon.test.ts` ran by itself at `564103f`: 124 cases passed. Three paths the finding does not name changed. `564103f` adds the kept sequence to the comment on the protocol's `forget`. `b7ceedf` and `e8286e0` write the pass's run into the first row of `gaps.md` *Not verified*, and add to *Not done* the limit that stays: a DCS, APC, PM or SOS string cut at the clear, and a CSI sequence with a control character inside it, are still dropped. `changelog.md` was left as it is: its line on a cleared pane says nothing the fix changes. `frame/` was not edited, and the hand-back names the sentences of *Scope* item 17, scenario 22, *Data & interfaces* and `frame/plan.md:46` for the orchestrator to fold.
+```
+
 ### 2. `pr.md` says Command+Backspace did nothing before this change, and it deleted one character
 
 ```seal
@@ -80,6 +86,11 @@ Why it matters: `pr.md` is the part of the pull request body a person reads firs
 
 ```md
 | Command with ← and → did nothing, and Command with ⌫ deleted one character, as ⌫ does | They send Control+A, Control+E and Control+U, as other macOS terminals do |
+```
+
+```seal
+verdict: fixed 6f8cf13
+answer: The finding holds, and the orchestrator's commit answers it. `pr.md:14` at `6f8cf13` reads "Command with ← and → did nothing, and Command+⌫ deleted one character", which says what the record's sentence says. The pass read the row against `Keyboard.ts:84-90` and `:115` as the finding cites them, and opened neither file again. Whether Electron's default menu bound Command+Backspace, the row of `## Not judged` the sentence rests on, was not opened by this pass. The same commit rewrites `pr.md:12` to "A right click offered no terminal action", which is the other row of `## Not judged` on `pr.md` and not this finding's.
 ```
 
 ### 3. `pr.md`'s list for the owner's hand run leaves out rows `gaps.md` gives to that run, and says Cmd+W is pressed through the system menu
@@ -107,6 +118,11 @@ The list also says "Cmd+W pressed through the system menu". No menu item holds C
 - **A key typed at once after a tab change.** A pane sends nothing while it draws what the daemon replays, which an earlier change of the release made so. Another tab, back, and typing at once shows whether a key is lost.
 ```
 
+```seal
+verdict: fixed 6f8cf13
+answer: The finding holds, and the orchestrator's commit answers it in its own words. Each of the four missing things was looked for in `pr.md:29-33` at `6f8cf13`. Command+V pressed by a person stands at line 30. Whether Claude Code reads a dropped image's escaped path as an image stands at line 30. The click with the Control key that opens the pane's menu stands at line 30, and Command with the left arrow, the right arrow and Backspace in bash and in Claude Code at line 32. The key typed right after a tab change is the new bullet at line 33. "Cmd+W pressed through the system menu" now reads "Cmd+W and Cmd+V pressed by a person, past the app's own menu", which names no menu item. Shift+Command+W, which `gaps.md:8` asks with Cmd+W, stands at line 29 as a key that hides the window. The rows of `gaps.md` *Not verified* this pass rewrote, 7 and 25, name no hand run, so the list still matches the memo at the head of the branch.
+```
+
 ### 4. `gaps.md` says the mutant `closeMenu()` in `giveBack` leaves the window the same, and on a click on a notification it does not
 
 ```seal
@@ -123,6 +139,11 @@ Why it matters: the row tells the next party who changes `giveBack`, `closeMenu`
 
 ```md
 | That the menu hands the keyboard to no terminal when its pane leaves the stage. `giveBack` calls `closeMenu(false)`, as `frame/design.md` *Scope* item 16 states. A mutant that calls `closeMenu()` there passed both cases of the menu, which reach `giveBack` through `dropClosed`: the screen is hidden on the next lines, and the pane left takes the keyboard, so the window ends the same there. On the path of a click on a notification, through `openView` and `stageShows`, it does not end the same, by the reading of review round 5, not run. The mutant's `focus` raises `focusin` on the leaving pane's element while `front` is unset, so the listener in `newScreen` calls `showView` from inside `stageShows`. That inner call moves the screens and gives the incoming pane the keyboard. The outer call then goes on with the moves it computed before, and the keyboard ends on no terminal. No case may raise a notification | The next party that changes `giveBack`, `closeMenu` or the `focusin` listener of `newScreen`, by a case that reads a difference where that change makes one |
+```
+
+```seal
+verdict: fixed b7ceedf
+answer: The finding holds. The path was read at `6f8cf13` and not run: `enterView` unsets `front` (`work-item-view.ts:740`) before `showView` reaches `stageShows` and `giveBack` (`:550`), and the `focusin` listener (`:502-506`) calls `showView` for a pane on a screen that is not `front`. `b7ceedf` replaces the row at `gaps.md:25` with the record's row as written. The row's answerer is unchanged.
 ```
 
 ## Confirmations
