@@ -3,10 +3,18 @@
 // are the daemon's list from `ready`: nothing here names one.
 import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
 
-/** A tab's label: the pane's kind, as the daemon labels it, and its id. The work item's title is the view's header's to say. */
-export function tabLabel(session: SessionInfo, paneKinds: readonly PaneKindInfo[]): string {
+/**
+ * A tab's label among `tabs`, the open panes of its work item in the tabs'
+ * order: the pane's kind, as the daemon labels it, alone where it is the one
+ * pane of its kind, and otherwise followed by its place among the panes of
+ * that kind, from 1. The daemon's id of a pane counts every pane it started,
+ * so it is no tab's to show. The work item's title is the view's header's to say.
+ */
+export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): string {
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
-  return `${kind ? kind.label : session.kind} ${session.id}`;
+  const name = kind ? kind.label : session.kind;
+  const same = tabs.filter((tab) => tab.kind === session.kind);
+  return same.length > 1 ? `${name} ${same.findIndex((tab) => tab.id === session.id) + 1}` : name;
 }
 
 /** The first kind of pane that reports its agent's state: the one the "New work item" form starts on. */
@@ -720,7 +728,7 @@ export function notificationFor(
   if (session.state !== "waiting" && session.state !== "finished") return null;
   const workItem = workItems.find((item) => item.id === session.workItemId);
   return {
-    title: workItem ? workItem.title : tabLabel(session, paneKinds),
+    title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
     body: session.state === "waiting" ? "Waiting for you" : "Finished",
   };
 }

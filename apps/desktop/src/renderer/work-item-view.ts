@@ -267,13 +267,13 @@ function showAskSection(): void {
   );
 }
 
-/** A pane's tab, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. */
-function tabElement(session: SessionInfo, active: boolean, shown: boolean): HTMLElement {
+/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. */
+function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean): HTMLElement {
   const tab = document.createElement("span");
   tab.className = `tab${shown ? " shown" : ""}${active ? " active" : ""}`;
   const label = document.createElement("button");
   label.className = "label";
-  label.textContent = tabLabel(session, held.paneKinds);
+  label.textContent = tabLabel(session, listed, held.paneKinds);
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
@@ -325,7 +325,7 @@ export function showView(): void {
   stripState.className = `state ${stateClass(line.state)}`;
   const listed = paneTabs(workItem, held.sessions);
   const { front: target, shown } = stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
-  tabs.replaceChildren(...listed.map((session) => tabElement(session, session.id === target, shown.includes(session.id))));
+  tabs.replaceChildren(...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id))));
   noPanes.hidden = listed.length > 0;
   stageShows(shown);
   if (target !== front) {

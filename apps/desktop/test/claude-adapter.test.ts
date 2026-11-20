@@ -182,6 +182,31 @@ describe("the Claude adapter's run", () => {
     expect(readFileSync(join(folder, "stdin"), "utf8")).toBe(promptLine("Which bird?"));
   });
 
+  it("asks the login shell with a pane's environment: none of what a package script or Electron gave the app, and no node_modules folder in PATH", async () => {
+    const folder = temporaryFolder();
+    // Stands for the login shell: records the environment it was started with, then names no CLI.
+    const shell = script(folder, "shell", `env | sort > '${folder}/shell-env'`);
+    const env = {
+      SHELL: shell,
+      HOME: folder,
+      PATH: `${folder}/node_modules/.bin:/usr/bin:/bin`,
+      npm_config_prefix: "/opt/prefix",
+      npm_lifecycle_event: "start",
+      ELECTRON_RUN_AS_NODE: "1",
+      PNPM_HOME: "/opt/pnpm",
+    };
+    await expect(claudeAdapter(env).start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow("claude was not found");
+    const received = Object.fromEntries(
+      readFileSync(join(folder, "shell-env"), "utf8")
+        .split("\n")
+        .flatMap((line) => (line.includes("=") ? [[line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]] : [])),
+    );
+    expect(received).toMatchObject({ HOME: folder, PATH: "/usr/bin:/bin", PNPM_HOME: "/opt/pnpm" });
+    expect(Object.keys(received)).not.toContain("npm_config_prefix");
+    expect(Object.keys(received)).not.toContain("npm_lifecycle_event");
+    expect(Object.keys(received)).not.toContain("ELECTRON_RUN_AS_NODE");
+  });
+
   it("reports the exit code of a CLI that ends without a result", async () => {
     const folder = temporaryFolder();
     const cli = script(folder, "cli", "cat > /dev/null\necho 'not json'\nexit 3");
