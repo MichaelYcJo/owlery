@@ -157,6 +157,12 @@ The snippets leave statements that the fix pass and the orchestrator owe too.
 - *Scope* item 3 (`frame/design.md:74`) names `git worktree list` as the whole read, and gives no sentence for a submodule's linked worktree. That sentence is the orchestrator's fold. A replacement: "The repository of a folder is the top-level folder of its main checkout: the checkout's own top-level folder where the folder is in the main checkout, a submodule's and one whose git directory stands apart among them, and the first worktree `git worktree list --porcelain` prints where the folder is in a linked worktree. A linked worktree whose first listed worktree has no `.git` at its top, as a submodule's linked worktree's has none, is refused with "<folder> is a worktree of a repository whose checkout git does not name"."
 - A folder that is a bare repository's own git directory was refused with the bare sentence. With the fix it gets "is not inside a git repository", because `--show-toplevel` fails there. No case sends that folder, and *Scope* item 3 names a bare repository's worktree. The fix pass keeps or words this as it judges.
 
+```seal
+verdict: fixed c9b9416
+location: `apps/desktop/src/shared/protocol.ts`, `apps/desktop/test/daemon.test.ts`, `seal/threads/1795152521-work-item-menu/gaps.md`, `seal/threads/1795152521-work-item-menu/trail/phases/phase-3.md`
+answer: The finding holds. The new case of `apps/desktop/test/worktrees.test.ts` failed against `apps/desktop/src/daemon/worktrees.ts` of `8215272` on its first assertion, where `repositoryOf` gave the submodule's git directory. The fix is in the fix pass's own words in three points. First, where `git rev-parse` fails, the read goes on to `git worktree list` and does not refuse at once. A bare repository's own folder therefore keeps the sentence it had, "belongs to a bare repository, which has no checkout to keep", and a line added to the case of the refusals pins it. Second, the new refusal reads "<folder> is a worktree of a repository whose main checkout git does not name", and the case sends it a linked worktree of a submodule and one of a repository made with `--separate-git-dir`. Third, the read at the daemon's start shares the 2 seconds of `START_READ_MS` between its two commands, as the round's snippet has it and its patch file does not, and a new case in `3dc5367` runs a git that answers nothing and ends at the timeout's signal. Eight mutants of `apps/desktop/src/daemon/worktrees.ts` are red (`seal mutate`, exit 0). The mutant without the shared wait failed on "expected 4004 to be less than 3000", and the mutant that refuses at once failed on the bare folder's sentence. The lines of the other six were not read. This block names four paths the finding's line does not. The doc of `addRepository` in `apps/desktop/src/shared/protocol.ts` states the new refusal. The comment on `heldGit` in `apps/desktop/test/daemon.test.ts` no longer names `git worktree list` as the one read. `trail/phases/phase-3.md` says which commands the start's read runs. `gaps.md` gains a row for a git older than 2.31, which was read and not run, rewrites the row on a git that does not answer, and says under `## Not done` that such a linked worktree is refused and its checkout not looked for. *Scope* item 3 of `frame/design.md:74` and the "one git call" of `frame/plan.md:113` are the orchestrator's to fold.
+```
+
 ### 2. A headless session that a refused removal stopped says the repository was removed, while the repository stays
 
 ```seal
@@ -180,6 +186,11 @@ expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === 
 ```
 
 The snippets leave the quote in `trail/phases/phase-3.md:31`, which the fix pass owes the same words. Phase 5's delete meets the same order of a stop and then a refusal, and owes its own words the same care.
+
+```seal
+verdict: fixed 150b3e5
+answer: The finding holds, and the fix is the proposed one. A headless session a removal stops is `failed` with "ended when a removal of its repository began". The case at `apps/desktop/test/daemon.test.ts:1227` pins the words and failed against the old ones, with the old sentence as what it received. The bullet of `trail/phases/phase-3.md` on what a removal takes off the lists quotes the new words and says why they hold for a refused removal. No frame file states the removal's words. `frame/design.md:107` gives an archive its own, "ended when the work item was archived", and *Scope* item 21 refuses no archive after the stop, so they stand.
+```
 
 ## Confirmations
 
