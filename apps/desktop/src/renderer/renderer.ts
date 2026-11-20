@@ -4,7 +4,8 @@
 // menus of a work item and of a repository with what the press of each item
 // does: the rename dialog, a work item's archive with the dialog that names
 // the sessions it ends, its restore, its delete with the dialog that names
-// what would be lost, and a repository's settings, its icon, the list of
+// what would be lost, its move into a group and out of it, and a
+// repository's settings, its icon, the dialog of its new group, the list of
 // the hidden ones, the screen of its archived work items and its removal,
 // with its two choices to delete from disk. How a menu is drawn is ./menu. The theme
 // and its control are ./theme. The sidebar, the list with its preview, a
@@ -123,6 +124,8 @@ const settingsName = byId<HTMLInputElement>("settings-name");
 const settingsBase = byId<HTMLSelectElement>("settings-base");
 const iconDialog = byId<HTMLDialogElement>("icon-dialog");
 const iconField = byId<HTMLInputElement>("icon-field");
+const groupDialog = byId<HTMLDialogElement>("group-dialog");
+const groupName = byId<HTMLInputElement>("group-name");
 const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
 const removeDialog = byId<HTMLDialogElement>("remove-dialog");
 const sessionsDialog = byId<HTMLDialogElement>("sessions-dialog");
@@ -141,14 +144,16 @@ interface Asking {
 const FORM: Asking = { dialog: workItemDialog, error: formError, button: createButton };
 const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
+const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button: byId<HTMLButtonElement>("group-submit") };
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
 const asking = new Map<number, Asking>();
-// The repository the settings dialog, the icon's dialog and the removal's dialog are each open on.
+// The repository the settings dialog, the icon's dialog, the dialog of a new group and the removal's dialog are each open on.
 let settingsOf: number | undefined;
 let iconOf: number | undefined;
+let groupOf: number | undefined;
 let removing: number | undefined;
 // What the removal's dialog names, which is what its request tells the daemon the person was told of.
 let removal: Removal | undefined;
@@ -409,7 +414,7 @@ function pressMenu(action: MenuAction): void {
       void window.owlery.copyText(action.text);
       return;
     case "set":
-      send({ type: "setWorkItem", requestId: request(), id: action.id, pinned: action.pinned, muted: action.muted });
+      send({ type: "setWorkItem", requestId: request(), id: action.id, pinned: action.pinned, muted: action.muted, groupId: action.groupId });
       return;
     case "settings":
       openSettings(action.id);
@@ -436,7 +441,7 @@ function pressMenu(action: MenuAction): void {
       openArchived(action.id);
       return;
     case "group":
-      // The dialog of a new group is not built yet: the item is drawn, and its press opens nothing.
+      openGroup(action.id);
       return;
   }
 }
@@ -452,7 +457,7 @@ function openRepositoryMenu(repositoryId: number, at: { x: number; y: number }, 
 function openWorkItemMenu(workItemId: number, at: { x: number; y: number }, within: Element): void {
   const workItem = [...held.workItems, ...held.archived].find((known) => known.id === workItemId);
   if (!workItem) return;
-  openMenu(`Menu of ${workItem.title}`, workItemMenu(workItem, held.apps), at, pressMenu, () => lineIn(within, workItemId));
+  openMenu(`Menu of ${workItem.title}`, workItemMenu(workItem, held.apps, repositoryOf(workItem.repoId)?.groups ?? []), at, pressMenu, () => lineIn(within, workItemId));
 }
 
 /** Opens the menu of a work item's line, or of a repository's row, at a press of the right button on it, and at a press with the Control key, which raises the same event. */
@@ -647,6 +652,16 @@ function showHidden(): void {
       return item;
     }),
   );
+}
+
+/** Opens the dialog that takes the name of a repository's new group, with an empty field. */
+function openGroup(repositoryId: number): void {
+  const repository = repositoryOf(repositoryId);
+  if (!repository || !opened(GROUP)) return;
+  groupOf = repositoryId;
+  byId("group-head").textContent = `New group in ${repository.name}`;
+  groupName.value = "";
+  groupName.focus();
 }
 
 function openHidden(): void {
@@ -1336,6 +1351,13 @@ byId<HTMLFormElement>("icon-form").addEventListener("submit", (event) => {
   // The daemon takes one character, or none, and refuses more.
   const id = iconOf;
   if (id !== undefined) ask(ICON, (requestId) => ({ type: "setRepository", requestId, id, icon: iconField.value }));
+});
+byId("group-cancel").addEventListener("click", () => groupDialog.close());
+byId<HTMLFormElement>("group-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  // The daemon stores the name without the white space at its ends, and refuses an empty one.
+  const repoId = groupOf;
+  if (repoId !== undefined) ask(GROUP, (requestId) => ({ type: "addGroup", requestId, repoId, name: groupName.value }));
 });
 byId("hidden-close").addEventListener("click", () => hiddenDialog.close());
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());

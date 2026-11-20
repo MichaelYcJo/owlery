@@ -2,7 +2,7 @@
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
 import type { InstalledApp } from "../shared/ipc";
-import { losesWork, type AgentState, type FileChange, type HeadlessInfo, type HeadlessState, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { losesWork, type AgentState, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -177,20 +177,27 @@ export interface SidebarRepository {
   name: string;
   /** The one character the sidebar shows before the name, or null where a person set none. */
   icon: string | null;
-  /** How many work items are listed under it: those the search and the filter leave. */
+  /** How many work items are listed under it, in its groups and out of them: those the search and the filter leave. */
   count: number;
-  /** Its work items, each with the places of its title that match what is typed. */
+  /** Its work items that stand in no group of its own, each with the places of its title that match what is typed. */
   entries: (Entry & { marks: [number, number][] })[];
+  /** Its groups, in the order they were made, each with the work items that stand in it. */
+  groups: { id: number; name: string; entries: SidebarRepository["entries"] }[];
 }
 
 /**
  * The sidebar's repositories: each repository the daemon keeps that is not
  * hidden, in the daemon's order, with the work items that name it by its id
- * and that the search and the filter leave, the pinned ones first and each
- * part in the order given. A repository with no work item is listed. While
- * a search is typed or a state is chosen, a repository none of whose work
- * items is left is not. The window makes up no repository: a work item
- * whose repository the daemon did not send is under none.
+ * and that the search and the filter leave. Its ungrouped work items come
+ * first, and then each of its groups with its own, in the order the groups
+ * were made, a group with no work item among them. In each of those lists
+ * the pinned ones stand first, and each part is in the order given. A work
+ * item whose group its repository does not hold is among the ungrouped. A
+ * repository with no work item is listed. While a search is typed or a
+ * state is chosen, a repository none of whose work items is left is not,
+ * and neither is a group none of whose work items is left. The window makes
+ * up no repository: a work item whose repository the daemon did not send is
+ * under none.
  */
 export function sidebarTree(repositories: readonly Repository[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
   const left = matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state);
@@ -198,10 +205,13 @@ export function sidebarTree(repositories: readonly Repository[], workItems: read
   return repositories
     .filter((repository) => !repository.hidden)
     .map((repository) => {
-      const entries = pinnedFirst(left.filter((entry) => entry.workItem.repoId === repository.id)).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
-      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: entries.length, entries };
+      const own = left.filter((entry) => entry.workItem.repoId === repository.id);
+      const listed = (entries: typeof own) => pinnedFirst(entries).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
+      const groups = repository.groups.map(({ id, name }) => ({ id, name, entries: listed(own.filter((entry) => entry.workItem.groupId === id)) })).filter((group) => !narrowing || group.entries.length > 0);
+      const entries = listed(own.filter((entry) => !repository.groups.some((group) => group.id === entry.workItem.groupId)));
+      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups };
     })
-    .filter((repository) => !narrowing || repository.entries.length > 0);
+    .filter((repository) => !narrowing || repository.count > 0);
 }
 
 /** The repositories the sidebar does not list, in the daemon's order, and what the button under the sidebar's repositories says of them: how many they are, or nothing where none is hidden. */
@@ -774,11 +784,12 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
 
 /**
  * What the press of a menu's item does. On a work item's menu: opens the
- * rename dialog, sets the work item's pin or its mute, archives it, opens
+ * rename dialog, sets the work item's pin, its mute or the group it stands
+ * in, where `groupId` null is none, archives it, opens
  * the dialog of its delete, or, on an archived one's, restores it. On a
  * repository's: opens its settings, its
  * icon's dialog or its removal's, hides it, opens the screen of its archived
- * work items, or, for `group`, opens what a later build draws. On both:
+ * work items, or, for `group`, opens the dialog of a new group. On both:
  * opens a folder in Finder, where `app` is null, or in an installed app, or
  * writes a text to the clipboard.
  */
@@ -786,7 +797,7 @@ export type MenuAction =
   | { do: "rename" | "archive" | "restore" | "delete"; id: number }
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
-  | { do: "set"; id: number; pinned?: boolean; muted?: boolean }
+  | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
   | { do: "settings" | "icon" | "archived" | "group" | "hide" | "remove"; id: number };
 
 /** One item of a menu: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
@@ -809,12 +820,14 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 /**
  * A work item's menu, in its order: Rename; Open in Finder, then one item
  * for each installed editor and terminal; Copy path and Copy branch name;
- * Pin or Unpin, and Mute notifications or Unmute notifications; Archive and
- * Delete. The menu of an archived work item holds Restore, the items that
- * open its folder, the two copies and Delete. The folder that is opened and
- * copied is the work item's worktree.
+ * Pin or Unpin, and Mute notifications or Unmute notifications; "Move to"
+ * for each of `groups`, the groups of its repository, but the one it stands
+ * in, and "Move out of" that one; Archive and Delete. The menu of an
+ * archived work item holds Restore, the items that open its folder, the two
+ * copies and Delete. The folder that is opened and copied is the work
+ * item's worktree.
  */
-export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]): MenuEntry[] {
+export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[]): MenuEntry[] {
   const { id, worktree: folder } = workItem;
   const open = openEntries(folder, "the work item's", apps);
   const copies: MenuEntry[] = [
@@ -822,6 +835,11 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]):
     { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
   ];
   const remove = (divides: boolean): MenuEntry => ({ label: "Delete", description: "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.", action: { do: "delete", id }, divides });
+  const own = groups.find((group) => group.id === workItem.groupId);
+  const moves: MenuEntry[] = [
+    ...groups.filter((group) => group !== own).map((group) => ({ label: `Move to ${group.name}`, description: `List the work item under the heading ${group.name} of its repository in the sidebar.`, action: { do: "set" as const, id, groupId: group.id }, divides: false })),
+    ...(own ? [{ label: `Move out of ${own.name}`, description: "List the work item among its repository's ungrouped work items again.", action: { do: "set" as const, id, groupId: null }, divides: false }] : []),
+  ].map((entry, at) => ({ ...entry, divides: at === 0 }));
   if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, ...open, ...copies, remove(true)];
   return [
     { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
@@ -833,6 +851,7 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]):
     workItem.muted
       ? { label: "Unmute notifications", description: "Let this work item's sessions notify you again.", action: { do: "set", id, muted: false }, divides: false }
       : { label: "Mute notifications", description: "Raise no notification for this work item's sessions. Its line still shows its state.", action: { do: "set", id, muted: true }, divides: false },
+    ...moves,
     { label: "Archive", description: "Take the work item off the lists and end its sessions. Its folder and its branch stay on disk, and a restore brings it back.", action: { do: "archive", id }, divides: true },
     remove(false),
   ];

@@ -5,7 +5,8 @@
 // repository's menu, the form's choice to register a repository alone, and
 // a repository's settings, its icon and hiding it; then a work item's
 // archive, the screen of a repository's archived work items and a restore;
-// then a work item's delete, and a removal that deletes a repository's work
+// then a work item's delete; a repository's new group, and a work item's
+// move into it and out of it; and a removal that deletes a repository's work
 // items from disk, and one that is refused after its first delete; and last
 // a repository's removal that leaves everything on disk. No case presses an "Open in" item or a "Copy" item, and none
 // checks the choice that moves a repository's folder to the Trash: each acts
@@ -37,7 +38,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   const line = (within: string, id: number): string => `${within} button[data-work-item="${id}"]`;
   const MENU = `[role="menu"]`;
   /** The items a work item's menu holds on this Mac: the apps are the ones the main process finds installed. */
-  const items = (pin = "Pin", mute = "Mute notifications"): string[] => ["Rename", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", pin, mute, "Archive", "Delete"];
+  const items = (pin = "Pin", mute = "Mute notifications", moves: string[] = []): string[] => ["Rename", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", pin, mute, ...moves, "Archive", "Delete"];
   /** The items the menu of an archived work item holds on this Mac. */
   const archivedItems = (): string[] => ["Restore", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", "Delete"];
 
@@ -631,6 +632,59 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await order(INBOX)).toEqual([1, 2]);
     expect(await value<string>(`document.getElementById("status").textContent`)).not.toContain("since you looked");
     expect([existsSync(worktree), git(clone.repo, "branch", "--list", "owlery/doomed"), existsSync(join(clone.repo, "README.md"))]).toEqual([false, "", true]);
+  });
+
+  it("makes a group at New group on a repository's menu, in a dialog that shows the refusal of an empty name: the group's heading stands under the repository's ungrouped work items, Move to on a work item's menu puts its line under the heading, and Move out of puts it back, and the inbox shows no group", async () => {
+    const headings = (): Promise<string[][]> => value(`[...document.querySelectorAll('${repository(1)} .group-head')].map((head) => [...head.children].map((part) => part.textContent))`);
+    const under = (group: number): Promise<number[]> => order(`${repository(1)} ul[data-group="${group}"]`);
+    const ungrouped = (): Promise<number[]> => order(`${repository(1)} ul:not([data-group])`);
+    /** The description on hover of the item of the open menu that says `label`. */
+    const said = (label: string): Promise<string> => value(`[...document.querySelectorAll('${MENU} [role="menuitem"]')].find((item) => item.textContent === ${JSON.stringify(label)}).title`);
+    await fromMenu(1, "New group");
+    await dialogOpen("group-dialog");
+    expect(await value<string[]>(`[document.getElementById("group-head").textContent, document.activeElement.id, document.getElementById("group-name").value]`)).toEqual(["New group in project", "group-name", ""]);
+    await app.click("#group-submit");
+    await says("group-error", "Give the group a name.");
+    expect(await value<boolean>(`document.getElementById("group-dialog").open`)).toBe(true);
+    expect(await headings()).toEqual([]);
+    await typeOver("group-name", "Later");
+    await app.click("#group-submit");
+    await dialogClosed("group-dialog");
+    await app.until(`document.querySelector('${repository(1)} .group-head')`, "the group's heading under the repository");
+    // A group with no work item is listed, after the ungrouped work items.
+    expect(await headings()).toEqual([["Later", "0"]]);
+    expect([await ungrouped(), await under(1), await order(SIDEBAR)]).toEqual([[1, 2], [], [1, 2]]);
+    expect(await value<boolean>(`document.querySelector('${repository(1)} ul:not([data-group])').compareDocumentPosition(document.querySelector('${repository(1)} .group-head')) === Node.DOCUMENT_POSITION_FOLLOWING`)).toBe(true);
+    // The dialog holds no name of the opening before.
+    await fromMenu(1, "New group");
+    await dialogOpen("group-dialog");
+    expect(await value<string[]>(`[document.getElementById("group-name").value, document.getElementById("group-error").textContent]`)).toEqual(["", ""]);
+    await app.click("#group-cancel");
+    await dialogClosed("group-dialog");
+
+    await rightPress(line(SIDEBAR, 1));
+    await menuShown();
+    expect(await menuItems()).toEqual(items("Pin", "Unmute notifications", ["Move to Later"]));
+    const moveSays = await said("Move to Later");
+    expect([moveSays.trim() === "", moveSays === "Move to Later"]).toEqual([false, false]);
+    await pressItem("Move to Later");
+    await menuGone();
+    await app.until(`document.querySelector('${repository(1)} ul[data-group="1"] button[data-work-item="1"]')`, "the work item's line under the group's heading");
+    expect([await ungrouped(), await under(1), await order(SIDEBAR)]).toEqual([[2], [1], [2, 1]]);
+    expect(await headings()).toEqual([["Later", "1"]]);
+    // The repository's row counts the work items in its groups too, and the inbox shows no group.
+    expect(await rowWords(1)).toEqual(["project", "2"]);
+    expect([await order(INBOX), await value<number>(`document.querySelectorAll("#inbox-screen .group-head").length`)]).toEqual([[1, 2], 0]);
+
+    await rightPress(line(SIDEBAR, 1));
+    await menuShown();
+    expect(await menuItems()).toEqual(items("Pin", "Unmute notifications", ["Move out of Later"]));
+    const outSays = await said("Move out of Later");
+    expect([outSays.trim() === "", outSays === "Move out of Later"]).toEqual([false, false]);
+    await pressItem("Move out of Later");
+    await menuGone();
+    await app.until(`document.querySelector('${repository(1)} ul:not([data-group]) button[data-work-item="1"]')`, "the work item's line among the ungrouped again");
+    expect([await ungrouped(), await under(1), await headings()]).toEqual([[1, 2], [], [["Later", "0"]]]);
   });
 
   it("deletes a repository's work items from disk at its removal where the dialog's choice is taken: it names each work item's loss under it, turns the Trash's choice on, and after Remove the branch and the worktree are gone and the repository's folder stands", async () => {

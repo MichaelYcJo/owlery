@@ -399,12 +399,17 @@ const APPS = [
   { name: "Zed", kind: "editor" as const },
   { name: "Warp", kind: "terminal" as const },
 ];
+/** Two groups of a repository, in the order they were made. */
+const GROUPS = [
+  { id: 7, name: "Later" },
+  { id: 8, name: "Drafts" },
+];
 /** A menu's entries without their descriptions, which a case of their own holds. */
 const plain = (entries: readonly { label: string; description: string; action: unknown; divides: boolean }[]) => entries.map(({ description: _says, ...entry }) => entry);
 
 describe("workItemMenu", () => {
   it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin, Mute notifications, Archive and Delete, each with what its press does", () => {
-    expect(plain(workItemMenu(LOGIN, APPS))).toEqual([
+    expect(plain(workItemMenu(LOGIN, APPS, []))).toEqual([
       { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
       { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
       { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
@@ -419,19 +424,37 @@ describe("workItemMenu", () => {
   });
 
   it("offers Finder alone where no app is installed", () => {
-    expect(workItemMenu(LOGIN, []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive", "Delete"]);
+    expect(workItemMenu(LOGIN, [], []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive", "Delete"]);
   });
 
   it("offers Unpin for a pinned work item and Unmute notifications for a muted one", () => {
-    const items = plain(workItemMenu({ ...LOGIN, pinned: true, muted: true }, []));
+    const items = plain(workItemMenu({ ...LOGIN, pinned: true, muted: true }, [], []));
     expect(items.slice(-4, -2)).toEqual([
       { label: "Unpin", action: { do: "set", id: 1, pinned: false }, divides: true },
       { label: "Unmute notifications", action: { do: "set", id: 1, muted: false }, divides: false },
     ]);
   });
 
-  it("holds for an archived work item, in this order, Restore, Open in Finder and in each installed app, the two copies and Delete: no rename, no pin, no mute and no archive", () => {
-    expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS))).toEqual([
+  it("holds, between Mute notifications and Archive, Move to for each group of the work item's repository but its own, in the groups' order, and Move out of where it stands in one, each with what its press sets", () => {
+    const moves = (workItem: WorkItem) => plain(workItemMenu(workItem, [], GROUPS)).slice(6, -2);
+    expect(moves(LOGIN)).toEqual([
+      { label: "Move to Later", action: { do: "set", id: 1, groupId: 7 }, divides: true },
+      { label: "Move to Drafts", action: { do: "set", id: 1, groupId: 8 }, divides: false },
+    ]);
+    expect(moves({ ...LOGIN, groupId: 7 })).toEqual([
+      { label: "Move to Drafts", action: { do: "set", id: 1, groupId: 8 }, divides: true },
+      { label: "Move out of Later", action: { do: "set", id: 1, groupId: null }, divides: false },
+    ]);
+    // In the one group its repository has, it can move nowhere but out.
+    expect(plain(workItemMenu({ ...LOGIN, groupId: 8 }, [], [{ id: 8, name: "Drafts" }])).slice(6, -2)).toEqual([{ label: "Move out of Drafts", action: { do: "set", id: 1, groupId: null }, divides: true }]);
+    // A group the repository does not hold is one it cannot be moved out of by name: it is offered every group.
+    expect(moves({ ...LOGIN, groupId: 99 }).map((item) => item.label)).toEqual(["Move to Later", "Move to Drafts"]);
+    // The items around them stand as they do without a group.
+    expect(workItemMenu(LOGIN, [], GROUPS).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Move to Later", "Move to Drafts", "Archive", "Delete"]);
+  });
+
+  it("holds for an archived work item, in this order, Restore, Open in Finder and in each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
+    expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS, GROUPS))).toEqual([
       { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
       { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
       { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
@@ -466,7 +489,7 @@ describe("repositoryMenu", () => {
 
 describe("a description on hover", () => {
   it("gives every entry of a work item's menu and of a repository's menu a description that is not empty and is not its label, and no two entries of one menu the same one", () => {
-    const menus = [workItemMenu(LOGIN, APPS), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS)];
+    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS)];
     for (const menu of menus) {
       for (const { label, description } of menu) {
         expect(description.trim(), label).not.toBe("");
@@ -477,7 +500,7 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([10, 10, 10, 7]);
+    expect(menus.map((menu) => menu.length)).toEqual([10, 10, 10, 7, 12, 12]);
   });
 
   it("says of the button at the sidebar's top, of a repository's two buttons and of the form's choice what each does, and tells registering a repository from creating a work item", () => {
@@ -1365,6 +1388,8 @@ describe("sidebarTree", () => {
   const DOCS_REPO: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs" };
   const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repoId: 2, repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
   const rows = (tree: ReturnType<typeof sidebarTree>) => tree.map((repository) => [repository.id, repository.repo, repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
+  /** Each repository of a tree with its count, its ungrouped work items and its groups, each group with its name, its id and its work items. */
+  const grouping = (tree: ReturnType<typeof sidebarTree>) => tree.map((repository) => [repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id), repository.groups.map((group) => [group.name, group.id, group.entries.map((entry) => entry.workItem.id)])]);
 
   it("lists every repository the daemon keeps that is not hidden, in the daemon's order, each with its name, its count and its work items in the daemon's order, a repository with no work item among them", () => {
     const hidden: Repository = { ...PROJECT, id: 3, folder: "/r/hidden", name: "hidden", hidden: true };
@@ -1389,6 +1414,49 @@ describe("sidebarTree", () => {
       [1, "/r/project", "project", 3, [2, 4, 1]],
       [2, "/r/docs", "docs", 1, [3]],
     ]);
+  });
+
+  it("lists under a repository its ungrouped work items, the pinned one first, and then each group with its own, and leaves a hidden repository out", () => {
+    const hidden: Repository = { ...PROJECT, id: 3, folder: "/r/hidden", name: "hidden", hidden: true, groups: [{ id: 9, name: "Unseen" }] };
+    const empty: Repository = { ...PROJECT, id: 4, folder: "/r/empty", name: "empty" };
+    const grouped: Repository = { ...PROJECT, groups: [{ id: 7, name: "Later" }] };
+    const pinned: WorkItem = { ...SEARCH, pinned: true };
+    const later: WorkItem = { ...LOGIN, id: 5, title: "Later on", groupId: 7 };
+    const unseen: WorkItem = { ...LOGIN, id: 6, repoId: 3, groupId: 9 };
+    expect(grouping(sidebarTree([grouped, hidden, empty], [LOGIN, later, pinned, unseen], [], KINDS))).toEqual([
+      ["project", 3, [2, 1], [["Later", 7, [5]]]],
+      ["empty", 0, [], []],
+    ]);
+  });
+
+  it("lists a repository's groups in the order they were made, one with no work item among them, each group's pinned work items before its others, and a work item whose group its repository does not hold among the ungrouped", () => {
+    const grouped: Repository = { ...PROJECT, groups: [{ id: 7, name: "Later" }, { id: 8, name: "Drafts" }, { id: 4, name: "Earlier id, made last" }] };
+    const other: Repository = { ...DOCS_REPO, groups: [{ id: 9, name: "Theirs" }] };
+    const items: WorkItem[] = [
+      { ...LOGIN, groupId: 4 },
+      { ...SEARCH, groupId: 7 },
+      { ...LOGIN, id: 5, groupId: 7, pinned: true },
+      // A group of another repository, and one no repository holds.
+      { ...LOGIN, id: 6, groupId: 9 },
+      { ...LOGIN, id: 7, groupId: 99 },
+      { ...DOCS, groupId: 9 },
+    ];
+    expect(grouping(sidebarTree([grouped, other], items, [], KINDS))).toEqual([
+      ["project", 5, [6, 7], [["Later", 7, [5, 2]], ["Drafts", 8, []], ["Earlier id, made last", 4, [1]]]],
+      ["docs", 1, [], [["Theirs", 9, [3]]]],
+    ]);
+  });
+
+  it("leaves out a group none of whose work items a search or a filter leaves, counts under the repository the ones left in and out of its groups, and marks a grouped title as an ungrouped one", () => {
+    const grouped: Repository = { ...PROJECT, groups: [{ id: 7, name: "Later" }, { id: 8, name: "Drafts" }] };
+    const items: WorkItem[] = [LOGIN, { ...SEARCH, groupId: 7 }, { ...LOGIN, id: 5, title: "Search the logs", branch: "owlery/search-the-logs", groupId: 8 }];
+    const sessions = [session(4, { workItemId: 2, state: "waiting" })];
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "search"))).toEqual([["project", 2, [], [["Later", 7, [2]], ["Drafts", 8, [5]]]]]);
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "", "waiting"))).toEqual([["project", 1, [], [["Later", 7, [2]]]]]);
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "login"))).toEqual([["project", 1, [1], []]]);
+    // A repository whose one match stands in a group is listed, and one with a group and no match is not.
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "nowhere"))).toEqual([]);
+    expect(sidebarTree([grouped], items, sessions, KINDS, "LOGS")[0]?.groups[0]?.entries.map((entry) => [entry.line.title, entry.marks])).toEqual([["Search the logs", [[11, 15]]]]);
   });
 
   it("puts a work item under the repository whose id it names, whatever folder and name the work item carries, and keeps two repositories of one name apart", () => {

@@ -118,8 +118,10 @@ function workItemElement(workItem: WorkItem, title: string, marks: readonly (rea
 
 /**
  * Draws the sidebar: which screen is in front, the counts, the filter, and
- * each repository `sidebarTree` lists, with its work items under it, the
- * pinned ones first. A repository's row holds the button that folds it,
+ * each repository `sidebarTree` lists, with its work items under it: the
+ * ungrouped ones, and then each of its groups under a heading of the
+ * group's name with how many work items stand in it, the pinned ones first
+ * in each list. A repository's row holds the button that folds it,
  * with the repository's icon before its name where it has one, a "+" button
  * that opens the "New work item" form on its folder, and a "…" button that
  * opens its menu. Under the repositories a button says how many are hidden,
@@ -173,10 +175,26 @@ export function showSidebar(inFront: Front = front): void {
       const row = document.createElement("div");
       row.className = "repository-row";
       row.append(head, add, menu);
-      const list = document.createElement("ul");
-      list.hidden = isFolded;
-      list.append(...repository.entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, session?.stateSince)));
-      section.append(row, list);
+      const listOf = (entries: typeof repository.entries): HTMLUListElement => {
+        const list = document.createElement("ul");
+        list.hidden = isFolded;
+        list.append(...entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, session?.stateSince)));
+        return list;
+      };
+      // The ungrouped work items first, then each group's under a heading of its name.
+      section.append(
+        row,
+        listOf(repository.entries),
+        ...repository.groups.flatMap((group) => {
+          const heading = document.createElement("h3");
+          heading.className = "group-head";
+          heading.hidden = isFolded;
+          heading.append(part("word", group.name), part("count", String(group.entries.length)));
+          const list = listOf(group.entries);
+          list.dataset.group = String(group.id);
+          return [heading, list];
+        }),
+      );
       return section;
     }),
   );
