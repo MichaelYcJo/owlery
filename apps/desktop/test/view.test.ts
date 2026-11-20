@@ -686,8 +686,9 @@ describe("runningSessions", () => {
       session(8, { workItemId: 4, alive: false }),
       session(9, { kind: "shell", workItemId: null }),
       session(10, { workItemId: 99 }),
+      session(11, { kind: "shell", workItemId: null, alive: false }),
     ];
-    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { workItemId: 4, prompt: "Where is the index built?" }), headless(4, { workItemId: 4, state: "failed" }), headless(5, { workItemId: 99, prompt: "Who asked?" })];
+    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { workItemId: 4, prompt: "Where is the index built?" }), headless(4, { workItemId: 4, state: "failed" }), headless(5, { workItemId: 99, prompt: "Who asked?" }), headless(6, { workItemId: 99, state: "finished" })];
     expect(runningSessions([LOGIN], [SHELVED], sessions, asked, KINDS)).toEqual([
       "Shell 1 in Fix the login bug",
       "Claude Code 1 in Shelved",
