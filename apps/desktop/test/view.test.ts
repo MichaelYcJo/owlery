@@ -7,7 +7,11 @@ import {
   archivedHead,
   archivedIn,
   askButton,
+  asksFetch,
+  BASE_ANSWER_MS,
+  baseKey,
   baseMenu,
+  baseSays,
   cardStaysAt,
   changesSince,
   closeAsks,
@@ -34,6 +38,7 @@ import {
   inboxSummary,
   keepAwakeControl,
   keyHints,
+  lateSays,
   lastHere,
   lineBadge,
   lineCounts,
@@ -99,8 +104,9 @@ import {
   workItemMenu,
   type FormPlan,
   type InboxLine,
+  unanswered,
 } from "../src/renderer/view";
-import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, Repository, SessionInfo, WorkItem, WorkItemLoss } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -1383,6 +1389,100 @@ describe("baseMenu", () => {
 
   it("chooses the first base listed where the repository has no default base, so the menu shows what the creation sends", () => {
     expect(baseMenu({ ...PLAN, localBases: [], remoteBases: ["fork/main"], defaultBase: null }, null, "/r/project")).toEqual({ first: null, local: [], remote: ["fork/main"], value: "fork/main" });
+  });
+});
+
+describe("asksFetch", () => {
+  it("asks for a remote's branch the form has not asked for under the repository's text", () => {
+    expect(asksFetch(PLAN, "origin/main", " /r/project ", false, new Set())).toBe(true);
+    expect(asksFetch(PLAN, "origin/release", "/r/project", false, new Set([baseKey("/r/project", "origin/main")]))).toBe(true);
+    // The same base under another repository's text is another base.
+    expect(asksFetch({ ...PLAN, repo: "/r/other" }, "origin/main", "/r/other", false, new Set([baseKey("/r/project", "origin/main")]))).toBe(true);
+  });
+
+  it("asks nothing for a base it asked for since it opened, whatever the spaces around the repository's text", () => {
+    expect(asksFetch(PLAN, "origin/main", "/r/project ", false, new Set([baseKey(" /r/project", "origin/main")]))).toBe(false);
+  });
+
+  it("asks nothing for a local base, and none for a local branch that bears the name of a remote's, which the daemon reads as the local one", () => {
+    expect(asksFetch(PLAN, "feature", "/r/project", false, new Set())).toBe(false);
+    expect(asksFetch({ ...PLAN, localBases: ["origin/main"] }, "origin/main", "/r/project", false, new Set())).toBe(false);
+  });
+
+  it('asks nothing under "Register the repository only", with no base in the menu, for a base the plan does not list, and for a plan of another repository\'s text or a refused one', () => {
+    expect(asksFetch(PLAN, "origin/main", "/r/project", true, new Set())).toBe(false);
+    expect(asksFetch(PLAN, null, "/r/project", false, new Set())).toBe(false);
+    expect(asksFetch(PLAN, "origin/gone", "/r/project", false, new Set())).toBe(false);
+    expect(asksFetch(null, "origin/main", "/r/project", false, new Set())).toBe(false);
+    expect(asksFetch(PLAN, "origin/main", "/r/other", false, new Set())).toBe(false);
+    expect(asksFetch({ repo: "/r/project", error: "refused" }, "origin/main", "/r/project", false, new Set())).toBe(false);
+  });
+});
+
+describe("baseSays", () => {
+  const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+  const fetched: BaseFetch = { base: "origin/main", commit: COMMIT, fetch: "fetched", failure: null, since: null };
+  // Built in a case, since the times it names are declared further down.
+  const kept = (): BaseFetch => ({ base: "origin/main", commit: COMMIT, fetch: "kept", failure: "fatal: '/r/origin' does not appear to be a git repository", since: NOW - 72 * HOUR });
+
+  it("says that the branch is being fetched while the answer is awaited", () => {
+    expect(baseSays("origin/main", "awaited", NOW)).toBe("Fetching origin/main…");
+  });
+
+  it("says the commit the remote's branch is at once it was fetched, cut to seven characters", () => {
+    expect(baseSays("origin/main", fetched, NOW)).toBe("Fetched: origin/main is at 0123456.");
+  });
+
+  it("says why a branch could not be fetched, the commit it starts at, and how long the clone has held it", () => {
+    expect(baseSays("origin/main", kept(), NOW)).toBe(`origin/main could not be fetched (fatal: '/r/origin' does not appear to be a git repository). It starts as last fetched, at 0123456, which the clone has held for ${ageOf(NOW - 72 * HOUR, NOW)}.`);
+    expect(ageOf(NOW - 72 * HOUR, NOW)).toBe("3 days");
+  });
+
+  it("says no age where git recorded no move of the clone's branch", () => {
+    expect(baseSays("origin/main", { ...kept(), failure: "origin did not answer in 10 seconds", since: null }, NOW)).toBe("origin/main could not be fetched (origin did not answer in 10 seconds). It starts as last fetched, at 0123456.");
+  });
+
+  it("says the daemon's refusal in the refusal's own words", () => {
+    expect(baseSays("origin/main", { error: "/r/project is not inside a git repository" }, NOW)).toBe("/r/project is not inside a git repository");
+  });
+
+  it("says nothing for a local base, for a base nothing was asked of, for one no answer came for, and with no base in the menu", () => {
+    expect(baseSays("main", { base: "main", commit: COMMIT, fetch: "none", failure: null, since: null }, NOW)).toBe("");
+    expect(baseSays("origin/main", undefined, NOW)).toBe("");
+    expect(baseSays("origin/main", null, NOW)).toBe("");
+    expect(baseSays(null, "awaited", NOW)).toBe("");
+  });
+
+  describe("lateSays", () => {
+    it("says the sentence of a branch that could not be fetched, for the status line of a creation sent before the answer", () => {
+      expect(lateSays("origin/main", kept(), NOW)).toBe(baseSays("origin/main", kept(), NOW));
+      expect(lateSays("origin/main", kept(), NOW)).toContain("could not be fetched");
+    });
+
+    it("says nothing of a branch that was fetched, of a refusal, and while no answer came", () => {
+      expect(lateSays("origin/main", fetched, NOW)).toBe("");
+      expect(lateSays("origin/main", { error: "refused" }, NOW)).toBe("");
+      expect(lateSays("origin/main", "awaited", NOW)).toBe("");
+      expect(lateSays("origin/main", null, NOW)).toBe("");
+    });
+  });
+
+  describe("unanswered", () => {
+    it("waits two seconds longer for an answer than the daemon gives a fetch", () => {
+      expect(BASE_ANSWER_MS).toBe(BASE_FETCH_MS + 2_000);
+    });
+
+    it("holds no answer once the wait has passed with none, so the form stops saying that it fetches", () => {
+      expect(unanswered("awaited")).toBeNull();
+      expect(baseSays("origin/main", unanswered("awaited"), NOW)).toBe("");
+    });
+
+    it("keeps an answer that came before the wait passed", () => {
+      expect(unanswered(fetched)).toBe(fetched);
+      expect(unanswered(kept())).toEqual(kept());
+      expect(unanswered({ error: "refused" })).toEqual({ error: "refused" });
+      expect(unanswered(null)).toBeNull();
+    });
   });
 });
 

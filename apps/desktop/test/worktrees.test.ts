@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, fetchBase, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
+import { commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -128,7 +128,7 @@ describe("createWorktree", () => {
     expect([neither.branch, neither.worktree]).toEqual([`owlery/${generated}-2`, join(root, "project", `${generated}-2`)]);
   });
 
-  it("cuts a work item no base was sent for at the branch the remote's HEAD names, as the clone holds it, and at neither local branch, and gives the new branch no upstream", async () => {
+  it("cuts a work item no base was sent for at the branch the remote's HEAD names, and at neither local branch, and gives the new branch no upstream", async () => {
     const { repo, root } = clone("trunk");
     // A person's setting that would give every new branch its start as its upstream.
     git(repo, "config", "branch.autoSetupMerge", "always");
@@ -157,7 +157,7 @@ describe("createWorktree", () => {
       return { ...made, commit: commitOf(made.repo, "HEAD") };
     }
 
-    /** Adds remotes to the repository, and plants the branches named as a fetch from them would leave them. Nothing is fetched. */
+    /** Adds remotes to the repository, and plants the branches named as a fetch from them would leave them. Nothing is fetched here, and each remote's folder does not exist, so the fetch a creation runs for a remote's branch fails at once and the cut is at the planted commit. */
     function remotes(made: { repo: string; base: string; commit: string }, names: string[], branches: string[]): void {
       for (const name of names) git(made.repo, "remote", "add", name, join(made.base, `${name}.git`));
       for (const branch of branches) git(made.repo, "update-ref", `refs/remotes/${branch}`, made.commit);
@@ -302,6 +302,248 @@ describe("createWorktree", () => {
     const folder = join(base, "missing");
     await expect(createWorktree({ folder, title: "Anything", root })).rejects.toThrow(`${folder} is not inside a git repository`);
     expect(existsSync(root)).toBe(false);
+  });
+});
+
+describe("the fetch of a base", () => {
+  /** The repository's refs under a pattern, each with its commit, by the ref's name. */
+  function refs(repo: string, ...patterns: string[]): Record<string, string> {
+    return Object.fromEntries(
+      git(repo, "for-each-ref", "--format=%(refname) %(objectname)", ...patterns)
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => line.split(" ") as [string, string]),
+    );
+  }
+
+  /** Waits until no process of these ids runs, and says whether that came within two seconds. */
+  async function ended(pids: number[]): Promise<boolean> {
+    const end = Date.now() + 2000;
+    while (pids.some(runs)) {
+      if (Date.now() > end) return false;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return true;
+  }
+
+  it("cuts a work item from a remote's branch at the commit the remote holds, where the clone did not fetch it, for a base sent and for the default base", async () => {
+    const { origin, repo, root } = clone();
+    const held = commitOf(repo, "refs/remotes/origin/main");
+    const moved = commitFile(origin, "moved.txt");
+    expect(moved).not.toBe(held);
+    const sent = await createWorktree({ folder: repo, title: "Sent", root, base: "origin/main" });
+    expect([sent.baseBranch, sent.baseCommit]).toEqual(["origin/main", moved]);
+    expect(commitOf(repo, "refs/remotes/origin/main")).toBe(moved);
+    expect(commitOf(repo, "refs/heads/owlery/sent")).toBe(moved);
+    const again = commitFile(origin, "again.txt");
+    const unsent = await createWorktree({ folder: repo, title: "Unsent", root });
+    expect([unsent.baseBranch, unsent.baseCommit]).toEqual(["origin/main", again]);
+    expect(commitOf(repo, "refs/remotes/origin/main")).toBe(again);
+  });
+
+  it("asks no remote for a local base, a local branch that bears a remote branch's name among them", async () => {
+    const { origin, repo, root } = clone();
+    git(origin, "branch", "--quiet", "shadow");
+    git(repo, "fetch", "--quiet", "origin");
+    const local = commitFile(repo, "local.txt");
+    // A local branch whose name reads as the remote's `shadow`, one commit off it.
+    git(repo, "branch", "--quiet", "origin/shadow");
+    commitFile(origin, "main-moved.txt");
+    git(origin, "checkout", "--quiet", "shadow");
+    commitFile(origin, "shadow-moved.txt");
+    const before = refs(repo, "refs/remotes");
+    expect(await fetchBase(repo, "main")).toEqual({ base: "main", commit: local, fetch: "none", failure: null, since: null });
+    expect(await fetchBase(repo, "origin/shadow")).toEqual({ base: "origin/shadow", commit: local, fetch: "none", failure: null, since: null });
+    const fromMain = await createWorktree({ folder: repo, title: "From main", root, base: "main" });
+    expect([fromMain.baseBranch, fromMain.baseCommit]).toEqual(["main", local]);
+    const fromShadow = await createWorktree({ folder: repo, title: "From shadow", root, base: "origin/shadow" });
+    expect([fromShadow.baseBranch, fromShadow.baseCommit]).toEqual(["origin/shadow", local]);
+    expect(refs(repo, "refs/remotes")).toEqual(before);
+  });
+
+  it("moves the one ref of the remote's branch and nothing else: no local branch, no other branch, no other remote, no tag, no FETCH_HEAD and nothing of the checkout", async () => {
+    const { base, origin, repo, root } = clone();
+    const second = join(base, "second");
+    git(base, "clone", "--quiet", origin, second);
+    git(second, "config", "user.name", "Owlery Test");
+    git(second, "config", "user.email", "test@owlery.invalid");
+    git(second, "config", "commit.gpgsign", "false");
+    git(origin, "branch", "--quiet", "side");
+    git(repo, "remote", "add", "second", second);
+    git(repo, "fetch", "--quiet", "--all");
+    git(repo, "branch", "--quiet", "--no-track", "side", "origin/side");
+    // Everything a wider fetch would bring: the remote's `main` and `side` each moved, a tag stands on the new commit, a branch appeared, and the second remote moved.
+    const moved = commitFile(origin, "moved.txt");
+    git(origin, "tag", "v1");
+    git(origin, "branch", "--quiet", "appeared");
+    git(origin, "checkout", "--quiet", "side");
+    commitFile(origin, "side-moved.txt");
+    commitFile(second, "second-moved.txt");
+    // A refspec that writes the remote's branches over the local ones, which a fetch by the remote's configuration would follow.
+    git(repo, "config", "--add", "remote.origin.fetch", "+refs/heads/*:refs/heads/*");
+    writeFileSync(join(repo, "README.md"), "changed in the checkout\n");
+    rmSync(join(repo, ".git", "FETCH_HEAD"));
+    const before = { refs: refs(repo), head: git(repo, "symbolic-ref", "HEAD"), status: git(repo, "status", "--porcelain") };
+    expect(before.status).not.toBe("");
+    const made = await createWorktree({ folder: repo, title: "Narrow", root, base: "origin/main" });
+    expect(made.baseCommit).toBe(moved);
+    const after = refs(repo);
+    const changed = [...new Set([...Object.keys(before.refs), ...Object.keys(after)])].filter((ref) => before.refs[ref] !== after[ref]).sort();
+    expect(changed).toEqual(["refs/heads/owlery/narrow", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    expect(after["refs/remotes/origin/main"]).toBe(moved);
+    expect(git(repo, "symbolic-ref", "HEAD")).toBe(before.head);
+    expect(git(repo, "status", "--porcelain")).toBe(before.status);
+    expect(existsSync(join(repo, ".git", "FETCH_HEAD"))).toBe(false);
+  });
+
+  it("reads the remote of a base as the longest remote's name that opens it", async () => {
+    const { base, origin, repo } = clone();
+    const team = join(base, "team");
+    git(base, "clone", "--quiet", origin, team);
+    git(team, "config", "user.name", "Owlery Test");
+    git(team, "config", "user.email", "test@owlery.invalid");
+    git(team, "config", "commit.gpgsign", "false");
+    const held = commitOf(repo, "refs/remotes/origin/main");
+    const moved = commitFile(team, "team.txt");
+    // A remote whose name opens with another remote's, as the clone's configuration holds one, and its branch as an earlier fetch left it.
+    git(repo, "config", "remote.origin/team.url", team);
+    git(repo, "config", "remote.origin/team.fetch", "+refs/heads/*:refs/remotes/origin/team/*");
+    git(repo, "update-ref", "refs/remotes/origin/team/main", held);
+    expect(await fetchBase(repo, "origin/team/main")).toEqual({ base: "origin/team/main", commit: moved, fetch: "fetched", failure: null, since: null });
+    expect(commitOf(repo, "refs/remotes/origin/main")).toBe(held);
+  });
+
+  it("keeps the clone's commit where the remote cannot be reached, says git's first line and since when the clone has held it, and a creation is still cut there", async () => {
+    const { origin, repo, root } = clone();
+    const began = Math.floor(Date.now() / 1000) * 1000;
+    const moved = commitFile(origin, "moved.txt");
+    expect(await fetchBase(repo, "origin/main")).toEqual({ base: "origin/main", commit: moved, fetch: "fetched", failure: null, since: null });
+    renameSync(origin, `${origin}-away`);
+    const kept = await fetchBase(repo, "origin/main");
+    expect(kept).toEqual({ base: "origin/main", commit: moved, fetch: "kept", failure: `fatal: '${origin}' does not appear to be a git repository`, since: kept.since });
+    expect(kept.since).toBeGreaterThanOrEqual(began);
+    expect(kept.since).toBeLessThanOrEqual(Date.now());
+    const made = await createWorktree({ folder: repo, title: "Kept", root, base: "origin/main" });
+    expect([made.baseBranch, made.baseCommit]).toEqual(["origin/main", moved]);
+  });
+
+  it("gives no time where the clone's ref never moved, and keeps the commit of a branch the remote deleted and of one whose remote the clone does not have", async () => {
+    const { origin, repo } = clone();
+    const held = commitOf(repo, "refs/remotes/origin/main");
+    git(origin, "branch", "--quiet", "gone");
+    git(repo, "fetch", "--quiet", "origin");
+    git(origin, "branch", "--quiet", "-D", "gone");
+    expect(await fetchBase(repo, "origin/gone")).toMatchObject({ commit: held, fetch: "kept", failure: "fatal: couldn't find remote ref refs/heads/gone" });
+    git(repo, "update-ref", "refs/remotes/ghost/main", held);
+    expect(await fetchBase(repo, "ghost/main")).toMatchObject({ base: "ghost/main", commit: held, fetch: "kept", failure: "the clone has no remote for ghost/main" });
+    renameSync(origin, `${origin}-away`);
+    expect(await fetchBase(repo, "origin/main")).toMatchObject({ commit: held, fetch: "kept", since: null });
+    await expect(fetchBase(repo, "origin/never")).rejects.toThrow(`${repo} has no branch origin/never to start a work item from`);
+  });
+
+  it("runs the fetch with GIT_TERMINAL_PROMPT=0, so git asks nothing on a terminal", async () => {
+    const { base, origin, repo } = clone();
+    const moved = commitFile(origin, "moved.txt");
+    // A `git` before the real one on the path, which notes the variable a fetch runs with and runs the real one.
+    const bin = join(base, "bin");
+    const noted = join(base, "prompt.txt");
+    const path = process.env.PATH ?? "";
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n[ "$1" = fetch ] && echo "prompt=$GIT_TERMINAL_PROMPT" > '${noted}'\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${path}`;
+    cleanups.push(() => {
+      process.env.PATH = path;
+    });
+    expect(await fetchBase(repo, "origin/main")).toMatchObject({ commit: moved, fetch: "fetched" });
+    expect(readFileSync(noted, "utf8")).toBe("prompt=0\n");
+  });
+
+  it("gives up a remote that does not answer within the wait, and ends the process git started for it and leaves no lock", async () => {
+    const made = clone();
+    const held = commitOf(made.repo, "refs/remotes/origin/main");
+    const standIn = unansweringOrigin(made);
+    cleanups.push(standIn.stop);
+    const began = Date.now();
+    expect(await fetchBase(made.repo, "origin/main", { waitMs: 2000 })).toEqual({ base: "origin/main", commit: held, fetch: "kept", failure: "origin did not answer in 2 seconds", since: null });
+    expect(Date.now() - began).toBeLessThan(4000);
+    expect(standIn.started()).toHaveLength(1);
+    expect(await ended(standIn.started())).toBe(true);
+    const locks = (readdirSync(join(made.repo, ".git"), { recursive: true }) as string[]).filter((file) => file.endsWith(".lock"));
+    expect(locks).toEqual([]);
+  });
+
+  it("ends a fetch once git has exited, by git's exit code and with what git printed, where a process git's transport left behind holds git's stderr past the wait", async () => {
+    const made = clone();
+    const moved = commitFile(made.origin, "moved.txt");
+    const standIn = lingeringOrigin(made, made.origin);
+    cleanups.push(standIn.stop);
+    const began = Date.now();
+    expect(await fetchBase(made.repo, "origin/main", { waitMs: 5000 })).toEqual({ base: "origin/main", commit: moved, fetch: "fetched", failure: null, since: null });
+    expect(Date.now() - began).toBeLessThan(2500);
+    // The process left behind still runs, and so still holds the pipe, when the fetch has ended.
+    expect(standIn.started()).toHaveLength(1);
+    expect(standIn.started().every(runs)).toBe(true);
+    renameSync(made.origin, `${made.origin}-away`);
+    const again = Date.now();
+    expect(await fetchBase(made.repo, "origin/main", { waitMs: 5000 })).toMatchObject({ commit: moved, fetch: "kept", failure: `fatal: '${made.origin}' does not appear to be a git repository` });
+    expect(Date.now() - again).toBeLessThan(2500);
+    expect(standIn.started()).toHaveLength(2);
+    expect(standIn.started().every(runs)).toBe(true);
+    // The test's limit is past the fetch's wait, so a fetch that waited for the pipe to close is seen not to end when the wait passes.
+  }, 8000);
+
+  it("signals no process group where a fetch is ended after git has exited, and gives the result of git's exit", async () => {
+    const made = clone();
+    const moved = commitFile(made.origin, "moved.txt");
+    const standIn = lingeringOrigin(made, made.origin);
+    cleanups.push(standIn.stop);
+    const signalled = vi.spyOn(process, "kill");
+    cleanups.push(() => signalled.mockRestore());
+    const ending = new AbortController();
+    const fetched = fetchBase(made.repo, "origin/main", { waitMs: 5000, ended: ending.signal });
+    // Git writes the ref as the last thing before it exits, and the process left behind holds the pipe, so the fetch has not ended when the ref has moved.
+    const end = Date.now() + 4000;
+    while (commitOf(made.repo, "refs/remotes/origin/main") !== moved && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 50));
+    ending.abort();
+    expect(await fetched).toEqual({ base: "origin/main", commit: moved, fetch: "fetched", failure: null, since: null });
+    expect(signalled.mock.calls.filter(([pid, signal]) => pid < 0 && signal === "SIGTERM")).toEqual([]);
+  }, 8000);
+
+  it("keeps a fetch's result for a creation while it is fresh, fetches again for a creation once it is not, and fetches for whoever asks without reuse", async () => {
+    const { origin, repo, root } = clone();
+    let clock = 1000;
+    const fetches = new BaseFetches({ freshMs: 60, now: () => clock });
+    const first = commitFile(origin, "first.txt");
+    expect(await fetches.fetch(repo, "origin/main", { reuse: false })).toMatchObject({ commit: first, fetch: "fetched" });
+    const second = commitFile(origin, "second.txt");
+    clock += 59;
+    // Within the time a result stays fresh a creation is cut where that fetch left the ref.
+    expect((await createWorktree({ folder: repo, title: "Fresh", root, base: "origin/main", fetches })).baseCommit).toBe(first);
+    clock += 1;
+    expect((await createWorktree({ folder: repo, title: "Stale", root, base: "origin/main", fetches })).baseCommit).toBe(second);
+    // A request that is not a creation's asks the remote whatever ended before it.
+    const third = commitFile(origin, "third.txt");
+    expect(await fetches.fetch(repo, "origin/main", { reuse: false })).toMatchObject({ commit: third, fetch: "fetched" });
+    expect(await fetches.fetch(repo, "main", { reuse: true })).toMatchObject({ base: "main", fetch: "none" });
+  });
+
+  it("starts one fetch for two who ask for a branch at once, and ends it when the keeper closes", async () => {
+    const made = clone();
+    const standIn = unansweringOrigin(made);
+    cleanups.push(standIn.stop);
+    const fetches = new BaseFetches({ waitMs: 30_000 });
+    const one = fetches.fetch(made.repo, "origin/main", { reuse: false });
+    const two = fetches.fetch(made.repo, "origin/main", { reuse: true });
+    const end = Date.now() + 5000;
+    while (standIn.started().length === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    // Long enough for a second fetch to have started its own stand-in.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(standIn.started()).toHaveLength(1);
+    fetches.close();
+    expect((await one).fetch).toBe("kept");
+    expect(await two).toEqual(await one);
+    expect(await ended(standIn.started())).toBe(true);
   });
 });
 

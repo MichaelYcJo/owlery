@@ -1,13 +1,14 @@
 // The git side of a work item: its branch and its worktree, a separate folder
-// checked out from the same repository. Git runs with execFile and arguments,
-// never through a shell, because titles and folders come from the person.
-import { execFile, execFileSync } from "node:child_process";
+// checked out from the same repository. Git runs with execFile or spawn and
+// arguments, never through a shell, because titles and folders come from the
+// person.
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { generateName } from "../shared/names";
-import type { Changes, CommitInfo, FileChange, WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type Changes, type CommitInfo, type FileChange, type WorkItemLoss } from "../shared/protocol";
 
 const SLUG_LENGTH = 40;
 /** How many of a branch's commits, and of the files it changed, the daemon lists. */
@@ -249,6 +250,187 @@ async function baseRef(repo: string, base: string): Promise<string | null> {
   return lines.includes(`${remote} `) ? remote : null;
 }
 
+/** How long, in milliseconds, the result of a fetch of a remote's branch serves a creation from that branch, where the keeper of the fetches is given no other time. */
+export const BASE_FRESH_MS = 60_000;
+
+/** How much of what a fetch printed is kept, of which the first line is said. */
+const FETCH_PRINTED_CHARS = 64 * 1024;
+
+/** How long, in milliseconds, a fetch waits after git has exited for the pipe to deliver what git printed, where the pipe has not closed by then. */
+const FETCH_PRINTED_GRACE_MS = 300;
+
+/**
+ * Asks one remote for one branch and writes the one ref the clone keeps that
+ * branch under, `refs/remotes/<remote>/<branch>`: no tag, no `FETCH_HEAD`, no
+ * submodule, and no other ref whatever refspecs the remote's configuration
+ * holds, since `--refmap=` leaves the one refspec given here. Git runs with
+ * `GIT_TERMINAL_PROMPT=0`, so it asks nothing on a terminal. It gives null
+ * where git exited with 0, and otherwise why the ref is as it was: the first
+ * line git printed that is not empty, or that the remote did not answer where
+ * `waitMs` passed first, or that the fetch was ended where `ended` fired
+ * first.
+ *
+ * Git is started as the leader of a process group of its own, and a fetch
+ * that is given up is ended by a signal to that group, so the transport git
+ * started for it, such as an `ssh`, ends with it. A limit on git's process
+ * alone would leave that one running.
+ *
+ * A fetch is over once git has exited, whether or not the pipe git printed to
+ * has closed. A process git's transport left behind, such as the background
+ * process an `ssh` keeps for a shared connection, can hold that pipe open for
+ * as long as it runs, in a session of its own that no signal to git's group
+ * reaches. So the result is read from git's exit code, `FETCH_PRINTED_GRACE_MS`
+ * after the exit where the pipe is still open then, and a fetch whose git has
+ * exited is not given up and its group is not signalled.
+ */
+function askRemote(repo: string, remote: string, branch: string, waitMs: number, ended?: AbortSignal): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (ended?.aborted) {
+      resolve(`the fetch from ${remote} was ended`);
+      return;
+    }
+    const args = ["fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-fetch-head", "--refmap=", remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`];
+    const child = spawn("git", args, { cwd: repo, detached: true, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+    let printed = "";
+    let givenUp: string | null = null;
+    let exited = false;
+    let grace: NodeJS.Timeout | undefined;
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (text: string) => {
+      if (printed.length < FETCH_PRINTED_CHARS) printed += text;
+    });
+    const giveUp = (why: string): void => {
+      // Once git has exited its group may be gone, and the group's id may name another's processes.
+      if (exited || givenUp !== null || child.pid === undefined) return;
+      givenUp = why;
+      try {
+        // The negative id names the group git leads.
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        // The group is gone already.
+      }
+    };
+    const timer = setTimeout(() => giveUp(`${remote} did not answer in ${String(waitMs / 1000)} seconds`), waitMs);
+    const onEnded = (): void => giveUp(`the fetch from ${remote} was ended`);
+    ended?.addEventListener("abort", onEnded, { once: true });
+    const settle = (failure: string | null): void => {
+      clearTimeout(timer);
+      clearTimeout(grace);
+      ended?.removeEventListener("abort", onEnded);
+      resolve(failure);
+    };
+    /** Ends a fetch that was not given up, by git's exit code and what git printed. */
+    const settleExit = (code: number | null): void => {
+      const line = printed.split("\n").find((text) => text.trim() !== "");
+      settle(code === 0 ? null : (line?.trim() ?? `git fetch ended with ${String(code)}`));
+    };
+    child.on("error", (error) => settle(error.message));
+    // A fetch is over once git has exited, since what git started may hold the pipe open after it. One given up ends at
+    // the exit. One that was not ends when the pipe closes, which is when all git printed has arrived, or after the
+    // grace where the pipe is still open then.
+    child.on("exit", (code) => {
+      exited = true;
+      if (givenUp !== null) settle(givenUp);
+      else grace = setTimeout(() => settleExit(code), FETCH_PRINTED_GRACE_MS);
+    });
+    child.on("close", (code) => {
+      if (givenUp === null) settleExit(code);
+    });
+  });
+}
+
+/**
+ * The remote a remote's branch belongs to, and the branch's name there: the
+ * remote is the one of `git remote` whose name, followed by a slash, opens
+ * the base's name, the longest such name where several do. Null where no
+ * remote's name opens it.
+ */
+async function remoteOf(repo: string, base: string): Promise<{ remote: string; branch: string } | null> {
+  const names = await git(repo, ["remote"]).then((printed) => printed.split("\n"), () => []);
+  const remote = names.filter((name) => name !== "" && base.startsWith(`${name}/`)).sort((a, b) => b.length - a.length)[0];
+  return remote === undefined ? null : { remote, branch: base.slice(remote.length + 1) };
+}
+
+/** When the clone's ref last moved, in milliseconds, as the newest entry of its reflog says, or null where the reflog holds none. */
+async function lastMoved(repo: string, ref: string): Promise<number | null> {
+  const entry = await git(repo, ["log", "-g", "-1", "--date=unix", "--format=%gd", ref]).catch(() => "");
+  const seconds = /@\{(\d+)\}\s*$/.exec(entry)?.[1];
+  return seconds === undefined ? null : Number(seconds) * 1000;
+}
+
+const noBase = (repo: string, base: string): Error => new Error(`${repo} has no branch ${base} to start a work item from`);
+
+/** The fetch of a base that `baseRef` read as `ref`, as `fetchBase` states it. */
+async function fetchRef(repo: string, base: string, ref: string, options: { waitMs?: number; ended?: AbortSignal }): Promise<BaseFetch> {
+  const commit = async (): Promise<string> => (await git(repo, ["rev-parse", "--verify", ref])).trim();
+  // A local branch is cut where it stands, and no command that asks a remote runs for it.
+  if (ref === `refs/heads/${base}`) return { base, commit: await commit(), fetch: "none", failure: null, since: null };
+  const from = await remoteOf(repo, base);
+  const failure = from === null ? `the clone has no remote for ${base}` : await askRemote(repo, from.remote, from.branch, options.waitMs ?? BASE_FETCH_MS, options.ended);
+  if (failure === null) return { base, commit: await commit(), fetch: "fetched", failure: null, since: null };
+  return { base, commit: await commit(), fetch: "kept", failure, since: await lastMoved(repo, ref) };
+}
+
+/**
+ * Fetches a base of the repository, read as `baseRef` reads it, and gives
+ * what `BaseFetch` states. A remote's branch is asked of its remote, as
+ * `askRemote` and `remoteOf` state, for `waitMs` at most, `BASE_FETCH_MS`
+ * where none is given, and until `ended` fires. A fetch that fails, one given
+ * up among them, leaves the clone's ref as it was and is no error: the result
+ * is `kept`. A local branch asks no remote. A base that is none of the
+ * repository's is refused.
+ */
+export async function fetchBase(repo: string, base: string, options: { waitMs?: number; ended?: AbortSignal } = {}): Promise<BaseFetch> {
+  const ref = await baseRef(repo, base);
+  if (ref === null) throw noBase(repo, base);
+  return fetchRef(repo, base, ref, options);
+}
+
+/**
+ * The daemon's fetches of bases, by the repository and the ref: the ones
+ * under way, and each branch's last result with the time it ended at, read
+ * from `now`. `waitMs` bounds each fetch, as in `fetchBase`, and `freshMs`,
+ * `BASE_FRESH_MS` where none is given, is how long a result serves a creation.
+ */
+export class BaseFetches {
+  private readonly underWay = new Map<string, Promise<BaseFetch>>();
+  private readonly last = new Map<string, { result: BaseFetch; at: number }>();
+  private readonly closing = new AbortController();
+
+  constructor(private readonly options: { waitMs?: number; freshMs?: number; now?: () => number } = {}) {}
+
+  /**
+   * The fetch of a base, as `fetchBase` gives it. It joins a fetch of the same
+   * branch that is under way and starts no second one. With `reuse`, which a
+   * creation asks with, it gives the result of a fetch of that branch that
+   * ended less than `freshMs` ago and asks the remote otherwise. Without it,
+   * it asks the remote whatever ended before.
+   */
+  async fetch(repo: string, base: string, { reuse }: { reuse: boolean }): Promise<BaseFetch> {
+    const ref = await baseRef(repo, base);
+    if (ref === null) throw noBase(repo, base);
+    const key = `${repo}\n${ref}`;
+    const joined = this.underWay.get(key);
+    if (joined !== undefined) return joined;
+    const now = this.options.now ?? Date.now;
+    const last = this.last.get(key);
+    if (reuse && last !== undefined && now() - last.at < (this.options.freshMs ?? BASE_FRESH_MS)) return last.result;
+    const fetching = fetchRef(repo, base, ref, { waitMs: this.options.waitMs, ended: this.closing.signal })
+      .then((result) => {
+        this.last.set(key, { result, at: now() });
+        return result;
+      })
+      .finally(() => this.underWay.delete(key));
+    this.underWay.set(key, fetching);
+    return fetching;
+  }
+
+  /** Ends every fetch under way, as a fetch given up is ended, and every fetch asked for afterwards before it starts. */
+  close(): void {
+    this.closing.abort();
+  }
+}
+
 /** The first of the names that is in the set, or undefined where none is. */
 function firstIn(names: string[], held: Set<string>): string | undefined {
   return names.find((name) => held.has(name));
@@ -325,18 +507,25 @@ export async function planWorktree(options: Naming & { folder: string; root: str
  * reads it, or the repository's default base where none is sent, which is
  * the base a person chose for the repository where it still lists it. Where the
  * repository has no default base, the branch is cut at the checkout's commit.
+ * A remote's branch is fetched before the cut, so the branch starts at the
+ * commit the remote holds: through `fetches` where the daemon's keeper is
+ * given, which joins a fetch under way and reuses a fresh result, and by one
+ * fetch of its own otherwise. Where the fetch fails, the branch is cut at the
+ * commit the clone holds, and the creation is not refused. A local branch
+ * asks no remote.
  * The new branch has no upstream, whatever its base and the person's
  * `branch.autoSetupMerge`. A folder that names no repository, as
  * `repositoryOf` reads it, and a `base` that is none of the repository's, is
  * refused before anything is created.
  */
-export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; chosenBase?: ChosenBase }): Promise<Worktree> {
+export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; chosenBase?: ChosenBase; fetches?: BaseFetches }): Promise<Worktree> {
   const repo = await repositoryOf(options.folder);
   const baseBranch = options.base ?? (await basesOf(repo, options.chosenBase)).defaultBase;
   let start = "HEAD";
   if (baseBranch !== null) {
     const ref = await baseRef(repo, baseBranch);
-    if (ref === null) throw new Error(`${repo} has no branch ${baseBranch} to start a work item from`);
+    if (ref === null) throw noBase(repo, baseBranch);
+    await (options.fetches?.fetch(repo, baseBranch, { reuse: true }) ?? fetchRef(repo, baseBranch, ref, {}));
     start = ref;
   }
   const { branch, worktree } = await placeFor(repo, options.root, options);

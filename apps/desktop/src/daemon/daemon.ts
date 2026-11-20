@@ -13,7 +13,7 @@ import { OutputBuffer } from "./buffer";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
+import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
 const STATE_TEXT_CHARS = 2000;
@@ -90,8 +90,12 @@ export interface DaemonOptions {
   worktreesRoot?: string;
   /** The source of randomness a work item nobody named is named from; `Math.random` when absent. */
   random?: () => number;
-  /** The clock a work item's `createdAt`, a headless session's `startedAt`, a look's `at` and a session's `stateSince` are read from. */
+  /** The clock a work item's `createdAt`, a headless session's `startedAt`, a look's `at`, a session's `stateSince` and the time a fetch of a base ended at are read from. */
   now?: () => number;
+  /** How long one fetch of a base may take before the daemon ends it; `BASE_FETCH_MS` when absent. */
+  baseFetchMs?: number;
+  /** How long the result of a fetch of a remote's branch serves a creation from that branch, read from `now`; `BASE_FRESH_MS` when absent. */
+  baseFreshMs?: number;
   /** How long the daemon waits between two reads of the work items' new commits, apart from the read each hello starts. */
   commitPollMs?: number;
   /** How long a hello's answer waits for the read of the work items' new commits. It stays under the second the app gives a daemon to answer (`answers` of src/main/daemon-client.ts). */
@@ -148,6 +152,8 @@ export class Daemon {
   private readonly keepAwake: KeepAwakeStore;
   // The hold that stands now, where one does. The daemon holds one at most.
   private hold: { release(): void } | undefined;
+  // The fetches of the bases work items start from: a form's and a creation's of one branch are one fetch.
+  private readonly fetches: BaseFetches;
   // What takes or gives up a branch runs one after another: a creation, a rename that renames a branch, and a delete. So two creations of one title never pick the same branch and folder, a rename never takes the branch a creation chose, and a creation never takes the name of a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
   private changing: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
@@ -171,6 +177,7 @@ export class Daemon {
   constructor(private readonly options: DaemonOptions) {
     this.store = new RepositoryStore(options.runDir, options.now);
     this.lastLook = new LastLook(options.runDir);
+    this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
     this.keepAwake = new KeepAwakeStore(options.runDir);
   }
 
@@ -227,6 +234,7 @@ export class Daemon {
       if (session.info.alive) session.terminal.kill();
     }
     for (const session of this.headless.values()) session.run?.stop();
+    this.fetches.close();
     this.hold?.release();
     this.hold = undefined;
     for (const client of this.clients.keys()) client.terminate();
@@ -318,7 +326,7 @@ export class Daemon {
             checkNaming(message);
             // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
-            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
+            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
@@ -348,6 +356,22 @@ export class Daemon {
         };
         // A plan is a read, so it is answered while a creation is under way and can name what that creation is about to take.
         void plan();
+        return;
+      }
+      case "fetchBase": {
+        const fetch = async (): Promise<void> => {
+          try {
+            // A folder that is not absolute would have git answer for the folder the daemon itself runs in, and a base that is no string never reaches git.
+            if (typeof message.repo !== "string" || !isAbsolute(message.repo)) throw new Error(`the repository folder has to be a whole path from /, and ${JSON.stringify(message.repo)} is not`);
+            if (typeof message.base !== "string") throw new Error(`a fetch names a branch, and ${JSON.stringify(message.base)} is none`);
+            const fetched = await this.fetches.fetch(await repositoryOf(message.repo), message.base, { reuse: false });
+            this.send(socket, { type: "baseFetched", requestId: message.requestId, ...fetched });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A fetch takes no branch and no folder, so it waits behind no creation, and a creation of the same base joins it.
+        void fetch();
         return;
       }
       case "addRepository": {

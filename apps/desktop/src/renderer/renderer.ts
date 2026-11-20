@@ -1,6 +1,7 @@
 // The window: its connection to the daemon, which of its five screens is in
-// front, the keys it reads, the "New work item" form with the plan it asks
-// the daemon for and its choice to register a repository alone, and the
+// front, the keys it reads, the "New work item" form with the plan and the
+// fetch of a base it asks the daemon for and its choice to register a
+// repository alone, and the
 // menus of a work item and of a repository with what the press of each item
 // does: the rename dialog, a work item's archive with the dialog that names
 // the sessions it ends, its restore, its delete with the dialog that names
@@ -27,7 +28,11 @@ import { initTheme } from "./theme";
 import {
   agentKind,
   archivalOf,
+  asksFetch,
+  BASE_ANSWER_MS,
+  baseKey,
   baseMenu,
+  baseSays,
   changesSince,
   commandKey,
   daemonEnding,
@@ -38,6 +43,7 @@ import {
   deletionOf,
   hiddenRepositories,
   inboxKey,
+  lateSays,
   lossSections,
   menuKey,
   menuTarget,
@@ -56,6 +62,8 @@ import {
   settingsFields,
   workItemFields,
   workItemMenu,
+  unanswered,
+  type BaseAnswer,
   type BaseChoice,
   type FormPlan,
   type MenuAction,
@@ -90,6 +98,15 @@ const plansAsked = new Set<number>();
 // The base the person chose in the menu since the form opened.
 let baseChoice: BaseChoice | null = null;
 let planTimer: ReturnType<typeof setTimeout> | undefined;
+// The bases the form asked the daemon to fetch since it opened, each under its `baseKey`: the base, the request, and what the form holds of the fetch, null once the wait for an answer has passed with none.
+const baseAnswers = new Map<string, { base: string; requestId: number; answer: BaseAnswer | null }>();
+// The fetches the daemon has not answered, of this opening and of the ones before, so the refusal of one stays out of the status line.
+const basesAsked = new Set<number>();
+// The waits for the answers of this opening's fetches.
+const baseTimers = new Set<ReturnType<typeof setTimeout>>();
+// The key of the base the person pressed Create with, and what the status line says, once the creation is answered, of a fetch of that base that was answered after the press.
+let createdBase: string | undefined;
+let createdSays = "";
 // How long the form waits after a key before it asks for a plan. A plan took 28 ms in a clone of one branch and 130 ms beside 2,000 more, so keys closer together than this ask once, after the last of them. The rename dialog waits as long.
 const PLAN_WAIT_MS = 150;
 // The request of the rename the rename dialog is waiting on, and the work item the dialog is open on.
@@ -116,6 +133,7 @@ const planPlace = byId("work-item-plan");
 const branchPlace = byId("work-item-branch");
 const worktreePlace = byId("work-item-worktree");
 const baseField = byId<HTMLSelectElement>("work-item-base");
+const baseStatePlace = byId("work-item-base-state");
 const kindField = byId<HTMLSelectElement>("work-item-kind");
 const formError = byId("work-item-error");
 const createButton = byId<HTMLButtonElement>("work-item-create");
@@ -1062,6 +1080,7 @@ function openWorkItemForm(folder?: string): void {
   // Each opening starts from the repository's default base and from no answer, and creates a work item.
   baseChoice = null;
   formPlan = null;
+  forgetBases();
   formError.textContent = "";
   createButton.disabled = false;
   forget(workItemDialog);
@@ -1079,6 +1098,7 @@ function showPlan(): void {
     worktreePlace.textContent = "";
     planPlace.classList.remove("failed");
     baseField.disabled = true;
+    baseStatePlace.textContent = "";
     return;
   }
   const line = planLine(formPlan, repoField.value);
@@ -1097,6 +1117,47 @@ function showPlan(): void {
   baseField.replaceChildren(...options(menu.first === null ? [] : [menu.first]), ...group("Local", menu.local), ...group("Remote", menu.remote));
   baseField.disabled = menu.value === null;
   if (menu.value !== null) baseField.value = menu.value;
+  showBase();
+}
+
+/** Forgets the fetches the form asked for, so the next opening asks again. An answer that arrives for one of them is shown nowhere. */
+function forgetBases(): void {
+  for (const timer of baseTimers) clearTimeout(timer);
+  baseTimers.clear();
+  baseAnswers.clear();
+  createdBase = undefined;
+  createdSays = "";
+}
+
+/** Asks the daemon to fetch the base the menu holds, where `asksFetch` says so, and draws under the menu what the form holds of that base's fetch. */
+function showBase(): void {
+  const base = baseMenu(formPlan, baseChoice, repoField.value).value;
+  if (base !== null && asksFetch(formPlan, base, repoField.value, registerOnly.checked, baseAnswers)) {
+    const asked = { base, requestId: request(), answer: "awaited" as BaseAnswer | null };
+    baseAnswers.set(baseKey(repoField.value, base), asked);
+    basesAsked.add(asked.requestId);
+    send({ type: "fetchBase", requestId: asked.requestId, repo: repoField.value.trim(), base });
+    // A daemon of an earlier build ignores the message, so the form stops saying that it fetches. An answer that comes later is shown.
+    const timer = setTimeout(() => {
+      baseTimers.delete(timer);
+      asked.answer = unanswered(asked.answer);
+      showBase();
+    }, BASE_ANSWER_MS);
+    baseTimers.add(timer);
+  }
+  baseStatePlace.textContent = registerOnly.checked ? "" : baseSays(base, base === null ? null : baseAnswers.get(baseKey(repoField.value, base))?.answer, Date.now());
+}
+
+/** Takes the daemon's answer to a fetch the form asked for, or its refusal. An answer of this opening is shown under the menu, and one that came after the person pressed Create is kept for the status line. It answers whether the message was of such a fetch at all. */
+function takeBase(requestId: number, answer: BaseAnswer): boolean {
+  if (!basesAsked.delete(requestId)) return false;
+  for (const [key, asked] of baseAnswers) {
+    if (asked.requestId !== requestId) continue;
+    asked.answer = answer;
+    if (key === createdBase) createdSays = lateSays(asked.base, answer, Date.now());
+    if (workItemDialog.open) showBase();
+  }
+  return true;
 }
 
 /** Asks the daemon what a creation with the form's fields would give, now. With no repository folder it asks nothing, and the form shows no plan. */
@@ -1144,6 +1205,9 @@ function createWorkItem(): void {
   const requestId = request();
   formRequest = requestId;
   formError.textContent = "";
+  // The button did not wait for the base's fetch. Where its answer is still to come, the daemon cuts the work item after that fetch, and the status line says what a failed one gave.
+  createdBase = fields.base === undefined ? undefined : baseKey(fields.repo, fields.base);
+  createdSays = "";
   // One creation per answer: the button stays off until the daemon answers.
   createButton.disabled = true;
   send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize() });
@@ -1204,7 +1268,8 @@ function onMessage(message: ServerMessage): void {
     case "workItemCreated": {
       // The view is drawn from the list, and the `inbox` that carries the new work item comes after this answer.
       if (!held.workItems.some((known) => known.id === message.workItem.id)) held.workItems = [...held.workItems, message.workItem];
-      tell("");
+      // A base that could not be fetched, where the form said so only after the person pressed Create, is said here: the work item was cut where the clone held that base.
+      tell(message.requestId === formRequest ? createdSays : "");
       if (message.requestId === formRequest) {
         formRequest = undefined;
         // Closed before the pane is shown, so the keyboard goes to the pane.
@@ -1219,6 +1284,9 @@ function onMessage(message: ServerMessage): void {
       if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
     }
+    case "baseFetched":
+      takeBase(message.requestId, { base: message.base, commit: message.commit, fetch: message.fetch, failure: message.failure, since: message.since });
+      return;
     case "renamePlan":
       takeRenamePlan(message.requestId, { branch: message.branch, blocked: message.blocked });
       return;
@@ -1253,6 +1321,8 @@ function onMessage(message: ServerMessage): void {
       requestRefused(message.requestId);
       // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
       if (takePlan(message.requestId, { error: message.message })) return;
+      // The refusal of a base's fetch is the form's to show, under the menu.
+      if (takeBase(message.requestId, { error: message.message })) return;
       // So is the refusal of a rename's plan the rename dialog's, and the refusal of the rename itself.
       if (takeRenamePlan(message.requestId, { error: message.message })) return;
       // The refusal of the plan that lists a repository's bases is the settings dialog's, and so is a refusal of what a dialog sent that dialog's.
@@ -1386,9 +1456,14 @@ repoField.addEventListener("input", () => {
 titleField.addEventListener("input", askPlanSoon);
 baseField.addEventListener("change", () => {
   baseChoice = { repo: repoField.value.trim(), base: baseField.value };
+  showBase();
 });
-// A closed form asks for no plan.
-workItemDialog.addEventListener("close", () => clearTimeout(planTimer));
+// A closed form asks for no plan, and waits for no answer to say that it fetches.
+workItemDialog.addEventListener("close", () => {
+  clearTimeout(planTimer);
+  for (const timer of baseTimers) clearTimeout(timer);
+  baseTimers.clear();
+});
 byId("rename-cancel").addEventListener("click", () => renameDialog.close());
 renameField.addEventListener("input", () => {
   clearTimeout(renamePlanTimer);
