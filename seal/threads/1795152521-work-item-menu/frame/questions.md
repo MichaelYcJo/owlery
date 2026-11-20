@@ -27,6 +27,8 @@ Assumptions written down and not asked. The first two are the orchestrator's cho
 - A work item that comes back at a restore has the panes and the answers the daemon still holds, which is all the tree keeps of a session's history (*Scope* item 18). The issue says "sessions' history as they were".
 - A hidden repository's work items stay in the inbox, and their notifications arrive (*Scope* item 15).
 - The menu's key is M, with F10 and Shift beside it (*Scope* item 5).
+- A description on hover is the control's `title`, which the system shows after a pause (*Scope* item 24). The owner asked for a short description on hover.
+- The form's choice is a checkbox that reads "Register the repository only", and the form's button then reads "Register" (*Scope* item 3). The owner named the choice and not its words.
 - A list of the delete dialog carries at most 500 entries and says how many more there are (*Scope* item 19).
 - A group cannot be renamed or removed in this work (`frame/design.md` *Scope*, out of scope).
 - The words on the menus, the dialogs and the buttons are those `frame/design.md` *Scope* quotes. Another wording changes a word on the screen and nothing else that is built.
