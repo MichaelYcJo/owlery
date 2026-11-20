@@ -92,8 +92,8 @@ type ChosenBase = (repo: string) => string | null;
 /** What git lists first of a repository's worktrees: the main checkout's top-level folder, and whether it is bare, which has no checkout. */
 const MAIN_CHECKOUT = ["worktree", "list", "--porcelain"];
 
-/** The main checkout among what `MAIN_CHECKOUT` printed: the first worktree listed. Null where git printed none. */
-function mainCheckout(listed: string): { folder: string; bare: boolean } | null {
+/** The main checkout among what `git worktree list --porcelain` printed: the first worktree listed. Null where git printed none. */
+export function mainCheckout(listed: string): { folder: string; bare: boolean } | null {
   // The first block ends at the first empty line, and its first line is `worktree` and the folder.
   const [first = "", ...rest] = (listed.split("\n\n")[0] ?? "").split("\n");
   if (!first.startsWith("worktree ")) return null;

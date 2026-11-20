@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, mainCheckout, newCommits, planBranchRename, planWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
@@ -323,6 +323,15 @@ describe("the repository of a folder", () => {
     git(folder, "worktree", "add", "--quiet", "-b", "side", worktree);
     return { worktree };
   }
+
+  it("reads the main checkout as the first worktree git lists, bare or not, and none where git listed no worktree", () => {
+    const listed = "worktree /r/project\nHEAD 1234\nbranch refs/heads/main\n\nworktree /w/project/linked\nHEAD 1234\nbranch refs/heads/side\n\n";
+    expect(mainCheckout(listed)).toEqual({ folder: "/r/project", bare: false });
+    // A bare repository's folder, with a linked worktree that is not bare after it.
+    expect(mainCheckout("worktree /r/bare.git\nbare\n\nworktree /w/of-bare\nHEAD 1234\nbranch refs/heads/side\n\n")).toEqual({ folder: "/r/bare.git", bare: true });
+    expect(mainCheckout("")).toBeNull();
+    expect(mainCheckout("HEAD 1234\n")).toBeNull();
+  });
 
   it("is the top-level folder of the main checkout, for a folder inside the main checkout and for one inside a linked worktree alike", async () => {
     const made = repository();
