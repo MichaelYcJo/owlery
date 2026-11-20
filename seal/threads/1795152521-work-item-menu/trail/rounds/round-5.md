@@ -71,6 +71,12 @@ function takeRemoveLoss(requestId: number, answered: { loss: WorkItemLoss } | { 
 
 The guard holds because of the order the daemon keeps. The `inbox` that drops the deleted work item is sent before the `readLoss` that `readAgain` sends even arrives. `showRemove` has therefore drawn `removal` again without that work item before its answer comes back.
 
+```seal
+verdict: fixed e2aaa36
+location: `seal/threads/1795152521-work-item-menu/gaps.md`
+answer: The finding holds, and the fix is the proposed guard and docstring, applied after it was read against `apps/desktop/src/renderer/renderer.ts#takeLists`, which draws the removal's dialog again at each `inbox`, and against `apps/desktop/src/daemon/daemon.ts:422-427`, which sends the `error` before the `inbox`. The case is the proposed one with two steps more. It reads `remove-error` only after the loss of the work item that is left was read again and names the new file, so it cannot pass on the refusal's first moment on screen. It then checks "Force delete" and presses Remove, which deletes the second work item and removes the repository, so the file's last case still finds an empty sidebar. Against the window of `dcebd6d` the case failed on "expected 'no work item 5' to be 'B item: What the delete would remove has changed. Read it again.'", in one start of the built app, and with the guard the file's 24 cases pass. That red run is the tree a mutant without the guard would be, so no `seal mutate` run, which is two more starts, was made for it. The case also reaches two things `gaps.md:36` named as read alone, the losses read again after a removal's refusal and "Force delete" in the removal's dialog, so the row now names the three that are left, which is why this block names that path.
+```
+
 ### 2. Two sentences of items 20 and 21 say a removal that deletes removes nothing at a slow pane, and give the second read two refusals
 
 ```seal
