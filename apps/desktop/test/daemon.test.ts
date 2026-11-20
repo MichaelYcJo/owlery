@@ -1048,10 +1048,14 @@ describe("what a person sets on a work item", () => {
     const held = heldGit(made.base, '[ "$1" = branch ] && [ "$2" = -m ]');
     c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
     await c.until(() => (held.waiting() ? true : undefined));
+    // A rename of the name alone, of the same work item, is answered meanwhile. It changes nothing here, and it does not end the other rename's hold on the reads.
+    c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "First name", branch: false });
+    await c.message("done", (m) => m.requestId === 2);
     // Git's own rename takes the old name away a moment before the daemon hears that it ended. The case stretches that moment: the branch leaves its old name here, and the reads of several intervals pass.
     git(made.repo, "branch", "-M", workItem.branch, "owlery/elsewhere");
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(c.messages).toEqual([]);
+    expect(c.messages).toEqual([{ type: "done", requestId: 2 }]);
+    c.messages.length = 0;
     git(made.repo, "branch", "-M", "owlery/elsewhere", workItem.branch);
     held.release();
     expect((await c.message("inbox")).workItems).toMatchObject([{ title: "Second name", branch: "owlery/second-name", newCommits: 1, commits: [{ subject: "add work.txt" }] }]);

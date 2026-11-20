@@ -163,10 +163,10 @@ export interface SidebarRepository {
  * The sidebar's repositories: each repository the daemon keeps that is not
  * hidden, in the daemon's order, with the work items that name it by its id
  * and that the search and the filter leave, the pinned ones first and each
- * part in the order given. A repository with no work item is listed. While a search is typed or a state is chosen,
- * a repository none of whose work items is left is not. The window makes up
- * no repository: a work item whose repository the daemon did not send is
- * under none.
+ * part in the order given. A repository with no work item is listed. While
+ * a search is typed or a state is chosen, a repository none of whose work
+ * items is left is not. The window makes up no repository: a work item
+ * whose repository the daemon did not send is under none.
  */
 export function sidebarTree(repositories: readonly Repository[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
   const left = matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state);

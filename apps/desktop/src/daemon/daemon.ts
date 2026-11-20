@@ -349,6 +349,8 @@ export class Daemon {
       }
       case "renameWorkItem": {
         const rename = async (): Promise<void> => {
+          // Whether this rename is the one that holds the work item's reads off. A rename of the name alone holds none, and ends no other rename's hold.
+          let holds = false;
           try {
             if (typeof message.title !== "string" || typeof message.branch !== "boolean") throw new Error("a rename needs the work item's new name, and whether its branch is renamed too");
             const title = message.title.trim();
@@ -361,6 +363,7 @@ export class Daemon {
               const plan = await planBranchRename(held.repository.folder, branch, title);
               if (plan.blocked !== null || plan.branch === null) throw new Error(plan.blocked ?? "The name names no branch.");
               this.renaming.add(message.id);
+              holds = true;
               await renameBranch(held.repository.folder, branch, plan.branch);
               branch = plan.branch;
             }
@@ -371,7 +374,7 @@ export class Daemon {
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           } finally {
-            this.renaming.delete(message.id);
+            if (holds) this.renaming.delete(message.id);
           }
         };
         // A rename that takes a branch waits behind the creations and the other renames. One of the name alone takes none, and runs at once.

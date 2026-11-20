@@ -1,9 +1,10 @@
 // The window: its connection to the daemon, which of its four screens is in
 // front, the keys it reads, the "New work item" form with the plan it asks
 // the daemon for, and a work item's menu with what the press of each item
-// does, the rename dialog among it. How a menu is drawn is ./menu. The theme and its control are ./theme. The sidebar,
-// the list with its preview, a work item's view and the summary are a module
-// each, and what each says and decides is a function of ./view.
+// does, the rename dialog among it. How a menu is drawn is ./menu. The theme
+// and its control are ./theme. The sidebar, the list with its preview, a
+// work item's view and the summary are a module each, and what each says and
+// decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, Repository, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
@@ -63,9 +64,10 @@ let baseChoice: BaseChoice | null = null;
 let planTimer: ReturnType<typeof setTimeout> | undefined;
 // How long the form waits after a key before it asks for a plan. A plan took 28 ms in a clone of one branch and 130 ms beside 2,000 more, so keys closer together than this ask once, after the last of them. The rename dialog waits as long.
 const PLAN_WAIT_MS = 150;
-// The rename the rename dialog is waiting on, and the dialog's latest plan of the branch's rename: its request, and what the daemon answered, or null until it answers.
+// The request of the rename the rename dialog is waiting on, and the work item the dialog is open on.
 let renameRequest: number | undefined;
 let renaming: number | undefined;
+// The dialog's latest plan of the branch's rename: its request, and what the daemon answered, or null until it answers. The plans the daemon has not answered are kept as the form's are.
 let renamePlanRequest: number | undefined;
 let renamePlan: RenamePlanned | null = null;
 const renamePlansAsked = new Set<number>();

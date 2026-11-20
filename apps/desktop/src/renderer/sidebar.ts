@@ -123,11 +123,10 @@ function workItemElement(workItem: WorkItem, title: string, marks: readonly (rea
 /**
  * Draws the sidebar: which screen is in front, the counts, the filter, and
  * each repository `sidebarTree` lists, with its work items under it, the
- * pinned ones first. A
- * repository's row holds the button that folds it, a "+" button that opens
- * the "New work item" form on its folder, and a "…" button for its menu,
- * which opens nothing yet. The search field is the person's and is left as
- * it is.
+ * pinned ones first. A repository's row holds the button that folds it, a
+ * "+" button that opens the "New work item" form on its folder, and a "…"
+ * button for its menu, which opens nothing yet. The search field is the
+ * person's and is left as it is.
  */
 export function showSidebar(inFront: Front = front): void {
   front = inFront;
