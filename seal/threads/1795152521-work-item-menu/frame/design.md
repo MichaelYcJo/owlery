@@ -164,7 +164,7 @@ Every case that touches git runs in a temporary repository of `apps/desktop/test
 | 17. A delete the person did not confirm | Given a loss read, when the branch gains a commit and a delete arrives with the earlier stamp, then the daemon answers the error of *Scope* item 20, and the folder, the branch and the list are what they were. A delete that does not name a running pane is refused and ends none. A delete of a work item whose loss is `blocked` is refused | Cases in `apps/desktop/test/daemon.test.ts` |
 | 18. Delete in the built app | The delete dialog shows the branch, a commit's subject, an untracked file's path and `.env`, with "Delete" disabled until "Force delete" is checked. After the check and "Delete" the line is gone from the sidebar and from the inbox, and the temporary clone holds no such branch and no such folder | The file of scenario 7 |
 | 19. Groups | When `addGroup` arrives with a name, then the repository's `groups` holds it, and an empty name is refused. When `setWorkItem` arrives with that group's id, then the work item's `groupId` is it, and with null it is null. A group's id of another repository is refused | Cases in `apps/desktop/test/daemon.test.ts`. In the built app, "New group" puts a heading under the repository, "Move to" puts the work item's line under it, and "Move out of" puts it back |
-| 20. A look written by an earlier build | Given a `last-look.json` whose work items lack the fields this work adds, then it is read as a look, with those fields at their empty values | A case in `apps/desktop/test/last-look.test.ts` |
+| 20. A look written by an earlier build | Given a `last-look.json` whose work items lack the fields this work adds, then it is read as a look, with those fields at their empty values, `repoId` among them as 0, which no repository's id is | A case in `apps/desktop/test/last-look.test.ts` |
 
 How the menus and the dialogs look when drawn is verified by no scenario: no agent reads the window as a person sees it. It is `unverified`, and the orchestrator names who looks.
 
@@ -187,7 +187,7 @@ How the menus and the dialogs look when drawn is verified by no scenario: no age
   - `restoreWorkItem { id: number }`
   - `readLoss { id: number }`
   - `deleteWorkItem { id: number; stamp: string; force: boolean; running: Running }`
-- New server messages. `done { requestId: number }` answers each of those that changed something, before the `inbox` that carries the change. `renamePlan { requestId: number; branch: string | null; blocked: string | null }`. `workItemLoss { requestId: number; id: number; loss: WorkItemLoss }`. A request that fails is answered with the `error` message of `95decb6`.
+- New server messages. `done { requestId: number }` answers each of them, before the `inbox` that carries a change; a request that changed nothing, such as an `addRepository` of a repository already stored and shown, gets `done` and no `inbox`. `renamePlan { requestId: number; branch: string | null; blocked: string | null }`. `workItemLoss { requestId: number; id: number; loss: WorkItemLoss }`. A request that fails is answered with the `error` message of `95decb6`.
 
 `apps/desktop/src/daemon/repositories.ts` is new and holds the store of *Scope* item 1. `apps/desktop/src/daemon/work-items.ts` goes (`## Removes` row 1).
 
