@@ -1274,7 +1274,8 @@ describe("the inbox", () => {
   it("sends `ready` with the counts it holds where the read takes longer than its wait, and the read's counts in an inbox after it", async () => {
     const made = repository();
     const { runDir } = await runFolderWithWorkItem(made, "Slow to count");
-    watchedGit(made.base, 1);
+    // Each git call waits half a second, ten times the daemon's wait; a count reads the base's ref, then counts.
+    watchedGit(made.base, 0.5);
     const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 50, commitPollMs: 60_000 });
     const c = await client(url);
     // A daemon that just started holds no count.
