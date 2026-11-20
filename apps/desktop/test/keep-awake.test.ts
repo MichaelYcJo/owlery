@@ -117,7 +117,6 @@ describe.skipIf(process.platform !== "darwin")("keeping the Mac awake in the bui
     let child: number | undefined;
     let left: number[];
     try {
-      const status = (): Promise<string> => app.evaluate<string>(`document.getElementById("status").textContent`);
       const shown = (): Promise<{ hidden: boolean; value: string; title: string }> =>
         app.evaluate(`(() => { const control = document.getElementById("keep-awake-control"); return { hidden: control.hidden, value: document.getElementById("keep-awake").value, title: control.title }; })()`);
       /** A person's choice in the control. */
