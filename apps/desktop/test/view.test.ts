@@ -3,6 +3,9 @@ import {
   agentKind,
   ageOf,
   ahead,
+  archivalOf,
+  archivedHead,
+  archivedIn,
   askButton,
   baseMenu,
   changesSince,
@@ -395,7 +398,7 @@ const APPS = [
 const plain = (entries: readonly { label: string; description: string; action: unknown; divides: boolean }[]) => entries.map(({ description: _says, ...entry }) => entry);
 
 describe("workItemMenu", () => {
-  it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin and Mute notifications, each with what its press does", () => {
+  it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin, Mute notifications and Archive, each with what its press does", () => {
     expect(plain(workItemMenu(LOGIN, APPS))).toEqual([
       { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
       { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
@@ -405,18 +408,30 @@ describe("workItemMenu", () => {
       { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
       { label: "Pin", action: { do: "set", id: 1, pinned: true }, divides: true },
       { label: "Mute notifications", action: { do: "set", id: 1, muted: true }, divides: false },
+      { label: "Archive", action: { do: "archive", id: 1 }, divides: true },
     ]);
   });
 
   it("offers Finder alone where no app is installed", () => {
-    expect(workItemMenu(LOGIN, []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications"]);
+    expect(workItemMenu(LOGIN, []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive"]);
   });
 
   it("offers Unpin for a pinned work item and Unmute notifications for a muted one", () => {
     const items = plain(workItemMenu({ ...LOGIN, pinned: true, muted: true }, []));
-    expect(items.slice(-2)).toEqual([
+    expect(items.slice(-3, -1)).toEqual([
       { label: "Unpin", action: { do: "set", id: 1, pinned: false }, divides: true },
       { label: "Unmute notifications", action: { do: "set", id: 1, muted: false }, divides: false },
+    ]);
+  });
+
+  it("holds for an archived work item, in this order, Restore, Open in Finder and in each installed app, and the two copies: no rename, no pin, no mute and no archive", () => {
+    expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS))).toEqual([
+      { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
+      { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
+      { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
+      { label: "Open in Warp", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Warp" }, divides: false },
+      { label: "Copy path", action: { do: "copy", text: "/w/project/fix-the-login-bug" }, divides: true },
+      { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
     ]);
   });
 });
@@ -444,7 +459,7 @@ describe("repositoryMenu", () => {
 
 describe("a description on hover", () => {
   it("gives every entry of a work item's menu and of a repository's menu a description that is not empty and is not its label, and no two entries of one menu the same one", () => {
-    const menus = [workItemMenu(LOGIN, APPS), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS), repositoryMenu(PROJECT, APPS)];
+    const menus = [workItemMenu(LOGIN, APPS), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS)];
     for (const menu of menus) {
       for (const { label, description } of menu) {
         expect(description.trim(), label).not.toBe("");
@@ -455,7 +470,7 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 10]);
+    expect(menus.map((menu) => menu.length)).toEqual([9, 9, 10, 6]);
   });
 
   it("says of the button at the sidebar's top, of a repository's two buttons and of the form's choice what each does, and tells registering a repository from creating a work item", () => {
@@ -503,6 +518,40 @@ describe("removalOf", () => {
       sessions: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Asked in Fix the login bug: Which file holds the login form?", "Asked in Speed up search: Where is the index built?"],
       running: { panes: [5, 7, 9], headless: [1, 5] },
     });
+  });
+});
+
+describe("archivalOf", () => {
+  it("names each running session of the work item, a pane by its tab's label and a headless session by its prompt, and gives their ids: no pane that exited, no headless session that ended, and none of another work item", () => {
+    const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 2 }), session(9), session(10, { workItemId: null })];
+    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 2 })];
+    expect(archivalOf(LOGIN, sessions, asked, KINDS)).toEqual({
+      sessions: ["Shell 1", "Shell 3", "Claude Code", "Asked: Which file holds the login form?"],
+      running: { panes: [5, 7, 9], headless: [1] },
+    });
+  });
+
+  it("names none where no session of the work item runs, so its archive asks nothing first", () => {
+    expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
+  });
+});
+
+describe("archivedIn", () => {
+  it("gives a repository's archived work items, the one archived last first, and none of another repository", () => {
+    const shelved = (id: number, archivedAt: number, repoId = 1): WorkItem => ({ ...LOGIN, id, repoId, archivedAt });
+    expect(archivedIn(1, [shelved(4, 50), shelved(5, 70, 2), shelved(6, 90), shelved(7, 60)]).map((workItem) => workItem.id)).toEqual([6, 7, 4]);
+    expect(archivedIn(3, [shelved(4, 50)])).toEqual([]);
+  });
+
+  it("keeps two archived at one time in the order given", () => {
+    const shelved = (id: number, archivedAt: number): WorkItem => ({ ...LOGIN, id, archivedAt });
+    expect(archivedIn(1, [shelved(4, 50), shelved(5, 50), shelved(6, 80)]).map((workItem) => workItem.id)).toEqual([6, 4, 5]);
+  });
+});
+
+describe("archivedHead", () => {
+  it("names the repository whose archived work items the screen lists", () => {
+    expect(archivedHead("the project")).toBe("Archived in the project");
   });
 });
 
@@ -1039,6 +1088,14 @@ describe("notificationFor", () => {
     expect(notificationFor("working", waits, false, [LOGIN, { ...SEARCH, muted: true }], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
   });
 
+  it("shows nothing for a session of an archived work item, which the list of work items does not hold, and the notification for a session of another", () => {
+    const shelved: WorkItem = { ...LOGIN, archivedAt: 50 };
+    expect(notificationFor("working", session(3, { state: "finished" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
+    expect(notificationFor("working", session(3, { state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
+    expect(notificationFor("working", session(3, { workItemId: 2, state: "finished" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Speed up search", body: "Finished" });
+    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Claude Code", body: "Waiting for you" });
+  });
+
   it("shows nothing for a state the session was already in", () => {
     expect(notificationFor("waiting", session(3, { state: "waiting" }), false, [LOGIN], KINDS)).toBeNull();
     expect(notificationFor("finished", session(3, { state: "finished" }), false, [LOGIN], KINDS)).toBeNull();
@@ -1463,6 +1520,9 @@ describe("emptyList", () => {
   it("says in each screen's own sentence that it has no line at all", () => {
     expect(emptyList("inbox", 0, 0)).toBe("No work items yet.");
     expect(emptyList("history", 0, 0)).toBe("Nothing has finished yet.");
+    expect(emptyList("archived", 0, 0)).toBe("No work item of this repository is archived.");
+    expect(emptyList("archived", 2, 0)).toBe("No work item matches.");
+    expect(emptyList("archived", 2, 1)).toBe("");
   });
 });
 
@@ -1835,6 +1895,7 @@ describe("keyHints", () => {
   it("says the keys of a list under its preview: the two that move through it, the one that opens the selected line's menu, and the one that opens the form", () => {
     expect(keyHints("inbox", true)).toEqual(["J K move through the inbox", "M opens the menu", "\u2318N opens a new work item"]);
     expect(keyHints("history", true)[0]).toBe("J K move through the history");
+    expect(keyHints("archived", true)).toEqual(["J K move through the archived work items", "M opens the menu", "\u2318N opens a new work item"]);
   });
 
   it("names the Control key where the keyboard has no Command key", () => {

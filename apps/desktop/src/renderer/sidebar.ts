@@ -6,8 +6,8 @@ import type { WorkItem } from "../shared/protocol";
 import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
 import { ageOf, daemonStatus, filterChoices, hiddenRepositories, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, summaryCount, type StateFilter } from "./view";
 
-/** The screen in front, or null before the daemon's `ready`. */
-export type Front = "summary" | "inbox" | "history" | "view" | null;
+/** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
+export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
 
 export interface SidebarActions {
   openScreen(screen: "summary" | "inbox" | "history"): void;

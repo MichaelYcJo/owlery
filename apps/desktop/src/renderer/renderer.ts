@@ -1,9 +1,11 @@
-// The window: its connection to the daemon, which of its four screens is in
+// The window: its connection to the daemon, which of its five screens is in
 // front, the keys it reads, the "New work item" form with the plan it asks
 // the daemon for and its choice to register a repository alone, and the
 // menus of a work item and of a repository with what the press of each item
-// does: the rename dialog, and a repository's settings, its icon, the list
-// of the hidden ones and its removal. How a menu is drawn is ./menu. The theme
+// does: the rename dialog, a work item's archive with the dialog that names
+// the sessions it ends, its restore, and a repository's settings, its icon,
+// the list of the hidden ones, the screen of its archived work items and
+// its removal. How a menu is drawn is ./menu. The theme
 // and its control are ./theme. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
@@ -18,6 +20,7 @@ import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import {
   agentKind,
+  archivalOf,
   baseMenu,
   changesSince,
   commandKey,
@@ -88,6 +91,7 @@ const screens: Record<Exclude<Front, null>, HTMLElement> = {
   summary: byId("summary-screen"),
   inbox: byId("inbox-screen"),
   history: byId("history-screen"),
+  archived: byId("archived-screen"),
   view: byId("work-item-view"),
 };
 const workItemDialog = byId<HTMLDialogElement>("work-item-dialog");
@@ -115,6 +119,7 @@ const iconDialog = byId<HTMLDialogElement>("icon-dialog");
 const iconField = byId<HTMLInputElement>("icon-field");
 const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
 const removeDialog = byId<HTMLDialogElement>("remove-dialog");
+const sessionsDialog = byId<HTMLDialogElement>("sessions-dialog");
 
 /** A dialog that waits on the daemon's answer to one request: where its refusal is shown, and the button that sent it. */
 interface Asking {
@@ -126,6 +131,7 @@ const FORM: Asking = { dialog: workItemDialog, error: formError, button: createB
 const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
+const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
 const asking = new Map<number, Asking>();
 // The repository the settings dialog, the icon's dialog and the removal's dialog are each open on.
@@ -134,6 +140,9 @@ let iconOf: number | undefined;
 let removing: number | undefined;
 // What the removal's dialog names, which is what its request tells the daemon the person was told of.
 let removal: Removal | undefined;
+// The work item the dialog before an archive is open on, and the running sessions the dialog names, which is what its request tells the daemon the person was told of.
+let archiving: number | undefined;
+let archival: ReturnType<typeof archivalOf> | undefined;
 // The plan the settings dialog asked for, to list the repository's bases: its request, and what the daemon answered.
 let settingsPlanRequest: number | undefined;
 let settingsPlan: PlanAnswered | null = null;
@@ -143,17 +152,18 @@ function dialogOpen(): boolean {
   return document.querySelector("dialog[open]") !== null;
 }
 
-const lists: Record<"inbox" | "history", ListScreen> = {
-  inbox: listScreen("inbox", { openView, filter }, MAC),
-  history: listScreen("history", { openView, filter }, MAC),
+const lists: Record<"inbox" | "history" | "archived", ListScreen> = {
+  inbox: listScreen("inbox", { openView, filter, restore }, MAC),
+  history: listScreen("history", { openView, filter, restore }, MAC),
+  archived: listScreen("archived", { openView, filter, restore }, MAC),
 };
 
-/** The list on screen, where the inbox screen or the history screen is in front. */
+/** The list on screen, where the inbox screen, the history screen or the archived screen is in front. */
 function listInFront(): ListScreen | undefined {
-  return front === "inbox" || front === "history" ? lists[front] : undefined;
+  return front === "inbox" || front === "history" || front === "archived" ? lists[front] : undefined;
 }
 
-/** Shows one of the four screens beside the sidebar, hides the other three, and has the sidebar mark it. */
+/** Shows one of the five screens beside the sidebar, hides the other four, and has the sidebar mark it. */
 function bringToFront(screen: Exclude<Front, null>): void {
   front = screen;
   for (const [name, element] of Object.entries(screens)) element.hidden = name !== screen;
@@ -175,6 +185,15 @@ function openList(screen: "inbox" | "history"): void {
   if (left === undefined) return;
   lists[screen].select(left);
   lists[screen].focusLine(lists[screen].selected());
+}
+
+/** Puts the screen of a repository's archived work items in front, the one archived last first. */
+function openArchived(repositoryId: number): void {
+  if (!repositoryOf(repositoryId)) return;
+  leaveView();
+  held.archivedOf = repositoryId;
+  bringToFront("archived");
+  lists.archived.show();
 }
 
 /** Puts the summary screen in front, with the changes of this load. */
@@ -215,15 +234,16 @@ function onCommandKey(event: KeyboardEvent): void {
 /**
  * Acts on a key of a list. On the inbox screen and the history screen J and K
  * move the selection and Enter opens the selected work item's view. On the
- * summary screen Enter presses the main control, read under the same
- * conditions, and J and K do nothing.
+ * archived screen J and K move the selection and Enter does nothing: an
+ * archived work item has no view. On the summary screen Enter presses the
+ * main control, read under the same conditions, and J and K do nothing.
  */
 function onKey(event: KeyboardEvent): void {
   const target = event.target instanceof Element ? event.target : null;
   const key = inboxKey(
     { code: event.code, modified: event.ctrlKey || event.metaKey || event.altKey || event.shiftKey },
     {
-      inboxInFront: front === "summary" || front === "inbox" || front === "history",
+      inboxInFront: front === "summary" || front === "inbox" || front === "history" || front === "archived",
       dialogOpen: dialogOpen(),
       menuOpen: menuOpen(),
       inField: target?.closest("input, textarea, select, [contenteditable]") != null,
@@ -241,7 +261,7 @@ function onKey(event: KeyboardEvent): void {
   if (!list) return;
   event.preventDefault();
   if (key !== "open") list.move(key);
-  else if (list.selected() !== undefined) openView(list.selected() as number);
+  else if (front !== "archived" && list.selected() !== undefined) openView(list.selected() as number);
 }
 
 function forget(dialog: HTMLDialogElement): void {
@@ -342,9 +362,17 @@ function pressMenu(action: MenuAction): void {
     case "remove":
       openRemove(action.id);
       return;
+    case "archive":
+      archive(action.id);
+      return;
+    case "restore":
+      restore(action.id);
+      return;
     case "archived":
+      openArchived(action.id);
+      return;
     case "group":
-      // The list of the archived work items and the dialog of a new group are not built yet: the items are drawn, and their press opens nothing.
+      // The dialog of a new group is not built yet: the item is drawn, and its press opens nothing.
       return;
   }
 }
@@ -356,9 +384,9 @@ function openRepositoryMenu(repositoryId: number, at: { x: number; y: number }, 
   openMenu(`Menu of ${repository.name}`, repositoryMenu(repository, held.apps), at, pressMenu, back);
 }
 
-/** Opens a work item's menu with its corner at `at`. The keyboard returns to the work item's line under `within`, though the line was drawn anew meanwhile. */
+/** Opens a work item's menu with its corner at `at`: the menu of an archived work item for a line of the archived screen. The keyboard returns to the work item's line under `within`, though the line was drawn anew meanwhile. */
 function openWorkItemMenu(workItemId: number, at: { x: number; y: number }, within: Element): void {
-  const workItem = held.workItems.find((known) => known.id === workItemId);
+  const workItem = [...held.workItems, ...held.archived].find((known) => known.id === workItemId);
   if (!workItem) return;
   openMenu(`Menu of ${workItem.title}`, workItemMenu(workItem, held.apps), at, pressMenu, () => lineIn(within, workItemId));
 }
@@ -401,7 +429,7 @@ function onMenuKey(event: KeyboardEvent): void {
     openRepositoryMenu(of.repository, { x: box.left + box.height, y: box.bottom }, () => rowButton(of.repository, button));
     return;
   }
-  const list = front === "inbox" || front === "history" ? screens[front] : null;
+  const list = front === "inbox" || front === "history" || front === "archived" ? screens[front] : null;
   const within = on?.within ?? list;
   const line = on?.line ?? listInFront()?.line(of.workItem);
   if (!within || !line) return;
@@ -605,10 +633,66 @@ function remove(): void {
   ask(REMOVE, (requestId) => ({ type: "removeRepository", requestId, id, workItems: told.workItems.map((workItem) => workItem.id), running: told.running }));
 }
 
-/** Takes a headless session the daemon sent, and names it in the removal's dialog where that is open: a session that started or ended is one the dialog has to say. */
+/** Draws what the dialog before an archive names, from the daemon's lists as they are now: the work item, and each of its running sessions. It closes the dialog where the window's list no longer holds the work item. */
+function showArchive(): void {
+  const workItem = held.workItems.find((known) => known.id === archiving);
+  if (!workItem) {
+    if (sessionsDialog.open) sessionsDialog.close();
+    return;
+  }
+  archival = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
+  byId("sessions-head").textContent = `Archive ${workItem.title}`;
+  const section = byId("sessions-list");
+  section.hidden = archival.sessions.length === 0;
+  section.querySelector("ul")?.replaceChildren(
+    ...archival.sessions.map((line) => {
+      const item = document.createElement("li");
+      const words = document.createElement("span");
+      words.textContent = line;
+      item.append(words);
+      return item;
+    }),
+  );
+}
+
+/**
+ * Archives a work item, at the press of its menu's item. Where none of its
+ * sessions runs, the archive is sent at once: a restore undoes it. Where one
+ * does, a dialog names each first, with the keyboard on the button that
+ * ends nothing.
+ */
+function archive(workItemId: number): void {
+  const workItem = held.workItems.find((known) => known.id === workItemId);
+  if (!workItem) return;
+  const told = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
+  if (told.sessions.length === 0) {
+    send({ type: "archiveWorkItem", requestId: request(), id: workItemId, running: told.running });
+    return;
+  }
+  if (!opened(SESSIONS)) return;
+  archiving = workItemId;
+  showArchive();
+  byId("sessions-cancel").focus();
+}
+
+/** Sends the archive the dialog holds, with the running sessions it named, so the daemon ends the sessions the person read and no other. */
+function archiveNamed(): void {
+  const told = archival;
+  const id = archiving;
+  if (told === undefined || id === undefined) return;
+  ask(SESSIONS, (requestId) => ({ type: "archiveWorkItem", requestId, id, running: told.running }));
+}
+
+/** Restores an archived work item. A refusal is said in the status line. */
+function restore(workItemId: number): void {
+  send({ type: "restoreWorkItem", requestId: request(), id: workItemId });
+}
+
+/** Takes a headless session the daemon sent, and names it in the removal's dialog and in the dialog before an archive, where either is open: a session that started or ended is one the dialog has to say. */
 function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
   takeHeadless(headless, requestId);
   if (removeDialog.open) showRemove();
+  if (sessionsDialog.open) showArchive();
 }
 
 /** Takes the repositories and the archived work items of a `ready` or an `inbox`, and what the status line has to say of the daemon that sent it. */
@@ -641,17 +725,20 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   for (const session of held.sessions) {
     // A pane on the stage of a focused window is one the person is looking at, whether or not it has the keyboard.
     const inFront = onStage(session.id) && document.hasFocus();
-    const notification = notificationFor(before.get(session.id) ?? null, session, inFront, held.workItems, held.paneKinds);
+    const notification = notificationFor(before.get(session.id) ?? null, session, inFront, held.workItems, held.paneKinds, held.archived);
     if (!notification) continue;
     new Notification(notification.title, { body: notification.body }).onclick = () => onNotificationClick(session);
   }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
   showSidebar();
-  listInFront()?.show();
+  // The archived screen lists the archived work items of a repository the daemon keeps.
+  if (front === "archived" && !repositoryOf(held.archivedOf)) openList("inbox");
+  else listInFront()?.show();
   if (front === "view") showView();
   // A dialog that names what the daemon lists says the lists as they are now.
   if (hiddenDialog.open) showHidden();
   if (removeDialog.open) showRemove();
+  if (sessionsDialog.open) showArchive();
 }
 
 /** Draws the form as its choice "Register the repository only" has it: with the choice taken, the name, the base and the kind of pane are off, the form shows no plan, and its button reads "Register". */
@@ -1013,6 +1100,11 @@ byId("remove-cancel").addEventListener("click", () => removeDialog.close());
 byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {
   event.preventDefault();
   remove();
+});
+byId("sessions-cancel").addEventListener("click", () => sessionsDialog.close());
+byId<HTMLFormElement>("sessions-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  archiveNamed();
 });
 
 void connect();

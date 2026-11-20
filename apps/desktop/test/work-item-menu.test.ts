@@ -3,9 +3,11 @@
 // Electron's debugging port: a work item's menu from the right button and
 // from the keyboard, its pin and its mute, and the rename dialog; then a
 // repository's menu, the form's choice to register a repository alone, and
-// a repository's settings, its icon, hiding it and removing it. No case
-// presses an "Open in" item or a "Copy" item: each acts on the desktop and
-// the clipboard of whoever runs the suite.
+// a repository's settings, its icon and hiding it; then a work item's
+// archive, the screen of a repository's archived work items and a restore;
+// and last a repository's removal. No case presses an "Open in" item or a
+// "Copy" item: each acts on the desktop and the clipboard of whoever runs
+// the suite.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -24,10 +26,14 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
 
   const SIDEBAR = "#repositories";
   const INBOX = "#inbox-lines";
+  /** The lines of the screen that lists a repository's archived work items. */
+  const ARCHIVED = "#archived-lines";
   const line = (within: string, id: number): string => `${within} button[data-work-item="${id}"]`;
   const MENU = `[role="menu"]`;
   /** The items a work item's menu holds on this Mac: the apps are the ones the main process finds installed. */
-  const items = (pin = "Pin", mute = "Mute notifications"): string[] => ["Rename", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", pin, mute];
+  const items = (pin = "Pin", mute = "Mute notifications"): string[] => ["Rename", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", pin, mute, "Archive"];
+  /** The items the menu of an archived work item holds on this Mac. */
+  const archivedItems = (): string[] => ["Restore", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name"];
 
   /** The items a repository's menu holds on this Mac. */
   const repositoryItems = (): string[] => ["Settings", "Change icon", "Show archived work items", "New group", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Hide from sidebar", "Remove"];
@@ -473,6 +479,85 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await rowWords(2)).toEqual(["\u{1F989}", "Docs site", "0"]);
   });
 
+  it("archives a work item from its menu after a dialog that names the session the archive ends: its line leaves the sidebar and the inbox and nothing on disk changes; lists it on the screen that Show archived work items opens, under a head that names the repository, where a press of its line opens no view and its menu is an archived work item's; and brings it back at Restore", async () => {
+    const before = held(clone.repo);
+    const listed = (): Promise<string[]> => value(`[...document.querySelectorAll("#sessions-list li")].map((item) => item.textContent)`);
+    const archive = async (): Promise<void> => {
+      await rightPress(line(SIDEBAR, 2));
+      await menuShown();
+      await pressItem("Archive");
+      await menuGone();
+    };
+    await archive();
+    await dialogOpen("sessions-dialog");
+    expect(await value<string>(`document.getElementById("sessions-head").textContent`)).toBe("Archive Third name");
+    expect(await listed()).toEqual(["Shell"]);
+    // The keyboard starts on the button that ends nothing.
+    expect(await value<string>(`document.activeElement.id`)).toBe("sessions-cancel");
+    await app.click("#sessions-cancel");
+    await dialogClosed("sessions-dialog");
+    expect(await order(SIDEBAR)).toEqual([1, 2]);
+    await archive();
+    await dialogOpen("sessions-dialog");
+    await app.click("#sessions-submit");
+    await dialogClosed("sessions-dialog");
+    await app.until(`!document.querySelector('${line(SIDEBAR, 2)}')`, "the archived work item's line gone from the sidebar");
+    expect(await order(SIDEBAR)).toEqual([1]);
+    expect(await order(INBOX)).toEqual([1]);
+    expect(await rowWords(1)).toEqual(["project", "1"]);
+    expect(await value<string>(`document.getElementById("status").textContent`)).not.toContain("since you looked");
+    // The archive changed nothing on disk: the branch and the worktree's folder stand.
+    expect(held(clone.repo)).toEqual(before);
+    expect(existsSync(join(clone.root, "project", "second-item", "README.md"))).toBe(true);
+
+    await fromMenu(1, "Show archived work items");
+    await app.until(`!document.getElementById("archived-screen").hidden`, "the screen of the archived work items");
+    expect(await value<boolean>(`document.getElementById("inbox-screen").hidden`)).toBe(true);
+    expect(await value<string>(`document.getElementById("archived-word").textContent`)).toBe("Archived in project");
+    expect(await order(ARCHIVED)).toEqual([2]);
+    expect(await title(ARCHIVED, 2)).toBe("Third name");
+    // A press of the line selects it and opens no view.
+    await app.click(line(ARCHIVED, 2));
+    expect(await value<boolean[]>(`[document.getElementById("archived-screen").hidden, document.getElementById("work-item-view").hidden]`)).toEqual([false, true]);
+    expect(await value<string[]>(`[document.getElementById("archived-preview-title").textContent, document.getElementById("archived-open-work-item").textContent]`)).toEqual(["Third name", "Restore"]);
+    await rightPress(line(ARCHIVED, 2));
+    await menuShown();
+    expect(await menuLabel()).toBe("Menu of Third name");
+    expect(await menuItems()).toEqual(archivedItems());
+    expect(await value<boolean>(`[...document.querySelectorAll('${MENU} [role="menuitem"]')].every((item) => item.title.trim() !== "" && item.title !== item.textContent)`)).toBe(true);
+    await escape();
+    await menuGone();
+    await app.click("#archived-open-work-item");
+    await app.until(`document.querySelector('${line(SIDEBAR, 2)}')`, "the restored work item's line in the sidebar");
+    expect(await order(SIDEBAR)).toEqual([1, 2]);
+    expect(await order(ARCHIVED)).toEqual([]);
+    expect(await value<string>(`document.getElementById("archived-empty").textContent`)).toBe("No work item of this repository is archived.");
+  });
+
+  it("archives a work item none of whose sessions runs at the menu's press, with no dialog, opens the menu of an archived line at the key M, and restores the work item from that menu", async () => {
+    // The archive before ended the work item's one pane, and the screen of the archived work items is still in front.
+    await rightPress(line(SIDEBAR, 2));
+    await menuShown();
+    await pressItem("Archive");
+    await menuGone();
+    await app.until(`document.querySelector('${line(ARCHIVED, 2)}')`, "the archived work item's line on the archived screen");
+    expect(await value<boolean>(`document.getElementById("sessions-dialog").open`)).toBe(false);
+    expect(await order(SIDEBAR)).toEqual([1]);
+    await app.evaluate(`document.activeElement?.blur()`);
+    await press("KeyM", 77);
+    await menuShown();
+    expect(await menuLabel()).toBe("Menu of Third name");
+    await pressItem("Restore");
+    await menuGone();
+    await app.until(`document.querySelector('${line(SIDEBAR, 2)}')`, "the restored work item's line in the sidebar");
+    expect(await order(ARCHIVED)).toEqual([]);
+    // The inbox lists it again.
+    await app.click("#nav-inbox");
+    await app.until(`!document.getElementById("inbox-screen").hidden`, "the inbox");
+    expect(await value<boolean>(`document.getElementById("archived-screen").hidden`)).toBe(true);
+    expect(await order(INBOX)).toEqual([1, 2]);
+  });
+
   it("removes a repository with no work item from its menu, after a dialog that says nothing on disk is removed, and leaves the repository as git held it", async () => {
     const before = [held(second.repo), readFileSync(join(second.repo, "README.md"), "utf8")];
     await fromMenu(2, "Remove");
@@ -500,7 +585,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await dialogOpen("remove-dialog");
     const listed = (id: string): Promise<string[]> => value(`[...document.querySelectorAll("#${id} li")].map((item) => item.textContent)`);
     expect(await listed("remove-work-items")).toEqual(["Renamed here", "Third name"]);
-    expect(await listed("remove-sessions")).toEqual(["Shell in Renamed here", "Shell in Third name"]);
+    // The pane of the second work item ended at its archive, and is no running session after the restore.
+    expect(await listed("remove-sessions")).toEqual(["Shell in Renamed here"]);
     await app.click("#remove-submit");
     await dialogClosed("remove-dialog");
     await app.until(`document.querySelectorAll('${SIDEBAR} section').length === 0`, "no repository in the sidebar");

@@ -29,6 +29,8 @@ export const held = {
   changes: [] as Change[],
   /** The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox. */
   viewing: undefined as number | undefined,
+  /** The repository whose archived work items the archived screen lists: the one it was last opened on, or nothing before it was opened. */
+  archivedOf: undefined as number | undefined,
   /** What is typed in the search field and the state the filter shows. Both narrow the sidebar's work items and the list in front, and neither is kept across a load. */
   query: "",
   filter: "all" as StateFilter,

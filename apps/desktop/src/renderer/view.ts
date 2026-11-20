@@ -227,16 +227,48 @@ export interface Removal {
  */
 export function removalOf(repository: Repository, workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): Removal {
   const held = [...workItems, ...archived].filter((workItem) => workItem.repoId === repository.id);
-  const panes = held.flatMap((workItem) => {
-    const tabs = paneTabs(workItem, sessions);
-    return tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, says: `${tabLabel(tab, tabs, paneKinds)} in ${workItem.title}` }));
-  });
-  const asked = held.flatMap((workItem) => headless.filter((session) => session.workItemId === workItem.id && session.state === "working").map((session) => ({ id: session.id, says: `Asked in ${workItem.title}: ${session.prompt}` })));
+  const running = held.map((workItem) => ({ workItem, ...runningIn(workItem, sessions, headless, paneKinds) }));
+  const panes = running.flatMap(({ workItem, panes }) => panes.map(({ id, label }) => ({ id, says: `${label} in ${workItem.title}` })));
+  const asked = running.flatMap(({ workItem, asked }) => asked.map(({ id, prompt }) => ({ id, says: `Asked in ${workItem.title}: ${prompt}` })));
   return {
     workItems: held.map((workItem) => ({ id: workItem.id, title: workItem.title, archived: workItem.archivedAt !== null })),
     sessions: [...panes, ...asked].map(({ says }) => says),
     running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
   };
+}
+
+/** The running sessions of one work item: its panes whose process is alive, each with its tab's label, and its headless sessions that are working, each with its prompt. */
+function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; asked: { id: number; prompt: string }[] } {
+  const tabs = paneTabs(workItem, sessions);
+  return {
+    panes: tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, label: tabLabel(tab, tabs, paneKinds) })),
+    asked: headless.filter((session) => session.workItemId === workItem.id && session.state === "working").map(({ id, prompt }) => ({ id, prompt })),
+  };
+}
+
+/**
+ * What archiving a work item ends: each of its running sessions, as the
+ * dialog before the archive names it, a pane by its tab's label and a
+ * headless session by its prompt. `running` is what the archive sends the
+ * daemon, so the daemon ends the sessions the person was told of and no
+ * other. Where it names none, the archive asks nothing first.
+ */
+export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { sessions: string[]; running: Running } {
+  const { panes, asked } = runningIn(workItem, sessions, headless, paneKinds);
+  return {
+    sessions: [...panes.map(({ label }) => label), ...asked.map(({ prompt }) => `Asked: ${prompt}`)],
+    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+  };
+}
+
+/** A repository's archived work items as its archived screen lists them: the one archived last first, and two archived at one time in the order given. */
+export function archivedIn(repositoryId: number, archived: readonly WorkItem[]): WorkItem[] {
+  return archived.filter((workItem) => workItem.repoId === repositoryId).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
+}
+
+/** The head of the screen that lists a repository's archived work items. */
+export function archivedHead(repositoryName: string): string {
+  return `Archived in ${repositoryName}`;
 }
 
 /**
@@ -305,10 +337,10 @@ export function matchSentence(matched: number, total: number, query: string): st
  * items and `shown` the ones a search and a filter leave: nothing where it
  * has a line.
  */
-export function emptyList(screen: "inbox" | "history", total: number, shown: number): string {
+export function emptyList(screen: "inbox" | "history" | "archived", total: number, shown: number): string {
   if (shown > 0) return "";
   if (total > 0) return "No work item matches.";
-  return screen === "inbox" ? "No work items yet." : "Nothing has finished yet.";
+  return { inbox: "No work items yet.", history: "Nothing has finished yet.", archived: "No work item of this repository is archived." }[screen];
 }
 
 export interface Change {
@@ -564,8 +596,8 @@ export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now:
 }
 
 /** The keys a list says under its preview: the two that move through it, the one that opens the selected line's menu, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
-export function keyHints(screen: "inbox" | "history", mac: boolean): string[] {
-  return [`J K move through the ${screen}`, "M opens the menu", `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
+export function keyHints(screen: "inbox" | "history" | "archived", mac: boolean): string[] {
+  return [`J K move through the ${screen === "archived" ? "archived work items" : screen}`, "M opens the menu", `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
 }
 
 /**
@@ -646,14 +678,15 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
 
 /**
  * What the press of a menu's item does. On a work item's menu: opens the
- * rename dialog, or sets the work item's pin or its mute. On a repository's:
- * opens its settings, its icon's dialog or its removal's, hides it, or, for
- * `archived` and `group`, opens what a later build draws. On both: opens a
- * folder in Finder, where `app` is null, or in an installed app, or writes a
- * text to the clipboard.
+ * rename dialog, sets the work item's pin or its mute, archives it, or, on
+ * an archived one's, restores it. On a repository's: opens its settings, its
+ * icon's dialog or its removal's, hides it, opens the screen of its archived
+ * work items, or, for `group`, opens what a later build draws. On both:
+ * opens a folder in Finder, where `app` is null, or in an installed app, or
+ * writes a text to the clipboard.
  */
 export type MenuAction =
-  | { do: "rename"; id: number }
+  | { do: "rename" | "archive" | "restore"; id: number }
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean }
@@ -679,22 +712,30 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 /**
  * A work item's menu, in its order: Rename; Open in Finder, then one item
  * for each installed editor and terminal; Copy path and Copy branch name;
- * Pin or Unpin, and Mute notifications or Unmute notifications. The folder
- * that is opened and copied is the work item's worktree.
+ * Pin or Unpin, and Mute notifications or Unmute notifications; Archive.
+ * The menu of an archived work item holds Restore, the items that open its
+ * folder, and the two copies. The folder that is opened and copied is the
+ * work item's worktree.
  */
 export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]): MenuEntry[] {
   const { id, worktree: folder } = workItem;
-  return [
-    { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
-    ...openEntries(folder, "the work item's", apps),
+  const open = openEntries(folder, "the work item's", apps);
+  const copies: MenuEntry[] = [
     { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
     { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
+  ];
+  if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, ...open, ...copies];
+  return [
+    { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
+    ...open,
+    ...copies,
     workItem.pinned
       ? { label: "Unpin", description: "Let the work item stand among the others of its list again.", action: { do: "set", id, pinned: false }, divides: true }
       : { label: "Pin", description: "Keep the work item at the top of its list.", action: { do: "set", id, pinned: true }, divides: true },
     workItem.muted
       ? { label: "Unmute notifications", description: "Let this work item's sessions notify you again.", action: { do: "set", id, muted: false }, divides: false }
       : { label: "Mute notifications", description: "Raise no notification for this work item's sessions. Its line still shows its state.", action: { do: "set", id, muted: true }, divides: false },
+    { label: "Archive", description: "Take the work item off the lists and end its sessions. Its folder and its branch stay on disk, and a restore brings it back.", action: { do: "archive", id }, divides: true },
   ];
 }
 
@@ -938,7 +979,8 @@ export function screenTurns(term: TerminalWrites): ScreenTurns {
  * none is shown: one is shown when the state becomes waiting or finished, and
  * never where `inFront` holds: the pane is on the stage of a focused window,
  * so the person is looking at it, whether or not it has the keyboard. None
- * is shown for a session of a work item whose notifications are muted.
+ * is shown for a session of a work item whose notifications are muted, nor
+ * for one of an `archived` work item, which `workItems` does not hold.
  */
 export function notificationFor(
   previous: AgentState | null,
@@ -946,11 +988,12 @@ export function notificationFor(
   inFront: boolean,
   workItems: readonly WorkItem[],
   paneKinds: readonly PaneKindInfo[],
+  archived: readonly WorkItem[] = [],
 ): { title: string; body: string } | null {
   if (session.state === previous || inFront) return null;
   if (session.state !== "waiting" && session.state !== "finished") return null;
   const workItem = workItems.find((item) => item.id === session.workItemId);
-  if (workItem?.muted) return null;
+  if (workItem?.muted || archived.some((item) => item.id === session.workItemId)) return null;
   return {
     title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
     body: session.state === "waiting" ? "Waiting for you" : "Finished",
