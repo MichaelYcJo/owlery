@@ -1,7 +1,7 @@
 // The git side of a work item: its branch and its worktree, a separate folder
 // checked out from the same repository. Git runs with execFile and arguments,
 // never through a shell, because titles and folders come from the person.
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -56,7 +56,7 @@ async function branchExists(repo: string, branch: string): Promise<boolean> {
 }
 
 export interface Worktree {
-  /** The repository's top-level folder. */
+  /** The top-level folder of the repository's main checkout. */
   repo: string;
   branch: string;
   /** The worktree's folder, `<root>/<repo name>/<slug>`. */
@@ -86,16 +86,57 @@ interface Naming {
   random?: () => number;
 }
 
-/** The repository's top-level folder, given a folder inside it. A folder outside any git repository is refused. */
+/** The base a person chose for a repository's new work items, given the repository's top-level folder, or null where they chose none. */
+type ChosenBase = (repo: string) => string | null;
+
+/** What git lists first of a repository's worktrees: the main checkout's top-level folder, and whether it is bare, which has no checkout. */
+const MAIN_CHECKOUT = ["worktree", "list", "--porcelain"];
+
+/** The main checkout among what `MAIN_CHECKOUT` printed: the first worktree listed. Null where git printed none. */
+function mainCheckout(listed: string): { folder: string; bare: boolean } | null {
+  // The first block ends at the first empty line, and its first line is `worktree` and the folder.
+  const [first = "", ...rest] = (listed.split("\n\n")[0] ?? "").split("\n");
+  if (!first.startsWith("worktree ")) return null;
+  return { folder: first.slice("worktree ".length), bare: rest.includes("bare") };
+}
+
+/**
+ * The repository a folder is inside: the top-level folder of its main
+ * checkout, the first worktree git lists. A folder inside a linked worktree
+ * therefore names the repository the worktree belongs to, the one its main
+ * checkout's folder names, and never a repository of its own. A folder
+ * outside any git repository is refused, and so is one whose repository has
+ * a bare main checkout, which has no folder to keep.
+ */
 export async function repositoryOf(folder: string): Promise<string> {
-  let repo: string;
+  let main: { folder: string; bare: boolean } | null;
   try {
-    repo = (await git(folder, ["rev-parse", "--show-toplevel"])).trim();
+    main = mainCheckout(await git(folder, MAIN_CHECKOUT));
   } catch {
-    throw new Error(`${folder} is not inside a git repository`);
+    main = null;
   }
-  if (!repo) throw new Error(`${folder} is not inside a git repository`);
-  return repo;
+  if (main === null) throw new Error(`${folder} is not inside a git repository`);
+  if (main.bare) throw new Error(`${folder} belongs to a bare repository, which has no checkout to keep`);
+  return main.folder;
+}
+
+/** How long the daemon's start waits on git for one folder of `work-items.json`. A folder git does not answer for in that time is one it cannot read. */
+const START_READ_MS = 5000;
+
+/**
+ * The repository a folder is inside, as `repositoryOf` reads it, read
+ * without a turn of the event loop: the daemon's store reads each folder of
+ * `work-items.json` this way at its start, before the daemon listens. Null
+ * where `repositoryOf` refuses the folder and where git does not answer.
+ */
+export function repositoryOfSync(folder: string): string | null {
+  let main: { folder: string; bare: boolean } | null;
+  try {
+    main = mainCheckout(execFileSync("git", MAIN_CHECKOUT, { cwd: folder, encoding: "utf8", timeout: START_READ_MS, stdio: ["ignore", "pipe", "ignore"] }));
+  } catch {
+    return null;
+  }
+  return main === null || main.bare ? null : main.folder;
 }
 
 /**
@@ -161,13 +202,14 @@ function firstIn(names: string[], held: Set<string>): string | undefined {
  *
  * With the candidate names `init.defaultBranch`'s value, `main` and `master`,
  * in that order, the default base is the first of these that the lists hold:
- * the branch a remote's `HEAD` names, the remote `origin` first and the other
+ * the base `chosenBase` gives for the repository, which a person chose in
+ * its settings; the branch a remote's `HEAD` names, the remote `origin` first and the other
  * remotes in the order of their names; a remote's branch of a candidate name,
  * the remotes in the same order and, within one remote, the names in theirs;
  * the local branch of a candidate name; the local branch the checkout stands
  * on.
  */
-async function basesOf(repo: string): Promise<Pick<WorktreePlan, "localBases" | "remoteBases" | "defaultBase">> {
+async function basesOf(repo: string, chosenBase?: ChosenBase): Promise<Pick<WorktreePlan, "localBases" | "remoteBases" | "defaultBase">> {
   const [refs, checkout, configured, remoteNames] = await Promise.all([
     git(repo, ["for-each-ref", "--sort=-committerdate", "--format=%(refname) %(symref)", "refs/heads", "refs/remotes"], BRANCH_OUTPUT_BYTES),
     branchOfHead(repo),
@@ -196,7 +238,9 @@ async function basesOf(repo: string): Promise<Pick<WorktreePlan, "localBases" | 
   const localBases = [...standsOn, ...local.filter((name) => name !== checkout)];
   const candidates = [configured, "main", "master"].filter((name) => name !== "");
   const ordered = [...remoteNames.filter((name) => name === "origin"), ...remoteNames.filter((name) => name !== "origin").sort()];
+  const chosen = chosenBase?.(repo) ?? null;
   const defaultBase =
+    (chosen !== null && (locals.has(chosen) || remotes.has(chosen)) ? chosen : undefined) ??
     firstIn(ordered.flatMap((name) => heads.get(`${name}/HEAD`) ?? []), remotes) ??
     firstIn(ordered.flatMap((name) => candidates.map((candidate) => `${name}/${candidate}`)), remotes) ??
     firstIn(candidates, locals) ??
@@ -207,27 +251,29 @@ async function basesOf(repo: string): Promise<Pick<WorktreePlan, "localBases" | 
 
 /**
  * What a creation in the folder with this title and name would give, and the
- * repository's bases. Nothing is created. A folder outside any git repository
+ * repository's bases. Nothing is created. A folder that names no repository
  * is refused, as a creation in it is.
  */
-export async function planWorktree(options: Naming & { folder: string; root: string }): Promise<WorktreePlan> {
+export async function planWorktree(options: Naming & { folder: string; root: string; chosenBase?: ChosenBase }): Promise<WorktreePlan> {
   const repo = await repositoryOf(options.folder);
-  const [place, bases] = await Promise.all([placeFor(repo, options.root, options), basesOf(repo)]);
+  const [place, bases] = await Promise.all([placeFor(repo, options.root, options), basesOf(repo, options.chosenBase)]);
   return { ...place, ...bases };
 }
 
 /**
  * Cuts the branch `placeFor` names at a base and checks it out in a new
  * worktree under `root`. The base is the one `base` names, read as `baseRef`
- * reads it, or the repository's default base where none is sent. Where the
+ * reads it, or the repository's default base where none is sent, which is
+ * the base a person chose for the repository where it still lists it. Where the
  * repository has no default base, the branch is cut at the checkout's commit.
  * The new branch has no upstream, whatever its base and the person's
- * `branch.autoSetupMerge`. A folder outside any git repository, and a `base`
- * that is none of the repository's, is refused before anything is created.
+ * `branch.autoSetupMerge`. A folder that names no repository, as
+ * `repositoryOf` reads it, and a `base` that is none of the repository's, is
+ * refused before anything is created.
  */
-export async function createWorktree(options: Naming & { folder: string; root: string; base?: string }): Promise<Worktree> {
+export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; chosenBase?: ChosenBase }): Promise<Worktree> {
   const repo = await repositoryOf(options.folder);
-  const baseBranch = options.base ?? (await basesOf(repo)).defaultBase;
+  const baseBranch = options.base ?? (await basesOf(repo, options.chosenBase)).defaultBase;
   let start = "HEAD";
   if (baseBranch !== null) {
     const ref = await baseRef(repo, baseBranch);

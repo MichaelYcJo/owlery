@@ -68,12 +68,13 @@ export interface Group {
  */
 export interface Repository {
   id: number;
-  /** The repository's top-level folder. */
+  /** The top-level folder of the repository's main checkout. A linked worktree's folder is no repository's. */
   folder: string;
   /** The name a person reads: `customName` where one is set, and the last part of `folder` otherwise. */
   name: string;
   /** The name a person gave the repository, or null where they gave none. */
   customName: string | null;
+  /** One character the sidebar shows before the name, an emoji among them, or null where a person set none. */
   icon: string | null;
   /** The base a person chose for the repository's new work items, named as `WorkItem.baseBranch` names one, or null for the repository's default base. */
   defaultBase: string | null;
@@ -83,9 +84,15 @@ export interface Repository {
   groups: Group[];
 }
 
+/** The running sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that are working, each by its id. */
+export interface Running {
+  panes: number[];
+  headless: number[];
+}
+
 /**
  * One piece of work, in a worktree of its own, of one repository: `repoId` is
- * that repository's id and `repo` its top-level folder, `branch` the branch
+ * that repository's id and `repo` its main checkout's top-level folder, `branch` the branch
  * cut for the work item, `worktree` its folder.
  */
 export interface WorkItem {
@@ -183,8 +190,12 @@ export type ClientMessage =
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
   // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.
   | { type: "planWorkItem"; requestId: number; repo: string; title: string; name?: string }
-  // Adds the repository `folder` is inside, with no work item. `folder` is an absolute path, and the daemon refuses any other. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
+  // Adds the repository `folder` is inside, with no work item. `folder` is an absolute path, and the daemon refuses any other. The repository is the one the folder's main checkout names, so a folder inside a linked worktree adds the repository the worktree belongs to, and a folder of a bare repository's worktree is refused. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
   | { type: "addRepository"; requestId: number; folder: string }
+  // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. The daemon answers with `done`.
+  | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean }
+  // Takes a repository and its work items, the archived among them, off the daemon's lists, and removes nothing on disk: the repository, each worktree's folder and each branch stay. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Otherwise it ends the sessions named, and refuses where a pane's process has not exited within its wait. The daemon answers with `done`.
+  | { type: "removeRepository"; requestId: number; id: number; workItems: number[]; running: Running }
   // Sets a work item's pin, its mute, or both: a field that is absent is left as it is. The daemon answers with `done`.
   | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean }
   // Asks what renaming the work item's branch after the name `title` would give. The daemon renames nothing, and answers with a `renamePlan`.

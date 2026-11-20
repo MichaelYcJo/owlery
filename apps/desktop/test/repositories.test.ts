@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RepositoryStore } from "../src/daemon/repositories";
+import { git, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -25,7 +26,10 @@ const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, groups
 /** An entry of `work-items.json`, as a build before the repositories wrote it. */
 const OLD = { id: 1, ...PLACE, createdAt: 1 };
 
-const file = (dir: string): unknown => JSON.parse(readFileSync(join(dir, "repositories.json"), "utf8"));
+/** The repositories `repositories.json` holds, and the three counts beside them: the next id of a work item, of a repository and of a group. */
+const whole = (dir: string): { repositories: unknown; nextWorkItemId: unknown; nextRepositoryId: unknown; nextGroupId: unknown } => JSON.parse(readFileSync(join(dir, "repositories.json"), "utf8"));
+const file = (dir: string): unknown => whole(dir).repositories;
+const counts = (dir: string): unknown[] => [whole(dir).nextWorkItemId, whole(dir).nextRepositoryId, whole(dir).nextGroupId];
 
 describe("RepositoryStore", () => {
   it("gives each work item the next id and the time it was made, under the repository of its folder, which it adds first", () => {
@@ -99,6 +103,83 @@ describe("RepositoryStore", () => {
     expect(existsSync(join(dir, "repositories.json"))).toBe(false);
   });
 
+  it("sets what a person sets on a repository, its name, its icon, its base and whether it is hidden, writes the store, and says whether anything is another than it was", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { repository } = store.addRepository("/r/project");
+    expect(store.repository(repository.id)).toBe(repository);
+    expect(store.repository(9)).toBeUndefined();
+    expect(store.setRepository(1, { name: "The project" })).toBe(true);
+    expect(store.setRepository(1, { name: "The project" })).toBe(false);
+    expect(store.setRepository(1, { icon: "P", defaultBase: "develop", hidden: true })).toBe(true);
+    expect(store.repositories()).toEqual([{ id: 1, folder: "/r/project", name: "The project", icon: "P", defaultBase: "develop", hidden: true, addedAt: 1, groups: [], workItems: [] }]);
+    // A field that is not given is left, and null takes a name, an icon and a base away.
+    expect(store.setRepository(1, { name: null, icon: null, defaultBase: null })).toBe(true);
+    expect(store.setRepository(1, {})).toBe(false);
+    expect(new RepositoryStore(dir).repositories()).toEqual([{ id: 1, folder: "/r/project", ...PLAIN, hidden: true, addedAt: 1, workItems: [] }]);
+    expect(store.setRepository(9, { hidden: false })).toBeUndefined();
+    // A set that changes nothing writes nothing.
+    rmSync(join(dir, "repositories.json"));
+    expect(store.setRepository(1, { hidden: true })).toBe(false);
+    expect(existsSync(join(dir, "repositories.json"))).toBe(false);
+  });
+
+  it("removes a repository with its work items, the others left as they were, and writes the store", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    store.addWorkItem(PLACE);
+    const kept = store.addWorkItem({ ...PLACE, repo: "/r/docs" });
+    store.addWorkItem(PLACE);
+    expect(store.removeRepository(9)).toBeUndefined();
+    const removed = store.removeRepository(1);
+    expect([removed?.folder, removed?.workItems.map((item) => item.id)]).toEqual(["/r/project", [1, 3]]);
+    expect(store.repositories()).toEqual([kept.repository]);
+    expect(store.workItems()).toEqual([kept]);
+    expect([store.workItem(1), store.workItem(3), store.repository(1)]).toEqual([undefined, undefined, undefined]);
+    expect(file(dir)).toEqual([kept.repository]);
+    expect(new RepositoryStore(dir).repositories()).toEqual([kept.repository]);
+  });
+
+  it("gives no id twice, to a work item or to a repository, though the one that bore it was removed, and keeps the next id of each kind in its file", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    store.addWorkItem(PLACE);
+    store.addWorkItem({ ...PLACE, repo: "/r/docs" });
+    expect(counts(dir)).toEqual([3, 3, 1]);
+    // The repository and the work item with the highest ids leave the store.
+    store.removeRepository(2);
+    expect(counts(dir)).toEqual([3, 3, 1]);
+    const again = store.addWorkItem({ ...PLACE, repo: "/r/docs" });
+    expect([again.repository.id, again.item.id]).toEqual([3, 3]);
+    store.removeRepository(3);
+    store.removeRepository(1);
+    expect(file(dir)).toEqual([]);
+    // A store read from the file goes on from the counts, and not from the ids it holds, which are none.
+    const later = new RepositoryStore(dir, () => 2);
+    const made = later.addWorkItem(PLACE);
+    expect([made.repository.id, made.item.id]).toEqual([4, 4]);
+    expect(later.addRepository("/r/third").repository.id).toBe(5);
+    expect(counts(dir)).toEqual([5, 6, 1]);
+  });
+
+  it("reads a file that holds the list of repositories alone, as a build before the counts wrote it, with each count one past the highest id of its kind, and reads no count as lower than an id the file holds", () => {
+    const dir = runDir();
+    const item = { id: 7, ...OWN, createdAt: 1, ...UNSET };
+    const repository = { id: 4, folder: "/r/project", ...PLAIN, groups: [{ id: 9, name: "Later" }], addedAt: 1, workItems: [item] };
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify([repository, { ...repository, id: 2, folder: "/r/docs", groups: [], workItems: [] }]));
+    const store = new RepositoryStore(dir, () => 1);
+    expect(store.repositories().map(({ id }) => id)).toEqual([4, 2]);
+    expect(store.addWorkItem(PLACE).item.id).toBe(8);
+    expect(store.addRepository("/r/third").repository.id).toBe(5);
+    expect(counts(dir)).toEqual([9, 6, 10]);
+    // Counts a hand wrote below the ids beside them give no id twice either.
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 1, nextRepositoryId: 1, nextGroupId: 1, repositories: [repository] }));
+    const lowered = new RepositoryStore(dir, () => 1);
+    expect(lowered.addWorkItem(PLACE).item.id).toBe(8);
+    expect(lowered.addRepository("/r/third").repository.id).toBe(5);
+    expect(counts(dir)).toEqual([9, 6, 10]);
+  });
+
   it("writes repositories.json in the run directory, readable by the user alone", () => {
     const dir = runDir();
     new RepositoryStore(dir).addWorkItem(PLACE);
@@ -134,7 +215,13 @@ describe("RepositoryStore", () => {
       return new RepositoryStore(dir).repositories();
     };
     expect(read("{ not json")).toEqual([]);
+    // The repositories without the three counts, and with a count that is no number.
     expect(read({ repositories: [repository] })).toEqual([]);
+    const COUNTS = { nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1 };
+    for (const wrong of [{ nextWorkItemId: "2" }, { nextRepositoryId: null }, { nextGroupId: undefined }, { repositories: {} }, { repositories: [{ ...repository, id: "1" }] }]) {
+      expect(read({ ...COUNTS, repositories: [repository], ...wrong })).toEqual([]);
+    }
+    expect(read({ ...COUNTS, repositories: [repository] })).toEqual([repository]);
     for (const wrong of [{ id: "1" }, { folder: 3 }, { name: 3 }, { icon: 3 }, { defaultBase: 3 }, { hidden: "no" }, { addedAt: "1" }, { groups: {} }, { groups: [{ id: "2", name: "Later" }] }, { groups: [{ id: 2 }] }, { workItems: {} }, { workItems: [null] }]) {
       expect(read([{ ...repository, ...wrong }])).toEqual([]);
     }
@@ -201,7 +288,51 @@ describe("RepositoryStore, started from work-items.json", () => {
     expect(made.repository.id).toBe(2);
     expect(file(dir)).toEqual(store.repositories());
     expect(store.repositories().map((repository) => repository.workItems.map((item) => item.id))).toEqual([[1, 2], [5, 6]]);
+    // Each count is one past the highest id of its kind the old file gave.
+    expect(counts(dir)).toEqual([7, 3, 1]);
     expect(readFileSync(join(dir, "work-items.json"), "utf8")).toBe(bytes);
+  });
+
+  it("puts a work item whose folder is a linked worktree's under the repository of its main checkout, and one whose folder git cannot read under the folder the file holds", () => {
+    const dir = runDir();
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const linked = join(made.base, "linked");
+    git(made.repo, "worktree", "add", "--quiet", "-b", "side", linked);
+    const missing = join(made.base, "missing");
+    const items = [
+      { ...OLD, id: 1, repo: missing, createdAt: 5 },
+      { ...OLD, id: 2, repo: linked, createdAt: 6 },
+      { ...OLD, id: 3, repo: made.repo, createdAt: 7 },
+      { ...OLD, id: 4, repo: join(linked, "nowhere"), createdAt: 8 },
+    ];
+    const bytes = JSON.stringify(items);
+    writeFileSync(join(dir, "work-items.json"), bytes);
+    const store = new RepositoryStore(dir, () => 99);
+    // The linked worktree's folder and the main checkout's name one repository, added when the first work item of either was made.
+    expect(store.repositories().map(({ id, folder, addedAt, workItems }) => [id, folder, addedAt, workItems.map((item) => item.id)])).toEqual([
+      [1, missing, 5, [1]],
+      [2, made.repo, 6, [2, 3]],
+      [3, join(linked, "nowhere"), 8, [4]],
+    ]);
+    // Every start before the first change gives the same store, and writes nothing.
+    expect(new RepositoryStore(dir, () => 100).repositories()).toEqual(store.repositories());
+    expect(readdirSync(dir)).toEqual(["work-items.json"]);
+    store.setWorkItem(2, { pinned: true });
+    expect(file(dir)).toEqual(store.repositories());
+    expect(readFileSync(join(dir, "work-items.json"), "utf8")).toBe(bytes);
+  });
+
+  it("reads each distinct folder of work-items.json once, through the reader it is handed", () => {
+    const dir = runDir();
+    writeFileSync(join(dir, "work-items.json"), JSON.stringify([OLD, DOCS, SEARCH]));
+    const read: string[] = [];
+    const store = new RepositoryStore(dir, () => 1, (folder) => {
+      read.push(folder);
+      return folder === "/r/docs" ? "/r/project" : null;
+    });
+    expect(read).toEqual(["/r/project", "/r/docs"]);
+    expect(store.repositories().map(({ id, folder, workItems }) => [id, folder, workItems.map((item) => item.id)])).toEqual([[1, "/r/project", [1, 5, 2]]]);
   });
 
   it("reads repositories.json alone once it exists, whatever work-items.json holds", () => {

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Group } from "../shared/protocol";
 import { writeWholeFile } from "./whole-file";
+import { repositoryOfSync } from "./worktrees";
 
 const FILE = "repositories.json";
 /** The list a build before the repositories kept, of work items alone. It is read where `FILE` does not exist, and never written. */
@@ -27,7 +28,7 @@ export interface StoredWorkItem {
 /** A repository as the store keeps it, with its work items inside it. */
 export interface StoredRepository {
   id: number;
-  /** The repository's top-level folder. */
+  /** The top-level folder of the repository's main checkout. One started from `work-items.json` whose folder git could not read then has the folder that file held. */
   folder: string;
   /** The name a person gave it, or null where the last part of its folder names it. */
   name: string | null;
@@ -120,6 +121,25 @@ function isOldWorkItem(value: unknown): value is OldWorkItem {
 /** What a work item holds of the fields a person sets, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
 
+/** The next id of each kind the store gives. Each only rises, so no id is given twice though the one that bore it was removed. */
+interface Counts {
+  nextWorkItemId: number;
+  nextRepositoryId: number;
+  nextGroupId: number;
+}
+
+/** What `repositories.json` holds: the three counts and the repositories. */
+type Stored = Counts & { repositories: StoredRepository[] };
+
+function isStored(value: unknown): value is Stored {
+  return isRecord(value) && typeof value.nextWorkItemId === "number" && typeof value.nextRepositoryId === "number" && typeof value.nextGroupId === "number" && Array.isArray(value.repositories) && value.repositories.every(isStoredRepository);
+}
+
+/** One past the highest of the ids, and 1 where there is none. */
+function past(ids: readonly number[]): number {
+  return ids.reduce((highest, id) => Math.max(highest, id), 0) + 1;
+}
+
 /** The JSON a file holds, or undefined where no file stands there. A file that cannot be read, and one that is no JSON, gives null. */
 function readJson(file: string): unknown {
   let text: string;
@@ -140,34 +160,50 @@ function readJson(file: string): unknown {
  * daemon's state, not the person's repository's: it lives in
  * `repositories.json` in the run directory, readable by the user alone, is
  * written whole at each change and is read at start, so it outlives the
- * daemon. A file that is not a list of repositories is read as none.
+ * daemon. The file holds the repositories and, beside them, the next id of
+ * a work item, of a repository and of a group. An id is unique over the
+ * whole store, and none is given twice: each count only rises, whatever
+ * leaves the store. A file that holds the list of repositories alone, which
+ * a build before the counts wrote, is read with each count one past the
+ * highest id of its kind. A file that is neither is read as no repository.
  *
  * Where that file does not exist, the store starts from `work-items.json`,
  * the list a build before the repositories wrote: one repository for each
- * distinct folder of its work items, in the order of each one's first work
- * item, added when that work item was made, with every work item under its
- * own and nothing set on any. That file is never written, so a build before
- * this one, started later, still reads it. Given no run directory, the store
- * is kept in memory alone.
+ * distinct repository its work items' folders name, in the order of each
+ * one's first work item, added when that work item was made, with every
+ * work item under its own and nothing set on any. `repositoryOfOld` reads
+ * the repository of each folder that file holds, as an addition reads it,
+ * so a folder that is a linked worktree's gives the main checkout it
+ * belongs to. Where it gives null, git cannot read the folder, and the
+ * folder stands as the file holds it. The read takes no turn of the event
+ * loop: the constructor returns with the store whole, before the daemon
+ * listens. That file is never written, so a build before this one, started
+ * later, still reads it. Given no run directory, the store is kept in
+ * memory alone.
  */
 export class RepositoryStore {
   private readonly held: StoredRepository[] = [];
   private readonly file: string | undefined;
+  private counts: Counts = { nextWorkItemId: 1, nextRepositoryId: 1, nextGroupId: 1 };
 
   constructor(
     runDir: string | undefined,
     private readonly now: () => number = Date.now,
+    repositoryOfOld: (folder: string) => string | null = repositoryOfSync,
   ) {
     this.file = runDir === undefined ? undefined : join(runDir, FILE);
     if (this.file === undefined || runDir === undefined) return;
     const value = readJson(this.file);
     if (value === undefined) {
-      this.startFrom(readJson(join(runDir, OLD_FILE)));
+      this.startFrom(readJson(join(runDir, OLD_FILE)), repositoryOfOld);
+      this.countPast();
       return;
     }
-    if (!Array.isArray(value) || !value.every(isStoredRepository)) return;
+    const repositories = isStored(value) ? value.repositories : value;
+    if (!Array.isArray(repositories) || !repositories.every(isStoredRepository)) return;
+    if (isStored(value)) this.counts = { nextWorkItemId: value.nextWorkItemId, nextRepositoryId: value.nextRepositoryId, nextGroupId: value.nextGroupId };
     // Only the fields of the store, whatever else the file's entries carry.
-    for (const { id, folder, name, icon, defaultBase, hidden, addedAt, groups, workItems } of value) {
+    for (const { id, folder, name, icon, defaultBase, hidden, addedAt, groups, workItems } of repositories) {
       this.held.push({
         id,
         folder,
@@ -180,6 +216,15 @@ export class RepositoryStore {
         workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt })),
       });
     }
+    // A file with no counts, and one whose counts stand below an id it holds, gives no id twice either.
+    this.countPast();
+  }
+
+  /** Raises each count that is not past every id of its kind the store holds. None is lowered. */
+  private countPast(): void {
+    this.counts.nextWorkItemId = Math.max(this.counts.nextWorkItemId, past(this.workItems().map(({ item }) => item.id)));
+    this.counts.nextRepositoryId = Math.max(this.counts.nextRepositoryId, past(this.held.map((repository) => repository.id)));
+    this.counts.nextGroupId = Math.max(this.counts.nextGroupId, past(this.held.flatMap((repository) => repository.groups.map((group) => group.id))));
   }
 
   /** Every repository, the hidden among them, in the order they were added. */
@@ -196,6 +241,10 @@ export class RepositoryStore {
     return this.workItems().find(({ item }) => item.id === id);
   }
 
+  repository(id: number): StoredRepository | undefined {
+    return this.held.find((repository) => repository.id === id);
+  }
+
   /**
    * Adds the repository of a top-level folder, with no work item. One the
    * store holds is not added twice, and is shown again where it was hidden.
@@ -210,7 +259,7 @@ export class RepositoryStore {
   /** Adds a work item to the repository of its folder, which is added first where the store does not hold it and shown again where it was hidden. */
   addWorkItem(place: Place): Held {
     const { repository } = this.shown(place.repo);
-    const id = this.workItems().reduce((highest, { item }) => Math.max(highest, item.id), 0) + 1;
+    const id = this.counts.nextWorkItemId++;
     const item: StoredWorkItem = { id, title: place.title, branch: place.branch, worktree: place.worktree, createdAt: this.now(), baseCommit: place.baseCommit, baseBranch: place.baseBranch, ...UNSET };
     repository.workItems.push(item);
     this.write();
@@ -233,6 +282,36 @@ export class RepositoryStore {
     return true;
   }
 
+  /**
+   * Sets on a repository the fields given, of those a person sets: its
+   * name, its icon, the base of its new work items and whether it is hidden.
+   * It answers whether the repository is another than it was, and writes the
+   * store only where it is. Undefined where no repository has the id.
+   */
+  setRepository(id: number, fields: Partial<Pick<StoredRepository, "name" | "icon" | "defaultBase" | "hidden">>): boolean | undefined {
+    const repository = this.repository(id);
+    if (!repository) return undefined;
+    const { name = repository.name, icon = repository.icon, defaultBase = repository.defaultBase, hidden = repository.hidden } = fields;
+    if (name === repository.name && icon === repository.icon && defaultBase === repository.defaultBase && hidden === repository.hidden) return false;
+    Object.assign(repository, { name, icon, defaultBase, hidden });
+    this.write();
+    return true;
+  }
+
+  /**
+   * Takes a repository and its work items, the archived among them, out of
+   * the store, and answers with it. Nothing on disk but the store's file is
+   * touched. The ids it and its work items bore are given to nothing after.
+   * Undefined where no repository has the id.
+   */
+  removeRepository(id: number): StoredRepository | undefined {
+    const at = this.held.findIndex((repository) => repository.id === id);
+    if (at === -1) return undefined;
+    const [removed] = this.held.splice(at, 1);
+    this.write();
+    return removed;
+  }
+
   /** The repository of a folder, not hidden: the one held, or a new one. Nothing is written here. */
   private shown(folder: string): { repository: StoredRepository; changed: boolean } {
     const known = this.held.find((repository) => repository.folder === folder);
@@ -241,20 +320,25 @@ export class RepositoryStore {
       known.hidden = false;
       return { repository: known, changed };
     }
-    const id = this.held.reduce((highest, repository) => Math.max(highest, repository.id), 0) + 1;
+    const id = this.counts.nextRepositoryId++;
     const repository: StoredRepository = { id, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: this.now(), groups: [], workItems: [] };
     this.held.push(repository);
     return { repository, changed: true };
   }
 
   /** Starts the store from what `work-items.json` holds. A file that is not a list of work items starts it empty. */
-  private startFrom(value: unknown): void {
+  private startFrom(value: unknown, repositoryOfOld: (folder: string) => string | null): void {
     if (!Array.isArray(value) || !value.every(isOldWorkItem)) return;
+    // The repository of each folder the file holds, read once for each.
+    const read = new Map<string, string>();
     for (const { id, title, repo, branch, worktree, createdAt, baseCommit, baseBranch } of value) {
-      let repository = this.held.find((known) => known.folder === repo);
+      // Where git cannot read the folder, it stands as the file holds it.
+      if (!read.has(repo)) read.set(repo, repositoryOfOld(repo) ?? repo);
+      const folder = read.get(repo) ?? repo;
+      let repository = this.held.find((known) => known.folder === folder);
       if (!repository) {
         // The time its first work item was made, so each start before the first change gives the same store.
-        repository = { id: this.held.length + 1, folder: repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: createdAt, groups: [], workItems: [] };
+        repository = { id: this.held.length + 1, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: createdAt, groups: [], workItems: [] };
         this.held.push(repository);
       }
       repository.workItems.push({ id, title, branch, worktree, createdAt, baseCommit: baseCommit ?? null, baseBranch: baseBranch ?? null, ...UNSET });
@@ -264,6 +348,6 @@ export class RepositoryStore {
   private write(): void {
     if (this.file === undefined) return;
     // A daemon that starts meanwhile never reads a half-written file, and a write that fails removes its partial file.
-    writeWholeFile(this.file, JSON.stringify(this.held));
+    writeWholeFile(this.file, JSON.stringify({ ...this.counts, repositories: this.held } satisfies Stored));
   }
 }

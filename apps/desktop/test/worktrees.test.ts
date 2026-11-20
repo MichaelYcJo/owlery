@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, renameBranch, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
@@ -302,6 +302,83 @@ describe("createWorktree", () => {
     const folder = join(base, "missing");
     await expect(createWorktree({ folder, title: "Anything", root })).rejects.toThrow(`${folder} is not inside a git repository`);
     expect(existsSync(root)).toBe(false);
+  });
+});
+
+describe("the repository of a folder", () => {
+  /** A linked worktree of the repository, on a branch of its own, with a folder inside it. */
+  function linked(made: { repo: string; base: string }): { worktree: string; inside: string } {
+    const worktree = join(made.base, "linked");
+    git(made.repo, "worktree", "add", "--quiet", "-b", "side", worktree);
+    const inside = join(worktree, "src", "deep");
+    mkdirSync(inside, { recursive: true });
+    return { worktree, inside };
+  }
+
+  /** A bare repository with one commit, and a linked worktree of it. */
+  function bare(made: { repo: string; base: string }): { worktree: string } {
+    const folder = join(made.base, "bare.git");
+    git(made.base, "clone", "--quiet", "--bare", made.repo, folder);
+    const worktree = join(made.base, "of-bare");
+    git(folder, "worktree", "add", "--quiet", "-b", "side", worktree);
+    return { worktree };
+  }
+
+  it("is the top-level folder of the main checkout, for a folder inside the main checkout and for one inside a linked worktree alike", async () => {
+    const made = repository();
+    const { worktree, inside } = linked(made);
+    mkdirSync(join(made.repo, "src"));
+    for (const folder of [made.repo, join(made.repo, "src"), worktree, inside]) {
+      expect(await repositoryOf(folder)).toBe(made.repo);
+      expect(repositoryOfSync(folder)).toBe(made.repo);
+    }
+  });
+
+  it("refuses a folder outside any repository with the sentence a creation there gets, and a folder whose repository has a bare main checkout with a sentence of its own", async () => {
+    const made = repository();
+    const plain = join(made.base, "plain");
+    mkdirSync(plain);
+    const { worktree } = bare(made);
+    await expect(repositoryOf(plain)).rejects.toThrow(`${plain} is not inside a git repository`);
+    await expect(repositoryOf(join(made.base, "missing"))).rejects.toThrow(`${join(made.base, "missing")} is not inside a git repository`);
+    await expect(repositoryOf(worktree)).rejects.toThrow(`${worktree} belongs to a bare repository, which has no checkout to keep`);
+    // The read at the daemon's start gives no folder for any of the three, and throws for none.
+    expect([repositoryOfSync(plain), repositoryOfSync(join(made.base, "missing")), repositoryOfSync(worktree)]).toEqual([null, null, null]);
+  });
+
+  it("puts a work item created in a linked worktree's folder under the main checkout, in the worktrees' folder of its name, and plans it there", async () => {
+    const made = repository();
+    const { inside } = linked(made);
+    const plan = await planWorktree({ folder: inside, title: "From a worktree", root: made.root });
+    expect([plan.branch, plan.worktree]).toEqual(["owlery/from-a-worktree", join(made.root, "project", "from-a-worktree")]);
+    const place = await createWorktree({ folder: inside, title: "From a worktree", root: made.root });
+    expect([place.repo, place.worktree]).toEqual([made.repo, join(made.root, "project", "from-a-worktree")]);
+  });
+});
+
+describe("the base a person chose for a repository", () => {
+  it("is the default base of a plan and the base of a creation without one, where the repository still lists it, and is passed over where it does not", async () => {
+    const made = repository();
+    git(made.repo, "branch", "--quiet", "develop");
+    const asked: string[] = [];
+    const chosenBase = (repo: string): string | null => {
+      asked.push(repo);
+      return "develop";
+    };
+    mkdirSync(join(made.repo, "src"));
+    const plan = await planWorktree({ folder: join(made.repo, "src"), title: "Planned", root: made.root, chosenBase });
+    expect([plan.defaultBase, plan.localBases]).toEqual(["develop", ["main", "develop"]]);
+    const place = await createWorktree({ folder: made.repo, title: "On develop", root: made.root, chosenBase });
+    expect(place.baseBranch).toBe("develop");
+    // The repository is named by its top-level folder, whatever folder inside it was sent.
+    expect(asked).toEqual([made.repo, made.repo]);
+    // A base that is sent stands before the one chosen for the repository.
+    expect((await createWorktree({ folder: made.repo, title: "On main", root: made.root, base: "main", chosenBase })).baseBranch).toBe("main");
+    git(made.repo, "branch", "--quiet", "-D", "develop");
+    expect((await planWorktree({ folder: made.repo, title: "Planned", root: made.root, chosenBase })).defaultBase).toBe("main");
+    expect((await createWorktree({ folder: made.repo, title: "Develop is gone", root: made.root, chosenBase })).baseBranch).toBe("main");
+    // No base is chosen: the repository's own default.
+    expect((await planWorktree({ folder: made.repo, title: "Planned", root: made.root, chosenBase: () => null })).defaultBase).toBe("main");
   });
 });
 

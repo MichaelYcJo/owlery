@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type Repository, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -40,6 +40,23 @@ function checkNaming(message: { repo: unknown; title: unknown; name?: unknown })
 /** How long a pane's silent start lasts where the options name no time. */
 const SILENT_START_MS = 10_000;
 
+/**
+ * How long the daemon waits for the processes of the panes it ended to exit,
+ * where the options name no time. A shell and an agent's CLI exit within a
+ * few hundredths of a second of the signal, and a person who confirmed a
+ * dialog waits on the answer, so the wait is as long as a slow exit and no
+ * longer.
+ */
+const END_WAIT_MS = 3000;
+
+const isIds = (value: unknown): value is number[] => Array.isArray(value) && value.every((id) => typeof id === "number");
+const isTextOrNull = (value: unknown): value is string | null => value === null || typeof value === "string";
+
+/** How many characters a text holds as a person counts them: an emoji of several code points is one. */
+function characters(text: string): number {
+  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+}
+
 export interface PaneCommand {
   command: string;
   args: string[];
@@ -70,6 +87,8 @@ export interface DaemonOptions {
   readyWaitMs?: number;
   /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
   silentStartMs?: number;
+  /** How long the daemon waits for the processes of the panes it ended to exit, before it refuses what ended them; 3 seconds when absent. */
+  endWaitMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -85,6 +104,8 @@ interface Session {
   output: OutputBuffer;
   /** The wait for the first event of a pane whose kind reports state. That event, the pane's end and the daemon's close each cancel it. */
   silentStart: NodeJS.Timeout | undefined;
+  /** Settled once the pane's process has exited. */
+  exited: Promise<void>;
 }
 
 interface HeadlessSession {
@@ -113,7 +134,7 @@ export class Daemon {
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
-  // What takes or gives up a branch runs one after another: a creation, and a rename that renames a branch. So two creations of one title never pick the same branch and folder, and a rename never takes the branch a creation chose. A plan changes nothing and does not wait behind them.
+  // What takes or gives up a branch runs one after another: a creation, and a rename that renames a branch. So two creations of one title never pick the same branch and folder, and a rename never takes the branch a creation chose. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan changes nothing and does not wait behind them.
   private changing: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
@@ -269,7 +290,7 @@ export class Daemon {
             checkNaming(message);
             // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
-            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random });
+            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
@@ -291,7 +312,7 @@ export class Daemon {
         const plan = async (): Promise<void> => {
           try {
             checkNaming(message);
-            const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random });
+            const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
             this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
@@ -316,6 +337,64 @@ export class Daemon {
         };
         // The store holds a folder once however many adds of it arrive together, so an add does not wait behind the creations.
         void add();
+        return;
+      }
+      case "setRepository": {
+        try {
+          const { name, icon, defaultBase, hidden } = message;
+          if ((name !== undefined && !isTextOrNull(name)) || (icon !== undefined && !isTextOrNull(icon)) || (defaultBase !== undefined && !isTextOrNull(defaultBase)) || (hidden !== undefined && typeof hidden !== "boolean")) {
+            throw new Error("a repository's name, its icon and its base are each a text or null, and whether it is hidden is true or false");
+          }
+          // An empty name and an empty icon are none: the repository is then named by its folder, and shows no icon.
+          const trimmed = (text: string | null | undefined): string | null | undefined => (typeof text === "string" ? text.trim() || null : text);
+          const character = trimmed(icon);
+          if (typeof character === "string" && characters(character) > 1) throw new Error("An icon is one character.");
+          const changed = this.store.setRepository(message.id, { name: trimmed(name), icon: character, defaultBase, hidden });
+          if (changed === undefined) throw new Error(`no repository ${String(message.id)}`);
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (changed) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "removeRepository": {
+        const remove = async (): Promise<void> => {
+          try {
+            const { workItems, running } = message as { workItems: unknown; running: unknown };
+            if (!isIds(workItems) || typeof running !== "object" || running === null || !isIds((running as Running).panes) || !isIds((running as Running).headless)) {
+              throw new Error("a removal names the repository's work items and its running sessions");
+            }
+            const repository = this.store.repository(message.id);
+            if (!repository) throw new Error(`no repository ${String(message.id)}`);
+            const ids = new Set(repository.workItems.map((item) => item.id));
+            // Every work item that leaves the lists is one the person read by name.
+            if ([...ids].some((id) => !workItems.includes(id))) throw new Error("A work item was added since you looked. Read it again.");
+            await this.endSessions(ids, running as Running, "ended when the repository was removed");
+            // Off the daemon's lists: the panes of the work items, the exited among them, the headless sessions, and what was read of each branch.
+            for (const [id, session] of this.sessions) {
+              if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
+              clearTimeout(session.silentStart);
+              this.sessions.delete(id);
+            }
+            for (const [id, session] of this.headless) if (ids.has(session.info.workItemId)) this.headless.delete(id);
+            for (const id of ids) {
+              this.commitCounts.delete(id);
+              this.aheadCounts.delete(id);
+              this.branches.delete(id);
+            }
+            // Nothing on disk is touched: the repository, each worktree's folder and each branch stay.
+            this.store.removeRepository(repository.id);
+            // The answer first, so the client that asked knows its request was carried out when the inbox carries the removal.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            this.broadcastInbox();
+            this.checkIdle();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        this.changing = this.changing.then(remove);
         return;
       }
       case "setWorkItem": {
@@ -465,6 +544,52 @@ export class Daemon {
     return workItem.worktree;
   }
 
+  /** The base a person chose for the new work items of the repository a folder names, or null where the daemon keeps no such repository or the person chose none. */
+  private readonly chosenBase = (repo: string): string | null => this.store.repositories().find((repository) => repository.folder === repo)?.defaultBase ?? null;
+
+  /** The running sessions of the work items given: the panes whose process is alive, and the headless sessions that are working. */
+  private runningIn(workItemIds: ReadonlySet<number>): { panes: Session[]; headless: HeadlessSession[] } {
+    return {
+      panes: [...this.sessions.values()].filter(({ info }) => info.alive && info.workItemId !== null && workItemIds.has(info.workItemId)),
+      headless: [...this.headless.values()].filter(({ info }) => info.state === "working" && workItemIds.has(info.workItemId)),
+    };
+  }
+
+  /**
+   * Ends the running sessions of the work items given, for a request that
+   * carries the sessions the person was told of. Where a session runs that
+   * `told` does not name, it refuses and ends none. Otherwise it kills each
+   * pane's process and stops each headless run, which is then `failed` with
+   * the error `why`, and waits until each pane's process has exited. It
+   * refuses where one has not within the wait, and where a session started
+   * in one of the work items while it waited. The panes stay listed, as
+   * exited ones.
+   */
+  private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string): Promise<void> {
+    const running = (): { panes: Session[]; headless: HeadlessSession[] } => {
+      const found = this.runningIn(workItemIds);
+      if (found.panes.some(({ info }) => !told.panes.includes(info.id)) || found.headless.some(({ info }) => !told.headless.includes(info.id))) throw new Error("A session started since you looked. Read it again.");
+      return found;
+    };
+    const { panes, headless } = running();
+    for (const session of headless) {
+      // The run of a session whose adapter is still starting is stopped when it has started.
+      session.run?.stop();
+      session.info.state = "failed";
+      session.info.error = why;
+      this.headlessChanged(session);
+    }
+    for (const session of panes) session.terminal.kill();
+    let waitTimer: NodeJS.Timeout | undefined;
+    const waited = new Promise<void>((resolve) => {
+      waitTimer = setTimeout(resolve, this.options.endWaitMs ?? END_WAIT_MS);
+    });
+    await Promise.race([Promise.all(panes.map((session) => session.exited)), waited]);
+    clearTimeout(waitTimer);
+    if (panes.some(({ info }) => info.alive)) throw new Error("A session did not end in time, so nothing was removed. Try again.");
+    running();
+  }
+
   /** Starts a headless session's run through the adapter, and keeps what its events say of it. */
   private startHeadless(session: HeadlessSession, cwd: string): void {
     const { info } = session;
@@ -496,8 +621,8 @@ export class Daemon {
     };
     this.options.roleAdapter.start({ prompt: info.prompt, cwd }, onEvent).then(
       (run) => {
-        // A daemon that closed while the adapter was starting stopped no run of this session.
-        if (this.closed) run.stop();
+        // A daemon that closed while the adapter was starting stopped no run of this session, and neither did what ended the session meanwhile.
+        if (this.closed || info.state !== "working") run.stop();
         else session.run = run;
       },
       (error: unknown) => failed(error instanceof Error ? error.message : String(error)),
@@ -522,7 +647,16 @@ export class Daemon {
       rows: pane.rows,
       env: { ...process.env, ...env },
     });
-    const session: Session = { info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null }, terminal, output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024), silentStart: undefined };
+    let exited = (): void => {};
+    const session: Session = {
+      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null },
+      terminal,
+      output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
+      silentStart: undefined,
+      exited: new Promise<void>((resolve) => {
+        exited = resolve;
+      }),
+    };
     this.sessions.set(id, session);
     if (this.reportsState(pane.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
     // What the session prints is kept for a replay and sent to the clients that receive the session.
@@ -533,6 +667,7 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode) => {
       session.info.alive = false;
+      exited();
       clearTimeout(session.silentStart);
       // A closed pane is on no list, and its end is no client's news.
       if (this.sessions.get(id) === session) {
