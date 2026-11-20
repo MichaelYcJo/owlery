@@ -7,7 +7,7 @@ A pane lacked the basics every terminal has. A file dropped on it typed nothing.
 | Cmd+W closed the window and every pane in it | Cmd+W closes the pane in front. It asks first where that pane's agent is working |
 | On macOS, closing the window left nothing to show a notification | Closing the window hides it. Owlery keeps running, and notifications keep coming |
 | A dropped file typed nothing | Its path is typed into the pane, escaped as a shell reads it |
-| A URL or a path in a pane was plain text | A click with the Command key held opens the URL in the browser, shows the path in Finder, or brings another work item's worktree to the front |
+| A URL or a path in a pane was plain text | A click with the Command key held opens the URL in the browser, shows the path in Finder, or brings another work item's view to the front |
 | Resting the pointer on a link showed nothing | A card shows the whole target and a row for each action, with the click that does the same |
 | A right click offered no terminal action | A menu: Copy, Paste, Select All, Clear Screen, Reset Terminal, Close Pane |
 | Shift+Enter sent Enter | It sends a line feed, which Claude Code reads as a line break |
@@ -21,8 +21,6 @@ A pane lacked the basics every terminal has. A file dropped on it typed nothing.
 - **The window.** It never leaves Owlery's own page, and no second window opens, whatever a pane prints or a person drops on it.
 
 **What changes for the window's terminal.** "Clear Screen" also has the daemon forget what the pane printed, so the old output does not come back when the person returns to the pane. Modes the program set stay, such as pastes in brackets, so pasting into the program works the same way after a clear. "Reset Terminal" ends those modes as well. A daemon left running from an earlier build does not know the request: there the old output comes back until that daemon ends.
-
-**What changes for anyone who starts the app in tests.** An app started with `OWLERY_BACKGROUND=1` never opens the browser and never shows Finder. It keeps a clipboard of its own and never hides its window on close. `OWLERY_OPENER` names a program that stands in for the browser and for Finder.
 
 Not verified, for the owner's hand run of #24:
 
