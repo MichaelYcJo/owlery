@@ -2,8 +2,9 @@
 // the native folder dialog, which a page cannot open, the theme a person
 // chose, which the main process keeps (./appearance), what a menu's
 // "Open in" and "Copy" items need of the Mac: the editors and terminals it
-// holds, a folder opened in Finder or in one of them, and the clipboard
-// (src/main/openers), and the window's coming forward, which a sandboxed
+// holds, a folder opened in Finder or in one of them, and the clipboard,
+// the Trash a removed repository's folder moves to where the person chose
+// it (src/main/openers), and the window's coming forward, which a sandboxed
 // page cannot do itself. Everything else goes between the window and the
 // daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
@@ -17,6 +18,7 @@ export const Channel = {
   installedApps: "owlery:installed-apps",
   openFolder: "owlery:open-folder",
   copyText: "owlery:copy-text",
+  trashFolder: "owlery:trash-folder",
   comeForward: "owlery:come-forward",
 } as const;
 
@@ -51,6 +53,8 @@ export interface OwleryApi {
   openFolder(folder: string, app: string | null): Promise<string | null>;
   /** Writes a text to the system's clipboard. */
   copyText(text: string): Promise<void>;
+  /** Moves a repository's folder to the macOS Trash, whole. The window asks it after the daemon answered that the repository is removed, and only where the person chose it. The main process moves a folder that holds `.git` at its top and no other path. It answers null, or why nothing was moved, as a sentence the window shows as it is. */
+  trashFolder(folder: string): Promise<string | null>;
   /** Asks the main process to bring the window in front of the person, and answers whether it did: an app started in the background brings nothing forward. */
   comeForward(): Promise<boolean>;
 }

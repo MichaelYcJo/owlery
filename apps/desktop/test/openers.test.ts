@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appFolders, copyText, installedApps, KNOWN_APPS, openFolder, type Openers } from "../src/main/openers";
+import { appFolders, copyText, installedApps, KNOWN_APPS, openFolder, trashFolder, type Openers } from "../src/main/openers";
 
 const HOME = "/Users/someone";
 
@@ -135,5 +135,36 @@ describe("copyText", () => {
     copyText(7, (text) => written.push(text));
     copyText(undefined, (text) => written.push(text));
     expect(written).toEqual([]);
+  });
+});
+
+describe("trashFolder", () => {
+  /** A stand-in for the system's Trash: it notes each folder it is handed, and fails with `fails` where one is given. Nothing is moved. */
+  function trash(fails?: string) {
+    const moved: string[] = [];
+    return { moved, move: async (folder: string) => { moved.push(folder); if (fails !== undefined) throw new Error(fails); } };
+  }
+
+  it("hands the function it was given the repository's folder alone, and answers nothing where the move was made", async () => {
+    const { openers } = mac([]);
+    const { moved, move } = trash();
+    expect(await trashFolder(REPOSITORY, openers.exists, move)).toBeNull();
+    expect(moved).toEqual([REPOSITORY]);
+  });
+
+  it("answers the failure's sentence where the move fails", async () => {
+    const { openers } = mac([]);
+    const { moved, move } = trash("The Trash cannot take the folder.");
+    expect(await trashFolder(REPOSITORY, openers.exists, move)).toBe("The Trash cannot take the folder.");
+    expect(moved).toEqual([REPOSITORY]);
+  });
+
+  it("moves no path that is not whole from /, none where nothing stands, and none that holds no `.git` at its top: the folder above a repository, a folder inside one and the person's home among them", async () => {
+    const { openers } = mac([], {}, ["/r", `${REPOSITORY}/src`, HOME]);
+    const { moved, move } = trash();
+    for (const folder of ["project", "", "~", 7, undefined, null]) expect(await trashFolder(folder, openers.exists, move)).toBe("A folder is moved to the Trash by its whole path.");
+    expect(await trashFolder("/r/gone", openers.exists, move)).toBe("/r/gone is gone.");
+    for (const folder of ["/r", `${REPOSITORY}/src`, HOME]) expect(await trashFolder(folder, openers.exists, move)).toBe("Owlery moves a repository's folder to the Trash, and nothing else.");
+    expect(moved).toEqual([]);
   });
 });

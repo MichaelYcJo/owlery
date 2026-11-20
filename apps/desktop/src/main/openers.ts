@@ -1,8 +1,10 @@
-// What the main process does for a menu's "Open in" and "Copy" items: which
-// editors and terminals the Mac holds, opening a folder in Finder or in one
-// of them, and writing the clipboard. What reads the disk, runs a command,
-// opens a folder and writes the clipboard is handed in, so the cases run
-// without Electron and open no app.
+// What the main process does for a menu's "Open in" and "Copy" items, and
+// for a repository's removal: which editors and terminals the Mac holds,
+// opening a folder in Finder or in one of them, writing the clipboard, and
+// moving a repository's folder to the Trash. What reads the disk, runs a
+// command, opens a folder, writes the clipboard and moves a folder to the
+// Trash is handed in, so the cases run without Electron, open no app and
+// move nothing.
 import { isAbsolute, join } from "node:path";
 import type { InstalledApp } from "../shared/ipc";
 
@@ -83,4 +85,26 @@ export async function openFolder(folder: unknown, app: unknown, openers: Openers
 /** Writes a text to the clipboard through the writer it is handed. What is no text is not written. */
 export function copyText(text: unknown, write: (text: string) => void): void {
   if (typeof text === "string") write(text);
+}
+
+/**
+ * Moves a repository's folder to the Trash, whole, through the function it
+ * is handed, and with that folder alone. It answers null, or why nothing
+ * was moved, as a sentence the window shows as it is. The folder is a whole
+ * path from /, and holds `.git` at its top, as a repository's folder does:
+ * a path nothing stands at is answered as a folder that is gone, and any
+ * other path is moved nowhere, the folder above a repository and a folder
+ * inside one among them. Nothing in the folder is erased, and a person puts
+ * it back from the Trash.
+ */
+export async function trashFolder(folder: unknown, exists: (path: string) => boolean, trash: (folder: string) => Promise<void>): Promise<string | null> {
+  if (typeof folder !== "string" || !isAbsolute(folder)) return "A folder is moved to the Trash by its whole path.";
+  if (!exists(folder)) return `${folder} is gone.`;
+  if (!exists(join(folder, ".git"))) return "Owlery moves a repository's folder to the Trash, and nothing else.";
+  try {
+    await trash(folder);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }

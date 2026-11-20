@@ -7,7 +7,7 @@ import { Channel, type DaemonConnection, type DaemonFailure, type InstalledApp }
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { quitsWithLastWindow, takeBackground } from "./background";
 import { ensureDaemon } from "./daemon-client";
-import { copyText, installedApps, openFolder, type Openers } from "./openers";
+import { copyText, installedApps, openFolder, trashFolder, type Openers } from "./openers";
 import { comeForward } from "./forward";
 import { pickFolder } from "./pick-folder";
 
@@ -15,7 +15,8 @@ import { pickFolder } from "./pick-folder";
 // over WebSocket. The main process finds or starts it, opens the folder
 // dialog the window asks for, keeps the theme a person chose, opens a
 // folder in Finder or in an editor or a terminal, and writes the clipboard,
-// for the items of a menu, and brings the window forward when the window asks.
+// for the items of a menu, moves a removed repository's folder to the Trash
+// where the person chose it, and brings the window forward when the window asks.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
 // A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard.
@@ -83,6 +84,8 @@ app.whenReady().then(() => {
   ipcMain.handle(Channel.installedApps, (): InstalledApp[] => installedApps(openers.exists, openers.home).map(({ name, kind }) => ({ name, kind })));
   ipcMain.handle(Channel.openFolder, (_event, folder: unknown, name: unknown): Promise<string | null> => openFolder(folder, name, openers));
   ipcMain.handle(Channel.copyText, (_event, text: unknown): void => copyText(text, (written) => clipboard.writeText(written)));
+  // The folder goes to the macOS Trash whole, and a person puts it back from there.
+  ipcMain.handle(Channel.trashFolder, (_event, folder: unknown): Promise<string | null> => trashFolder(folder, openers.exists, (path) => shell.trashItem(path)));
   // The window asks at a person's click on its notification, so the app takes the front from whichever app the person is in.
   ipcMain.handle(Channel.comeForward, (event): boolean => comeForward(BrowserWindow.fromWebContents(event.sender), background, () => app.focus({ steal: true })));
   if (process.platform === "darwin") {
