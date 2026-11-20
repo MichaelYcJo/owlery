@@ -987,6 +987,7 @@ describe("daemonLists", () => {
     const archived: WorkItem = { ...SEARCH, archivedAt: 50 };
     expect(daemonLists({ repositories: [PROJECT], archived: [archived] })).toEqual({ repositories: [PROJECT], archived: [archived], notice: "" });
     expect(daemonLists({ repositories: [], archived: [] })).toEqual({ repositories: [], archived: [], notice: "" });
+    expect(daemonLists({ repositories: [PROJECT] })).toEqual({ repositories: [PROJECT], archived: [], notice: "" });
   });
 
   it("gives no repository, no archived work item and the notice of an earlier build where the daemon sends no repositories", () => {

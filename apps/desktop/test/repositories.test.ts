@@ -135,6 +135,10 @@ describe("RepositoryStore", () => {
     mkdirSync(join(dir, "repositories.json"));
     expect(() => new RepositoryStore(dir).addWorkItem(PLACE)).toThrow(/rename/);
     expect(readdirSync(dir)).toEqual(["repositories.json"]);
+    // What stands there cannot be read, and is not read as absent: the store does not start from work-items.json.
+    writeFileSync(join(dir, "work-items.json"), JSON.stringify([OLD]));
+    expect(new RepositoryStore(dir).repositories()).toEqual([]);
+    rmSync(join(dir, "work-items.json"));
     expect(statSync(join(dir, "repositories.json")).isDirectory()).toBe(true);
   });
 
