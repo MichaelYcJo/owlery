@@ -50,6 +50,7 @@
         --fact-label: 76px;
         --said-height: 260px;
         --dialog-width: 460px;
+        --link-card-width: 480px;
         --tab-width: 240px;
         --dot: 6px;
         --seal-size-line: 18px;
@@ -333,9 +334,22 @@
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
       input::placeholder { color: var(--ink-faint); }
 
-      #work-item-dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
-      #work-item-dialog::backdrop { background: var(--backdrop); }
+      #work-item-dialog, #close-pane-dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
+      #work-item-dialog::backdrop, #close-pane-dialog::backdrop { background: var(--backdrop); }
       #work-item-dialog h2 { margin-bottom: var(--space-6); }
+      #close-pane-sentence { margin: 0 0 var(--space-6); overflow-wrap: anywhere; }
+      #close-pane-dialog .row { display: flex; justify-content: flex-end; gap: var(--space-4); }
+      /* The card of the link under the pointer, in a pane. Its place is the window's own, set where it shows. */
+      #link-card { position: fixed; z-index: 10; box-sizing: border-box; max-width: var(--link-card-width); padding: var(--space-3); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      #link-card .target { display: block; padding: var(--space-2) var(--space-4) var(--space-3); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; user-select: text; }
+      #link-card button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-7); box-sizing: border-box; width: 100%; height: var(--control-height); padding: 0 var(--space-4); border-radius: var(--radius-control); font-size: var(--size-second); white-space: nowrap; text-align: left; }
+      #link-card button:hover { background: var(--hover); transition: background-color var(--motion); }
+      #link-card .keys { color: var(--ink-faint); }
+      #pane-menu { position: fixed; z-index: 11; box-sizing: border-box; padding: var(--space-3); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); outline: 0; }
+      #pane-menu button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-7); box-sizing: border-box; width: 100%; height: var(--control-height); padding: 0 var(--space-4); border-radius: var(--radius-control); font-size: var(--size-second); white-space: nowrap; text-align: left; }
+      #pane-menu button:not(:disabled):hover, #pane-menu button:focus { background: var(--hover); outline: 0; transition: background-color var(--motion); }
+      #pane-menu .keys { color: var(--ink-faint); }
+      #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
       #work-item-dialog label { display: block; margin-bottom: var(--space-5); font-size: var(--size-second); color: var(--ink-muted); }
       #work-item-dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
       #work-item-dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
@@ -535,6 +549,14 @@
         </div>
       </form>
     </dialog>
+    <dialog id="close-pane-dialog" aria-labelledby="close-pane-sentence">
+      <p id="close-pane-sentence"></p>
+      <div class="row">
+        <button type="button" id="close-pane-cancel" class="quiet">Cancel</button>
+        <button type="button" id="close-pane-confirm" class="primary">Close pane</button>
+      </div>
+    </dialog>
+    <div id="link-card" hidden></div>
     <script src="./renderer.js"></script>
   </body>
 </html>

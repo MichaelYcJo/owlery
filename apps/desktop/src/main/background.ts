@@ -32,3 +32,17 @@ export function takeBackground(env: NodeJS.ProcessEnv): boolean {
 export function quitsWithLastWindow(platform: NodeJS.Platform, background: boolean): boolean {
   return platform !== "darwin" || background;
 }
+
+/**
+ * True where a close of the window hides it and leaves its page loaded: on
+ * macOS, in an app that was not started in the background and is not
+ * quitting. The page raises the notifications, so a session that begins to
+ * wait while the window is closed still notifies, and a click on the Dock
+ * icon or on a notification shows the window again. From Quit on, a close
+ * closes, so the app ends. An app started in the background has no Dock
+ * icon that would bring a hidden window back, and another platform quits
+ * with its last window (`quitsWithLastWindow`), so both close the window.
+ */
+export function closeHides(platform: NodeJS.Platform, background: boolean, quitting: boolean): boolean {
+  return platform === "darwin" && !background && !quitting;
+}

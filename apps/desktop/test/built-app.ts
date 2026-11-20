@@ -1,6 +1,7 @@
 // Builds the app from the tree, starts it with the binary the suite runs in,
 // and speaks to its window through Electron's debugging port. A case that
-// reads the window as a person sees it starts here.
+// reads the window as a person sees it starts here, and so does one that
+// reads what the main process holds, through that process's inspector.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -84,20 +85,12 @@ interface Pending {
   reject: (error: Error) => void;
 }
 
-/** The built app, running with a user data folder of its own, and a session of its window's debugging port. */
-export class BuiltApp {
+/** One session of a debugging port: of the window's page, or of the main process's inspector. */
+class DebugSession {
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
-  private daemon: number | undefined;
-  private stopped: Promise<number[]> | undefined;
-  private focused = false;
 
-  private constructor(
-    private readonly child: ChildProcess,
-    private readonly socket: WebSocket,
-    /** The folder `--user-data-dir` names. The daemon's run folder is `run` under it. */
-    readonly userData: string,
-  ) {
+  private constructor(private readonly socket: WebSocket) {
     socket.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data)) as { id?: number; result?: unknown; error?: unknown };
       const waiting = message.id === undefined ? undefined : this.pending.get(message.id);
@@ -108,6 +101,61 @@ export class BuiltApp {
     });
   }
 
+  /** Opens the session at the address a debugging port listed. */
+  static async open(address: string): Promise<DebugSession> {
+    const socket = new WebSocket(address);
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("open", () => resolve(), { once: true });
+      socket.addEventListener("error", () => reject(new Error("the debugging port refused the session")), { once: true });
+    });
+    return new DebugSession(socket);
+  }
+
+  /** One call, answered with its result. */
+  call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, { resolve: resolve as (result: unknown) => void, reject });
+      this.socket.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  /** The value of an expression. A promise is awaited. */
+  async evaluate<T>(expression: string): Promise<T> {
+    const answer = await this.call<{ result: { value: T }; exceptionDetails?: unknown }>("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+    if (answer.exceptionDetails) throw new Error(`${expression}: ${JSON.stringify(answer.exceptionDetails)}`);
+    return answer.result.value;
+  }
+
+  close(): void {
+    this.socket.close();
+  }
+}
+
+/** What a debugging port lists: a page, or the main process. */
+interface Target {
+  type: string;
+  url: string;
+  webSocketDebuggerUrl: string;
+}
+
+/** The built app, running with a user data folder of its own, and a session of its window's debugging port. */
+export class BuiltApp {
+  private daemon: number | undefined;
+  private stopped: Promise<number[]> | undefined;
+  private focused = false;
+
+  private constructor(
+    private readonly child: ChildProcess,
+    private readonly page: DebugSession,
+    /** The session of the main process's inspector, where the start opened it. */
+    private readonly main: DebugSession | undefined,
+    /** The window's debugging port. */
+    private readonly port: number,
+    /** The folder `--user-data-dir` names. The daemon's run folder is `run` under it. */
+    readonly userData: string,
+  ) {}
+
   /**
    * Starts the app built in `dist/` and waits for its window's page. `env`
    * is added to the suite's own environment. The user data folder is a new
@@ -116,23 +164,26 @@ export class BuiltApp {
    * `OWLERY_BACKGROUND` set to `1`, so its window takes neither the system's
    * focus nor the person's keyboard. A caller that opens the app for a person
    * to type in passes `keepBackground`, and the variable stays as the
-   * caller's own environment has it.
+   * caller's own environment has it. A caller that reads what the main
+   * process holds, such as the menu Electron built, passes `inspectMain`,
+   * and the app starts with the main process's inspector open on a port of
+   * its own, for `evaluateMain`.
    */
-  static async start(env: Record<string, string>, { keepBackground = false } = {}): Promise<BuiltApp> {
+  static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false } = {}): Promise<BuiltApp> {
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
     const port = await freePort();
+    const mainPort = inspectMain ? await freePort() : undefined;
     const appEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
     // Without the variable the suite's binary starts as the app.
     delete appEnv.ELECTRON_RUN_AS_NODE;
     if (!keepBackground) appEnv.OWLERY_BACKGROUND = "1";
-    const child = spawn(process.execPath, [APP_DIR, `--remote-debugging-port=${port}`, `--user-data-dir=${userData}`], { env: appEnv, stdio: "ignore" });
+    // The inspector's switch is the binary's own, so it stands before the app's folder.
+    const args = [...(mainPort === undefined ? [] : [`--inspect=${mainPort}`]), APP_DIR, `--remote-debugging-port=${port}`, `--user-data-dir=${userData}`];
+    const child = spawn(process.execPath, args, { env: appEnv, stdio: "ignore" });
     try {
-      const socket = new WebSocket(await pageSocket(port));
-      await new Promise<void>((resolve, reject) => {
-        socket.addEventListener("open", () => resolve(), { once: true });
-        socket.addEventListener("error", () => reject(new Error("the debugging port refused the session")), { once: true });
-      });
-      const started = new BuiltApp(child, socket, userData);
+      const page = await DebugSession.open((await listed(port, (target) => target.type === "page", "the app opened no window")).webSocketDebuggerUrl);
+      const main = mainPort === undefined ? undefined : await DebugSession.open((await listed(mainPort, () => true, "the main process opened no inspector")).webSocketDebuggerUrl);
+      const started = new BuiltApp(child, page, main, port, userData);
       started.focused = await started.evaluate<boolean>("document.hasFocus()");
       return started;
     } catch (error) {
@@ -155,18 +206,28 @@ export class BuiltApp {
 
   /** One call of the debugging port, answered with its result. */
   cdp<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const id = this.nextId++;
-      this.pending.set(id, { resolve: resolve as (result: unknown) => void, reject });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
+    return this.page.call<T>(method, params);
   }
 
   /** The value of an expression in the window's page. A promise is awaited. */
-  async evaluate<T>(expression: string): Promise<T> {
-    const answer = await this.cdp<{ result: { value: T }; exceptionDetails?: unknown }>("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
-    if (answer.exceptionDetails) throw new Error(`${expression}: ${JSON.stringify(answer.exceptionDetails)}`);
-    return answer.result.value;
+  evaluate<T>(expression: string): Promise<T> {
+    return this.page.evaluate<T>(expression);
+  }
+
+  /**
+   * The value of an expression in the main process, where the app started
+   * with `inspectMain`. `electron` is in scope: the module the main process
+   * itself requires. A promise is awaited.
+   */
+  evaluateMain<T>(expression: string): Promise<T> {
+    if (!this.main) throw new Error("the app started without the main process's inspector");
+    return this.main.evaluate<T>(`(() => { const electron = (typeof require === "function" ? require : process.mainModule.require)("electron"); return (${expression}); })()`);
+  }
+
+  /** The URL of each page the debugging port lists: one for each window the app holds, shown or not. */
+  async pages(): Promise<string[]> {
+    const targets = (await (await fetch(`http://127.0.0.1:${this.port}/json/list`)).json()) as Target[];
+    return targets.filter((target) => target.type === "page").map((target) => target.url);
   }
 
   /** Waits until an expression of the page is true, and says `what` never came where it is not within `ms`. */
@@ -226,7 +287,8 @@ export class BuiltApp {
   }
 
   private async end(): Promise<number[]> {
-    this.socket.close();
+    this.page.close();
+    this.main?.close();
     const pids = [this.child.pid, this.daemonPid()].filter((pid): pid is number => pid !== undefined);
     for (const pid of pids) if (alive(pid)) process.kill(pid, "SIGTERM");
     const left = await untilGone(pids, 10_000);
@@ -237,18 +299,18 @@ export class BuiltApp {
   }
 }
 
-/** The address of the session of the window's page, once the app has opened it. */
-async function pageSocket(port: number): Promise<string> {
+/** The first target a debugging port lists that `wanted` takes, once the app has opened it. It fails with `missing` where none came in thirty seconds. */
+async function listed(port: number, wanted: (target: Target) => boolean, missing: string): Promise<Target> {
   const deadline = Date.now() + 30_000;
   for (;;) {
     try {
-      const targets = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as { type: string; webSocketDebuggerUrl: string }[];
-      const page = targets.find((target) => target.type === "page");
-      if (page) return page.webSocketDebuggerUrl;
+      const targets = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as Target[];
+      const target = targets.find(wanted);
+      if (target) return target;
     } catch {
       // The app is not listening yet.
     }
-    if (Date.now() >= deadline) throw new Error("the app opened no window");
+    if (Date.now() >= deadline) throw new Error(missing);
     await sleep(200);
   }
 }

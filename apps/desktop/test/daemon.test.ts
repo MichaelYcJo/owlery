@@ -256,6 +256,58 @@ describe("sessions", () => {
     await leaves.until(() => printed(leaves, "got-three."));
   });
 
+  it("forgets a session's kept output at a forget, so the next replay holds only what the session printed afterwards, and changes nothing for an id it does not list", async () => {
+    // The pane answers each line it is sent, so the case decides when it prints.
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await c.message("started");
+    const printed = (text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
+    const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay");
+    c.send({ type: "input", id: session.id, data: "one\n" });
+    await c.until(() => printed("got-one."));
+
+    // No session has this id, and the one that printed keeps its output.
+    c.send({ type: "forget", id: session.id + 1 });
+    c.send({ type: "attach", id: session.id });
+    expect((await c.until(() => replays()[0])).data).toContain("got-one.");
+
+    c.send({ type: "forget", id: session.id });
+    c.send({ type: "input", id: session.id, data: "two\n" });
+    await c.until(() => printed("got-two."));
+    c.send({ type: "attach", id: session.id });
+    const later = await c.until(() => replays()[1]);
+    expect(later.data).toContain("got-two.");
+    expect(later.data).not.toContain("one");
+  });
+
+  it("keeps the modes a session's program set at a forget that asks for them, first in the next replay, and keeps nothing at a forget that does not ask", async () => {
+    // The pane asks for pastes in brackets, and then answers each line it is sent.
+    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'printf "\\033[?2004h"; while read line; do echo "got-$line."; done'], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await c.message("started");
+    const printed = (text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
+    const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay");
+    c.send({ type: "input", id: session.id, data: "one\n" });
+    await c.until(() => printed("got-one."));
+
+    c.send({ type: "forget", id: session.id, keepModes: true });
+    c.send({ type: "input", id: session.id, data: "two\n" });
+    await c.until(() => printed("got-two."));
+    c.send({ type: "attach", id: session.id });
+    const kept = await c.until(() => replays()[0]);
+    expect(kept.data.startsWith("\u001b[?2004h")).toBe(true);
+    expect(kept.data).toContain("got-two.");
+    expect(kept.data).not.toContain("one");
+
+    c.send({ type: "forget", id: session.id });
+    c.send({ type: "attach", id: session.id });
+    expect((await c.until(() => replays()[1])).data).toBe("");
+  });
+
   it("ends a session's output with the exit line, on a line of its own: sent to the clients that receive the session, and last in a later replay", async () => {
     const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf last; exit 3"], env: {} }) });
     const opener = await client(url);
@@ -1854,6 +1906,120 @@ describe("OutputBuffer", () => {
     const past = new OutputBuffer(5000);
     past.append(`${"a".repeat(4097)}\n${"z".repeat(903)}`);
     expect(past.text()).toBe(`${"a".repeat(4096)}\n${"z".repeat(903)}`);
+  });
+
+  it("holds nothing once it was emptied, and keeps what is printed afterwards under its size as before", () => {
+    const buffer = new OutputBuffer(10);
+    buffer.append("ab\ncd");
+    buffer.clear();
+    expect(buffer.text()).toBe("");
+    buffer.append("ef\n");
+    expect(buffer.text()).toBe("ef\n");
+    // The count starts again: ten characters fit, and the eleventh drops the first line.
+    buffer.append("ghijklm");
+    expect(buffer.text()).toBe("ef\nghijklm");
+    buffer.append("\nn");
+    expect(buffer.text()).toBe("ghijklm\nn");
+  });
+
+  /** What a buffer keeps of a text once it was emptied with its modes kept. */
+  const modesOf = (text: string): string => {
+    const buffer = new OutputBuffer(1000);
+    buffer.append(text);
+    buffer.clear(true);
+    return buffer.text();
+  };
+
+  it("keeps a private mode that was set, first in what it holds once it was emptied with its modes kept, and keeps it again at the next such emptying", () => {
+    const buffer = new OutputBuffer(1000);
+    // The sequence arrived in two pieces.
+    buffer.append("a line\r\n\u001b[?20");
+    buffer.append("04hanother\r\n");
+    buffer.clear(true);
+    expect(buffer.text()).toBe("\u001b[?2004h");
+    buffer.append("later\r\n");
+    expect(buffer.text()).toBe("\u001b[?2004hlater\r\n");
+    buffer.clear(true);
+    expect(buffer.text()).toBe("\u001b[?2004h");
+    // What it kept counts toward its size, as what is printed does: the thirteenth character drops the first line, and the sequence is in it.
+    const small = new OutputBuffer(12);
+    small.append("\u001b[?25l");
+    small.clear(true);
+    small.append("abcdef\n");
+    expect(small.text()).toBe("");
+  });
+
+  it("keeps none of the modes where it is emptied without them", () => {
+    const buffer = new OutputBuffer(1000);
+    buffer.append("\u001b[?2004ha line\r\n");
+    buffer.clear();
+    expect(buffer.text()).toBe("");
+  });
+
+  it("keeps a mode that was set and later reset as reset", () => {
+    expect(modesOf("\u001b[?2004hone\r\n\u001b[?2004ltwo\r\n")).toBe("\u001b[?2004l");
+  });
+
+  it("reads a mode's number as a number, so one written with a zero before it names the same mode", () => {
+    expect(modesOf("\u001b[?025l\u001b[?25h")).toBe("\u001b[?25h");
+  });
+
+  it("keeps the sequence its output stopped inside after the modes, so what the program prints next completes it", () => {
+    const buffer = new OutputBuffer(1000);
+    buffer.append("a line\r\n\u001b[?1000h\u001b[?20");
+    buffer.clear(true);
+    expect(buffer.text()).toBe("\u001b[?1000h\u001b[?20");
+    buffer.append("04hrest\r\n");
+    expect(buffer.text()).toBe("\u001b[?1000h\u001b[?2004hrest\r\n");
+    // Emptied without its modes, it keeps no unfinished sequence either.
+    buffer.append("\u001b[?20");
+    buffer.clear();
+    expect(buffer.text()).toBe("");
+  });
+
+  it.each([
+    ["an escape with nothing after it", "\u001b"],
+    ["an escape sequence that has only its intermediate character", "\u001b("],
+    ["a CSI sequence that has its parameters and no final character", "\u001b[38;5;1"],
+    ["an OSC string with no end", "\u001b]0;a ti"],
+  ])("keeps %s where its output stopped there", (_kind, open) => {
+    expect(modesOf(`one\r\n\u001b[1mtwo${open}`)).toBe(open);
+  });
+
+  it("keeps no sequence that ended before its output stopped: an OSC string ended by a bell, by its terminator, by a cancel or by a code from 80 to 9f, and a CSI sequence with its final character", () => {
+    expect(modesOf("\u001b]0;a title\u0007")).toBe("");
+    expect(modesOf("\u001b]0;a title\u0007one")).toBe("");
+    expect(modesOf("\u001b]0;a title\u001b\\one")).toBe("");
+    expect(modesOf("\u001b]0;a ti\u0018one")).toBe("");
+    expect(modesOf("\u001b]0;a ti\u001aone")).toBe("");
+    expect(modesOf("\u001b]0;a title\u009cone\r\n")).toBe("");
+    expect(modesOf("\u001b]0;a ti\u0085one\r\n")).toBe("");
+    expect(modesOf("\u001b[1m")).toBe("");
+    expect(modesOf("\u001b(B")).toBe("");
+  });
+
+  it("keeps a mode that was only reset", () => {
+    expect(modesOf("\u001b[?25lone\r\n")).toBe("\u001b[?25l");
+  });
+
+  it("keeps one sequence for each number of a sequence that names several modes", () => {
+    expect(modesOf("\u001b[?1000;1006hone\r\n")).toBe("\u001b[?1000h\u001b[?1006h");
+  });
+
+  it("keeps the modes in the order of the last sequence that named each", () => {
+    expect(modesOf("\u001b[?25l\u001b[?2004h\u001b[?1000h\u001b[?25h\u001b[?2004l")).toBe("\u001b[?1000h\u001b[?25h\u001b[?2004l");
+  });
+
+  it("keeps no mode set before the last full reset, and each set after it", () => {
+    expect(modesOf("\u001b[?1000h\u001bc\u001b[?1004h\u001bcone\u001b[?2004h\u001b[?25l")).toBe("\u001b[?2004h\u001b[?25l");
+  });
+
+  it("keeps no sequence that is no private mode sequence: a mode that is not private, and a request for a mode's state", () => {
+    expect(modesOf("\u001b[4h\u001b[?25$p\u001b[?2004h")).toBe("\u001b[?2004h");
+  });
+
+  it("holds nothing once it was emptied with its modes kept where it held no private mode sequence", () => {
+    expect(modesOf("one\r\n\u001b[1mtwo\u001b[0m\r\n")).toBe("");
   });
 });
 
