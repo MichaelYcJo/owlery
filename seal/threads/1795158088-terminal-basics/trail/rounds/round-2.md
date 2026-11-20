@@ -49,6 +49,11 @@ The paste-ready fix rewrites the two sentences and adds a row to *Not verified*.
 | That the guard on `will-navigate` refuses a navigation a drop starts, where `navigateOnDragDrop` is no longer `false`. Review round 2 set the option to `true` in a clone: a drop on a pane and on the view's header left the window on its page, and a second listener on `will-navigate` noted no navigation, so the guard was never asked | The change that sets `webPreferences` in `main.ts#createWindow` or moves Electron's version |
 ```
 
+```seal
+verdict: fixed de70c50
+answer: The finding holds. `phase-1.md` *What was seen red* scenario 1 saw the guard refuse a navigation the page asks for, and no run of either phase made a drop ask for one, so the two sentences named a ground nobody saw act. The paste-ready comment was read against `main.ts#createWindow`, which sets no `navigateOnDragDrop`, and against `electron.d.ts:20447-20450`, which gives the option's default as `false`; `de70c50` applies it at `work-item-view.ts:111-113` as written. The two `gaps.md` texts are in the pass's own words, because the paste-ready ones restate this record's probe and `gaps.md` now cites it instead. The bullet of *Not done* names Electron's default as the ground and says the guard is not it, and the new row of *Not verified*, after the row on the Control key, cites this finding for the one run with the option on. The row's answerer names `navigateOnDragDrop` where the paste-ready row named `webPreferences`. The probe was not rebuilt and no app was started: the pass typechecked `work-item-view.ts` and ran `test/themes.test.ts`, which reads the module's text, at `de70c50` (exit 0, 8 cases). The comment at `main.ts:52`, `changelog.md:11` and the `to` lines of `frame/design.md` *Rule changes* state the outcome and stand, as this record says. `17ed584` after it marks the two rows of *Not verified* this round read as closed and adds the pass's run to the first row.
+```
+
 ## Confirmations
 
 ```seal
