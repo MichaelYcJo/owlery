@@ -58,6 +58,11 @@ const OPEN_SEQUENCE = /\u001b(?:[ -/]*|\[[0-?]*[ -/]*|\][^\u0007\u0018\u001a\u00
 
 Scenario 22 says "a sequence that has ended, such as an OSC string closed by BEL, `ESC \` or a cancel, is not kept". That sentence gives examples and still holds, so the snippet leaves it.
 
+```seal
+verdict: fixed d8223c5
+answer: The finding holds. xterm 6.0.0's parser was read at `apps/desktop/node_modules/@xterm/xterm/src/common/parser/EscapeSequenceParser.ts:101-109`, `:129` and `:769`: every code from `80` to `9f` takes the parser out of an OSC string, and the loop that collects the string stops at each. The record's pattern and its three case rows were applied as written, and the comment on the pattern as written. The rows went in first. At `807288c`'s pattern the case was red at the `9c` row, `test/daemon.test.ts:1995`, which read the string and `one\r\n` as kept. The `85` row stands behind that one in the same case and the `1a` row was green there, so each was then shown red by a mutant of the fixed pattern under `seal mutate`, and each failing line was read. Without `\u001a` the case failed at `:1994`, the `1a` row. With `\u009c` alone in place of the range it failed at `:1996`, the `85` row. With the range cut to `\u0080-\u009b` it failed at `:1995`, the `9c` row. A fourth mutant with the range removed went red too. `test/daemon.test.ts` ran by itself at `8a90550`: 124 cases passed. `changelog.md` was left as it is: its line on a cleared pane says nothing the fix changes.
+```
+
 ### 2. The frame, two comments and `gaps.md` say the clear keeps every CSI sequence the output stopped inside, and list two kinds of sequence it drops, where it drops five
 
 ```seal
@@ -111,6 +116,11 @@ Every other sequence the output stops inside is not kept, and what follows it is
 Where the kept output stopped inside an escape, a CSI sequence or an OSC string, that unfinished sequence follows the modes, so what the session prints next completes it.
 ```
 
+```seal
+verdict: fixed 8a90550
+answer: The finding holds, and the pass did not widen the pattern: the frame states the five kinds as limits. `8a90550` rewrites the two comments. The comment on `clear` is the record's text, with one sentence added: "Every other unfinished sequence is dropped." The sentence at `protocol.ts:156` is the pass's own and not the snippet. The snippet says the sequence is kept where the output stopped inside "an escape, a CSI sequence or an OSC string", and a CSI with a control character inside it, or with a parameter character after an intermediate one, is a CSI sequence the clear drops, which is the contradiction the finding names at `frame/design.md:137`. The sentence now names the three shapes as *Scope* item 17 does, an escape alone or with its intermediate characters, a CSI sequence that holds only parameter characters followed only by intermediate characters, and an OSC string with no end, and says the daemon keeps no other. The comment on `OPEN_SEQUENCE` at `buffer.ts:8` said "a CSI sequence with no final character yet", which the same two kinds contradict, and the finding does not name that line. It was found by `git grep` on "unfinished sequence", "stops inside", "stopped inside" and "no final character" over the tree outside `trail/`, and it now names the same shape. That search is a sample. Its other hits are the names of two cases at `test/daemon.test.ts:1967` and `:1983`, which describe the text each case feeds and stand, and the frame's lines. `67d5d70` replaces the bullet at `gaps.md:42` with the record's text, except that its CSI reads "a CSI that holds only parameter characters followed only by intermediate characters", for the same reason. The two frame sentences are the orchestrator's fold at `807288c`. `frame/design.md:137` and `frame/plan.md:46` were read at HEAD and say what the pattern keeps and drops.
+```
+
 ### 3. `gaps.md:24` still names as its answerer the verifying round after round 4, which answered it
 
 ```seal
@@ -125,6 +135,11 @@ Why it matters: a row of *Not verified* tells the sealer what nobody has answere
 
 ```md
 | closed That a pane's menu closes where a click on a notification puts another work item's view in front while it is open. `work-item-view.ts#giveBack` closes the menu of a pane that leaves the stage, and it is the one function that takes a screen from a pane, so the click's path through `stageShows` reaches it. The case closes the menu's pane from a second client of the daemon, which reaches `giveBack` through `dropClosed`. No case clicks a notification with a menu open: `frame/plan.md` *Technical context* lets no case raise one | Read by review rounds 5 and 6, at `3534634` and `1398972`: `onNotificationClick` calls `openView` (`renderer.ts:175-179`), `enterView` unsets `front` (`work-item-view.ts:740`), `stageShows` calls `giveBack` for each screen whose pane leaves (`:550`), and `giveBack` calls `closeMenu(false)` for that pane's menu (`:532`). `trail/rounds/round-5.md` *Confirmations* holds the reading. No case runs it |
+```
+
+```seal
+verdict: fixed 67d5d70
+answer: The finding holds. The coordinates the row cites were opened at `807288c`: `renderer.ts:175-179`, and `work-item-view.ts:305-311`, `:532`, `:550` and `:740`, and each says what the row says. `git diff --stat 3534634..HEAD -- apps/desktop/src/renderer apps/desktop/src/main` printed nothing at `67d5d70`. Row 24 of `gaps.md` is now the record's row, as written. The same commit adds to row 7 what this pass ran, and replaces the bullet finding 2 names.
 ```
 
 ## Confirmations
