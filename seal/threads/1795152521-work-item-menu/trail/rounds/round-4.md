@@ -43,6 +43,11 @@ The row is what the orchestrator reads to choose between a run with an older git
 
 The snippet covers the one statement of this fact. `gaps.md:64` under `## Not done` speaks of a linked worktree alone and stays true. `worktrees.ts:96-98` states the precondition and stays true.
 
+```seal
+verdict: fixed 7dcd7fe
+answer: The finding holds, and the fix is the proposed row, applied after it was read against `apps/desktop/src/daemon/worktrees.ts`. `checkoutOf` gives null unless git prints one git directory twice, and `mainOf` refuses a first listed worktree with no `.git` at its top, so the read cannot name a git directory. The fix pass read that and did not build the round's probe again. `git grep` on "again name its git directory" finds the old words in this record alone. The refusal's sentence stands as it is. With git 2.31 or later, the precondition `worktrees.ts:96-98` states, only a linked worktree reaches the sentence, and there it is true. `frame/design.md:74` quotes it and a case of `apps/desktop/test/worktrees.test.ts` pins it. Telling a checkout from a linked worktree under an older git would add a read for a git the code does not support, so the row says what a person with such a git is told, and the orchestrator's choice between a run with an older git and a stated lowest version covers it. `seal unverified .` read the memo after the edit, exit 0. No code changed, so no case ran.
+```
+
 ### 2. A judgment's grounds in the plan say the start reads the old file once, with one git call per repository
 
 ```seal
@@ -55,6 +60,11 @@ Why it matters: the row of *Judgments of the run* at `frame/plan.md:113` gives a
 
 ```markdown
 | 2026-11-20 | A repository started from `work-items.json` takes the main checkout of each old `repo` folder, read as a new addition reads it, so a work item created inside a linked worktree joins its repository and the Trash never moves a worktree's folder; where git cannot read the folder, the folder stays as the old build stored it | The framer's fold `e0cc7bf` left the migrated folder as stored and named the Trash moving a worktree in the failure scenario. The start reads each distinct old `repo` folder at every start until the first change writes `repositories.json`, with one `git rev-parse`, and a `git worktree list` after it where the folder is not in a main checkout, within the 2 seconds of one folder | `frame/design.md` *Scope* items 1 and 16 |
+```
+
+```seal
+verdict: fixed 8637154
+answer: The finding holds. The orchestrator folded the record's cell at `8637154`, and the fix pass read that commit: it changes line 113 of `frame/plan.md` alone, to the cell above. The cell agrees with `apps/desktop/src/daemon/worktrees.ts#repositoryOfSync`, which runs `git rev-parse` and then `git worktree list` only where the first names no main checkout, under one deadline of `START_READ_MS`, and with `frame/plan.md:29`, which says each start reads the old file until the first change. `git grep` on "one git call" and on "runs once" finds neither in the frame or in `gaps.md` at `7dcd7fe`.
 ```
 
 ## Confirmations
