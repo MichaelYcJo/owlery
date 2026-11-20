@@ -726,15 +726,82 @@ export function notificationFor(
 }
 
 /**
- * The folder and the title the "New work item" form sends, or why it sends
- * nothing. An empty folder is refused here because the daemon would run git
- * with it in the daemon's own folder.
+ * What the "New work item" form sends of its fields, in a creation and in a
+ * plan, or why it sends nothing. `name` is the name the window generated for
+ * this opening of the form, and the title may be empty: the daemon then names
+ * the work item by `name`. `base` is the menu's choice, and null where the
+ * menu holds none or the request is a plan. An empty folder is refused here
+ * because the daemon would run git with it in the daemon's own folder.
  */
-export function workItemFields(repo: string, title: string): { repo: string; title: string } | { error: string } {
-  const fields = { repo: repo.trim(), title: title.trim() };
+export function workItemFields(repo: string, title: string, name: string, base: string | null): { repo: string; title: string; name: string; base?: string } | { error: string } {
+  const fields = { repo: repo.trim(), title: title.trim(), name };
   if (!fields.repo) return { error: "Choose the repository folder." };
-  if (!fields.title) return { error: "Give the work item a title." };
-  return fields;
+  return base === null ? fields : { ...fields, base };
+}
+
+/** What the daemon answered a plan with: what a `workItemPlan` carries, or the error it refused the plan with. */
+export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null } | { error: string };
+
+/**
+ * What the "New work item" form holds of its latest plan: the daemon's
+ * answer, and `repo`, the repository field's text the plan was asked for,
+ * without the spaces around it.
+ */
+export type FormPlan = { repo: string } & PlanAnswered;
+
+/**
+ * Which of the form's plans a message from the daemon answers, by its request
+ * id: the `latest` one, which the form shows, an `earlier` one, which it does
+ * not, or none, `other`. `asked` holds the ids of the plans not yet answered.
+ */
+export function planAnswer(latest: number | undefined, asked: ReadonlySet<number>, requestId: number): "latest" | "earlier" | "other" {
+  if (!asked.has(requestId)) return "other";
+  return requestId === latest ? "latest" : "earlier";
+}
+
+/** The plan the form holds, where it was asked for the text the repository field holds now. */
+function planOf(plan: FormPlan | null, repo: string): FormPlan | null {
+  return plan !== null && plan.repo === repo.trim() ? plan : null;
+}
+
+/**
+ * What the form shows under the name: the branch and the folder the work item
+ * will get, or, `failed`, the message the daemon refused the plan with, in
+ * the branch's place. Nothing where the form holds no answer for the
+ * repository field's text.
+ */
+export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; failed: boolean } {
+  const shown = planOf(plan, repo);
+  if (shown === null) return { branch: "", worktree: "", failed: false };
+  if ("error" in shown) return { branch: shown.error, worktree: "", failed: true };
+  return { branch: shown.branch, worktree: shown.worktree, failed: false };
+}
+
+/** A base a person chose in the form's menu, and the repository field's text it was chosen under. */
+export interface BaseChoice {
+  repo: string;
+  base: string;
+}
+
+/**
+ * The form's menu of the branches a work item can start from: the default
+ * base `first`, then the `local` branches and the `remote` ones without it,
+ * and the `value` chosen. The value is the person's choice while the
+ * repository field's text is the one it was made under and the plan lists it,
+ * and otherwise the default base, or the first base listed where the
+ * repository has none. The menu holds nothing, and its value is null, where
+ * the form holds no answer for the repository field's text or the answer
+ * lists no base.
+ */
+export function baseMenu(plan: FormPlan | null, choice: BaseChoice | null, repo: string): { first: string | null; local: string[]; remote: string[]; value: string | null } {
+  const shown = planOf(plan, repo);
+  if (shown === null || "error" in shown) return { first: null, local: [], remote: [], value: null };
+  const first = shown.defaultBase;
+  const local = shown.localBases.filter((base) => base !== first);
+  const remote = shown.remoteBases.filter((base) => base !== first);
+  const listed = [...(first === null ? [] : [first]), ...local, ...remote];
+  const kept = choice !== null && choice.repo === shown.repo && listed.includes(choice.base) ? choice.base : null;
+  return { first, local, remote, value: kept ?? listed[0] ?? null };
 }
 
 /**
