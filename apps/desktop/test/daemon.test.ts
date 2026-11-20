@@ -1122,16 +1122,20 @@ describe("repositories", () => {
     const { repo, root } = repository();
     let stopped = 0;
     const slow = fakeAdapter({ delayMs: 60_000 });
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await slow.start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const quick = fakeAdapter();
+    // The prompt "Quick?" is answered at once, and any other after a minute.
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
     const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
     await c.message("exit");
+    c.send({ type: "ask", requestId: 20, workItemId: workItem.id, prompt: "Quick?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
     c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which file?" });
-    const { headless } = await c.message("asked");
-    // The pane has exited, so the headless session is the one that runs.
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    // The pane has exited and the first headless session has finished, so the second is the one that runs, and the one a removal has to name.
     c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: NONE_RUNNING });
     expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "A session started since you looked. Read it again." });
     expect(stopped).toBe(0);
@@ -1208,7 +1212,11 @@ describe("repositories", () => {
     const made = await l.message("workItemCreated");
     await deaf(l, made.session.id);
     l.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [made.workItem.id], running: { panes: [made.session.id], headless: [] } });
+    // The start arrives once the removal has read the sessions and waits: two messages sent together are read in one turn, the start before the removal's first read.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(l.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 2)).toBe(false);
     l.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: made.workItem.id });
+    await l.message("started", (m) => m.requestId === 3);
     expect(await l.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "A session started since you looked. Read it again." });
     expect((await (await client(later.url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
     // Two daemons, and two processes that each outlive the signal for a moment.
