@@ -101,6 +101,11 @@ In item 21, for "Where one has not exited within the wait `frame/questions.md` Q
 Where one has not exited within the wait `frame/questions.md` Q2 leaves to the work, a delete is refused and removes nothing, and a repository's removal is refused and removes nothing more: the work items a removal that deletes deleted before it stay deleted (item 16).
 ```
 
+```seal
+verdict: fixed 5455b50
+answer: The finding holds. The fix pass left it to the orchestrator, because the crafter writes no frame sentence but the plan's Status cell. The orchestrator folded the record's two sentences word for word at `5455b50`, after reading them against `apps/desktop/src/daemon/daemon.ts#deleteOne`, whose one `read` refuses on the stamp, on `blocked` and on the force and runs twice, and against the `removeRepository` case, which keeps the work items deleted before a refusal deleted. `git grep -e 'same two ways' -e 'refused and removes nothing.'` over the thread's `frame/` finds neither at `5455b50`.
+```
+
 ### 3. The rule that `## Rule changes` adds to `docs/product.md` requires the force for any file no commit holds, and makes the removal's choice a Trash
 
 ```seal
@@ -121,6 +126,11 @@ The Korean row at `:257` says the same two things. The snippet replaces both `to
   to: - **Owlery deletes nothing of a person's work without that person's word.** An archive is the way out of the list, and it removes nothing. A delete removes a work item's worktree and its local branch after the person confirms. Where a commit no other branch holds, a change no commit holds or an untracked file would be lost, the delete runs only after the person has read each by name and chosen to force it. The files git ignores, such as `.env`, are named and go with the worktree without the force. Removing a repository from Owlery removes nothing on disk unless the person chooses it there: one choice deletes its work items' worktrees and local branches as a delete does, and another moves the repository's folder to the Trash. Nothing removes a branch on a remote.
 
   to: - **Owlery는 사람의 말 없이 그 사람의 결과물을 지우지 않습니다.** 목록에서 내보내는 길은 보관이고, 보관은 아무것도 지우지 않습니다. 삭제는 사람이 확인한 뒤에 작업의 worktree와 로컬 브랜치를 지웁니다. 다른 브랜치에 없는 커밋, 커밋하지 않은 변경, 추적하지 않는 파일을 잃게 될 때는, 사람이 그것들을 이름으로 읽고 강제 삭제를 고른 뒤에만 지웁니다. `.env`처럼 git이 무시하는 파일은 이름으로 보여 주고, 강제 삭제 없이 worktree와 함께 지웁니다. 저장소를 Owlery에서 뺄 때는 사람이 그 자리에서 고르지 않는 한 디스크에서 아무것도 지우지 않습니다. 한 선택은 작업의 worktree와 로컬 브랜치를 삭제처럼 지우고, 다른 선택은 저장소 폴더를 휴지통으로 옮깁니다. 원격의 브랜치는 어떤 경우에도 지우지 않습니다.
+```
+
+```seal
+verdict: fixed 5455b50
+answer: The finding holds. The orchestrator folded the record's English and Korean `to:` lines word for word at `5455b50`, and left their `check:` lines as they were. The lines agree with `apps/desktop/src/shared/protocol.ts#losesWork`, which counts commits, changed files and untracked files alone, and with *Scope* item 16's two choices.
 ```
 
 ## Confirmations
