@@ -22,6 +22,28 @@ export function agentKind(paneKinds: readonly PaneKindInfo[]): PaneKind | undefi
   return paneKinds.find((offered) => offered.reportsState)?.kind;
 }
 
+/** One choice of the pane bar of a work item's view: the button's text, its tooltip where it has one, and what its press starts. */
+export interface PaneChoice {
+  kind: PaneKind;
+  text: string;
+  hint: string | null;
+  continueLatest: boolean;
+}
+
+/**
+ * The choices of a work item's pane bar, in the daemon's order of kinds: each
+ * kind's own, and after it, for a kind that declares `continues`, the choice
+ * that starts a pane of it on the latest conversation of the worktree. A
+ * daemon of an earlier build sends no `continues`, and its kinds get one
+ * choice each.
+ */
+export function paneChoices(paneKinds: readonly PaneKindInfo[]): PaneChoice[] {
+  return paneKinds.flatMap(({ kind, label, continues }) => {
+    const own: PaneChoice = { kind, text: `+ ${label}`, hint: null, continueLatest: false };
+    return continues === true ? [own, { kind, text: `+ ${label} (continue)`, hint: "Start on the latest conversation of this worktree", continueLatest: true }] : [own];
+  });
+}
+
 /** The work item's panes whose process runs, the most recent first. */
 function livePanes(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
   return sessions.filter((session) => session.workItemId === workItem.id && session.alive).sort((a, b) => b.id - a.id);
