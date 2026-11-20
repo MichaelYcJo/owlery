@@ -387,7 +387,6 @@ export class BaseFetches {
   async fetch(repo: string, base: string, { reuse }: { reuse: boolean }): Promise<BaseFetch> {
     const ref = await baseRef(repo, base);
     if (ref === null) throw noBase(repo, base);
-    if (ref === `refs/heads/${base}`) return fetchRef(repo, base, ref, {});
     const key = `${repo}\n${ref}`;
     const joined = this.underWay.get(key);
     if (joined !== undefined) return joined;
@@ -504,7 +503,7 @@ export async function createWorktree(options: Naming & { folder: string; root: s
   if (baseBranch !== null) {
     const ref = await baseRef(repo, baseBranch);
     if (ref === null) throw noBase(repo, baseBranch);
-    if (ref !== `refs/heads/${baseBranch}`) await (options.fetches?.fetch(repo, baseBranch, { reuse: true }) ?? fetchRef(repo, baseBranch, ref, {}));
+    await (options.fetches?.fetch(repo, baseBranch, { reuse: true }) ?? fetchRef(repo, baseBranch, ref, {}));
     start = ref;
   }
   const { branch, worktree } = await placeFor(repo, options.root, options);

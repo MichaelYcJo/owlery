@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -441,6 +441,23 @@ describe("the fetch of a base", () => {
     await expect(fetchBase(repo, "origin/never")).rejects.toThrow(`${repo} has no branch origin/never to start a work item from`);
   });
 
+  it("runs the fetch with GIT_TERMINAL_PROMPT=0, so git asks nothing on a terminal", async () => {
+    const { base, origin, repo } = clone();
+    const moved = commitFile(origin, "moved.txt");
+    // A `git` before the real one on the path, which notes the variable a fetch runs with and runs the real one.
+    const bin = join(base, "bin");
+    const noted = join(base, "prompt.txt");
+    const path = process.env.PATH ?? "";
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n[ "$1" = fetch ] && echo "prompt=$GIT_TERMINAL_PROMPT" > '${noted}'\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${path}`;
+    cleanups.push(() => {
+      process.env.PATH = path;
+    });
+    expect(await fetchBase(repo, "origin/main")).toMatchObject({ commit: moved, fetch: "fetched" });
+    expect(readFileSync(noted, "utf8")).toBe("prompt=0\n");
+  });
+
   it("gives up a remote that does not answer within the wait, and ends the process git started for it and leaves no lock", async () => {
     const made = clone();
     const held = commitOf(made.repo, "refs/remotes/origin/main");
@@ -455,7 +472,7 @@ describe("the fetch of a base", () => {
     expect(locks).toEqual([]);
   });
 
-  it("keeps the daemon's fetches: one fetch for those who ask while it is under way, a result a creation reuses while it is fresh, and no fetch left once it closes", async () => {
+  it("keeps a fetch's result for a creation while it is fresh, fetches again for a creation once it is not, and fetches for whoever asks without reuse", async () => {
     const { origin, repo, root } = clone();
     let clock = 1000;
     const fetches = new BaseFetches({ freshMs: 60, now: () => clock });

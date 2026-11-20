@@ -886,6 +886,10 @@ describe("the fetch of a base", () => {
     clock += 1;
     c.send({ type: "createWorkItem", requestId: 3, repo, title: "Later", base: "origin/main", kind: "shell", cols: 80, rows: 24 });
     expect((await c.message("workItemCreated", (m) => m.requestId === 3)).workItem.baseCommit).toBe(later);
+    // A client's own request asks the remote again, however lately a fetch ended.
+    const again = commitFile(origin, "again.txt");
+    c.send({ type: "fetchBase", requestId: 4, repo, base: "origin/main" });
+    expect((await c.message("baseFetched", (m) => m.requestId === 4)).commit).toBe(again);
   });
 
   it("has a creation join the fetch of its base that is under way: one fetch runs, and the work item is made after its answer", async () => {
