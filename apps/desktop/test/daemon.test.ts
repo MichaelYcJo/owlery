@@ -1099,8 +1099,11 @@ describe("repositories", () => {
     // The refusals ended nothing and removed nothing.
     const still = await (await client(url)).message("ready");
     expect([still.repositories.map((r) => r.id), still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive])]).toEqual([[1], [1], [[session.id, true]]]);
+    const sent = Date.now();
     c.send({ type: "removeRepository", requestId: 5, id: 1, workItems: [workItem.id], running: { panes: [session.id], headless: [] } });
     await c.message("done", (m) => m.requestId === 5);
+    // The answer comes when the pane's process has exited, and does not wait out the three seconds a process is given.
+    expect(Date.now() - sent).toBeLessThan(2000);
     const removed = await c.message("inbox", (m) => m.repositories.length === 0);
     expect([removed.workItems, removed.archived, removed.sessions]).toEqual([[], [], []]);
     expect((await c.message("exit")).id).toBe(session.id);
@@ -1139,26 +1142,71 @@ describe("repositories", () => {
     expect([after.repositories, after.workItems, after.sessions, after.headless]).toEqual([[], [], [], []]);
   });
 
+  it("stops the run of a headless session a removal ended while its adapter was still starting, once it has started", async () => {
+    const { repo, root } = repository();
+    let stopped = 0;
+    const inner = fakeAdapter({ delayMs: 60_000 });
+    // The adapter takes a moment to start a run, as one that launches a process does.
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    await c.message("exit");
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked");
+    c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
+    await c.message("done", (m) => m.requestId === 3);
+    // Every client was told that the session failed, and why, before it left the lists.
+    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "failed" ? [m.headless.error] : []))).toEqual(["ended when the repository was removed"]);
+    expect(stopped).toBe(0);
+    await c.until(() => (stopped === 1 ? true : undefined));
+  });
+
+  it("removes a repository only after a creation in it that is under way, so the work item that creation adds is one the removal has to name", async () => {
+    const { repo, root, base } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    await c.message("inbox");
+    const held = heldGit(base);
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "Under way", kind: "shell", cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [], running: NONE_RUNNING });
+    // A removal that did not wait would be answered before the refusal of a start sent after it.
+    await settled(c);
+    expect(c.messages.flatMap((m) => (m.type === "done" || m.type === "error" ? [m.requestId] : [])).filter((requestId) => requestId < 700)).toEqual([1]);
+    held.release();
+    const { workItem } = await c.message("workItemCreated");
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "A work item was added since you looked. Read it again." });
+    expect((await (await client(url)).message("ready")).workItems.map((w) => [w.id, w.repoId])).toEqual([[workItem.id, 1]]);
+  });
+
   it("refuses a removal where a pane's process has not exited within the wait, and one where a session started while it waited, and removes nothing", async () => {
     const { repo, root } = repository();
-    // The pane's process ignores the signal that ends it, and exits by itself after a moment.
-    const { url } = await daemon({ worktreesRoot: root, endWaitMs: 200, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 0.8"], env: {} }) });
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const deaf = (c: Awaited<ReturnType<typeof client>>, id: number) => c.until(() => (c.messages.some((m) => m.type === "output" && m.id === id && m.data.includes("deaf")) ? true : undefined));
+    const { url } = await daemon({ worktreesRoot: root, endWaitMs: 200, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 0.8"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Slow to end", kind: "shell", cols: 80, rows: 24 });
     const { workItem, session } = await c.message("workItemCreated");
     const told = { workItems: [workItem.id], running: { panes: [session.id], headless: [] } };
+    await deaf(c, session.id);
     c.send({ type: "removeRepository", requestId: 2, id: 1, ...told });
     expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "A session did not end in time, so nothing was removed. Try again." });
     const still = await (await client(url)).message("ready");
     expect([still.repositories.map((r) => r.id), still.workItems.map((w) => w.id)]).toEqual([[1], [1]]);
     await c.message("exit", (m) => m.id === session.id);
     // A pane that starts in the work item while a removal waits for another to end is one the person was not told of.
-    const later = await daemon({ worktreesRoot: root, endWaitMs: 5000, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 0.6"], env: {} }) });
+    const later = await daemon({ worktreesRoot: root, endWaitMs: 5000, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 0.6"], env: {} }) });
     const l = await client(later.url);
     await l.message("ready");
     l.send({ type: "createWorkItem", requestId: 1, repo, title: "Gains a pane", kind: "shell", cols: 80, rows: 24 });
     const made = await l.message("workItemCreated");
+    await deaf(l, made.session.id);
     l.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [made.workItem.id], running: { panes: [made.session.id], headless: [] } });
     l.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: made.workItem.id });
     expect(await l.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "A session started since you looked. Read it again." });
