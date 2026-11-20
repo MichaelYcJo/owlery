@@ -13,7 +13,7 @@ import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import type { HeadlessInfo, ServerMessage, WorkItemLoss } from "../src/shared/protocol";
-import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
+import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
@@ -829,6 +829,108 @@ describe("work items", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 2, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
     expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([session.id]);
+  });
+});
+
+describe("the fetch of a base", () => {
+  /** Waits until no process of these ids runs, and says whether that came within two seconds. */
+  async function ended(pids: number[]): Promise<boolean> {
+    const end = Date.now() + 2000;
+    while (pids.some(runs)) {
+      if (Date.now() > end) return false;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return true;
+  }
+
+  it("answers a fetch of a remote's branch with the remote's commit, a local base with no fetch, and a folder or a base that names none with an error", async () => {
+    const { base, origin, repo, root } = clone();
+    const local = git(repo, "rev-parse", "refs/heads/main").trim();
+    const moved = commitFile(origin, "moved.txt");
+    const folder = join(base, "plain");
+    mkdirSync(folder);
+    standingIn(repo);
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "fetchBase", requestId: 1, repo, base: "origin/main" });
+    expect(await c.message("baseFetched", (m) => m.requestId === 1)).toEqual({ type: "baseFetched", requestId: 1, base: "origin/main", commit: moved, fetch: "fetched", failure: null, since: null });
+    expect(git(repo, "rev-parse", "refs/remotes/origin/main").trim()).toBe(moved);
+    c.send({ type: "fetchBase", requestId: 2, repo, base: "main" });
+    expect(await c.message("baseFetched", (m) => m.requestId === 2)).toEqual({ type: "baseFetched", requestId: 2, base: "main", commit: local, fetch: "none", failure: null, since: null });
+    const refused = async (requestId: number, fields: object) => {
+      c.send({ type: "fetchBase", requestId, ...fields });
+      return await c.message("error", (m) => m.requestId === requestId);
+    };
+    expect(await refused(3, { repo: folder, base: "origin/main" })).toEqual({ type: "error", requestId: 3, message: `${folder} is not inside a git repository` });
+    expect(await refused(4, { repo, base: "origin/never" })).toEqual({ type: "error", requestId: 4, message: `${repo} has no branch origin/never to start a work item from` });
+    expect((await refused(5, { repo, base: 7 })).message).toBe("a fetch names a branch, and 7 is none");
+    // A relative folder would have git answer for the folder the daemon runs in, which is inside a repository here.
+    expect((await refused(6, { repo: "src", base: "origin/main" })).message).toBe('the repository folder has to be a whole path from /, and "src" is not');
+    expect(c.messages.filter((m) => m.type === "baseFetched")).toHaveLength(2);
+  });
+
+  it("cuts a creation soon after a fetch where that fetch left the branch, and fetches again for one made later", async () => {
+    const { origin, repo, root } = clone();
+    let clock = 1000;
+    const { url } = await daemon({ worktreesRoot: root, now: () => clock, baseFreshMs: 500 });
+    const c = await client(url);
+    await c.message("ready");
+    const said = commitFile(origin, "said.txt");
+    c.send({ type: "fetchBase", requestId: 1, repo, base: "origin/main" });
+    expect((await c.message("baseFetched")).commit).toBe(said);
+    const later = commitFile(origin, "later.txt");
+    clock += 499;
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "Soon", base: "origin/main", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated", (m) => m.requestId === 2)).workItem.baseCommit).toBe(said);
+    clock += 1;
+    c.send({ type: "createWorkItem", requestId: 3, repo, title: "Later", base: "origin/main", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated", (m) => m.requestId === 3)).workItem.baseCommit).toBe(later);
+  });
+
+  it("has a creation join the fetch of its base that is under way: one fetch runs, and the work item is made after its answer", async () => {
+    const made = clone();
+    const held = git(made.repo, "rev-parse", "refs/remotes/origin/main").trim();
+    const standIn = unansweringOrigin(made);
+    cleanups.push(standIn.stop);
+    const { url } = await daemon({ worktreesRoot: made.root, baseFetchMs: 2000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "fetchBase", requestId: 1, repo: made.repo, base: "origin/main" });
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Joined", base: "origin/main", kind: "shell", cols: 80, rows: 24 });
+    const created = await c.message("workItemCreated", (m) => m.requestId === 2);
+    expect(created.workItem.baseCommit).toBe(held);
+    const order = c.messages.filter((m) => m.type === "baseFetched" || m.type === "workItemCreated").map((m) => m.type);
+    expect(order).toEqual(["baseFetched", "workItemCreated"]);
+    expect(c.messages.find((m) => m.type === "baseFetched")).toMatchObject({ requestId: 1, commit: held, fetch: "kept", failure: "origin did not answer in 2 seconds" });
+    expect(standIn.started()).toHaveLength(1);
+    expect(await ended(standIn.started())).toBe(true);
+  });
+
+  it("leaves no fetch under way once the daemon has closed", async () => {
+    const made = clone();
+    const standIn = unansweringOrigin(made);
+    cleanups.push(standIn.stop);
+    const { daemon: d, url } = await daemon({ worktreesRoot: made.root, baseFetchMs: 60_000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "fetchBase", requestId: 1, repo: made.repo, base: "origin/main" });
+    await c.until(() => (standIn.started().length === 1 ? true : undefined));
+    expect(standIn.started().every(runs)).toBe(true);
+    await d.close();
+    expect(await ended(standIn.started())).toBe(true);
+  });
+
+  it("asks no remote for a plan", async () => {
+    const { origin, repo, root } = clone();
+    commitFile(origin, "moved.txt");
+    const before = git(repo, "for-each-ref", "refs/remotes");
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "planWorkItem", requestId: 1, repo, title: "Planned" });
+    expect((await c.message("workItemPlan")).remoteBases).toEqual(["origin/main"]);
+    expect(git(repo, "for-each-ref", "refs/remotes")).toBe(before);
   });
 });
 

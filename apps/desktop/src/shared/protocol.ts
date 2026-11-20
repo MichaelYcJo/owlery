@@ -144,7 +144,7 @@ export interface WorkItem {
   branch: string;
   worktree: string;
   createdAt: number;
-  /** The commit the branch was cut at, or null for a work item made before this was recorded. */
+  /** The commit the branch was cut at, or null for a work item made before this was recorded. For a remote's branch it is the commit the remote held when the daemon fetched that branch for the cut, and the commit the clone held where the fetch failed. */
   baseCommit: string | null;
   /**
    * The branch the work item's branch was cut at, a local branch or a remote's,
@@ -221,14 +221,42 @@ export interface HeadlessInfo {
   startedAt: number;
 }
 
+/**
+ * How long, in milliseconds, the daemon gives one fetch of a base before it
+ * ends it. A window that waits for a `baseFetched` derives its own wait from
+ * this one.
+ */
+export const BASE_FETCH_MS = 10_000;
+
+/**
+ * What the fetch of a base gave. `commit` is the commit the clone's ref of the
+ * base holds once the fetch has ended. `fetch` is `none` for a local branch,
+ * for which no remote is asked, `fetched` where the remote answered, so the
+ * commit is the remote's, and `kept` where the fetch failed or the daemon
+ * ended it, so the commit is the one the clone held. `failure` and `since`
+ * are null unless `fetch` is `kept`. `failure` then says why: the first line
+ * git printed, or the daemon's own sentence. `since` is the time, in
+ * milliseconds, at which the clone's ref last moved, which is not the time of
+ * the clone's last fetch, or null where git recorded no move of it.
+ */
+export interface BaseFetch {
+  base: string;
+  commit: string;
+  fetch: "none" | "fetched" | "kept";
+  failure: string | null;
+  since: number | null;
+}
+
 export type ClientMessage =
   | { type: "hello"; token: string }
   // `continueLatest` starts the pane on the latest conversation of its folder, the work item's worktree where `workItemId` names one. The daemon answers it with an `error` for a kind that does not declare `continues`.
   | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId?: number; continueLatest?: true }
-  // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other.
+  // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. A remote's branch is fetched before the cut, that one branch from that one remote, unless a fetch of it ended in the last minute, and where the fetch fails the work item is cut at the commit the clone holds. A local branch is cut where it stands, and no remote is asked. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other.
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
   // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.
   | { type: "planWorkItem"; requestId: number; repo: string; title: string; name?: string }
+  // Asks for the fetch of one base of the repository `repo` is inside, named as `WorkItem.baseBranch` names one. For a remote's branch the daemon asks that remote for that branch, and joins a fetch of it that is under way. A local branch asks no remote. The daemon answers with a `baseFetched`, and with an `error` for a folder that is not absolute or inside no repository and for a base that is none of the repository's.
+  | { type: "fetchBase"; requestId: number; repo: string; base: string }
   // Adds the repository `folder` is inside, with no work item. `folder` is an absolute path, and the daemon refuses any other. The repository is the one the folder's main checkout names, so a folder inside a linked worktree adds the repository the worktree belongs to, and a folder of a bare repository's worktree is refused, as is a linked worktree of a submodule or of a repository whose git directory stands apart from its checkout. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
   | { type: "addRepository"; requestId: number; folder: string }
   // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. The daemon answers with `done`.
@@ -276,6 +304,8 @@ export type ServerMessage =
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
   // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none.
   | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null }
+  // Answers a `fetchBase` with what the fetch gave.
+  | ({ type: "baseFetched"; requestId: number } & BaseFetch)
   // Answers a `planRename`. `branch` is the branch a rename would give the work item, `owlery/<slug of the name>` with -2, -3 and so on while another local branch bears the name, or null where the name leaves no slug. `blocked` is why the branch cannot be renamed, as a sentence the window shows as it is, or null where it can: it can where the branch exists, has another name than `branch` and no upstream, and no remote of the clone holds a branch of its name.
   | { type: "renamePlan"; requestId: number; branch: string | null; blocked: string | null }
   // Answers a `readLoss` with what a delete of the work item `id` would remove.

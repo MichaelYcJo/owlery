@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -59,4 +59,36 @@ export function commitFile(folder: string, file: string, seconds?: number): stri
   const env = seconds === undefined ? process.env : { ...process.env, GIT_COMMITTER_DATE: `@${seconds} +0000` };
   execFileSync("git", ["commit", "--quiet", "-m", `add ${file}`], { cwd: folder, encoding: "utf8", env });
   return git(folder, "rev-parse", "HEAD").trim();
+}
+
+/** Whether a process of that id runs. */
+export function runs(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Makes the clone's `origin` a remote that never answers: its URL names a
+ * host that does not exist, and the clone's own `core.sshCommand` is a
+ * stand-in that records its process id and sleeps, so no `ssh` starts and
+ * nothing reaches the network. `started` gives the id of each stand-in
+ * started so far, and `stop` ends by its id each one that still runs.
+ */
+export function unansweringOrigin(made: { base: string; repo: string }): { started: () => number[]; stop: () => void } {
+  const script = join(made.base, "ssh-stand-in");
+  const noted = join(made.base, "ssh-stand-in-pids.txt");
+  writeFileSync(script, `#!/bin/sh\necho $$ >> '${noted}'\nexec sleep 60\n`, { mode: 0o755 });
+  git(made.repo, "remote", "set-url", "origin", "ssh://owlery.invalid/x.git");
+  git(made.repo, "config", "core.sshCommand", `'${script}'`);
+  const started = (): number[] => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line !== "").map(Number) : []);
+  return {
+    started,
+    stop: () => {
+      for (const pid of started()) if (runs(pid)) process.kill(pid, "SIGKILL");
+    },
+  };
 }
