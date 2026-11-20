@@ -54,6 +54,11 @@ The snippet replaces the Given and Then of the row, and leaves its search senten
 | 5. The sidebar's tree | Given three repositories, one hidden, one with no work item, and one with work items of which one is pinned and one in a group, then the tree holds the two that are not hidden, the one with no work item among them, and under the third its ungrouped work items with the pinned one first, then the group with its own. With a search typed, a repository none of whose work items match is left out | Cases in `apps/desktop/test/view.test.ts` on `sidebarTree` |
 ```
 
+```seal
+verdict: fixed c43a2e6
+answer: The finding holds. The orchestrator replaced the row of scenario 5 with the record's snippet word for word at `c43a2e6`, after reading it against `apps/desktop/src/renderer/view.ts#sidebarTree`, which lists a repository with no work item, and the case at `apps/desktop/test/view.test.ts:1428`, which expects it. The change touches `frame/design.md` alone.
+```
+
 ## Confirmations
 
 ```seal
