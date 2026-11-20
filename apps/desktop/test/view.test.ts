@@ -602,7 +602,7 @@ describe("what a delete dialog says of a loss", () => {
   it("gives a removal that deletes the stamp of each work item's loss, by the work item's id, and whether it is forced", () => {
     expect(deletionOf([1, 4], new Map([[1, CLEAN], [4, { ...HOLDS, stamp: "t" }], [9, HOLDS]]), true)).toEqual({ stamps: { 1: "s", 4: "t" }, force: true });
     // A work item whose loss has not arrived has no stamp, and the daemon refuses the removal.
-    expect(deletionOf([1, 4], new Map([[1, CLEAN]]), false)).toEqual({ stamps: { 1: "s" }, force: false });
+    expect(deletionOf([1, 4], new Map([[1, CLEAN]]), false)).toStrictEqual({ stamps: { 1: "s" }, force: false });
   });
 });
 
