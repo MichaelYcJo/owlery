@@ -110,8 +110,9 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(remoteMain()).toBe(remoteCommit);
     expect(await app.evaluate<string | null>(`document.getElementById("work-item-base-state").getAttribute("aria-live")`)).toBe("polite");
     // The form that registers a repository alone starts no work item, and says nothing of where one would start.
+    // At the choice, and not once the wait for an answer has passed.
     await app.click("#work-item-register-only");
-    await says("");
+    await says("", 2_000);
     await app.click("#work-item-register-only");
     await says(`Fetched: origin/main is at ${remoteCommit.slice(0, 7)}.`);
   });
