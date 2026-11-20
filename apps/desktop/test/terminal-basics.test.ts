@@ -252,14 +252,24 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 
-  it("closes the dialog where its pane is gone while it asks", async () => {
-    const pane = await openPane("Claude Code");
-    await app.until(`document.getElementById("strip-state").textContent.startsWith("Working")`, "the new pane's session as working");
+  it("names the pane by its tab's label, and closes the dialog where its pane is gone while it asks", async () => {
+    // The strip reads the newest live pane of a kind that reports state, which is the pane just opened (src/renderer/view.ts, `lineSession`).
+    const working = (): Promise<void> => app.until(`document.getElementById("strip-state").textContent.startsWith("Working")`, "the newest pane's session as working");
+    const first = await openPane("Claude Code");
+    await working();
+    const second = await openPane("Claude Code");
+    await working();
+    // Two panes of one kind, so each tab's label carries its place and differs from the kind's label (src/renderer/view.ts, `tabLabel`).
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell", "Claude Code 1", "Claude Code 2"]);
+    expect(await app.evaluate<string>(TAB_IN_FRONT)).toBe("Claude Code 2");
     await command("W");
     await app.until(DIALOG_OPEN, "the dialog that asks before the close");
-    await closeFromElsewhere(pane);
-    await app.until(`${TABS}.length === 1`, "one tab");
+    expect(await app.evaluate<string>(`document.getElementById("close-pane-sentence")?.textContent`)).toBe("Claude Code 2 is working. Closing the pane ends its session.");
+    await closeFromElsewhere(second);
+    await app.until(`${TABS}.length === 2`, "two tabs");
     expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
+    await closeFromElsewhere(first);
+    await app.until(`${TABS}.length === 1`, "one tab");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 });
