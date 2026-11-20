@@ -5,8 +5,8 @@ const LINE_REST_MAX = 4096;
 const PRIVATE_MODES = /\u001b\[\?(\d+(?:;\d+)*)([hl])/g;
 // The full reset, `ESC c`, which ends every mode.
 const FULL_RESET = "\u001bc";
-// The sequence the output stops inside, where it stops inside one: an escape alone or with its intermediate characters, a CSI sequence with no final character yet, or an OSC string with no end yet. A bell, a cancel (`18`, `1a`) and an escape each end an OSC string. Its rest arrives later, and a terminal that was cleared and not reset reads that rest as the sequence's.
-const OPEN_SEQUENCE = /\u001b(?:[ -/]*|\[[0-?]*[ -/]*|\][^\u0007\u0018\u001a\u001b]*)$/;
+// The sequence the output stops inside, where it stops inside one: an escape alone or with its intermediate characters, a CSI sequence with no final character yet, or an OSC string with no end yet. A bell, a cancel (`18`, `1a`), an escape and each code from `80` to `9f` end an OSC string, as xterm's parser reads them. Its rest arrives later, and a terminal that was cleared and not reset reads that rest as the sequence's.
+const OPEN_SEQUENCE = /\u001b(?:[ -/]*|\[[0-?]*[ -/]*|\][^\u0007\u0018\u001a\u001b\u0080-\u009f]*)$/;
 
 /**
  * The private modes a text of output leaves a terminal with, as sequences:

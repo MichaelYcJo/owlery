@@ -1986,11 +1986,14 @@ describe("OutputBuffer", () => {
     expect(modesOf(`one\r\n\u001b[1mtwo${open}`)).toBe(open);
   });
 
-  it("keeps no sequence that ended before its output stopped: an OSC string ended by a bell, by its terminator or by a cancel, and a CSI sequence with its final character", () => {
+  it("keeps no sequence that ended before its output stopped: an OSC string ended by a bell, by its terminator, by a cancel or by a code from 80 to 9f, and a CSI sequence with its final character", () => {
     expect(modesOf("\u001b]0;a title\u0007")).toBe("");
     expect(modesOf("\u001b]0;a title\u0007one")).toBe("");
     expect(modesOf("\u001b]0;a title\u001b\\one")).toBe("");
     expect(modesOf("\u001b]0;a ti\u0018one")).toBe("");
+    expect(modesOf("\u001b]0;a ti\u001aone")).toBe("");
+    expect(modesOf("\u001b]0;a title\u009cone\r\n")).toBe("");
+    expect(modesOf("\u001b]0;a ti\u0085one\r\n")).toBe("");
     expect(modesOf("\u001b[1m")).toBe("");
     expect(modesOf("\u001b(B")).toBe("");
   });
