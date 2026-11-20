@@ -345,11 +345,11 @@ function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
  * Its items are `paneMenu`'s (./view). The menu takes the keyboard: the up
  * and down arrows move through the items that can be pressed, and Escape
  * closes it. A press of an item closes the menu, gives the keyboard back to
- * the terminal and does what the item names. A menu that was open is closed
- * first.
+ * the terminal and does what the item names. No menu is open when this is
+ * called: the press that asks for a menu is a press outside the open one,
+ * which closed it.
  */
 function openMenu(screen: Screen, at: { x: number; y: number }): void {
-  closeMenu();
   const menu = document.createElement("div");
   menu.id = "pane-menu";
   menu.setAttribute("role", "menu");
