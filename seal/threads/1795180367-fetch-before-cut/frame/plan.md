@@ -70,11 +70,11 @@ Both items below meet this work. #102 merges first, then this work, then #101.
 - The daemon now asks a git remote: one branch of one remote, when the form shows a remote's branch and when a work item is created from one. It runs git with the daemon's own environment, so it reaches a remote only where that environment can.
 - A fetch writes one ref under `refs/remotes/` in the person's clone and nothing else (`frame/design.md` *Scope* item 1).
 - A window of this build attached to a daemon of an earlier build shows no line under "Starts from", and a work item made there starts as last fetched, until that daemon is replaced. The owner's running daemon is such a one.
-- The release's notes are built from the fragments, and `seal/threads/1795130485-new-work-item-form/changelog.md` holds the bullet "**Owlery does not fetch.**" for the same release. This work's `changelog.md` says it replaces that bullet. The earlier fragment is another work item's record, which this work's build does not edit, so whether that bullet is rewritten before the tag is the orchestrator's to decide.
+- The release's notes are built from the fragments, and `seal/threads/1795130485-new-work-item-form/changelog.md` holds the bullet "**Owlery does not fetch.**" for the same release. The orchestrator rewrote that bullet at `28b67c2` to say that a remote's branch is fetched first (*Judgments of the run*), so this work's `changelog.md` does not refer to it.
 - This pull request does not move the version: the move has landed in `release/v0.0.1`.
 
 ## Judgments of the run
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-20 | The orchestrator rewrote the bullet "Owlery does not fetch" of #85's fragment, `seal/threads/1795130485-new-work-item-form/changelog.md`, to say that a remote's branch is fetched before a work item starts from it (#96), and dropped this work's sentence that it replaces that bullet | The release's notes are built from the fragments as they stand at the tag, so a bullet this work makes untrue would ship beside this work's own, and a sentence that replaces a bullet no longer there would point at nothing | `docs/roadmap.md` *Releases and the tracker*; this plan's *Operational impact* |

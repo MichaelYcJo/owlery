@@ -86,7 +86,7 @@ In scope, as numbered items.
     `since` is when the clone's ref last moved (probe, fact 2). The sentence says how long the clone has held the commit, which git records, and names no time of the last fetch, which git records in no place the clone's worktrees share (probe, facts 2 and 4).
 11. **Where no answer comes.** The form stops saying "Fetching…" once `BASE_FETCH_MS` and two seconds more have passed with no answer, as with a daemon of an earlier build, which ignores the message. The paragraph is then empty, and an answer that comes later is shown.
 12. **Create stays on.** The form's button does not wait for the fetch. A creation sent while the fetch is under way joins it in the daemon (item 5). Where the form's answer is `kept` and arrived after the person pressed Create, the window's status line says item 10's sentence once the creation is answered, so no work item made in the form starts from an old commit unsaid.
-13. **The changelog says the change.** This work's `changelog.md` says that Owlery now fetches the one branch before it cuts, what the form says when it cannot, that this replaces the bullet "Owlery does not fetch" of issue #85's entry in the same release, that a window attached to a daemon of an earlier build shows no line and starts as last fetched until that daemon is replaced, and the messages a client of the daemon gains.
+13. **The changelog says the change.** This work's `changelog.md` says that Owlery now fetches the one branch before it cuts, what the form says when it cannot, that a window attached to a daemon of an earlier build shows no line and starts as last fetched until that daemon is replaced, and the messages a client of the daemon gains.
 
 Out of scope.
 

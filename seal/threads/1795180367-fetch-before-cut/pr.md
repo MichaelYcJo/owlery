@@ -6,7 +6,7 @@ A work item that started from a remote's branch, such as `origin/main`, started 
 |---|---|
 | `origin/main` meant the commit the clone last fetched | Owlery fetches `main` from `origin` first, and the work item starts at the remote's commit |
 | The form said nothing about the base's freshness | Under "Starts from" the form reads "Fetching origin/main…", then "Fetched: origin/main is at 1a2b3c4." |
-| Offline, the work item silently started from the old commit | The form says the fetch failed, with git's first line, and that it starts as last fetched, at the commit the clone holds and for how long it has held it. Create still works |
+| Offline, the work item silently started from the old commit | The form says the fetch failed, with git's first line, and that it starts as last fetched, at the commit the clone holds. Where git recorded when the clone's copy of the branch last moved, it also says for how long the clone has held that commit. Create still works |
 
 **What a fetch touches.** One fetch asks one remote for one branch. It moves the clone's `refs/remotes/<remote>/<branch>` and nothing else: no local branch, no tag, no other branch of the remote, and no file of the person's checkout. A configured refspec that would move a local branch is overridden for this fetch.
 
