@@ -16,6 +16,6 @@
 
 A repository's "…" button is drawn and has no listener, as `frame/plan.md` *Phases* row 1 states. Disabling it until phase 2 was within reach and was not taken: phase 2 gives it its menu.
 
-The store gives a new work item one more than the highest id it holds. Keeping a count that never goes back was within reach, in `apps/desktop/src/daemon/repositories.ts`. It was not taken: no entry can be removed before phase 5, and `frame/design.md` *Scope* item 1 names the fields a stored repository holds, a count not among them. `trail/phases/phase-1.md` hands the point to phase 5.
+The store gives a new work item one more than the highest id it holds, and a new repository one more than the highest repository's id. Keeping counts that never go back was within reach in phase 1, in `apps/desktop/src/daemon/repositories.ts`. It was not taken then: no entry can be removed before phase 3, whose removal of a repository is the first to take entries out of the store (`frame/design.md` *Scope* item 16). `frame/plan.md` *Phases* row 3 now holds the counts, as work phase 3 builds before that removal, and `trail/phases/phase-1.md` hands the point to phase 3.
 
 `apps/desktop/test/daemon.test.ts#runFolderWithWorkItem` still writes `work-items.json`. Writing `repositories.json` there was within reach and was not taken: the helper's cases now also hold the daemon's start from the old file.
