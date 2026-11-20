@@ -256,6 +256,9 @@ export const BASE_FRESH_MS = 60_000;
 /** How much of what a fetch printed is kept, of which the first line is said. */
 const FETCH_PRINTED_CHARS = 64 * 1024;
 
+/** How long, in milliseconds, a fetch waits after git has exited for the pipe to deliver what git printed, where the pipe has not closed by then. */
+const FETCH_PRINTED_GRACE_MS = 300;
+
 /**
  * Asks one remote for one branch and writes the one ref the clone keeps that
  * branch under, `refs/remotes/<remote>/<branch>`: no tag, no `FETCH_HEAD`, no
@@ -271,6 +274,14 @@ const FETCH_PRINTED_CHARS = 64 * 1024;
  * that is given up is ended by a signal to that group, so the transport git
  * started for it, such as an `ssh`, ends with it. A limit on git's process
  * alone would leave that one running.
+ *
+ * A fetch is over once git has exited, whether or not the pipe git printed to
+ * has closed. A process git's transport left behind, such as the background
+ * process an `ssh` keeps for a shared connection, can hold that pipe open for
+ * as long as it runs, in a session of its own that no signal to git's group
+ * reaches. So the result is read from git's exit code, `FETCH_PRINTED_GRACE_MS`
+ * after the exit where the pipe is still open then, and a fetch whose git has
+ * exited is not given up and its group is not signalled.
  */
 function askRemote(repo: string, remote: string, branch: string, waitMs: number, ended?: AbortSignal): Promise<string | null> {
   return new Promise((resolve) => {
@@ -282,12 +293,15 @@ function askRemote(repo: string, remote: string, branch: string, waitMs: number,
     const child = spawn("git", args, { cwd: repo, detached: true, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
     let printed = "";
     let givenUp: string | null = null;
+    let exited = false;
+    let grace: NodeJS.Timeout | undefined;
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (text: string) => {
       if (printed.length < FETCH_PRINTED_CHARS) printed += text;
     });
     const giveUp = (why: string): void => {
-      if (givenUp !== null || child.pid === undefined) return;
+      // Once git has exited its group may be gone, and the group's id may name another's processes.
+      if (exited || givenUp !== null || child.pid === undefined) return;
       givenUp = why;
       try {
         // The negative id names the group git leads.
@@ -301,18 +315,26 @@ function askRemote(repo: string, remote: string, branch: string, waitMs: number,
     ended?.addEventListener("abort", onEnded, { once: true });
     const settle = (failure: string | null): void => {
       clearTimeout(timer);
+      clearTimeout(grace);
       ended?.removeEventListener("abort", onEnded);
       resolve(failure);
     };
-    child.on("error", (error) => settle(error.message));
-    // A fetch given up is over once git has exited: what it started may hold the pipe open a moment longer.
-    child.on("exit", () => {
-      if (givenUp !== null) settle(givenUp);
-    });
-    child.on("close", (code) => {
-      if (givenUp !== null) return;
+    /** Ends a fetch that was not given up, by git's exit code and what git printed. */
+    const settleExit = (code: number | null): void => {
       const line = printed.split("\n").find((text) => text.trim() !== "");
       settle(code === 0 ? null : (line?.trim() ?? `git fetch ended with ${String(code)}`));
+    };
+    child.on("error", (error) => settle(error.message));
+    // A fetch is over once git has exited, since what git started may hold the pipe open after it. One given up ends at
+    // the exit. One that was not ends when the pipe closes, which is when all git printed has arrived, or after the
+    // grace where the pipe is still open then.
+    child.on("exit", (code) => {
+      exited = true;
+      if (givenUp !== null) settle(givenUp);
+      else grace = setTimeout(() => settleExit(code), FETCH_PRINTED_GRACE_MS);
+    });
+    child.on("close", (code) => {
+      if (givenUp === null) settleExit(code);
     });
   });
 }

@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, fetchBase, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
+import { commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -471,6 +471,44 @@ describe("the fetch of a base", () => {
     const locks = (readdirSync(join(made.repo, ".git"), { recursive: true }) as string[]).filter((file) => file.endsWith(".lock"));
     expect(locks).toEqual([]);
   });
+
+  it("ends a fetch once git has exited, by git's exit code and with what git printed, where a process git's transport left behind holds git's stderr past the wait", async () => {
+    const made = clone();
+    const moved = commitFile(made.origin, "moved.txt");
+    const standIn = lingeringOrigin(made, made.origin);
+    cleanups.push(standIn.stop);
+    const began = Date.now();
+    expect(await fetchBase(made.repo, "origin/main", { waitMs: 5000 })).toEqual({ base: "origin/main", commit: moved, fetch: "fetched", failure: null, since: null });
+    expect(Date.now() - began).toBeLessThan(2500);
+    // The process left behind still runs, and so still holds the pipe, when the fetch has ended.
+    expect(standIn.started()).toHaveLength(1);
+    expect(standIn.started().every(runs)).toBe(true);
+    renameSync(made.origin, `${made.origin}-away`);
+    const again = Date.now();
+    expect(await fetchBase(made.repo, "origin/main", { waitMs: 5000 })).toMatchObject({ commit: moved, fetch: "kept", failure: `fatal: '${made.origin}' does not appear to be a git repository` });
+    expect(Date.now() - again).toBeLessThan(2500);
+    expect(standIn.started()).toHaveLength(2);
+    expect(standIn.started().every(runs)).toBe(true);
+    // The test's limit is past the fetch's wait, so a fetch that waited for the pipe to close is seen not to end when the wait passes.
+  }, 8000);
+
+  it("signals no process group where a fetch is ended after git has exited, and gives the result of git's exit", async () => {
+    const made = clone();
+    const moved = commitFile(made.origin, "moved.txt");
+    const standIn = lingeringOrigin(made, made.origin);
+    cleanups.push(standIn.stop);
+    const signalled = vi.spyOn(process, "kill");
+    cleanups.push(() => signalled.mockRestore());
+    const ending = new AbortController();
+    const fetched = fetchBase(made.repo, "origin/main", { waitMs: 5000, ended: ending.signal });
+    // Git writes the ref as the last thing before it exits, and the process left behind holds the pipe, so the fetch has not ended when the ref has moved.
+    const end = Date.now() + 4000;
+    while (commitOf(made.repo, "refs/remotes/origin/main") !== moved && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 50));
+    ending.abort();
+    expect(await fetched).toEqual({ base: "origin/main", commit: moved, fetch: "fetched", failure: null, since: null });
+    expect(signalled.mock.calls.filter(([pid, signal]) => pid < 0 && signal === "SIGTERM")).toEqual([]);
+  }, 8000);
 
   it("keeps a fetch's result for a creation while it is fresh, fetches again for a creation once it is not, and fetches for whoever asks without reuse", async () => {
     const { origin, repo, root } = clone();

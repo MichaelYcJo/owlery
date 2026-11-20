@@ -92,3 +92,32 @@ export function unansweringOrigin(made: { base: string; repo: string }): { start
     },
   };
 }
+
+/**
+ * Makes the clone's `origin` a remote that answers and leaves a process
+ * behind, as an `ssh` that keeps a shared connection does: its URL names a
+ * host that does not exist, and the clone's own `core.sshCommand` is a
+ * stand-in, so no `ssh` starts and nothing reaches the network. The stand-in
+ * starts a `sleep` in a session of its own, outside git's process group,
+ * which holds the stderr git gave it for a minute, records that process's
+ * id, and then serves the folder `served` with git's own `upload-pack`.
+ * `started` gives the id of each `sleep` started so far, and `stop` ends by
+ * its id each one that still runs.
+ */
+export function lingeringOrigin(made: { base: string; repo: string }, served: string): { started: () => number[]; stop: () => void } {
+  const script = join(made.base, "ssh-lingering-stand-in");
+  const noted = join(made.base, "ssh-lingering-pids.txt");
+  // The parent records the child's id before the stand-in goes on, so the id is there once the fetch has ended.
+  const holder = `$p = fork; if ($p) { open(F, ">>", $ARGV[0]); print F "$p\\n"; close(F); exit 0 } setsid; exec "sleep", "60"`;
+  // Git first asks the command, with `-G`, which options it takes, as it asks an `ssh`, and that call is answered and leaves nothing behind.
+  writeFileSync(script, `#!/bin/sh\n[ "$1" = -G ] && exit 0\nperl -MPOSIX -e '${holder}' '${noted}' </dev/null >/dev/null\nexec git upload-pack '${served}'\n`, { mode: 0o755 });
+  git(made.repo, "remote", "set-url", "origin", "ssh://owlery.invalid/x.git");
+  git(made.repo, "config", "core.sshCommand", `'${script}'`);
+  const started = (): number[] => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line !== "").map(Number) : []);
+  return {
+    started,
+    stop: () => {
+      for (const pid of started()) if (runs(pid)) process.kill(pid, "SIGKILL");
+    },
+  };
+}
