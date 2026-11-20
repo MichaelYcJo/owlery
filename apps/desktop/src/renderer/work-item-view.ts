@@ -340,13 +340,14 @@ export function showView(): void {
   showAskSection();
 }
 
-/** Makes a work item the one whose view is drawn, before the view is put in front. */
-export function enterView(workItemId: number): void {
+/** Makes a work item the one whose view is drawn, before the view is put in front. Where `pane` is given, that pane is the one in front when the view is drawn, as after a press of its tab. */
+export function enterView(workItemId: number, pane?: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
   held.viewing = workItemId;
   front = undefined;
+  if (pane !== undefined) broughtToFront(workItemId, pane);
 }
 
 /** Leaves the view for another screen, and gives the work item that was on screen. Every pane leaves the stage, and its screen goes back to the pool. */

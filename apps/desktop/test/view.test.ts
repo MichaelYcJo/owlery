@@ -32,6 +32,7 @@ import {
   moveSelection,
   noticeWithout,
   notificationFor,
+  notificationOpens,
   paneChoices,
   paneInFront,
   paneTabs,
@@ -766,6 +767,24 @@ describe("notificationFor", () => {
 
   it("shows nothing for the pane in front of a focused window", () => {
     expect(notificationFor("working", session(3, { state: "waiting" }), true, [LOGIN], KINDS)).toBeNull();
+  });
+});
+
+describe("notificationOpens", () => {
+  it("opens the session's work item with the session's pane, where both are listed", () => {
+    expect(notificationOpens({ id: 4, workItemId: 2 }, [LOGIN, SEARCH], [session(3), session(4, { workItemId: 2 })])).toEqual({ workItemId: 2, pane: 4 });
+  });
+
+  it("opens the work item with no pane named, where the session's pane is no longer listed", () => {
+    expect(notificationOpens({ id: 4, workItemId: 2 }, [LOGIN, SEARCH], [session(3)])).toEqual({ workItemId: 2, pane: null });
+  });
+
+  it("opens nothing for a session whose work item is not in the list, though its pane is", () => {
+    expect(notificationOpens({ id: 4, workItemId: 2 }, [LOGIN], [session(4, { workItemId: 2 })])).toBeNull();
+  });
+
+  it("opens nothing for a session without a work item", () => {
+    expect(notificationOpens({ id: 4, workItemId: null }, [LOGIN, SEARCH], [session(4, { workItemId: null })])).toBeNull();
   });
 });
 

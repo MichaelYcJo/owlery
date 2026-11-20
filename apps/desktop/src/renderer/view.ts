@@ -756,6 +756,19 @@ export function notificationFor(
 }
 
 /**
+ * What a click on a session's notification opens, as the window's lists stand
+ * at the click, or null where it opens no view: the session's work item,
+ * where the list still holds it, with the session's pane in front where the
+ * daemon still lists that pane, and with no pane named where it is closed. A
+ * session without a work item opens nothing.
+ */
+export function notificationOpens(session: Pick<SessionInfo, "id" | "workItemId">, workItems: readonly WorkItem[], sessions: readonly SessionInfo[]): { workItemId: number; pane: number | null } | null {
+  const workItem = workItems.find((item) => item.id === session.workItemId);
+  if (!workItem) return null;
+  return { workItemId: workItem.id, pane: sessions.some((listed) => listed.id === session.id) ? session.id : null };
+}
+
+/**
  * What the "New work item" form sends of its fields, in a creation and in a
  * plan, or why it sends nothing. `name` is the name the window generated for
  * this opening of the form, and the title may be empty: the daemon then names

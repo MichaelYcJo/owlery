@@ -11,7 +11,7 @@ import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
-import { agentKind, baseMenu, changesSince, commandKey, inboxKey, notificationFor, planAnswer, planLine, workItemFields, type BaseChoice, type FormPlan, type PlanAnswered, type StateFilter } from "./view";
+import { agentKind, baseMenu, changesSince, commandKey, inboxKey, notificationFor, notificationOpens, planAnswer, planLine, workItemFields, type BaseChoice, type FormPlan, type PlanAnswered, type StateFilter } from "./view";
 import { detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
@@ -76,9 +76,9 @@ function bringToFront(screen: Exclude<Front, null>): void {
   showSidebar(front);
 }
 
-/** Puts a work item's view in front: of any screen, the view of another work item among them. */
-function openView(workItemId: number): void {
-  enterView(workItemId);
+/** Puts a work item's view in front: of any screen, the view of another work item among them. Where `pane` is given, that pane is the one in front of the view. */
+function openView(workItemId: number, pane?: number): void {
+  enterView(workItemId, pane);
   bringToFront("view");
   showView();
 }
@@ -159,7 +159,20 @@ function onKey(event: KeyboardEvent): void {
   else if (list.selected() !== undefined) openView(list.selected() as number);
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, drops the closed panes, and redraws the sidebar and the screen in front. */
+/**
+ * Answers a person's click on the notification of a session: the window asks
+ * the main process to bring it forward, and puts the session's work item's
+ * view in front, with the session's pane in front of it, as the lists stand
+ * at the click (./view, `notificationOpens`). Where the click opens no view
+ * the screen in front stays. The "New work item" form stays open over it.
+ */
+function onNotificationClick(session: Pick<SessionInfo, "id" | "workItemId">): void {
+  void window.owlery.comeForward();
+  const opens = notificationOpens(session, held.workItems, held.sessions);
+  if (opens) openView(opens.workItemId, opens.pane ?? undefined);
+}
+
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   held.sessions = next.sessions;
@@ -168,7 +181,8 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): vo
     // A pane on the stage of a focused window is one the person is looking at, whether or not it has the keyboard.
     const inFront = onStage(session.id) && document.hasFocus();
     const notification = notificationFor(before.get(session.id) ?? null, session, inFront, held.workItems, held.paneKinds);
-    if (notification) new Notification(notification.title, { body: notification.body });
+    if (!notification) continue;
+    new Notification(notification.title, { body: notification.body }).onclick = () => onNotificationClick(session);
   }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
   showSidebar();
