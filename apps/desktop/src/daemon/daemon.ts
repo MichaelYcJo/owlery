@@ -42,10 +42,11 @@ const SILENT_START_MS = 10_000;
 
 /**
  * How long the daemon waits for the processes of the panes it ended to exit,
- * where the options name no time. A shell and an agent's CLI exit within a
- * few hundredths of a second of the signal, and a person who confirmed a
- * dialog waits on the answer, so the wait is as long as a slow exit and no
- * longer.
+ * where the options name no time. A shell exits well inside it: the case
+ * that removes a repository with a running `/bin/sh` pane is answered in
+ * less than two seconds, which it asserts. A person who confirmed a dialog
+ * waits on the answer, so the wait is no longer than this. How long an
+ * agent's CLI takes to exit at the signal was not measured.
  */
 const END_WAIT_MS = 3000;
 
