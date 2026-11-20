@@ -1652,8 +1652,10 @@ describe("what a person sets on a work item", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 1)).toBe(false);
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
-    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: ARCHIVED });
-    await c.message("done", (m) => m.requestId === 1);
+    // Whichever way each request is answered, so a pane that started and an archive that was refused are each read as what they are.
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "started" || m.type === "done" || m.type === "error") && m.requestId === requestId));
+    expect(await answer(2)).toEqual({ type: "error", requestId: 2, message: ARCHIVED });
+    expect(await answer(1)).toEqual({ type: "done", requestId: 1 });
     const { inbox } = await archivedInbox(c);
     expect([inbox.workItems, inbox.archived.map((w) => w.id), inbox.sessions.map((s) => [s.id, s.alive])]).toEqual([[], [workItem.id], [[session.id, true]]]);
     // The pane is listed as exited once its process ends.
