@@ -68,6 +68,12 @@ function giveBack(screen: Screen): void {
 
 The snippet stops at the code and its case. The fix pass owes `gaps.md` the removal of the bullet at line 39 and "Nine" for "Ten" at line 29. *Scope* item 16 (`frame/design.md:136`) says nothing of a pane that leaves the stage while its menu is open, as item 8 does for the dialog. The sentence "Where the pane leaves the stage while its menu is open, the menu closes." is owed there, and the frame is not the crafter's to write, so the hand-back names it for the orchestrator to fold.
 
+```seal
+verdict: fixed 23629ac
+location: `seal/threads/1795158088-terminal-basics/changelog.md:13`
+answer: The finding holds. The snippet was read against `frame/design.md` *Scope* item 16, which the orchestrator folded at `94dda13` ("The menu also closes, without taking the keyboard, when its pane leaves the stage"), and against the two callers of `giveBack`, `stageShows` and `dropClosed`. `23629ac` applies both snippets of `work-item-view.ts` as written, with one more sentence in the comment of `giveBack`. The case is the record's, with one line added: the pane that is left has the keyboard at its end, as the cases after it expect. It was seen red at `94dda13` before the code, at the line that waits for the menu to be closed. `23629ac` takes the bullet out of `gaps.md` *Not done* and counts eight there, not nine: the pass also takes out the entry on a program's modes. The commit adds a sentence to `changelog.md:13`, a path the finding does not name: the menu also closes when its pane leaves the screen. One guard is watched by no case. A mutant that calls `closeMenu()` in `giveBack`, which hands the keyboard to the terminal of the pane that leaves, passed both cases of the menu, and `gaps.md` *Not verified* holds the row with why. A click on a notification with the menu open was read and not run, and `gaps.md` holds that row too.
+```
+
 ### 2. The changelog and the frame say Control+U deletes what stands before the cursor, and zsh, the shell a shell pane starts, deletes the whole line at it
 
 ```seal
@@ -102,6 +108,12 @@ The same file, the sentence of the comment on `paneKey` at lines 594 to 596:
 ```
 
 *Scope* item 18 (`frame/design.md:138`), its parenthetical on Backspace, is the frame's and not the crafter's: "Backspace sends `15` (Control+U, which bash reads as a deletion to the line's start, and zsh as a deletion of the whole line)". The hand-back names it for the orchestrator to fold.
+
+```seal
+verdict: fixed 23629ac
+location: `seal/threads/1795158088-terminal-basics/gaps.md:21`
+answer: The finding holds. `zsh -f -c 'bindkey "^U"'` was not run again: the record's probe holds its output. `23629ac` applies the record's sentence to `changelog.md:15` as written. The two comments of `view.ts` carry the record's sentences, fitted to the comments as they stood at `94dda13`, which the record's snippets did not quote exactly; `5f9267f` rewraps one line of the second. The orchestrator folded *Scope* item 18 at `94dda13` and kept the byte `15`. The commit also rewrites the row of `gaps.md:21`, a path the finding does not name: it says what zsh does with the three bytes, and that bash and Claude Code were not run. `frame/questions.md` Q5 still asks whether the key deletes "to its start in a shell", and `frame/design.md:230` still names the act `deleteToLineStart`, as the code does; the hand-back names both for the orchestrator.
+```
 
 ## Confirmations
 
