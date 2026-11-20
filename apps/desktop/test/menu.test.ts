@@ -11,7 +11,7 @@ function under(template: readonly MenuEntry[], menu: string): MenuEntry[] {
   return template.find((entry) => entry.label === menu)?.submenu ?? [];
 }
 
-// The roles that bring the Command or Control key with W where the entry names no accelerator of its own: a window's close, and the two menus Electron fills with one.
+// The roles that may bring the Command or Control key with W where the entry names no accelerator of its own: a window's close, the "File" menu Electron fills, which holds that close on macOS, and the "Window" menu it fills, which no case has read outside macOS.
 const BRING_W = ["close", "fileMenu", "windowMenu"];
 
 describe("menuTemplate", () => {
@@ -32,7 +32,7 @@ describe("menuTemplate", () => {
 
   it.each(["darwin", "linux", "win32"] as const)("names no role on %s that brings the key of a window's close with it", (platform) => {
     const bringing = entries(menuTemplate(platform)).filter(({ entry }) => entry.role !== undefined && BRING_W.includes(entry.role) && entry.accelerator === undefined);
-    // On macOS the "Window" menu Electron fills holds no close; on another platform it holds one on Control+W.
+    // On macOS the built menu is read by a case of test/terminal-basics.test.ts, which finds no close in the "Window" menu Electron fills. No case builds the menu on another platform, so none of these roles stands there.
     expect(bringing.map(({ entry }) => entry.role)).toEqual(platform === "darwin" ? ["windowMenu"] : []);
   });
 });

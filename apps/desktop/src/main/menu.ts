@@ -24,9 +24,9 @@ const CLOSE_WINDOW: MenuEntry = { label: "Close Window", role: "close", accelera
  * On macOS it is the menu Electron gives an app that sets none, with two
  * differences: the app's menu says "Owlery" where Electron would write the
  * package's name, and "Close Window" is on Shift+Command+W. Another platform
- * has no app menu, so "Quit" stands under "File", and its "Window" menu is
- * written out, because the one Electron fills closes the window on
- * Control+W there.
+ * has no app menu, so "Quit" stands under "File". Its "Window" menu is
+ * written out entry by entry: no case runs on such a platform to read which
+ * keys the menu Electron fills there would bring.
  */
 export function menuTemplate(platform: NodeJS.Platform): MenuEntry[] {
   if (platform === "darwin") {
