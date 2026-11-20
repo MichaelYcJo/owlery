@@ -131,13 +131,13 @@ The built-app cases live in one new file, `apps/desktop/test/terminal-basics.tes
 - add
   file: docs/architecture.md
   section: Screen framework: Electron
-  to: **The window shows Owlery's own page and nothing else, and no second window opens.** The main process refuses every navigation of the window but a reload of its own page, and refuses every new window. So nothing a pane prints and nothing a person drops on the window can replace the window or open a page of the web inside Owlery. A link a pane prints opens in the system browser, on a click with the Command key held, and only where its address is an `http` or `https` one. An app started with `OWLERY_BACKGROUND=1` opens no address in the system browser.
+  to: **The window shows Owlery's own page and nothing else, and no second window opens.** The main process refuses every navigation of the window but a reload of its own page, and refuses every new window. So nothing a pane prints can replace the window or open a page of the web inside Owlery, and a file a person drops on the window does not replace it either: the window does not navigate on a drop. A link a pane prints opens in the system browser, on a click with the Command key held, and only where its address is an `http` or `https` one. An app started with `OWLERY_BACKGROUND=1` opens no address in the system browser.
     check: apps/desktop/test/terminal-basics.test.ts apps/desktop/test/navigation.test.ts apps/desktop/test/links.test.ts
 
 - add
   file: docs/architecture.ko.md
   section: 화면 프레임워크: Electron
-  to: **창은 Owlery 자신의 화면만 보이고, 두 번째 창은 열리지 않습니다.** 메인 프로세스는 창이 자기 화면을 다시 읽는 것 말고는 어디로도 이동하지 못하게 막고, 새 창도 모두 막습니다. 그래서 칸에 찍힌 글자도, 사람이 창에 끌어다 놓은 것도 창을 바꾸거나 Owlery 안에 웹 페이지를 열지 못합니다. 칸에 찍힌 링크는 Command 키를 누른 채 클릭하면 시스템 브라우저에서 열리고, 주소가 `http`나 `https`일 때만 열립니다. `OWLERY_BACKGROUND=1`로 띄운 앱은 시스템 브라우저에서 어떤 주소도 열지 않습니다.
+  to: **창은 Owlery 자신의 화면만 보이고, 두 번째 창은 열리지 않습니다.** 메인 프로세스는 창이 자기 화면을 다시 읽는 것 말고는 어디로도 이동하지 못하게 막고, 새 창도 모두 막습니다. 그래서 칸에 찍힌 글자는 창을 바꾸거나 Owlery 안에 웹 페이지를 열지 못합니다. 사람이 창에 끌어다 놓은 파일도 창을 바꾸지 못합니다. 창은 끌어 놓기로 이동하지 않습니다. 칸에 찍힌 링크는 Command 키를 누른 채 클릭하면 시스템 브라우저에서 열리고, 주소가 `http`나 `https`일 때만 열립니다. `OWLERY_BACKGROUND=1`로 띄운 앱은 시스템 브라우저에서 어떤 주소도 열지 않습니다.
     check: apps/desktop/test/terminal-basics.test.ts apps/desktop/test/navigation.test.ts apps/desktop/test/links.test.ts
 
 ## Removes
