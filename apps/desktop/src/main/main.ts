@@ -3,13 +3,14 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { themeChoice } from "../shared/appearance";
-import { Channel, type DaemonConnection, type DaemonFailure, type InstalledApp, type PathFound } from "../shared/ipc";
+import { Channel, type DaemonConnection, type DaemonEnd, type DaemonFailure, type InstalledApp, type PathFound } from "../shared/ipc";
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { closeHides, quitsWithLastWindow, takeBackground } from "./background";
 import { chooseClipboard } from "./clipboard";
-import { ensureDaemon } from "./daemon-client";
+import { ensureDaemon, otherBuild, stopDaemon } from "./daemon-client";
+import { daemonControl } from "./daemon-control";
 import { chooseOpener, openLink, takeOpener } from "./links";
-import { menuTemplate } from "./menu";
+import { type MenuEntry, menuTemplate, QUIT_COMPLETELY, RESTART_DAEMON } from "./menu";
 import { staysOnPage } from "./navigation";
 import { copyText, installedApps, openFolder, trashFolder, type Openers } from "./openers";
 import { chooseFinder, pathsOf, showInFinder } from "./paths";
@@ -17,7 +18,10 @@ import { comeForward } from "./forward";
 import { pickFolder } from "./pick-folder";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
-// over WebSocket. The main process finds or starts it, opens the folder
+// over WebSocket. The main process finds or starts it, tells the window
+// whether it is of another build than the one it would start, stops it where a
+// person chose "Restart Daemon…" or "Quit Owlery Completely…" in the menu
+// and confirmed it in the window, opens the folder
 // dialog the window asks for, and keeps the theme a person chose. It sets
 // the app's menu, keeps the one window on Owlery's own page, opens the
 // address of a link a person clicked in a pane outside Owlery, says what
@@ -74,6 +78,40 @@ const openers: Openers = {
   openPath: (folder) => shell.openPath(folder),
 };
 
+// The daemon's script, which the app starts where no daemon answers, and whose build it compares with the build of a daemon that does.
+const daemonScript = join(__dirname, "daemon.js");
+// The one place that stops and starts the daemon, in turn (./daemon-control). It stops the daemon of this app's run folder and no other (./daemon-client, `stopDaemon`).
+const control = daemonControl({
+  start: () => ensureDaemon(runDir, daemonScript),
+  stop: () => stopDaemon(runDir),
+  quit: () => app.quit(),
+});
+
+/**
+ * Tells the window which of the menu's two entries that end the daemon a
+ * person chose, at the entry's click. The window asks the person before
+ * anything ends. The window is brought forward first, so one that a close
+ * hid is shown, and in an app started in the background nothing is (./forward).
+ * Where no window is left one is made. A window whose page is loading is
+ * told once it has loaded.
+ */
+function tellDaemonMenu(chosen: DaemonEnd): void {
+  const [open] = BrowserWindow.getAllWindows();
+  const win = open ?? createWindow();
+  if (open) comeForward(open, background, () => app.focus({ steal: true }));
+  const send = (): void => win.webContents.send(Channel.daemonMenu, chosen);
+  if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
+  else send();
+}
+
+/** The menu's template with the click of each entry that has one, by the entry's id. */
+function withClicks(entries: readonly MenuEntry[], clicks: Readonly<Record<string, () => void>>): MenuItemConstructorOptions[] {
+  return entries.map((entry) => {
+    const click = entry.id === undefined ? undefined : clicks[entry.id];
+    return { ...entry, ...(entry.submenu ? { submenu: withClicks(entry.submenu, clicks) } : {}), ...(click ? { click } : {}) } as MenuItemConstructorOptions;
+  });
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     // The size the screens are drawn for, on the ground of the theme the window was left in, so it does not flash another colour before its page is drawn.
@@ -117,13 +155,16 @@ app.whenReady().then(() => {
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   ipcMain.handle(Channel.daemon, async (): Promise<DaemonConnection | DaemonFailure> => {
     try {
-      const { port, token } = await ensureDaemon(runDir, join(__dirname, "daemon.js"));
-      return { url: `ws://127.0.0.1:${port}`, token };
+      const found = await control.daemon();
+      // The script is read at each request, so a build made while the app runs is the one compared.
+      return { url: `ws://127.0.0.1:${found.port}`, token: found.token, otherBuild: otherBuild(found, daemonScript) };
     } catch (error) {
       // Answered, not rejected: Electron puts its own words in front of a rejected request's message.
       return { error: error instanceof Error ? error.message : String(error) };
     }
   });
+  // The window asks after the person confirmed it in the dialog. The answer is null, or why the daemon was not ended.
+  ipcMain.handle(Channel.endDaemon, (_event, then: unknown): Promise<string | null> => control.end(then));
   ipcMain.handle(Channel.pickFolder, (event): Promise<string | null> => {
     // The dialog is a sheet of the window that asked, where that window is still there.
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -158,7 +199,7 @@ app.whenReady().then(() => {
     }
   }
   // Set before the window is made, so the keys Electron's own menu binds are never the window's: that menu closes the window on Command+W.
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate(process.platform) as MenuItemConstructorOptions[]));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(withClicks(menuTemplate(process.platform), { [RESTART_DAEMON]: () => tellDaemonMenu("restart"), [QUIT_COMPLETELY]: () => tellDaemonMenu("quit") })));
   createWindow();
   // A click on the Dock icon arrives here. It shows the window a close hid, and makes one where none is left.
   app.on("activate", () => {

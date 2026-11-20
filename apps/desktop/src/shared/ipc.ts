@@ -1,4 +1,5 @@
-// The channels between the window and the main process: where the daemon is,
+// The channels between the window and the main process: where the daemon is
+// and whether it is of another build than the one the app would start,
 // the native folder dialog, which a page cannot open, the theme a person
 // chose, which the main process keeps (./appearance), the address of a
 // link a person clicked in a pane, which only the main process may open
@@ -9,8 +10,11 @@
 // folder moves to where the person chose it (src/main/openers.ts), the
 // clipboard, which a start in the background keeps to itself
 // (src/main/clipboard.ts), and the window's coming forward, which a
-// sandboxed page cannot do itself. Everything else goes between the window
-// and the daemon, over the protocol in ./protocol.
+// sandboxed page cannot do itself, which of the menu's two entries that end
+// the daemon a person chose, which the main process tells the window, and
+// the end of the daemon the window then asks for, since the main process is
+// the one that stops it (src/main/daemon-client.ts). Everything else goes
+// between the window and the daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
 
 export const Channel = {
@@ -28,7 +32,13 @@ export const Channel = {
   copyText: "owlery:copy-text",
   clipboardText: "owlery:clipboard-text",
   comeForward: "owlery:come-forward",
+  endDaemon: "owlery:end-daemon",
+  /** Sent by the main process without being asked, at a click on one of the menu's two entries that end the daemon. */
+  daemonMenu: "owlery:daemon-menu",
 } as const;
+
+/** What follows the daemon's end: the daemon of the running build is started again, or the app quits and starts none. */
+export type DaemonEnd = "restart" | "quit";
 
 /** An editor or a terminal the Mac holds, which a menu offers to open a folder in. */
 export interface InstalledApp {
@@ -39,6 +49,8 @@ export interface InstalledApp {
 export interface DaemonConnection {
   url: string;
   token: string;
+  /** Whether the daemon is of another build than the one the app would start, read at this request (src/main/daemon-client.ts, `otherBuild`). The status line then names "Restart Daemon…". */
+  otherBuild: boolean;
 }
 
 /** Why no daemon could be reached, as a sentence the window shows as it is. */
@@ -53,7 +65,7 @@ export interface PathFound {
 }
 
 export interface OwleryApi {
-  /** Finds or starts the daemon and returns how to reach it, or why it could not be started. */
+  /** Finds or starts the daemon and returns how to reach it and whether it is of another build, or why it could not be started. */
   daemon(): Promise<DaemonConnection | DaemonFailure>;
   /** Opens the native folder dialog and returns the folder chosen, or null where none was. */
   pickFolder(): Promise<string | null>;
@@ -81,4 +93,8 @@ export interface OwleryApi {
   pathOf(file: File): string;
   /** Asks the main process to bring the window in front of the person, and answers whether it did: an app started in the background brings nothing forward. */
   comeForward(): Promise<boolean>;
+  /** Asks the main process to end the daemon and every session it holds, after the person confirmed it. After `"restart"` the window's next load starts the daemon of the running build, and after `"quit"` the app quits. It answers null, or why the daemon was not ended, as a sentence the window shows as it is. */
+  endDaemon(then: DaemonEnd): Promise<string | null>;
+  /** Has `listener` called whenever a person chooses "Restart Daemon…" or "Quit Owlery Completely…" in the application menu, with which of the two. */
+  onDaemonMenu(listener: (chosen: DaemonEnd) => void): void;
 }

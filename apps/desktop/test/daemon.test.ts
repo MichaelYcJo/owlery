@@ -8,7 +8,7 @@ import { fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
-import { readDiscovery, writeDiscovery } from "../src/daemon/discovery";
+import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
@@ -3415,6 +3415,29 @@ describe("discovery", () => {
     const dir = mkdtempSync(join(tmpdir(), "owlery-discovery-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     expect(readDiscovery(dir)).toBeUndefined();
+  });
+
+  it("reads back the build a daemon wrote, and reads a file that holds none, or no text there, as one without a build", () => {
+    const dir = mkdtempSync(join(tmpdir(), "owlery-discovery-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    writeDiscovery(dir, { port: 4321, token: TOKEN, pid: 99, build: "0a1b" });
+    expect(readDiscovery(dir)).toEqual({ port: 4321, token: TOKEN, pid: 99, build: "0a1b" });
+    // What a daemon that could not read its own script writes.
+    writeDiscovery(dir, { port: 4321, token: TOKEN, pid: 99, build: undefined });
+    expect(JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8"))).toEqual({ port: 4321, token: TOKEN, pid: 99 });
+    expect(readDiscovery(dir)).toEqual({ port: 4321, token: TOKEN, pid: 99 });
+    writeFileSync(join(dir, "daemon.json"), JSON.stringify({ port: 4321, token: TOKEN, pid: 99, build: 7 }));
+    expect(readDiscovery(dir)).toEqual({ port: 4321, token: TOKEN, pid: 99 });
+  });
+
+  it("names a build by the SHA-256 of the bytes of the daemon's script, and gives nothing where the script cannot be read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "owlery-discovery-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(join(dir, "daemon.js"), "abc");
+    expect(buildOf(join(dir, "daemon.js"))).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    expect(buildOf(join(dir, "no-such.js"))).toBeUndefined();
+    // A folder stands where the script would.
+    expect(buildOf(dir)).toBeUndefined();
   });
 });
 

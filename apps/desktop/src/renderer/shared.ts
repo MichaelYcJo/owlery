@@ -14,12 +14,12 @@ export const held = {
   /** The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`, and what this window started or created since. */
   sessions: [] as SessionInfo[],
   workItems: [] as WorkItem[],
-  /** The repositories the daemon keeps, the hidden among them, and the archived work items, as the daemon last listed them. Both are empty against a daemon of a build before the repositories, and `daemonNotice` then says so. */
+  /** The repositories the daemon keeps, the hidden among them, and the archived work items, as the daemon last listed them. Both are empty against a daemon of a build before the repositories, which `daemonNotice` then names as one of another build. */
   repositories: [] as Repository[],
   archived: [] as WorkItem[],
   /** The editors and the terminals the main process found installed, asked for once at load. A menu offers to open a folder in each. */
   apps: [] as InstalledApp[],
-  /** What the status line says of the daemon in place of its state, or nothing. A notice of the window's own stands before it. */
+  /** What the status line says of the daemon in place of its state, or nothing: that the daemon is of another build, as the main process answered when this page asked for the daemon (./view, `daemonNotice`). A notice of the window's own stands before it. */
   daemonNotice: "",
   /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since. */
   headless: [] as HeadlessInfo[],
