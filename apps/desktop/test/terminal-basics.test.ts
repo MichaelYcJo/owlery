@@ -1,14 +1,18 @@
 // What a terminal pane and the window around it do for a person, read in the
 // built app: the window stays on its own page, the menu leaves the page its
-// keys, the Command key with W closes the pane in front, and a pane whose
-// session is working asks before it closes. One start of the app serves
-// every case, so the cases run in the order they stand in.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+// keys, the Command key with W closes the pane in front, a pane whose
+// session is working asks before it closes, a file dropped on a pane types
+// its path, a link opens at a click with the Command key, and Shift+Enter
+// sends a line feed. One start of the app serves every case, so the cases
+// run in the order they stand in. No case opens the system's browser: the
+// app is started with `OWLERY_OPENER` naming a program that notes the
+// address it was handed.
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
-import { openReceiverPane } from "./korean-pane";
+import { openReceiverPane, Received } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
 
 /** The panes' process: `SHELL` for the app the cases start. */
@@ -16,6 +20,13 @@ const SHELL = join(__dirname, "fixtures", "basics-shell.sh");
 
 /** The Command key's place in a key event of the debugging port, and the Control key's where the keyboard has no Command key. */
 const COMMAND = process.platform === "darwin" ? 4 : 2;
+/** The Option key's place there, and the Shift key's. */
+const OPTION = 1;
+const SHIFT = 8;
+
+/** The two links a shell pane prints (./fixtures/basics-shell.sh): the address on its first row, and the address the name on its second row carries. */
+const PRINTED = "https://example.com/owlery-basics";
+const NAMED = "https://example.com/owlery-named";
 
 const TABS = `[...document.querySelectorAll("#tabs .tab .label")].map((label) => label.textContent)`;
 const TAB_IN_FRONT = `document.querySelector("#tabs .tab.active .label")?.textContent`;
@@ -42,6 +53,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   let app: BuiltApp;
   let repository: ReturnType<typeof temporaryRepository>;
   let receivedFile: string;
+  /** The bytes the first pane's process was handed. */
+  let received: Received;
+  /** The file the opener writes each address it was handed to, a line each. */
+  let openedFile: string;
   /** The panes the cases opened so far. A daemon numbers the panes it starts from 1. */
   let panes = 0;
 
@@ -52,11 +67,17 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     buildApp();
     repository = temporaryRepository("terminal-basics");
     receivedFile = join(repository.base, "received");
-    app = await BuiltApp.start({ SHELL, OWLERY_WORKTREES: repository.root, OWLERY_RECEIVER_FILE: receivedFile, OWLERY_STAND_IN_NODE: process.execPath }, { inspectMain: true });
+    // The program that stands for the system's opener: it adds each argument it was started with to a file, on a line of its own.
+    openedFile = join(repository.base, "opened");
+    const opener = join(repository.base, "opener.sh");
+    writeFileSync(opener, `#!/bin/sh\nprintf '%s\\n' "$@" >> '${openedFile}'\n`);
+    chmodSync(opener, 0o755);
+    app = await BuiltApp.start({ SHELL, OWLERY_WORKTREES: repository.root, OWLERY_RECEIVER_FILE: receivedFile, OWLERY_STAND_IN_NODE: process.execPath, OWLERY_OPENER: opener }, { inspectMain: true });
     // The app starts in the background, and the page of a window without the system's focus reports none.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     await openReceiverPane(app, repository.repo, `${receivedFile}-1`);
     panes = 1;
+    received = new Received(`${receivedFile}-1`);
   }, 120_000);
 
   afterAll(async () => {
@@ -271,5 +292,136 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await closeFromElsewhere(first);
     await app.until(`${TABS}.length === 1`, "one tab");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  // The cases below read the first pane, which is the one tab, in front, with the keyboard.
+
+  /** The middle of a cell of the screen of the pane in front, by its column and its row, each from 0. The strip says how many of each the screen holds. */
+  function cell(column: number, row: number): Promise<{ x: number; y: number }> {
+    return app.evaluate(`(() => {
+      const box = document.querySelector("#stage .pane:not([hidden]) .xterm-screen").getBoundingClientRect();
+      const [columns, rows] = document.getElementById("strip-size").textContent.split("×").map(Number);
+      return { x: box.x + (box.width / columns) * ${column + 0.5}, y: box.y + (box.height / rows) * ${row + 0.5} };
+    })()`);
+  }
+
+  /** A click on the link of a row of the pane in front, with the modifier keys held, as a person's click arrives: the pointer comes over the link first. Afterwards the pointer is over no link. */
+  async function clickLink(row: number, modifiers: number): Promise<void> {
+    const overLink = `document.querySelector("#stage .pane:not([hidden]) .xterm-cursor-pointer") !== null`;
+    const at = await cell(9, row);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at, modifiers });
+    await app.until(overLink, `a link under the pointer on row ${row + 1}`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1, modifiers });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1, modifiers });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await cell(9, 5)) });
+    await app.until(`!(${overLink})`, "no link under the pointer");
+  }
+
+  /** The addresses the opener was handed so far, once it was handed `count` of them, or after a moment in which one more would have arrived. */
+  async function opened(count: number): Promise<string[]> {
+    const lines = (): string[] => (existsSync(openedFile) ? readFileSync(openedFile, "utf8").split("\n").filter(Boolean) : []);
+    const deadline = Date.now() + 5_000;
+    while (lines().length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return lines();
+  }
+
+  /** A press and a release of Enter in the pane in front, with the modifier keys held. */
+  async function enter(modifiers: number): Promise<void> {
+    const key = { windowsVirtualKeyCode: 13, code: "Enter", key: "Enter", modifiers };
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...key, text: "\r" });
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+  }
+
+  /** Drops files on the element an expression of the page gives, as a drag from another app arrives: it enters, it is over the element, and it is dropped. */
+  async function drop(element: string, files: string[]): Promise<void> {
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = (${element}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    // The mask's 1 is a copy, the one thing a drag of files from another app allows.
+    const data = { items: [], files, dragOperationsMask: 1 };
+    for (const type of ["dragEnter", "dragOver", "drop"]) await app.cdp("Input.dispatchDragEvent", { type, ...at, data });
+  }
+
+  it("sends a line feed for Shift+Enter, and what the terminal sends for Enter and for Option+Enter", async () => {
+    await received.next(0);
+    await enter(SHIFT);
+    expect((await received.next(1)).toString("hex")).toBe("0a");
+    // The press is the window's whole: the field the terminal types in took no line break of its own.
+    expect(await app.evaluate<string>(`document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").value`)).toBe("");
+    await enter(0);
+    expect((await received.next(1)).toString("hex")).toBe("0d");
+    await enter(OPTION);
+    expect((await received.next(2)).toString("hex")).toBe("1b0d");
+  });
+
+  it("types the path of a file dropped on a pane, gives that pane the keyboard, and stays on its own page", async () => {
+    const own = await app.evaluate<string>("location.href");
+    // The temporary folder's own path holds nothing a shell reads, so the name alone is escaped.
+    expect(repository.base).toMatch(/^[A-Za-z0-9/._-]+$/);
+    const file = join(repository.base, "shot 한 it's.png");
+    writeFileSync(file, "");
+    await received.next(0);
+    await app.evaluate("document.activeElement.blur()");
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(false);
+    await drop(`document.querySelector("#stage .pane:not([hidden])")`, [file]);
+    const text = `${repository.base}/shot\\ 한\\ it\\'s.png `;
+    expect((await received.next(Buffer.byteLength(text))).toString("utf8")).toBe(text);
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    expect(await app.pages()).toEqual([own]);
+  });
+
+  it("types two dropped files' paths into the pane that took the drop, and puts that pane in front of the one that was", async () => {
+    const files = [join(repository.base, "one.png"), join(repository.base, "two.png")];
+    for (const file of files) writeFileSync(file, "");
+    const second = await openPane("Shell");
+    await pidOf(second);
+    await app.click("#side-by-side");
+    await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
+    await app.until(`document.activeElement?.classList.contains("xterm-helper-textarea")`, "the keyboard in the pane in front");
+    expect(await app.evaluate<string>(TAB_IN_FRONT)).toBe("Shell 2");
+    await received.next(0);
+    // The tile of the pane that is not in front: the one without the keyboard.
+    await drop(`[...document.querySelectorAll("#stage .pane:not([hidden])")].find((tile) => !tile.contains(document.activeElement))`, files);
+    const text = `${files[0]} ${files[1]} `;
+    expect((await received.next(Buffer.byteLength(text))).toString("utf8")).toBe(text);
+    expect(readFileSync(`${receivedFile}-${second}`, "utf8")).toBe("");
+    await app.until(`${TAB_IN_FRONT} === "Shell 1"`, "the pane that took the drop in front");
+    await app.click("#side-by-side");
+    await closeFromElsewhere(second);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it("types nothing where a file is dropped outside a pane", async () => {
+    const file = join(repository.base, "elsewhere.png");
+    writeFileSync(file, "");
+    await received.next(0);
+    await drop(`document.getElementById("view-title")`, [file]);
+    expect((await received.next(1)).toString("utf8")).toBe("");
+    expect(await app.pages()).toHaveLength(1);
+  });
+
+  it("opens a link a pane printed in the system's opener, at a click with the Command key held", async () => {
+    const own = await app.evaluate<string>("location.href");
+    expect(await opened(0)).toEqual([]);
+    await clickLink(0, COMMAND);
+    expect(await opened(1)).toEqual([PRINTED]);
+    expect(await app.pages()).toEqual([own]);
+  });
+
+  it("opens nothing at a click on a link without the Command key", async () => {
+    await clickLink(0, 0);
+    await clickLink(0, SHIFT);
+    expect(await opened(2)).toEqual([PRINTED]);
+  });
+
+  it("opens a link that a name carries under the same rule, and asks nothing", async () => {
+    // The terminal's own way with such a link is the browser's question. Should it ask, the answer is no and the case says so.
+    await app.evaluate(`void (window.confirm = () => { window.__asked = true; return false; })`);
+    await clickLink(1, 0);
+    expect(await opened(2)).toEqual([PRINTED]);
+    await clickLink(1, COMMAND);
+    expect(await opened(2)).toEqual([PRINTED, NAMED]);
+    expect(await app.evaluate<boolean>("window.__asked === undefined")).toBe(true);
+    expect(await app.pages()).toHaveLength(1);
   });
 });

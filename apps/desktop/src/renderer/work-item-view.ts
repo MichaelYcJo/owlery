@@ -3,11 +3,12 @@
 // daemon sends of the work item above the "Ask" section and the seal's
 // place. The pool of terminal screens the window holds lives here.
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
-import { askButton, closeAsks, headlessLines, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
+import { askButton, closeAsks, droppedText, headlessLines, linkOpens, paneKey, paneTabs, recentKept, replayStep, repoNameOf, screenMoves, type ScreenTurns, screenTurns, stageOf, stateWithAge, tabLabel, tellsSize, viewFacts, withHeadless } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
 interface Screen {
@@ -41,6 +42,8 @@ let askRequest: number | undefined;
 let leave: () => void = () => {};
 // The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
 let asking: number | undefined;
+// Whether the keyboard is a Mac's, which has the Command key.
+let mac = false;
 
 const viewTitle = byId("view-title");
 const viewBranch = byId("view-branch");
@@ -94,14 +97,46 @@ function screenOf(pane: number | undefined): Screen | undefined {
   return pane === undefined ? undefined : pool.find((screen) => screen.turns.pane === pane);
 }
 
+/** Opens a link of a pane outside Owlery, where the click that chose it held the key that opens one (./view, `linkOpens`). The main process decides whether the address is one it opens. */
+function openLink(event: MouseEvent, address: string): void {
+  if (linkOpens({ meta: event.metaKey, ctrl: event.ctrlKey }, mac)) void window.owlery.openLink(address);
+}
+
+/**
+ * Has an element take the files a person drops on it, for the terminal of
+ * the screen it holds: the terminal is handed the files' paths as a paste
+ * (./view, `droppedText`), so a program that asked for pastes in brackets
+ * receives one, and it takes the keyboard, so its pane is in front. A drag
+ * that carries no file is not taken, and neither is a drop anywhere else in
+ * the window.
+ */
+function takesDrops(element: HTMLElement, term: Terminal): void {
+  const carriesFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes("Files") === true;
+  element.addEventListener("dragover", (event) => {
+    if (!carriesFiles(event) || !event.dataTransfer) return;
+    // An element takes a drop only where it answered the drag.
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  });
+  element.addEventListener("drop", (event) => {
+    if (!carriesFiles(event) || !event.dataTransfer) return;
+    event.preventDefault();
+    const text = droppedText([...event.dataTransfer.files].map((file) => window.owlery.pathOf(file)));
+    term.focus();
+    if (text !== "") term.paste(text);
+  });
+}
+
 /**
  * Adds a screen to the pool, for a pane that comes onto the stage where no
  * screen is free. The view is on screen then, so the terminal opens in an
  * element that is displayed. Each size the screen takes goes to the pane
  * that holds it at that moment where that pane's process runs, and a free
  * screen sends nothing. What a person types and what the terminal answers
- * go where the screen's turns say (./view, `screenTurns`). A press inside
- * the screen gives its pane the keyboard, so that pane is in front.
+ * go where the screen's turns say (./view, `screenTurns`), and so do the
+ * line feed of Shift+Enter and the paths of dropped files. A press inside
+ * the screen gives its pane the keyboard, so that pane is in front. A link
+ * the pane printed opens outside Owlery at a click with the Command key.
  */
 function newScreen(): Screen {
   const element = document.createElement("div");
@@ -116,9 +151,13 @@ function newScreen(): Screen {
     cursorBlink: true,
     macOptionIsMeta: true,
     allowProposedApi: true,
+    // A link a program printed behind a name (the OSC 8 sequence). Without a handler the terminal asks through the browser's own question and opens a window.
+    linkHandler: { activate: openLink },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  // An address a program printed as plain text.
+  term.loadAddon(new WebLinksAddon(openLink));
   term.open(element);
   try {
     const webgl = new WebglAddon();
@@ -135,6 +174,15 @@ function newScreen(): Screen {
     const id = turns.receiver();
     if (id !== undefined) send({ type: "input", id, data });
   });
+  // Read before the terminal reads the key. Where it is the window's, the terminal sends nothing for the press, and the line feed goes the way a typed key goes.
+  term.attachCustomKeyEventHandler((event) => {
+    if (paneKey({ key: event.key, shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey, isComposing: event.isComposing, keyCode: event.keyCode }) === null) return true;
+    // The terminal hands this each event of the press. Without the default, the hidden field the terminal types in takes no line break.
+    event.preventDefault();
+    if (event.type === "keydown") term.input("\n");
+    return false;
+  });
+  takesDrops(element, term);
   term.onResize(({ cols, rows }) => {
     if (turns.pane === undefined) return;
     if (tellsSize(held.sessions, turns.pane)) send({ type: "resize", id: turns.pane, cols, rows });
@@ -449,8 +497,9 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void): void {
+export function initView(onLeave: () => void, isMac: boolean): void {
   leave = onLeave;
+  mac = isMac;
   byId("view-seal-place").replaceWith(sealPlace("view"));
   askField.addEventListener("input", () => {
     const workItem = viewed();

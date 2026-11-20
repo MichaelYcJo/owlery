@@ -396,7 +396,7 @@ initSidebar(
   MAC,
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
-initView(() => openList("inbox"));
+initView(() => openList("inbox"), MAC);
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
   save: (choice) => window.owlery.saveAppearance(choice),

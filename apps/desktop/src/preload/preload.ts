@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { themeChoice, themeFor } from "../shared/appearance";
 import { Channel, type OwleryApi } from "../shared/ipc";
 
@@ -25,6 +25,8 @@ const api: OwleryApi = {
   pickFolder: () => ipcRenderer.invoke(Channel.pickFolder),
   appearance,
   saveAppearance: (choice) => ipcRenderer.invoke(Channel.saveAppearance, choice),
+  openLink: (url) => ipcRenderer.invoke(Channel.openLink, url),
+  pathOf: (file) => webUtils.getPathForFile(file),
 };
 
 contextBridge.exposeInMainWorld("owlery", api);

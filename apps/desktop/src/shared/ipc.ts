@@ -1,7 +1,9 @@
 // The channels between the window and the main process: where the daemon is,
-// the native folder dialog, which a page cannot open, and the theme a person
-// chose, which the main process keeps (./appearance). Everything else goes
-// between the window and the daemon, over the protocol in ./protocol.
+// the native folder dialog, which a page cannot open, the theme a person
+// chose, which the main process keeps (./appearance), and the address of a
+// link a person clicked in a pane, which only the main process may open
+// (src/main/links.ts). Everything else goes between the window and the
+// daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
 
 export const Channel = {
@@ -10,6 +12,7 @@ export const Channel = {
   /** Answered at once, not by a promise: the preload reads the saved choice before the page is drawn. */
   appearance: "owlery:appearance",
   saveAppearance: "owlery:save-appearance",
+  openLink: "owlery:open-link",
 } as const;
 
 export interface DaemonConnection {
@@ -31,4 +34,8 @@ export interface OwleryApi {
   appearance: ThemeChoice;
   /** Has the main process keep a new choice, so the next window opens in it. */
   saveAppearance(choice: ThemeChoice): Promise<void>;
+  /** Asks the main process to open an address outside Owlery, and answers whether it opened it. It opens only an `http` or `https` address. */
+  openLink(url: string): Promise<boolean>;
+  /** The path of a file a person dropped on the window, or an empty string for a file that is on no disk. A page cannot read it. */
+  pathOf(file: File): string;
 }

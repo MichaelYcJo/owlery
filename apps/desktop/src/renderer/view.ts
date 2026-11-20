@@ -540,6 +540,42 @@ export function closeAsks(session: SessionInfo): boolean {
 }
 
 /**
+ * The text a pane is handed for the files dropped on it, `paths` being each
+ * file's path in the order of the drop, empty for a file that is on no
+ * disk. Each path is written as a shell reads one word: a backslash stands
+ * before every ASCII character that is not a letter, a digit or one of
+ * `/ . _ - + = : , @ %`, and a character outside ASCII is written as it is.
+ * The paths are joined by one space, and one space follows the last, so the
+ * person types on after it. A file with no path is left out, and so is a
+ * path that holds a control character, which a terminal would read as a
+ * key. Where no path is left the text is empty.
+ */
+export function droppedText(paths: readonly string[]): string {
+  return paths
+    .filter((path) => path !== "" && !/[\u0000-\u001f\u007f]/.test(path))
+    .map((path) => `${path.replace(/[ -~]/g, (character) => (/[A-Za-z0-9/._\-+=:,@%]/.test(character) ? character : `\\${character}`))} `)
+    .join("");
+}
+
+/**
+ * What a key pressed in a pane does in place of what the terminal would
+ * send for it, or null where the terminal reads the key itself. Enter with
+ * the Shift key and no other modifier is the key that sends a line feed,
+ * which a program such as Claude Code reads as a line break where Enter
+ * submits. During a composition every key is the terminal's: the event says
+ * so, or its key code is 229, the code of a key the input source took.
+ */
+export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: boolean; meta: boolean; isComposing: boolean; keyCode: number }): "lineFeed" | null {
+  if (key.isComposing || key.keyCode === 229) return null;
+  return key.key === "Enter" && key.shift && !key.ctrl && !key.alt && !key.meta ? "lineFeed" : null;
+}
+
+/** Whether a click on a link in a pane opens it: only with the Command key held, or the Control key where the keyboard has no Command key. A click without it stays the terminal's, which selects text with it. */
+export function linkOpens(click: { meta: boolean; ctrl: boolean }, mac: boolean): boolean {
+  return mac ? click.meta : click.ctrl;
+}
+
+/**
  * The tabs of a work item's view: its panes as the daemon lists them, whether
  * their process runs or has exited, in the order of their ids. An exited
  * pane keeps its tab until it is closed, and the daemon keeps its last output.

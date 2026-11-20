@@ -10,6 +10,7 @@ import {
   commandKey,
   commitLines,
   daemonStatus,
+  droppedText,
   emptyList,
   fileLines,
   filterChoices,
@@ -26,6 +27,7 @@ import {
   lineCounts,
   lineSession,
   lineText,
+  linkOpens,
   markRanges,
   matchCount,
   matchSentence,
@@ -34,6 +36,7 @@ import {
   noticeWithout,
   notificationFor,
   paneInFront,
+  paneKey,
   paneTabs,
   planAnswer,
   planLine,
@@ -1216,6 +1219,82 @@ describe("closeAsks", () => {
     ["was working when its process ended", session(1, { state: "working", alive: false })],
   ])("asks nothing where the session %s", (_name, closing) => {
     expect(closeAsks(closing)).toBe(false);
+  });
+});
+
+describe("droppedText", () => {
+  it("types a path of safe characters alone as it is, with one space after it", () => {
+    expect(droppedText(["/Users/x/Shots_2026-11-20/a+b=c:d,e@f%g.PNG"])).toBe("/Users/x/Shots_2026-11-20/a+b=c:d,e@f%g.PNG ");
+  });
+
+  it.each([..." '\"\\()[]{}<>&;|$`!*?~#^"])("writes a backslash before %j", (character) => {
+    expect(droppedText([`/t/a${character}b.png`])).toBe(`/t/a\\${character}b.png `);
+  });
+
+  it("writes a character outside ASCII as it is, a Korean syllable among them", () => {
+    expect(droppedText(["/t/스크린샷 한 it's.png"])).toBe("/t/스크린샷\\ 한\\ it\\'s.png ");
+    expect(droppedText(["/t/café—é.png"])).toBe("/t/café—é.png ");
+  });
+
+  it("joins two paths by one space, in the order given, with one space after the last", () => {
+    expect(droppedText(["/t/a b.png", "/t/c.png"])).toBe("/t/a\\ b.png /t/c.png ");
+  });
+
+  it.each([
+    ["a line feed", "/t/a\nb.png"],
+    ["a carriage return", "/t/a\rb.png"],
+    ["an escape", "/t/a\u001bb.png"],
+    ["a tab", "/t/a\tb.png"],
+    ["a null", "/t/a\u0000b.png"],
+    ["a delete", "/t/a\u007fb.png"],
+  ])("leaves out a path that holds %s", (_name, path) => {
+    expect(droppedText([path, "/t/c.png"])).toBe("/t/c.png ");
+    expect(droppedText([path])).toBe("");
+  });
+
+  it("leaves out a file that has no path, and types nothing where no path is left", () => {
+    expect(droppedText(["", "/t/c.png", ""])).toBe("/t/c.png ");
+    expect(droppedText([""])).toBe("");
+    expect(droppedText([])).toBe("");
+  });
+});
+
+describe("paneKey", () => {
+  const enter = { key: "Enter", shift: false, ctrl: false, alt: false, meta: false, isComposing: false, keyCode: 13 };
+
+  it("reads Enter with the Shift key as the key that sends a line feed", () => {
+    expect(paneKey({ ...enter, shift: true })).toBe("lineFeed");
+  });
+
+  it("leaves Shift+Enter to the terminal during a composition, told by the event and told by the key code of a key the input source took", () => {
+    expect(paneKey({ ...enter, shift: true, isComposing: true })).toBeNull();
+    expect(paneKey({ ...enter, shift: true, keyCode: 229 })).toBeNull();
+  });
+
+  it.each(["ctrl", "alt", "meta"] as const)("leaves Shift+Enter to the terminal where the %s key is held as well", (modifier) => {
+    expect(paneKey({ ...enter, shift: true, [modifier]: true })).toBeNull();
+  });
+
+  it("leaves Enter without the Shift key to the terminal, and every other key with it", () => {
+    expect(paneKey(enter)).toBeNull();
+    expect(paneKey({ ...enter, alt: true })).toBeNull();
+    expect(paneKey({ ...enter, key: "Tab", keyCode: 9, shift: true })).toBeNull();
+    expect(paneKey({ ...enter, key: "J", keyCode: 74, shift: true })).toBeNull();
+  });
+});
+
+describe("linkOpens", () => {
+  it("opens a link at a click with the Command key held, and not at a click without it", () => {
+    expect(linkOpens({ meta: true, ctrl: false }, true)).toBe(true);
+    expect(linkOpens({ meta: false, ctrl: false }, true)).toBe(false);
+    // The Control key with a click is the secondary click on a Mac.
+    expect(linkOpens({ meta: false, ctrl: true }, true)).toBe(false);
+  });
+
+  it("reads the Control key where the keyboard has no Command key, and not the key that stands at the Command key's place there", () => {
+    expect(linkOpens({ meta: false, ctrl: true }, false)).toBe(true);
+    expect(linkOpens({ meta: false, ctrl: false }, false)).toBe(false);
+    expect(linkOpens({ meta: true, ctrl: false }, false)).toBe(false);
   });
 });
 

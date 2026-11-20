@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { themeChoice } from "../shared/appearance";
@@ -6,6 +6,7 @@ import { Channel, type DaemonConnection, type DaemonFailure } from "../shared/ip
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { quitsWithLastWindow, takeBackground } from "./background";
 import { ensureDaemon } from "./daemon-client";
+import { chooseOpener, openLink, takeOpener } from "./links";
 import { menuTemplate } from "./menu";
 import { staysOnPage } from "./navigation";
 import { pickFolder } from "./pick-folder";
@@ -13,12 +14,20 @@ import { pickFolder } from "./pick-folder";
 // The daemon owns the terminals and outlives the app; the window reaches it
 // over WebSocket. The main process finds or starts it, opens the folder
 // dialog the window asks for, and keeps the theme a person chose. It sets
-// the app's menu, and keeps the one window on Owlery's own page.
+// the app's menu, keeps the one window on Owlery's own page, and opens the
+// address of a link a person clicked in a pane outside Owlery.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
 // A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard.
 // The variable leaves the environment here, so the daemon and the panes' processes start without it.
 const background = takeBackground(process.env);
+// Who opens a link's address: the program `OWLERY_OPENER` names, nobody in the background, and the system's opener otherwise (./links). The variable leaves the environment here too.
+const opener = chooseOpener(takeOpener(process.env), background, (address) =>
+  shell.openExternal(address).then(
+    () => true,
+    () => false,
+  ),
+);
 // Set before the app is ready, so the start does not make it the front app. On macOS the app then has no Dock icon and no menu bar.
 if (background && process.platform === "darwin") app.setActivationPolicy("accessory");
 
@@ -71,6 +80,8 @@ app.whenReady().then(() => {
     event.returnValue = readAppearance(userData);
   });
   ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, themeChoice(choice)));
+  // The address comes from what a pane printed, so it is opened only where it is an `http` or `https` one (./links).
+  ipcMain.handle(Channel.openLink, (_event, address: unknown): Promise<boolean> => openLink(address, opener));
   if (process.platform === "darwin") {
     try {
       app.dock?.setIcon(join(__dirname, "app-icon.png"));

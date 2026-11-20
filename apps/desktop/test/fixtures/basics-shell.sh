@@ -5,6 +5,9 @@
 # A shell pane writes every byte its terminal hands it to a file of its own,
 # and its process id beside that file, for a case to read it gone: the file
 # is the one OWLERY_RECEIVER_FILE names with the pane's number after it.
+# Before that it prints two links for the cases that click one: an address
+# as plain text on its first row, and on its second row a name that carries
+# another address (the OSC 8 sequence).
 #
 # A Claude Code pane has the shell replace itself with `claude`. The folder
 # beside this file holds a stand-in of that name, and it is put first on the
@@ -22,5 +25,6 @@ if [ "$3" = "-c" ]; then
 fi
 # Raw and without echo: no byte is changed, held back or answered.
 stty raw -echo
+printf 'https://example.com/owlery-basics\r\n\033]8;;https://example.com/owlery-named\033\\a named link\033]8;;\033\\\r\n'
 echo "$$" > "$OWLERY_RECEIVER_FILE-$OWLERY_PANE_ID.pid"
 exec cat > "$OWLERY_RECEIVER_FILE-$OWLERY_PANE_ID"
