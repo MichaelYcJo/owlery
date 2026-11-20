@@ -614,7 +614,7 @@ export interface PathCandidate {
 export function pathCandidates(line: string): PathCandidate[] {
   const found: PathCandidate[] = [];
   for (const run of line.matchAll(/\S+/g)) {
-    if (!run[0].includes("/") || run[0].includes("://")) continue;
+    if (run[0].includes("://")) continue;
     let start = /^["'`([{<]*/.exec(run[0])?.[0].length ?? 0;
     let text = run[0].slice(start);
     // A path that ends in the folder above keeps its dots.

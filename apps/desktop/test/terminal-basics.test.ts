@@ -572,9 +572,15 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
 
     // The pointer goes from the link onto the card, and the card stays under it.
     await restOn(9, 0);
+    const shownAt = await app.evaluate<number>(`document.getElementById("link-card").getBoundingClientRect().left`);
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await cardRow(0)) });
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
+    // Back on its link, at another cell, the card is the one that was there and stays where it was.
+    await pointAt(14, 0);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
+    expect(await app.evaluate<number>(`document.getElementById("link-card").getBoundingClientRect().left`)).toBe(shownAt);
     // It leaves once the pointer is on neither.
     await pointAway();
 
@@ -613,8 +619,9 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(wrapped).toHaveLength(columns + 20);
     mkdirSync(join(repository.base, folder));
     writeFileSync(wrapped, "");
-    // Under the two links the pane prints on its first two rows: the path, the path after two syllables that are each two cells wide, the path that wraps, and a path nothing stands at.
-    writeFileSync(linesFile, `${PRINTED_PATH}\n한글 ${PRINTED_PATH}\n${wrapped}\nnotes/no-such-file.txt\n`);
+    writeFileSync(join(worktree, "notes", "메모"), "");
+    // Under the two links the pane prints on its first two rows: the path, the path after two syllables that are each two cells wide, the path that wraps, a path nothing stands at, and a path that ends in two such syllables.
+    writeFileSync(linesFile, `${PRINTED_PATH}\n한글 ${PRINTED_PATH}\n${wrapped}\nnotes/no-such-file.txt\nnotes/메모\n`);
     const pane = await openPane("Shell");
     await pidOf(pane);
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
@@ -634,6 +641,9 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await linkAt(19, 5)).toBe(true);
     expect(await linkAt(20, 5)).toBe(false);
     expect(await linkAt(3, 6)).toBe(false);
+    // The link ends with the second cell of its last syllable: six cells of `notes/`, and four of the two syllables.
+    expect(await linkAt(9, 7)).toBe(true);
+    expect(await linkAt(10, 7)).toBe(false);
     // The links of the first two rows are still found, beside the paths'.
     expect(await linkAt(9, 0)).toBe(true);
     expect(await linkAt(3, 1)).toBe(true);
@@ -679,6 +689,24 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await pointAway();
 
     const pane = panes;
+    await closeFromElsewhere(pane);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it("shows the card above a link that stands at the foot of the window, where no room is under it", async () => {
+    const [, rows] = (await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×").map(Number) as [number, number];
+    // A screen of rows, and the path under them: it stands on the row above the last, where the cursor is.
+    writeFileSync(linesFile, `${"-\n".repeat(rows)}${PRINTED_PATH}\n`);
+    const pane = await openPane("Shell");
+    await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    const at = await restOn(9, rows - 2);
+    expect((await card()).title).toBe(join(await worktreeInFront(), PRINTED_PATH));
+    const rowHeight = (await cell(9, 1)).y - (await cell(9, 0)).y;
+    const box = await app.evaluate<{ bottom: number; inner: number }>(`(() => { const box = document.getElementById("link-card").getBoundingClientRect(); return { bottom: box.bottom, inner: window.innerHeight }; })()`);
+    expect(Math.abs(box.bottom - (at.y - rowHeight / 2))).toBeLessThan(1.5);
+    await pointAway();
     await closeFromElsewhere(pane);
     await app.until(`${TABS}.length === 1`, "one tab");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
