@@ -1,0 +1,21 @@
+# Closing memo: 1795180366-daemon-restart
+
+## Not verified
+
+| Item | Who must answer |
+|---|---|
+| A window that a close hid is shown with the dialog open, at a person's choice of "Restart Daemon…" or "Quit Owlery Completely…" in an app started as it ships (`frame/design.md` scenario 15). Every start by an agent is in the background, where `forward.ts#comeForward` brings nothing forward and a close closes the window. `test/forward.test.ts` holds `comeForward` itself | The owner's hand run in the built app, before the release: close the window, choose "Restart Daemon…" from the menu bar |
+| A person's choice of either entry in the system's menu bar. The cases call the entry's `click` in the main process through its inspector, and an app started in the background has no menu bar on macOS | The owner's hand run in the built app, before the release |
+| Whether the process of a real Claude Code pane ends when its daemon stops. No case and no probe may start a real `claude`. `frame/questions.md` Q1 holds the question and what each answer changes | The owner's hand run, as Q1 states it: after "Restart Daemon…" with a Claude Code pane open, `pgrep -lf claude` lists no process of that pane |
+| That the window reloads at once after a restart, and not one second later. `renderer.ts#endDaemon` reloads at the main process's answer. The lost socket's handler in `renderer.ts#connect` reloads a second after the daemon went, so the cases end the same without the first reload. By reading, no case tells the two apart, and no mutant was run | The owner's hand run in the built app: after Restart the status line does not show "Reconnecting to the daemon…" for a second |
+| That a click on either entry makes a window where none is left, and tells it once its page has loaded (`frame/design.md` *Scope* item 4, `main.ts#tellDaemonMenu`). On macOS a close hides the window and keeps it, and in the background and on another platform the app quits with its last window, so no start reaches an app that runs without a window | The next party that changes `background.ts#closeHides` or `#quitsWithLastWindow` so that the app runs with no window, by a case there |
+| The two entries in the menu as Electron builds it on a platform other than macOS. `test/menu.test.ts` reads the template for `linux` and `win32`, and no run built the menu there | The owner, when a platform other than macOS is taken up |
+| That a daemon which outlives the five seconds is named in the dialog, in the built app. `test/daemon-client.test.ts` holds the refusal's sentence and `test/daemon-control.test.ts` that it is the answer. No built-app case runs a daemon that ignores SIGTERM, and the window reloads a second after its socket closed, which takes the dialog with it (`frame/plan.md` *Technical context*, the fifth failure) | The next party that changes the reload at a lost daemon, by a case with a daemon that closes its socket and stays |
+| The suite, the repository-wide typecheck and the broad gate at the head of this branch. The phase ran the eleven case files `trail/phases/phase-1.md` *The phase boundary* names | The orchestrator, by the broad gate of `seal/config.json` |
+
+## Not done
+
+Two things were within reach and not taken.
+
+- **`stopDaemon` does not refuse a process id below 1.** `process.kill` with the id 0 or a negative one signals a group of processes. The id is signalled only after a daemon answered at the file's address with the file's token, and the daemon writes its own `process.pid` into a file only the user can write, so a wrong id needs a party that could signal those processes itself. A case for the guard would have to be seen red, and its red signals the test runner's own group. `frame/design.md` *Scope* item 1 names no such refusal.
+- **The dialog does not close, and its button does not come back, where the daemon's socket closes while the stop is under way.** The window reloads a second later and the dialog goes with the page, which `frame/plan.md` *Technical context* states as the fifth failure and accepts.
