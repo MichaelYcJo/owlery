@@ -343,6 +343,29 @@ describe("the repository of a folder", () => {
     }
   });
 
+  it("is the checkout's folder where git keeps the git directory elsewhere, a submodule's and one made with a separate git directory, and refuses a linked worktree of either, whose main checkout git does not name", async () => {
+    const made = repository("super");
+    const lib = repository("lib");
+    git(made.repo, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", lib.repo, "sub");
+    const sub = join(made.repo, "sub");
+    mkdirSync(join(sub, "src"));
+    const apart = join(made.base, "apart");
+    git(made.base, "init", "--quiet", "--initial-branch=main", "--separate-git-dir", join(made.base, "apart.git"), apart);
+    git(apart, "-c", "user.name=Owlery Test", "-c", "user.email=test@owlery.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "first");
+    for (const [folder, checkout] of [[sub, sub], [join(sub, "src"), sub], [apart, apart]] as const) {
+      expect(await repositoryOf(folder)).toBe(checkout);
+      expect(repositoryOfSync(folder)).toBe(checkout);
+    }
+    expect((await createWorktree({ folder: sub, title: "In the submodule", root: made.root })).repo).toBe(sub);
+    // For a linked worktree of either, git lists a git directory first, and names no checkout.
+    for (const [checkout, name] of [[sub, "of-sub"], [apart, "of-apart"]] as const) {
+      const worktree = join(made.base, name);
+      git(checkout, "worktree", "add", "--quiet", "-b", "side", worktree);
+      await expect(repositoryOf(worktree)).rejects.toThrow(`${worktree} is a worktree of a repository whose main checkout git does not name`);
+      expect(repositoryOfSync(worktree)).toBeNull();
+    }
+  });
+
   it("refuses a folder outside any repository with the sentence a creation there gets, and a folder whose repository has a bare main checkout with a sentence of its own", async () => {
     const made = repository();
     const plain = join(made.base, "plain");
@@ -351,8 +374,11 @@ describe("the repository of a folder", () => {
     await expect(repositoryOf(plain)).rejects.toThrow(`${plain} is not inside a git repository`);
     await expect(repositoryOf(join(made.base, "missing"))).rejects.toThrow(`${join(made.base, "missing")} is not inside a git repository`);
     await expect(repositoryOf(worktree)).rejects.toThrow(`${worktree} belongs to a bare repository, which has no checkout to keep`);
-    // The read at the daemon's start gives no folder for any of the three, and throws for none.
-    expect([repositoryOfSync(plain), repositoryOfSync(join(made.base, "missing")), repositoryOfSync(worktree)]).toEqual([null, null, null]);
+    // The bare repository's own folder is refused as its worktree is.
+    const bareFolder = join(made.base, "bare.git");
+    await expect(repositoryOf(bareFolder)).rejects.toThrow(`${bareFolder} belongs to a bare repository, which has no checkout to keep`);
+    // The read at the daemon's start gives no folder for any of the four, and throws for none.
+    expect([repositoryOfSync(plain), repositoryOfSync(join(made.base, "missing")), repositoryOfSync(worktree), repositoryOfSync(bareFolder)]).toEqual([null, null, null, null]);
   });
 
   it("puts a work item created in a linked worktree's folder under the main checkout, in the worktrees' folder of its name, and plans it there", async () => {

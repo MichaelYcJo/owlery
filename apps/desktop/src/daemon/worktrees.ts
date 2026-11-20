@@ -89,10 +89,30 @@ interface Naming {
 /** The base a person chose for a repository's new work items, given the repository's top-level folder, or null where they chose none. */
 type ChosenBase = (repo: string) => string | null;
 
-/** What git lists first of a repository's worktrees: the main checkout's top-level folder, and whether it is bare, which has no checkout. */
+/**
+ * What git prints of a folder, a line each: the top-level folder of the
+ * checkout the folder is in, that checkout's git directory, and the
+ * repository's common git directory. It fails outside a checkout, inside a
+ * git directory among them. Precondition: git 2.31 or later, the first with
+ * `--path-format`.
+ */
+const WHERE = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir"];
+
+/**
+ * The top-level folder of the main checkout, where `WHERE` printed one git
+ * directory twice: the folder is then in the main checkout, and git names
+ * that checkout's folder wherever its git directory stands. Null in a
+ * linked worktree, whose git directory is not the common one.
+ */
+function checkoutOf(where: string): string | null {
+  const [top = "", gitDir = "", common = ""] = where.trim().split("\n");
+  return top !== "" && gitDir !== "" && gitDir === common ? top : null;
+}
+
+/** What git lists of a repository's worktrees. The first is the main checkout's top-level folder where the git directory is that folder's `.git`, the git directory itself where it stands elsewhere, and a bare repository's folder, marked `bare`. */
 const MAIN_CHECKOUT = ["worktree", "list", "--porcelain"];
 
-/** The main checkout among what `git worktree list --porcelain` printed: the first worktree listed. Null where git printed none. */
+/** The first worktree among what `git worktree list --porcelain` printed, which `MAIN_CHECKOUT` says what it is, and whether git marked it `bare`. Null where git printed none. */
 export function mainCheckout(listed: string): { folder: string; bare: boolean } | null {
   // The first block ends at the first empty line, and its first line is `worktree` and the folder.
   const [first = "", ...rest] = (listed.split("\n\n")[0] ?? "").split("\n");
@@ -101,23 +121,46 @@ export function mainCheckout(listed: string): { folder: string; bare: boolean } 
 }
 
 /**
+ * The main checkout of a folder that `WHERE` named no checkout for, a linked
+ * worktree's among them, from the first worktree git lists. Refused where
+ * git lists none, where the first is bare, and where it is a git directory
+ * that stands apart from its checkout, a submodule's or one made with
+ * `--separate-git-dir`: no `.git` stands at its top, and git names no
+ * checkout for it.
+ */
+function mainOf(folder: string, main: { folder: string; bare: boolean } | null): string {
+  if (main === null) throw new Error(`${folder} is not inside a git repository`);
+  if (main.bare) throw new Error(`${folder} belongs to a bare repository, which has no checkout to keep`);
+  if (!existsSync(join(main.folder, ".git"))) throw new Error(`${folder} is a worktree of a repository whose main checkout git does not name`);
+  return main.folder;
+}
+
+/**
  * The repository a folder is inside: the top-level folder of its main
- * checkout, the first worktree git lists. A folder inside a linked worktree
- * therefore names the repository the worktree belongs to, the one its main
- * checkout's folder names, and never a repository of its own. A folder
- * outside any git repository is refused, and so is one whose repository has
- * a bare main checkout, which has no folder to keep.
+ * checkout. Where the folder is in the main checkout, that is the
+ * checkout's own top-level folder, though its git directory stands
+ * elsewhere, as a submodule's does. Where it is in a linked worktree, it is
+ * the first worktree git lists, so the folder names the repository the
+ * worktree belongs to, and never a repository of its own. A folder outside
+ * any git repository is refused, and so is one whose repository has a bare
+ * main checkout, which has no folder to keep, and a linked worktree whose
+ * main checkout git does not name (`mainOf`).
  */
 export async function repositoryOf(folder: string): Promise<string> {
+  let checkout: string | null = null;
+  try {
+    checkout = checkoutOf(await git(folder, WHERE));
+  } catch {
+    // No checkout holds the folder: a bare repository's folder, or one outside any repository. The list below says which.
+  }
+  if (checkout !== null) return checkout;
   let main: { folder: string; bare: boolean } | null;
   try {
     main = mainCheckout(await git(folder, MAIN_CHECKOUT));
   } catch {
     main = null;
   }
-  if (main === null) throw new Error(`${folder} is not inside a git repository`);
-  if (main.bare) throw new Error(`${folder} belongs to a bare repository, which has no checkout to keep`);
-  return main.folder;
+  return mainOf(folder, main);
 }
 
 /**
@@ -133,16 +176,25 @@ const START_READ_MS = 2000;
  * The repository a folder is inside, as `repositoryOf` reads it, read
  * without a turn of the event loop: the daemon's store reads each folder of
  * `work-items.json` this way at its start, before the daemon listens. Null
- * where `repositoryOf` refuses the folder and where git does not answer.
+ * where `repositoryOf` refuses the folder and where git does not answer
+ * within `START_READ_MS` for the folder, over the two commands a folder
+ * outside a main checkout takes.
  */
 export function repositoryOfSync(folder: string): string | null {
-  let main: { folder: string; bare: boolean } | null;
+  const until = Date.now() + START_READ_MS;
+  const read = (args: string[]): string => execFileSync("git", args, { cwd: folder, encoding: "utf8", timeout: Math.max(1, until - Date.now()), stdio: ["ignore", "pipe", "ignore"] });
+  let checkout: string | null = null;
   try {
-    main = mainCheckout(execFileSync("git", MAIN_CHECKOUT, { cwd: folder, encoding: "utf8", timeout: START_READ_MS, stdio: ["ignore", "pipe", "ignore"] }));
+    checkout = checkoutOf(read(WHERE));
+  } catch {
+    // As in `repositoryOf`.
+  }
+  if (checkout !== null) return checkout;
+  try {
+    return mainOf(folder, mainCheckout(read(MAIN_CHECKOUT)));
   } catch {
     return null;
   }
-  return main === null || main.bare ? null : main.folder;
 }
 
 /**
