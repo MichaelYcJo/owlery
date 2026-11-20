@@ -161,15 +161,16 @@ describe("RepositoryStore", () => {
     store.addWorkItem(PLACE);
     const other = store.addWorkItem({ ...PLACE, repo: "/r/docs" });
     const last = store.addWorkItem({ ...PLACE, title: "Another" });
+    const first = { ...store.workItem(1)?.item };
     expect(store.removeWorkItem(9)).toBeUndefined();
     expect(file(dir)).toMatchObject([{ workItems: [{ id: 1 }, { id: 3 }] }, { workItems: [{ id: 2 }] }]);
-    expect(store.removeWorkItem(3)).toEqual(last.item);
-    expect(store.workItems().map(({ repository, item }) => [repository.id, item.id])).toEqual([[1, 1], [2, 2]]);
-    expect(store.workItem(3)).toBeUndefined();
-    expect(file(dir)).toMatchObject([{ id: 1, workItems: [{ id: 1 }] }, { id: 2, workItems: [other.item] }]);
+    expect(store.removeWorkItem(1)).toEqual(first);
+    expect(store.workItems().map(({ repository, item }) => [repository.id, item.id])).toEqual([[1, 3], [2, 2]]);
+    expect(store.workItem(1)).toBeUndefined();
+    expect(file(dir)).toMatchObject([{ id: 1, workItems: [last.item] }, { id: 2, workItems: [other.item] }]);
     // A repository whose last work item is removed stays, with none.
     store.removeWorkItem(2);
-    expect(new RepositoryStore(dir).repositories().map((repository) => [repository.id, repository.workItems.length])).toEqual([[1, 1], [2, 0]]);
+    expect(new RepositoryStore(dir).repositories().map((repository) => [repository.id, repository.workItems.map((item) => item.id)])).toEqual([[1, [3]], [2, []]]);
     expect(new RepositoryStore(dir).addWorkItem(PLACE).item.id).toBe(4);
   });
 

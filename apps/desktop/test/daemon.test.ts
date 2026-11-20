@@ -1309,6 +1309,9 @@ describe("repositories", () => {
       c.send({ type: "removeRepository", requestId, id: 1, ...told, delete: chosen });
       expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a removal that deletes names the stamp of each work item's loss, and whether it is forced" });
     }
+    // A removal that deletes ends no session where one runs that it does not name, the first work item's neither.
+    c.send({ type: "removeRepository", requestId: 9, id: 1, workItems: told.workItems, running: { panes: [clean.session.id], headless: [] }, delete: { stamps, force: true } });
+    expect(await c.message("error", (m) => m.requestId === 9)).toEqual({ type: "error", requestId: 9, message: "A session started since you looked. Read it again." });
     const before = onDisk(repo, clean.workItem.worktree, held.workItem.worktree);
     const still = await (await client(url)).message("ready");
     expect([still.workItems.map((w) => w.id), still.sessions.map((s) => s.alive)]).toEqual([[1, 2], [true, true]]);
@@ -1331,6 +1334,29 @@ describe("repositories", () => {
     // The repository's own folder is no worktree a delete removes.
     expect([readFileSync(join(repo, "README.md"), "utf8"), git(repo, "status", "--porcelain")]).toEqual(["a repository\n", ""]);
     expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toEqual({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [] });
+  });
+
+  it("starts no pane in a work item of a repository whose removal is deleting its work items, names the work item whose delete it was refused at, and starts one again after the refusal", async () => {
+    const { repo, root } = repository();
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const { url } = await daemon({ worktreesRoot: root, endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Slow to end", kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    const { stamp } = await readLoss(repo, workItem.branch, workItem.worktree);
+    c.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [workItem.id], running: { panes: [session.id], headless: [] }, delete: { stamps: { [workItem.id]: stamp }, force: false } });
+    // The start arrives once the removal's delete waits for the pane to end.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 2)).toBe(false);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
+    const answer = (requestId: number) => c.until(() => c.messages.find((m) => (m.type === "started" || m.type === "done" || m.type === "error") && m.requestId === requestId));
+    expect(await answer(3)).toEqual({ type: "error", requestId: 3, message: `work item ${workItem.id} is being deleted` });
+    expect(await answer(2)).toEqual({ type: "error", requestId: 2, message: "Slow to end: A session did not end in time, so nothing was deleted. Try again." });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id });
+    expect((await answer(4))?.type).toBe("started");
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
   });
 });
 
@@ -1934,6 +1960,20 @@ describe("what a person sets on a work item", () => {
     expect(await answer(1)).toEqual({ type: "done", requestId: 1 });
     const { inbox } = await archivedInbox(c);
     expect([inbox.archived.map((w) => w.id), existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], true, `+ ${workItem.branch}`]);
+  });
+
+  it("leaves the removal of a changed worktree to git where the delete is not forced: git refuses to remove a file that arrived after the daemon's last read, its sentence is the answer, and the work item stays listed with its folder and its branch", async () => {
+    const made = repository();
+    const { c, url, workItem, session } = await withWorkItem(made);
+    const loss = await lossOf(c, workItem.id);
+    const held = heldGit(made.base, '[ "$1" = worktree ] && [ "$2" = remove ]');
+    c.send({ type: "deleteWorkItem", requestId: 1, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+    await c.until(() => (held.waiting() ? true : undefined));
+    writeFileSync(join(workItem.worktree, "arrived.txt"), "after the last read\n");
+    held.release();
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toContain("contains modified or untracked files, use --force to delete it");
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), readFileSync(join(workItem.worktree, "arrived.txt"), "utf8"), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], "after the last read\n", `+ ${workItem.branch}`]);
   });
 
   it("deletes an archived work item, and takes a work item whose repository's folder is gone off the lists with nothing removed on disk", async () => {
