@@ -19,6 +19,7 @@ mkdirSync(join(base, "Thing.app"));
 // A link whose own name holds no dot, to a folder named as a bundle, and one whose name holds a dot, to a plain folder.
 symlinkSync(join(base, "Thing.app"), join(base, "link-to-thing"));
 symlinkSync(join(worktree, "src"), join(base, "link.to-src"));
+symlinkSync(join(base, "no-such-folder"), join(base, "link-to-nothing"));
 mkdirSync(join(base, "my.project", ".git"), { recursive: true });
 // A linked worktree holds `.git` as a file.
 mkdirSync(join(base, "linked.tree"));
@@ -165,6 +166,8 @@ describe("showInFinder", () => {
 
   it.each([
     ["a path nothing stands at", join(worktree, "src", "no-such-file.ts")],
+    ["a link to a path nothing stands at", join(base, "link-to-nothing")],
+    ["a path at which something other than a file or a folder stands", "/dev/null"],
     ["a path that does not open with a slash", "src/a.ts"],
     ["a path from the home folder", "~/notes/today.md"],
     ["an address", "https://example.com/"],

@@ -84,11 +84,11 @@ export function chooseFinder(program: string | null, background: boolean, system
 export async function showInFinder(path: unknown, finder: Finder): Promise<boolean> {
   if (typeof path !== "string" || !path.startsWith("/")) return false;
   const whole = resolve(path);
-  const kind = await kindAt(whole);
-  if (kind === null) return false;
-  // Where the path went away since it was read, nothing is shown.
+  // Every link on the path followed. Nothing stands at a path this fails on.
   const real = await realpath(whole).catch(() => null);
   if (real === null) return false;
+  const kind = await kindAt(real);
+  if (kind === null) return false;
   const checkout = kind === "folder" && (await kindAt(join(real, ".git"))) !== null;
   return finder[finderAct(basename(real), kind === "folder", checkout)](whole);
 }
