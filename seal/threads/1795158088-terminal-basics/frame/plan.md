@@ -146,5 +146,5 @@ No migration. The protocol gains one message from the window, `forget`. A daemon
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| 2026-11-20 | The work gains a hover card for a link and a path a pane prints, with what a click and a modified click do and a row per action (owner, issue #95 comment of 2026-11-20 on Orca's card) | The owner asked for Orca's card or a better structure. Phase 2's link provider is the place it builds on | issue #95 comments |
+| 2026-11-20 | The work gains a hover card for a link and a path a pane prints, with what a click and a modified click do and a row per action (owner, issue #95 comment of 2026-11-20 on Orca's card) | The owner asked for Orca's card or a better structure. Phase 2's link handling is where a click is read; a path needs a link provider of its own beside phase 2's add-on | issue #95 comments |
 | 2026-11-20 | The work gains a pane's right-click menu (Copy, Paste, Select All, Clear Screen, Reset Terminal, Close Pane), the macOS editing keys ⌘←, ⌘→ and ⌘⌫, and a window close on macOS that hides the window so notifications keep coming | The owner gave the orchestrator 0.0.1's scope for small basics; `etcs/research/orca-surfaces.md` rated the closed window's lost notifications high and found the other three in this work's area | issue #95 comment of 2026-11-20 on the added scope |
