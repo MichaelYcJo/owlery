@@ -71,6 +71,11 @@ symlinkSync(join(base, "Thing.app"), join(base, "link-to-thing"));
 
 The snippet stops at the code and its case. *Scope* item 14 (`frame/design.md:111`) says "a folder whose name holds a dot". The fix pass owes it the words that the name is that of what a link leads to, so the item states what the code then does. `changelog.md:9` and the `to` lines of *Rule changes* state the outcome, that a bundle is shown selected, and the fix makes that true without a change to them.
 
+```seal
+verdict: fixed 4eceb2c
+answer: The finding holds. The snippet was read against `frame/design.md` *Scope* item 14 and against each input `showInFinder` hands `finderAct`: whether a folder stands there and whether it is a checkout both read what a link leads to, and the name alone read the link. `4eceb2c` takes the name from `realpath`, as the snippet does, and still hands the act the link's own path. The case is in the pass's own words, because it also reads the other direction the finding names: a link whose own name holds a dot and that leads to a plain folder is opened. It was seen red at `2a4493d` before the code, with the two paths in each other's place. `f5df7d4` then follows the links before `kindAt` reads the disk, because a mutant without the snippet's `real === null` line passed every case; a link that leads nowhere and `/dev/null` each have a case now, and four mutants of the unit are red at `f5df7d4`. One line stays unwatched by any case: without `if (real === null) return false`, `kindAt` fails on the null inside its own `try` and answers the same. The words the finding says *Scope* item 14 is owed are not written: `frame/design.md` is not a file the crafter writes, and the hand-back names the sentence for the orchestrator to fold. What macOS does with `shell.openPath` on a link was not run.
+```
+
 ### 2. The rule the settle writes into `docs/architecture.md` says a Command click on a path shows it in Finder, and on another work item's worktree it puts that view in front
 
 ```seal
@@ -131,6 +136,11 @@ Why it matters: `changelog.md:11` tells a person "It shows after a moment, under
 
 ```md
 It shows after a moment, under the link, or above it where the window has no room under it, with the whole address or path and a row for each thing you can do: "Open in browser" and "Copy link" for an address, "Show in Finder" and "Copy path" for a path, "Open work item" and "Open in Finder" for another work item's worktree.
+```
+
+```seal
+verdict: fixed 204639d
+answer: The finding holds. The sentence was read against `work-item-view.ts#showCard`, which puts the card above the row where the window has no room under it, and against the case "shows the card above a link that stands at the foot of the window, where no room is under it". `204639d` applies it to `changelog.md:11` as written. The same commit rewrites the last sentence of that line for the change `frame/plan.md` *Phases* assigns to this pass: the card stays at a press of the Command, Shift, Control or Option key by itself.
 ```
 
 ## Confirmations
