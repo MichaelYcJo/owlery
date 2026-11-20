@@ -1,6 +1,8 @@
 // What the main process does when the window asks to come forward, after a
-// person's click on a notification. The window and the call that makes the
-// app the active one are passed in, so the cases run without Electron's.
+// person's click on a notification, and when a person chooses one of the
+// menu's two entries that end the daemon, whose dialog is the window's. The
+// window and the call that makes the app the active one are passed in, so
+// the cases run without Electron's.
 
 /** What the function calls of the window that asked. */
 export interface ForwardWindow {
