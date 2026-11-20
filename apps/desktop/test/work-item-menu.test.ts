@@ -181,6 +181,15 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await escape();
     await menuGone();
     expect(await value<boolean>(`document.activeElement === document.querySelector('${line(SIDEBAR, 1)}')`)).toBe(true);
+    // The sidebar draws its lines anew while the menu is open, as it does at each of the daemon's lists, and the keyboard returns to the line drawn in the old one's place.
+    await press("F10", 121, true);
+    await menuShown();
+    await app.evaluate(`(() => { const field = document.getElementById("search-field"); field.value = "item"; field.dispatchEvent(new Event("input")); })()`);
+    await app.until(`document.querySelector('${line(SIDEBAR, 1)} mark')`, "the sidebar drawn anew, with the search's marks");
+    await escape();
+    await menuGone();
+    expect(await value<boolean>(`document.activeElement === document.querySelector('${line(SIDEBAR, 1)}')`)).toBe(true);
+    await app.evaluate(`(() => { const field = document.getElementById("search-field"); field.value = ""; field.dispatchEvent(new Event("input")); })()`);
     await app.click("#search-field");
     await press("KeyM", 77);
     await press("F10", 121, true);
