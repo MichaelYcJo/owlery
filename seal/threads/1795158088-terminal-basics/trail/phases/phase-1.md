@@ -71,7 +71,9 @@ Each case below failed on an assertion of its own before its code, or with its o
 | `src/main/main.ts` | no guard; a guard that refuses every navigation; a handler that allows a hidden window; no menu set | `test/terminal-basics.test.ts` |
 | `src/renderer/renderer.ts` | `dialogOpen` reading the form alone; W doing nothing | `test/terminal-basics.test.ts` |
 | `src/renderer/index.html` | the dialog's two buttons swapped | `test/terminal-basics.test.ts` |
-| `src/renderer/work-item-view.ts` | `closeFront` doing nothing; `closePane` never asking; "Close pane" sending nothing; no close of the dialog for a pane that is gone; no keyboard for the pane after the dialog; `front` kept when the view is left; "×" doing nothing; the sentence naming the kind in place of the tab's label | `test/terminal-basics.test.ts` |
+| `src/renderer/work-item-view.ts` | `closeFront` doing nothing; `closePane` never asking; "Close pane" sending nothing; no close of the dialog for a pane that is gone; no keyboard for the pane after the dialog; `front` kept when the view is left; "×" doing nothing; the sentence's label read from the asked pane alone, with `[session]` in place of the work item's tabs; the sentence naming the kind's label, as the daemon gives it, in place of the tab's label | `test/terminal-basics.test.ts` |
+
+The last two mutants of `work-item-view.ts` were run by the fix pass of review round 1, each alone, at `597307b`. That commit's case opens two Claude Code panes and reads "Claude Code 2" in the sentence, and both mutants fail on that line. Scenario 11's case reads the sentence of the only Claude Code pane and passes under both. The phase's own run had one mutant of the sentence, and its output keeps the verdict `red` without the mutant's text, so which text it wrote is not known.
 
 Two units have no mutant because no case can see them, and `gaps.md` holds both: `inboxKey` being told of the new dialog, and Command+W being kept from the terminal.
 
