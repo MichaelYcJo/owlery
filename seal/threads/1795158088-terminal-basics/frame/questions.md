@@ -1,0 +1,23 @@
+# Questions for the planner: 1795158088-terminal-basics
+
+The issue left these judgments open, and the tree, the installed versions or a probe answered each. Nobody reopens them without opening what is named.
+
+- Whether a dropped file navigates the window today: `frame/design.md` *What the first four do today*, the first row.
+- What Shift+Enter, a click on a URL and the menu's Command+W do today: the same table.
+- Whether a guard on navigation would stop the window's own reload: `frame/design.md` *What the first four do today*, the first fact under the table.
+- What Cmd+W does where no pane is in front: `frame/design.md` *Judgments the issue left open*.
+- Which byte Shift+Enter sends, and in which kinds of pane: `frame/plan.md` *Alternatives considered*, the rows on Shift+Enter, and `frame/design.md` *Grounding*, the first row.
+- How a dropped path is written for the shell: `frame/plan.md` *Alternatives considered*, the rows on a dropped path.
+- Whether Cmd+W is the page's key or a menu item's: `frame/plan.md` *Alternatives considered*, the rows on Cmd+W.
+- How a case clicks a link without opening the owner's browser: `frame/plan.md` *Alternatives considered*, the rows on the opener.
+- What asks before a working pane closes: `frame/plan.md` *Alternatives considered*, the rows on the confirmation.
+- Which of the release's work items merges first: `frame/plan.md` *Overlap with the release*.
+
+No row is a person's. Each row below names why neither the tree nor the framer's probe answered it.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | Does Claude Code, in a pane, insert a line break on the byte `0a`, and take a pasted path with a backslash before each space as an image? The framer did not run it: a logged-in `claude` has to be started in a folder it trusts, which writes the owner's `~/.claude.json` and `~/.claude/projects/`, and the framer's spawn gives no leave for that. Claude Code's documentation answers the first half and not the second (`frame/design.md` *What the tree and the installed versions answer*) | a measurement: the owner's hand run in the built app, or phase 2's crafter in the way issue #94's *Scope* item 1 drives a logged-in `claude`, where the orchestrator allows what that run leaves | (a) Both hold: nothing changes. (b) `0a` submits: *Scope* item 5 sends `1b0d`, the bytes of Option+Enter, and scenario 7 expects them. (c) The escaped path is not read as an image: *Scope* item 2 writes a path inside single quotes, with `'\''` for a quote in it, and scenario 3 expects that | (a): `0a`, and backslashes | open |
+| Q2 | Does `Input.dispatchDragEvent` deliver a `drop` whose file `webUtils.getPathForFile` gives a path for, once the pane's element accepts the drag? The framer's probe saw `dragenter` and `dragover` arrive with the type `Files`, and no `drop`, because nothing in the tree accepts a drag at `efde55b`, and the preload exposes no path to read | the work: phase 2, at scenario 3's case | (a) It does: scenario 3 is a case of the built app. (b) It does not: scenario 3 is held by the cases of `droppedText` alone, and the join from the drop to the paste goes into `gaps.md` *Not verified* with the owner's drag from Finder as what answers it | (a) | open |
+| Q3 | Can a case of the built app have a pane whose session is working? No case at `efde55b` has one in the window: the cases of `test/daemon.test.ts` reach that state at the daemon alone, and the window's cases open a shell pane, which reports no state | the work: phase 1, at scenario 11's case | (a) A stand-in for `claude`, first on the pane's `PATH`, reports a prompt through the hook its `--settings` file names, and scenario 11 is a case of the built app. (b) No stand-in reaches the state: scenario 11 is held by the cases of `closeAsks`, the dialog's buttons are pressed in a case that opens the dialog on a pane the case marks as working in the page, and the join goes into `gaps.md` *Not verified* | (a) | open |
+| Q4 | Under the new menu, does a person's press of Cmd+W reach the page and close the pane, does Cmd+V still paste into a pane, and does a file dragged from Finder, and a screenshot dragged from its thumbnail, type its path? No probe can press a key through the system's menu or drag from Finder without taking the owner's keyboard and pointer, which no start by an agent may do | a measurement: the owner's hand run in the built app, before the release | (a) All hold: nothing changes. (b) One does not: it is a defect of this work, and the owner's finding names it | (a): the build stands as designed, and phase 2 writes the row into `gaps.md` *Not verified* with the owner as its answerer | open |
