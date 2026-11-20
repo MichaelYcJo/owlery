@@ -755,8 +755,9 @@ export function notificationFor(
  * plan, or why it sends nothing. `name` is the name the window generated for
  * this opening of the form, and the title may be empty: the daemon then names
  * the work item by `name`. `base` is the menu's choice, and null where the
- * menu holds none or the request is a plan. An empty folder is refused here
- * because the daemon would run git with it in the daemon's own folder.
+ * menu holds none or the request is a plan. An empty folder is refused here,
+ * in the form's own words. The daemon refuses every folder that is not
+ * absolute, since it would run git with one in the daemon's own folder.
  */
 export function workItemFields(repo: string, title: string, name: string, base: string | null): { repo: string; title: string; name: string; base?: string } | { error: string } {
   const fields = { repo: repo.trim(), title: title.trim(), name };

@@ -122,6 +122,19 @@ function heldGit(base: string): { release: () => void } {
   return { release };
 }
 
+/**
+ * Stands the suite's process, and so a daemon of the case and the git it
+ * runs, in a temporary repository's folder `src` until the case ends. A
+ * relative folder a case sends then names that repository, and never the one
+ * the suite itself runs in.
+ */
+function standingIn(repo: string): void {
+  const before = process.cwd();
+  mkdirSync(join(repo, "src", "src"), { recursive: true });
+  process.chdir(join(repo, "src"));
+  cleanups.push(() => process.chdir(before));
+}
+
 /** A temporary clone, removed after the case. */
 function clone(branch?: string) {
   const made = temporaryClone(branch);
@@ -542,10 +555,11 @@ describe("work items", () => {
     expect(existsSync(root)).toBe(false);
   });
 
-  it("answers a plan in a folder outside any git repository, and one whose fields are not the protocol's, with an error", async () => {
+  it("answers a plan in a folder outside any git repository, one whose fields are not the protocol's, and one in a folder that is not absolute, with an error", async () => {
     const { base, repo, root } = repository();
     const folder = join(base, "plain");
     mkdirSync(folder);
+    standingIn(repo);
     const { url } = await daemon({ worktreesRoot: root });
     const c = await client(url);
     await c.message("ready");
@@ -556,6 +570,8 @@ describe("work items", () => {
     expect(await refused(8, { repo: folder, title: "Anything" })).toEqual({ type: "error", requestId: 8, message: `${folder} is not inside a git repository` });
     expect((await refused(9, { repo, title: 7 })).message).toBe("a work item needs a repository folder and a title");
     expect((await refused(10, { repo, title: "Named", name: 7 })).message).toBe("a work item's name, where one is sent, is a string");
+    // A relative folder would have git answer for the folder the daemon runs in, which is inside a repository here.
+    for (const [requestId, relative] of [[11, "."], [12, "src"], [13, ""]] as const) expect((await refused(requestId, { repo: relative, title: "Anything" })).message).toBe(`the repository folder has to be a whole path from /, and ${JSON.stringify(relative)} is not`);
     expect(c.messages.some((m) => m.type === "workItemPlan")).toBe(false);
     expect(existsSync(root)).toBe(false);
   });
@@ -592,8 +608,9 @@ describe("work items", () => {
     expect(c.messages.some((m) => m.type === "workItemCreated")).toBe(false);
   });
 
-  it("answers a creation whose fields are not the protocol's with an error, and stays up", async () => {
+  it("answers a creation whose fields are not the protocol's, and one in a folder that is not absolute, with an error, and stays up", async () => {
     const { repo, root } = repository();
+    standingIn(repo);
     const { url } = await daemon({ worktreesRoot: root });
     const c = await client(url);
     await c.message("ready");
@@ -603,6 +620,14 @@ describe("work items", () => {
     c.send({ type: "createWorkItem", requestId: 6, repo, title: "Named", name: 7, kind: "shell", cols: 80, rows: 24 });
     expect(await c.message("error", (m) => m.requestId === 6)).toEqual({ type: "error", requestId: 6, message: "a work item's name, where one is sent, is a string" });
     expect(existsSync(root)).toBe(false);
+    // A relative folder would have git answer for the folder the daemon runs in, which is inside a repository here.
+    for (const [requestId, relative] of [[7, "."], [8, "src"], [9, ""]] as const) {
+      c.send({ type: "createWorkItem", requestId, repo: relative, title: "Relative", kind: "shell", cols: 80, rows: 24 });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: `the repository folder has to be a whole path from /, and ${JSON.stringify(relative)} is not` });
+    }
+    expect(existsSync(root)).toBe(false);
+    expect(git(repo, "for-each-ref", "refs/heads/owlery")).toBe("");
+    expect((await (await client(url)).message("ready")).repositories).toEqual([]);
     c.send({ type: "createWorkItem", requestId: 5, repo, title: "After", kind: "shell", cols: 80, rows: 24 });
     await c.message("workItemCreated", (m) => m.requestId === 5);
   });
@@ -800,20 +825,22 @@ describe("repositories", () => {
     expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
   });
 
-  it("answers an add in a folder outside any git repository with the sentence a creation there gets, and one whose folder is no folder's name with an error, and adds nothing", async () => {
-    const { base } = repository();
+  it("answers an add in a folder outside any git repository with the sentence a creation there gets, and one whose folder is no absolute folder's name with an error, and adds nothing", async () => {
+    const { base, repo } = repository();
     const folder = join(base, "plain");
     mkdirSync(folder);
+    standingIn(repo);
     const { url } = await daemon();
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "addRepository", requestId: 1, folder });
     expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: `${folder} is not inside a git repository` });
-    for (const [requestId, wrong] of [[2, 7], [3, ""], [4, undefined]] as const) {
+    // A relative folder would have git answer for the folder the daemon runs in, which is inside a repository here.
+    for (const [requestId, wrong] of [[2, 7], [3, ""], [4, undefined], [5, "."], [6, "src"]] as const) {
       c.send({ type: "addRepository", requestId, folder: wrong });
       expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a repository is added by a folder inside it" });
     }
-    expect(c.messages.map((m) => m.type)).toEqual(["ready", "error", "error", "error", "error"]);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "error", "error", "error", "error", "error", "error"]);
     expect((await (await client(url)).message("ready")).repositories).toEqual([]);
   });
 

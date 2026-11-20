@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type Repository, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
@@ -24,9 +24,16 @@ function cutText(text: string | null): string | null {
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
 }
 
-/** Refuses the fields that name a work item, in a creation and in a plan, where they are not the protocol's. An empty title is one of the protocol's. */
+/**
+ * Refuses the fields that name a work item, in a creation and in a plan, where
+ * they are not the protocol's. An empty title is one of the protocol's. A
+ * repository folder that is not absolute, the empty one among them, is
+ * refused: git would answer for it from the folder the daemon itself runs in.
+ * The path's text alone is read, as a POSIX path.
+ */
 function checkNaming(message: { repo: unknown; title: unknown; name?: unknown }): void {
   if (typeof message.repo !== "string" || typeof message.title !== "string") throw new Error("a work item needs a repository folder and a title");
+  if (!isAbsolute(message.repo)) throw new Error(`the repository folder has to be a whole path from /, and ${JSON.stringify(message.repo)} is not`);
   if (message.name !== undefined && typeof message.name !== "string") throw new Error("a work item's name, where one is sent, is a string");
 }
 
@@ -295,8 +302,8 @@ export class Daemon {
       case "addRepository": {
         const add = async (): Promise<void> => {
           try {
-            // An empty folder would have git answer for the folder the daemon itself runs in.
-            if (typeof message.folder !== "string" || message.folder === "") throw new Error("a repository is added by a folder inside it");
+            // A folder that is not absolute, the empty one among them, would have git answer for the folder the daemon itself runs in.
+            if (typeof message.folder !== "string" || !isAbsolute(message.folder)) throw new Error("a repository is added by a folder inside it");
             const { changed } = this.store.addRepository(await repositoryOf(message.folder));
             // The answer first, so the client that asked knows its request was carried out when the inbox lists the repository.
             this.send(socket, { type: "done", requestId: message.requestId });
