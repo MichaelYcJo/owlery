@@ -122,7 +122,7 @@ The built-app cases live in one new file, `apps/desktop/test/terminal-basics.tes
 
 `apps/desktop/package.json` gains the dependency `@xterm/addon-web-links` at `0.12.0`, pinned as the other xterm packages are, and `pnpm-lock.yaml` follows.
 
-`apps/desktop/test/built-app.ts`: `BuiltApp.start` gains an option that also opens the main process's inspector, and `BuiltApp` gains a method that evaluates an expression there.
+`apps/desktop/test/built-app.ts`: `BuiltApp.start` gains an option that also opens the main process's inspector, and `BuiltApp` gains a method that evaluates an expression there and a method `pages()`. The page and the main process are driven through one class, `DebugSession`.
 
 `apps/desktop/src/shared/protocol.ts` and everything under `apps/desktop/src/daemon/` are not changed.
 
