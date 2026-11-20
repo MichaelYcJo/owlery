@@ -6,8 +6,8 @@
 // a repository's settings, its icon and hiding it; then a work item's
 // archive, the screen of a repository's archived work items and a restore;
 // then a work item's delete, and a removal that deletes a repository's work
-// items from disk; and last a repository's removal that leaves everything
-// on disk. No case presses an "Open in" item or a "Copy" item, and none
+// items from disk, and one that is refused after its first delete; and last
+// a repository's removal that leaves everything on disk. No case presses an "Open in" item or a "Copy" item, and none
 // checks the choice that moves a repository's folder to the Trash: each acts
 // on the desktop, the clipboard and the Trash of whoever runs the suite.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -27,6 +27,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   let second: ReturnType<typeof temporaryRepository>;
   /** A third repository, whose removal deletes its one work item from disk. */
   let third: ReturnType<typeof temporaryRepository>;
+  /** A fourth repository, whose removal deletes one of its two work items and is refused at the other. */
+  let fourth: ReturnType<typeof temporaryRepository>;
 
   const SIDEBAR = "#repositories";
   const INBOX = "#inbox-lines";
@@ -161,6 +163,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     clone = temporaryClone();
     second = temporaryRepository("second");
     third = temporaryRepository("third");
+    fourth = temporaryRepository("fourth");
     // The pane's process is the receiver, so no shell of the person's and no agent starts.
     app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") });
     // The app starts in the background, and the page of a window without the system's focus reports none.
@@ -176,6 +179,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     clone?.remove();
     second?.remove();
     third?.remove();
+    fourth?.remove();
   }, 30_000);
 
   it("opens a work item's menu at a press of the right button on its line in the sidebar, with its items in order and the keyboard on the first, moves through them with the arrows, and closes at Escape", async () => {
@@ -655,6 +659,39 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect([existsSync(worktree), git(third.repo, "branch", "--list", "owlery/*"), git(third.repo, "worktree", "list", "--porcelain").split("\n\n").filter((block) => block.trim() !== "").length]).toEqual([false, "", 1]);
     // The Trash's choice was not taken, and the repository's folder stands as it was.
     expect([readFileSync(join(third.repo, "README.md"), "utf8"), git(third.repo, "status", "--porcelain")]).toEqual(["a repository\n", ""]);
+  });
+
+  it("keeps in the removal's dialog the refusal of a removal that deleted one work item and stopped at the next, after the losses are read again: the dialog then names the work item that is left, with what its delete would lose, and Remove with Force delete checked deletes it", async () => {
+    await create("A item", fourth.repo);
+    await create("B item");
+    const [first, second] = [join(clone.root, "fourth", "a-item"), join(clone.root, "fourth", "b-item")];
+    await fromMenu(4, "Remove");
+    await dialogOpen("remove-dialog");
+    const named = (): Promise<string[]> => value(`[...document.querySelectorAll("#remove-losses h3.work-item")].map((head) => head.textContent)`);
+    const controls = (): Promise<boolean[]> => value(`[document.getElementById("remove-force-label").hidden, document.getElementById("remove-force").checked, document.getElementById("remove-submit").disabled]`);
+    await app.click("#remove-delete");
+    await app.until(`document.querySelectorAll("#remove-losses section").length === 2`, "both work items' losses in the removal's dialog");
+    expect(await named()).toEqual(["A item", "B item"]);
+    expect(await controls()).toEqual([true, false, false]);
+    // A file that arrives in the second worktree after the dialog named both losses: the first delete runs, and the second is refused.
+    writeFileSync(join(second, "arrived.txt"), "arrived since\n");
+    await app.click("#remove-submit");
+    await app.until(`[...document.querySelectorAll("#remove-losses li")].some((item) => item.textContent === "arrived.txt")`, "the loss of the work item that is left read again, with the new file");
+    // The read of the work item the removal deleted is answered "no work item", which is not what the dialog says.
+    expect(await value<string>(`document.getElementById("remove-error").textContent`)).toBe("B item: What the delete would remove has changed. Read it again.");
+    expect(await named()).toEqual(["B item"]);
+    expect(await value<string[]>(`[...document.querySelectorAll("#remove-work-items li")].map((item) => item.textContent)`)).toEqual(["B item"]);
+    expect(await value<boolean>(`document.getElementById("remove-dialog").open`)).toBe(true);
+    // The work item deleted before the refusal stays deleted, and the one refused stands.
+    expect([existsSync(first), existsSync(join(second, "arrived.txt")), git(fourth.repo, "branch", "--list", "owlery/*").trim()]).toEqual([false, true, "+ owlery/b-item"]);
+    // What is left would lose a file, so Remove waits for Force delete.
+    expect(await controls()).toEqual([false, false, true]);
+    await app.click("#remove-force");
+    expect(await controls()).toEqual([false, true, false]);
+    await app.click("#remove-submit");
+    await dialogClosed("remove-dialog");
+    await app.until(`!document.querySelector('${repository(4)}')`, "the removed repository's row gone");
+    expect([existsSync(second), git(fourth.repo, "branch", "--list", "owlery/*"), existsSync(join(fourth.repo, "README.md"))]).toEqual([false, "", true]);
   });
 
   it("removes a repository with no work item from its menu, after a dialog that says nothing on disk is removed, and leaves the repository as git held it", async () => {

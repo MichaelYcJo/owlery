@@ -728,12 +728,12 @@ function forgetRemoveLosses(): void {
   removeForce.checked = false;
 }
 
-/** Takes the daemon's answer to a read the removal's dialog asked for: a loss, which the dialog then names, or a refusal, which it shows. It answers whether the read was the dialog's. */
+/** Takes the daemon's answer to a read the removal's dialog asked for: a loss, which the dialog then names, or a refusal, which it shows. A read of a work item the dialog no longer names, such as one a removal deleted before it was refused, is dropped: its answer is "no work item", which would take the place of the removal's own refusal. It answers whether the read was the dialog's. */
 function takeRemoveLoss(requestId: number, answered: { loss: WorkItemLoss } | { error: string }): boolean {
   const id = removeLossAsked.get(requestId);
   if (id === undefined) return false;
   removeLossAsked.delete(requestId);
-  if (!removeDialog.open || !removeDelete.checked) return true;
+  if (!removeDialog.open || !removeDelete.checked || !removal?.workItems.some((workItem) => workItem.id === id)) return true;
   if ("error" in answered) {
     REMOVE.error.textContent = answered.error;
     return true;
