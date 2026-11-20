@@ -120,8 +120,14 @@ export async function repositoryOf(folder: string): Promise<string> {
   return main.folder;
 }
 
-/** How long the daemon's start waits on git for one folder of `work-items.json`. A folder git does not answer for in that time is one it cannot read. */
-const START_READ_MS = 5000;
+/**
+ * How long the daemon's start waits on git for one folder of
+ * `work-items.json`. A folder git does not answer for in that time is one it
+ * cannot read. The app gives a daemon it started ten seconds to answer
+ * (`ensureDaemon` of src/main/daemon-client.ts), and this read stands before
+ * the daemon listens, so the wait for one folder is a fifth of that.
+ */
+const START_READ_MS = 2000;
 
 /**
  * The repository a folder is inside, as `repositoryOf` reads it, read
