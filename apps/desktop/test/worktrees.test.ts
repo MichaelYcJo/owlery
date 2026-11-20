@@ -226,6 +226,16 @@ describe("createWorktree", () => {
       git(made.repo, "branch", "--quiet", "origin/side");
       expect(await defaultBase(made)).toBe("origin/main");
     });
+
+    it("is no local branch that names another ref, which a base's name never reads", async () => {
+      const made = repository();
+      // An old repository on `master` that keeps `main` as an alias of it.
+      git(made.repo, "branch", "--quiet", "-m", "main", "master");
+      git(made.repo, "symbolic-ref", "refs/heads/main", "refs/heads/master");
+      const plan = await planWorktree({ folder: made.repo, title: "Alias", root: made.root });
+      expect([plan.localBases, plan.defaultBase]).toEqual([["master"], "master"]);
+      expect((await createWorktree({ folder: made.repo, title: "Alias", root: made.root })).baseBranch).toBe("master");
+    });
   });
 
   it("takes the repository's top-level folder when given a folder inside it", async () => {

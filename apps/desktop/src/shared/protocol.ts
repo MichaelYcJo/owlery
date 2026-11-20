@@ -167,7 +167,7 @@ export type ServerMessage =
   | { type: "started"; requestId: number; session: SessionInfo }
   // Answers a creation and carries the pane it opened, whose output the creating client receives.
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
-  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none.
+  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none.
   | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null }
   // Answers an `ask` with the headless session it started.
   | { type: "asked"; requestId: number; headless: HeadlessInfo }

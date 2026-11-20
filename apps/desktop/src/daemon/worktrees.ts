@@ -71,7 +71,7 @@ export interface Worktree {
 export interface WorktreePlan {
   branch: string;
   worktree: string;
-  /** The local branches by name: the one the checkout stands on first, then the others, the newest commit first. */
+  /** The local branches by name: the one the checkout stands on first, then the others, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. */
   localBases: string[];
   /** The remotes' branches, named `<remote>/<branch>`, the newest commit first, without a remote's `HEAD` entry and without a name a local branch bears. */
   remoteBases: string[];
@@ -129,8 +129,9 @@ async function branchOfHead(folder: string): Promise<string | null> {
 /**
  * The ref a base's name is read as: the local branch of that name where one
  * exists, and the remote's branch of that name otherwise. Null where the name
- * is neither, a remote's `HEAD` entry among them, and where the repository is
- * gone. Git is given the name only inside a full ref.
+ * is neither, a remote's `HEAD` entry and a local branch that names another
+ * ref among them, and where the repository is gone. Git is given the name
+ * only inside a full ref.
  */
 async function baseRef(repo: string, base: string): Promise<string | null> {
   const local = `refs/heads/${base}`;
@@ -144,7 +145,7 @@ async function baseRef(repo: string, base: string): Promise<string | null> {
   }
   const lines = refs.split("\n");
   if (lines.includes(`${local} `)) return local;
-  // A remote's `HEAD` names another ref, which is what follows its own name on its line.
+  // A ref that names another, as a remote's `HEAD` does, has that ref after its own name on its line, so neither comparison holds for one.
   return lines.includes(`${remote} `) ? remote : null;
 }
 
@@ -179,8 +180,10 @@ async function basesOf(repo: string): Promise<Pick<WorktreePlan, "localBases" | 
   const heads = new Map<string, string>();
   for (const line of refs.split("\n")) {
     const [ref = "", symref = ""] = line.split(" ");
-    if (ref.startsWith("refs/heads/")) local.push(ref.slice("refs/heads/".length));
-    else if (!ref.startsWith("refs/remotes/")) continue;
+    if (ref.startsWith("refs/heads/")) {
+      // A local branch that names another ref, as an alias `main` of `master` does, is no base: `baseRef` reads a base's name as a branch of its own, and the alias's target stands in the list.
+      if (symref === "") local.push(ref.slice("refs/heads/".length));
+    } else if (!ref.startsWith("refs/remotes/")) continue;
     else if (symref === "") remote.push(ref.slice("refs/remotes/".length));
     else if (symref.startsWith("refs/remotes/")) heads.set(ref.slice("refs/remotes/".length), symref.slice("refs/remotes/".length));
   }
