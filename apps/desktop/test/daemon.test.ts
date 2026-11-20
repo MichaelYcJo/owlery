@@ -1960,6 +1960,10 @@ describe("OutputBuffer", () => {
     expect(modesOf("\u001b[?2004hone\r\n\u001b[?2004ltwo\r\n")).toBe("\u001b[?2004l");
   });
 
+  it("reads a mode's number as a number, so one written with a zero before it names the same mode", () => {
+    expect(modesOf("\u001b[?025l\u001b[?25h")).toBe("\u001b[?25h");
+  });
+
   it("keeps a mode that was only reset", () => {
     expect(modesOf("\u001b[?25lone\r\n")).toBe("\u001b[?25l");
   });
