@@ -3,7 +3,7 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
 import { commitLines, fileLines, lineMarks, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
@@ -25,6 +25,8 @@ export const held = {
   headless: [] as HeadlessInfo[],
   /** The look the daemon held when this window said hello, or null where no person looked before. The window keeps none of its own. */
   lastLook: null as Look | null,
+  /** When the daemon keeps the Mac awake and whether it does now, as `ready` and each `keepAwake` since said it, or null against a daemon that sends none: one of an earlier build, or one that can hold nothing. */
+  keepAwake: null as KeepAwake | null,
   /** The work items that changed since that look, worked out once, at `ready`, and held until the next load. */
   changes: [] as Change[],
   /** The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox. */

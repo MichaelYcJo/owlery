@@ -4,11 +4,13 @@ import type { AddressInfo } from "node:net";
 import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork } from "../shared/protocol";
+import { isKeepAwakeChoice } from "../shared/keep-awake";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
+import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
@@ -80,8 +82,10 @@ export interface DaemonOptions {
   roleAdapter: RoleAdapter;
   /** Where a pane opened without a work item runs. */
   cwd?: string;
-  /** Where the repositories and their work items are kept, in `repositories.json`, and the last look, in `last-look.json`; without it both are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, and the choice of when to keep the Mac awake, in `keep-awake.json`; without them all three are in memory alone. */
   runDir?: string;
+  /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
+  holdAwake?: HoldAwake;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
   /** The source of randomness a work item nobody named is named from; `Math.random` when absent. */
@@ -145,6 +149,9 @@ export class Daemon {
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
+  private readonly keepAwake: KeepAwakeStore;
+  // The hold that stands now, where one does. The daemon holds one at most.
+  private hold: { release(): void } | undefined;
   // The fetches of the bases work items start from: a form's and a creation's of one branch are one fetch.
   private readonly fetches: BaseFetches;
   // What takes or gives up a branch runs one after another: a creation, a rename that renames a branch, and a delete. So two creations of one title never pick the same branch and folder, a rename never takes the branch a creation chose, and a creation never takes the name of a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
@@ -171,6 +178,7 @@ export class Daemon {
     this.store = new RepositoryStore(options.runDir, options.now);
     this.lastLook = new LastLook(options.runDir);
     this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
+    this.keepAwake = new KeepAwakeStore(options.runDir);
   }
 
   listen(port: number): Promise<number> {
@@ -180,6 +188,8 @@ export class Daemon {
     return new Promise((resolve, reject) => {
       server.once("error", reject);
       server.once("listening", () => {
+        // A daemon whose choice is `always` holds from its start.
+        this.settleHold();
         this.checkIdle();
         resolve((server.address() as AddressInfo).port);
       });
@@ -225,6 +235,8 @@ export class Daemon {
     }
     for (const session of this.headless.values()) session.run?.stop();
     this.fetches.close();
+    this.hold?.release();
+    this.hold = undefined;
     for (const client of this.clients.keys()) client.terminate();
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
   }
@@ -284,7 +296,7 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}) });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -683,6 +695,19 @@ export class Daemon {
         }
         return;
       }
+      case "setKeepAwake": {
+        // A daemon that can hold nothing takes no choice, and a choice that already stands changes nothing.
+        if (!this.options.holdAwake || !isKeepAwakeChoice(message.choice) || message.choice === this.keepAwake.get()) return;
+        try {
+          this.keepAwake.set(message.choice);
+        } catch (error) {
+          // The message has no answer to carry an error, and the choice is held in memory whether or not it was written.
+          console.error(`the choice of when to keep the Mac awake was not written: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        // Where the choice moved the hold, the message that says so carries the choice too.
+        if (!this.settleHold()) this.broadcastKeepAwake();
+        return;
+      }
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
@@ -880,6 +905,7 @@ export class Daemon {
   /** Sends every client one headless session whole, after it changed. */
   private headlessChanged(session: HeadlessSession): void {
     this.broadcast({ type: "headless", headless: session.info });
+    this.settleHold();
     this.checkIdle();
   }
 
@@ -1006,6 +1032,51 @@ export class Daemon {
   /** Sends every client the whole of the four lists, after one of them changed. */
   private broadcastInbox(): void {
     this.broadcast({ type: "inbox", ...this.lists() });
+    // Every change of a pane's `alive` or `state` ends here.
+    this.settleHold();
+  }
+
+  private keepAwakeNow(): KeepAwake {
+    return { choice: this.keepAwake.get(), held: this.hold !== undefined };
+  }
+
+  private broadcastKeepAwake(): void {
+    this.broadcast({ type: "keepAwake", keepAwake: this.keepAwakeNow() });
+  }
+
+  /**
+   * Starts the hold where the daemon wants the Mac awake and holds nothing,
+   * and releases it where it holds and no longer wants to, and then tells
+   * every client; it answers whether it did either. A hold that ends by
+   * itself is told to every client too, and the next call that still wants
+   * the Mac awake starts another. A daemon that closed, or was given no
+   * holder, holds nothing.
+   */
+  private settleHold(): boolean {
+    const { holdAwake } = this.options;
+    if (!holdAwake) return false;
+    const wanted = !this.closed && wantsAwake(this.keepAwake.get(), this.sessionList(), this.headlessList());
+    if (wanted === (this.hold !== undefined)) return false;
+    if (this.hold) {
+      this.hold.release();
+      this.hold = undefined;
+    } else {
+      let over = false;
+      let standing: { release(): void } | undefined;
+      const hold = holdAwake(() => {
+        over = true;
+        // A hold lost before the holder returned never stood, and one the daemon released is no longer the daemon's.
+        if (standing === undefined || this.hold !== standing) return;
+        this.hold = undefined;
+        this.broadcastKeepAwake();
+      });
+      // No client is told of a hold that never stood.
+      if (over) return false;
+      standing = hold;
+      this.hold = hold;
+    }
+    this.broadcastKeepAwake();
+    return true;
   }
 
   /**

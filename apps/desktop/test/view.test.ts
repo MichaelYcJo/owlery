@@ -30,6 +30,7 @@ import {
   inboxKey,
   inboxLine,
   inboxSummary,
+  keepAwakeControl,
   keyHints,
   lastHere,
   lineBadge,
@@ -1737,13 +1738,32 @@ describe("summaryCount", () => {
 describe("daemonStatus", () => {
   it("says that the daemon runs and how many agents run: the live panes of a kind that reports its state", () => {
     const sessions = [session(1), session(2, { state: "working" }), session(3, { kind: "shell" }), session(4, { alive: false, state: "finished" })];
-    expect(daemonStatus(sessions, KINDS)).toBe("Daemon running, 2 agents");
-    expect(daemonStatus([session(1)], KINDS)).toBe("Daemon running, 1 agent");
+    expect(daemonStatus(sessions, KINDS, false)).toBe("Daemon running, 2 agents");
+    expect(daemonStatus([session(1)], KINDS, false)).toBe("Daemon running, 1 agent");
   });
 
   it("says that no agent runs where none does", () => {
-    expect(daemonStatus([session(3, { kind: "shell" }), session(4, { alive: false })], KINDS)).toBe("Daemon running, no agent");
-    expect(daemonStatus([], KINDS)).toBe("Daemon running, no agent");
+    expect(daemonStatus([session(3, { kind: "shell" }), session(4, { alive: false })], KINDS, false)).toBe("Daemon running, no agent");
+    expect(daemonStatus([], KINDS, false)).toBe("Daemon running, no agent");
+  });
+
+  it("says after the agents' count that the daemon keeps the Mac awake, where it does", () => {
+    const sessions = [session(1), session(2, { state: "working" })];
+    expect(daemonStatus(sessions, KINDS, true)).toBe("Daemon running, 2 agents, keeping the Mac awake");
+    expect(daemonStatus(sessions, KINDS, false)).toBe("Daemon running, 2 agents");
+    expect(daemonStatus([], KINDS, true)).toBe("Daemon running, no agent, keeping the Mac awake");
+  });
+});
+
+describe("keepAwakeControl", () => {
+  it("shows the daemon's choice, named in the words the control offers it in", () => {
+    expect(keepAwakeControl({ choice: "working", held: false })).toEqual({ choice: "working", title: "Keep awake: While an agent works" });
+    expect(keepAwakeControl({ choice: "always", held: true })).toEqual({ choice: "always", title: "Keep awake: Always" });
+    expect(keepAwakeControl({ choice: "never", held: false })).toEqual({ choice: "never", title: "Keep awake: Never" });
+  });
+
+  it("shows nothing against a daemon that sent no `keepAwake`: one of an earlier build, or one that can hold nothing", () => {
+    expect(keepAwakeControl(null)).toBeNull();
   });
 });
 
