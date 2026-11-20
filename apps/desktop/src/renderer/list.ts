@@ -1,7 +1,7 @@
 // A list of work items' lines beside the preview of the selected one: the
 // inbox screen, and the history screen over the work items whose agent
 // finished. Each is a copy of the page's `list-screen` template.
-import { byId, changedSince, detail, entries, held, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
+import { byId, changedSince, detail, entries, held, lineMarkIcons, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
 import {
   ageOf,
   ahead,
@@ -19,6 +19,7 @@ import {
   matchSentence,
   matchWorkItems,
   moveSelection,
+  pinnedFirst,
   repoNameOf,
   selectedLine,
   type Entry,
@@ -35,6 +36,8 @@ export interface ListScreen {
   /** Moves the selection one line, as J and K do. */
   move(key: "next" | "previous"): void;
   selected(): number | undefined;
+  /** The line of a work item, where it is displayed. */
+  line(workItemId: number): HTMLElement | null;
 }
 
 export interface ListActions {
@@ -111,7 +114,8 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
     button.title = workItem.worktree;
     button.dataset.workItem = String(workItem.id);
     const first = part("first", "");
-    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), part("age", ageOf(session?.stateSince, Date.now())));
+    // A pin and a mute each put a mark after the title.
+    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(session?.stateSince, Date.now())));
     // The second row's text is the branch while a search is typed, with the letters that match marked.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
@@ -151,7 +155,8 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
     empty.textContent = emptyList(name, own.length, shown.length);
     empty.hidden = empty.textContent === "";
     if (name === "inbox") {
-      const groups = inboxGroups(shown);
+      // A pinned work item stands first in its state's group.
+      const groups = inboxGroups(pinnedFirst(shown));
       lines.replaceChildren(
         ...groups.flatMap((group) => {
           const heading = document.createElement("h2");
@@ -162,7 +167,7 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
       );
       displayed = groups.flatMap((group) => group.entries).map(({ workItem }) => workItem.id);
     } else {
-      // The history's lines stand in one list, the one that finished last first, under no heading.
+      // The history's lines stand in one list, the pinned ones first and then the one that finished last first, under no heading.
       lines.replaceChildren(...(shown.length > 0 ? [listOf(shown)] : []));
       displayed = shown.map(({ workItem }) => workItem.id);
     }
@@ -186,5 +191,6 @@ export function listScreen(name: "inbox" | "history", actions: ListActions, mac:
       button?.scrollIntoView({ block: "nearest" });
     },
     selected: () => selected,
+    line: lineButton,
   };
 }

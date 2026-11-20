@@ -1,7 +1,8 @@
 // The sidebar, which stands at the left of every screen: the search field,
 // the three screens it opens, the repositories the daemon keeps with their
 // work items, and the status line at its foot.
-import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
+import type { WorkItem } from "../shared/protocol";
+import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
 import { ageOf, daemonStatus, filterChoices, matchCount, noticeWithout, sidebarTree, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. */
@@ -102,14 +103,15 @@ function rowButton(className: string, says: string, shapes: Parameters<typeof ic
   return button;
 }
 
-function workItemElement(workItemId: number, title: string, marks: readonly (readonly [number, number])[], state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
+function workItemElement(workItem: WorkItem, title: string, marks: readonly (readonly [number, number])[], state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
+  const workItemId = workItem.id;
   const button = document.createElement("button");
   button.className = "side-item";
   button.dataset.workItem = String(workItemId);
   // The sidebar marks the work item whose view is on screen.
   if (workItemId === held.viewing) button.setAttribute("aria-current", "page");
-  // The letters of the title that match what is typed in the search field are marked, as a line of the list marks them.
-  button.append(stateIcon(state, changedSince(workItemId)), marked(titleClass(workItemId), title, marks), part("age", ageOf(since, Date.now())));
+  // The letters of the title that match what is typed in the search field are marked, as a line of the list marks them. A pin and a mute each put a mark after the title.
+  button.append(stateIcon(state, changedSince(workItemId)), marked(titleClass(workItemId), title, marks), ...lineMarkIcons(workItem), part("age", ageOf(since, Date.now())));
   button.addEventListener("click", () => {
     if (workItemId !== held.viewing) actions.openView(workItemId);
   });
@@ -120,7 +122,8 @@ function workItemElement(workItemId: number, title: string, marks: readonly (rea
 
 /**
  * Draws the sidebar: which screen is in front, the counts, the filter, and
- * each repository `sidebarTree` lists, with its work items under it. A
+ * each repository `sidebarTree` lists, with its work items under it, the
+ * pinned ones first. A
  * repository's row holds the button that folds it, a "+" button that opens
  * the "New work item" form on its folder, and a "…" button for its menu,
  * which opens nothing yet. The search field is the person's and is left as
@@ -173,7 +176,7 @@ export function showSidebar(inFront: Front = front): void {
       row.append(head, add, menu);
       const list = document.createElement("ul");
       list.hidden = isFolded;
-      list.append(...repository.entries.map(({ workItem, line, session, marks }) => workItemElement(workItem.id, line.title, marks, line.state, session?.stateSince)));
+      list.append(...repository.entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, session?.stateSince)));
       section.append(row, list);
       return section;
     }),

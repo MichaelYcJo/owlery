@@ -50,6 +50,9 @@
         --fact-label: 76px;
         --said-height: 260px;
         --dialog-width: 460px;
+        --menu-width: 208px;
+        --menu-width-most: 340px;
+        --line-mark: 12px;
         --tab-width: 240px;
         --dot: 6px;
         --seal-size-line: 18px;
@@ -179,6 +182,9 @@
       /* Where a work item's title and its state's age do not both fit, the age gives way first, down to the width of a short one. */
       .side-item .age { flex: 0 100000 auto; min-width: var(--space-10); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
       .side-item .age:empty { min-width: 0; }
+      /* The mark of a pin and of muted notifications, after a line's title. */
+      .line-mark { flex: none; display: block; color: var(--ink-faint); }
+      .line-mark svg.icon { width: var(--line-mark); height: var(--line-mark); }
       #repositories-head { flex: none; display: flex; align-items: center; gap: 1px; height: 32px; margin-top: 9px; padding: 3px 10px 0 18px; border-top: 1px solid var(--rule); }
       #repositories-head h2 { flex: 1; color: var(--ink-faint); }
       #bell-count { font-weight: 600; color: var(--ink); }
@@ -335,13 +341,27 @@
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
       input::placeholder { color: var(--ink-faint); }
 
-      #work-item-dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
-      #work-item-dialog::backdrop { background: var(--backdrop); }
-      #work-item-dialog h2 { margin-bottom: var(--space-6); }
-      #work-item-dialog label { display: block; margin-bottom: var(--space-5); font-size: var(--size-second); color: var(--ink-muted); }
-      #work-item-dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
-      #work-item-dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
-      #work-item-dialog input, #work-item-dialog select { flex: 1; min-width: 0; font-size: var(--size-text); }
+      /* A dialog: the "New work item" form, and the rename dialog. */
+      dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
+      dialog::backdrop { background: var(--backdrop); }
+      dialog h2 { margin-bottom: var(--space-6); }
+      dialog label { display: block; margin-bottom: var(--space-5); font-size: var(--size-second); color: var(--ink-muted); }
+      dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
+      dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
+      dialog input, dialog select { flex: 1; min-width: 0; font-size: var(--size-text); }
+      /* A choice of a dialog: its box, then its words, on one line. */
+      dialog label.check { display: flex; align-items: center; gap: var(--space-3); color: var(--ink); }
+      dialog label.check:has(input:disabled) { color: var(--ink-faint); }
+      dialog input[type="checkbox"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      #rename-plan { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-faint); overflow-wrap: anywhere; }
+      #rename-error { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
+      /* A menu, drawn over the window where it was asked for: its items in a column, and a rule where another part of it begins. */
+      .menu { position: fixed; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; min-width: var(--menu-width); max-width: var(--menu-width-most); padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      .menu [role="menuitem"] { flex: none; box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-5); border-radius: var(--radius-line); overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+      /* The item the keyboard is on is drawn as the one under the pointer is. */
+      .menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus { background: var(--hover); }
+      .menu [role="menuitem"]:active { background: var(--pressed); }
+      .menu [role="separator"] { flex: none; height: 1px; margin: var(--space-2) var(--space-4); background: var(--rule); }
       #work-item-plan { display: grid; gap: var(--space-1); min-height: 2.9em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); overflow-wrap: anywhere; }
       #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
       #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
@@ -534,6 +554,22 @@
         <div class="row end">
           <button type="button" id="work-item-cancel" class="quiet">Cancel</button>
           <button type="submit" id="work-item-create" class="primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="rename-dialog">
+      <form id="rename-form">
+        <h2 class="head">Rename the work item</h2>
+        <label>
+          Name
+          <span class="row"><input id="rename-title" autocomplete="off" /></span>
+        </label>
+        <label class="check"><input type="checkbox" id="rename-branch" disabled />Rename the branch too</label>
+        <p id="rename-plan" aria-live="polite"></p>
+        <p id="rename-error" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="rename-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="rename-submit" class="primary">Rename</button>
         </div>
       </form>
     </dialog>

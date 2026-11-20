@@ -1,17 +1,40 @@
 // The window: its connection to the daemon, which of its four screens is in
-// front, the keys it reads, and the "New work item" form with the plan it
-// asks the daemon for. The theme and its control are ./theme. The sidebar,
+// front, the keys it reads, the "New work item" form with the plan it asks
+// the daemon for, and a work item's menu with what the press of each item
+// does, the rename dialog among it. How a menu is drawn is ./menu. The theme and its control are ./theme. The sidebar,
 // the list with its preview, a work item's view and the summary are a module
 // each, and what each says and decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, Repository, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
+import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
-import { agentKind, baseMenu, changesSince, commandKey, daemonLists, inboxKey, notificationFor, planAnswer, planLine, workItemFields, type BaseChoice, type FormPlan, type PlanAnswered, type StateFilter } from "./view";
+import {
+  agentKind,
+  baseMenu,
+  changesSince,
+  commandKey,
+  daemonLists,
+  inboxKey,
+  menuKey,
+  menuTarget,
+  notificationFor,
+  planAnswer,
+  planLine,
+  renameChoice,
+  workItemFields,
+  workItemMenu,
+  type BaseChoice,
+  type FormPlan,
+  type MenuAction,
+  type PlanAnswered,
+  type RenamePlanned,
+  type StateFilter,
+} from "./view";
 import { detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
@@ -38,8 +61,15 @@ const plansAsked = new Set<number>();
 // The base the person chose in the menu since the form opened.
 let baseChoice: BaseChoice | null = null;
 let planTimer: ReturnType<typeof setTimeout> | undefined;
-// How long the form waits after a key before it asks for a plan. A plan took 28 ms in a clone of one branch and 130 ms beside 2,000 more, so keys closer together than this ask once, after the last of them.
+// How long the form waits after a key before it asks for a plan. A plan took 28 ms in a clone of one branch and 130 ms beside 2,000 more, so keys closer together than this ask once, after the last of them. The rename dialog waits as long.
 const PLAN_WAIT_MS = 150;
+// The rename the rename dialog is waiting on, and the dialog's latest plan of the branch's rename: its request, and what the daemon answered, or null until it answers.
+let renameRequest: number | undefined;
+let renaming: number | undefined;
+let renamePlanRequest: number | undefined;
+let renamePlan: RenamePlanned | null = null;
+const renamePlansAsked = new Set<number>();
+let renamePlanTimer: ReturnType<typeof setTimeout> | undefined;
 
 const screens: Record<Exclude<Front, null>, HTMLElement> = {
   summary: byId("summary-screen"),
@@ -58,6 +88,17 @@ const baseField = byId<HTMLSelectElement>("work-item-base");
 const kindField = byId<HTMLSelectElement>("work-item-kind");
 const formError = byId("work-item-error");
 const createButton = byId<HTMLButtonElement>("work-item-create");
+const renameDialog = byId<HTMLDialogElement>("rename-dialog");
+const renameField = byId<HTMLInputElement>("rename-title");
+const renameBranch = byId<HTMLInputElement>("rename-branch");
+const renamePlanPlace = byId("rename-plan");
+const renameError = byId("rename-error");
+const renameButton = byId<HTMLButtonElement>("rename-submit");
+
+/** Whether a dialog of the window is open, the form or any other. */
+function dialogOpen(): boolean {
+  return document.querySelector("dialog[open]") !== null;
+}
 
 const lists: Record<"inbox" | "history", ListScreen> = {
   inbox: listScreen("inbox", { openView, filter }, MAC),
@@ -120,7 +161,7 @@ function filter(state: StateFilter): void {
 
 /** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, and N opens the "New work item" form. */
 function onCommandKey(event: KeyboardEvent): void {
-  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: workItemDialog.open });
+  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen() });
   if (key === null) return;
   event.preventDefault();
   event.stopPropagation();
@@ -140,7 +181,8 @@ function onKey(event: KeyboardEvent): void {
     { code: event.code, modified: event.ctrlKey || event.metaKey || event.altKey || event.shiftKey },
     {
       inboxInFront: front === "summary" || front === "inbox" || front === "history",
-      dialogOpen: workItemDialog.open,
+      dialogOpen: dialogOpen(),
+      menuOpen: menuOpen(),
       inField: target?.closest("input, textarea, select, [contenteditable]") != null,
       onControl: target?.closest("button, a") != null,
     },
@@ -157,6 +199,135 @@ function onKey(event: KeyboardEvent): void {
   event.preventDefault();
   if (key !== "open") list.move(key);
   else if (list.selected() !== undefined) openView(list.selected() as number);
+}
+
+/** The line of a work item under an element, where one is drawn there: in the sidebar's repositories, or in a list. */
+function lineIn(within: Element, workItemId: number): HTMLElement | null {
+  return within.querySelector<HTMLElement>(`button[data-work-item="${workItemId}"]`);
+}
+
+/** The line of the sidebar or of a list that an element is, or is inside. A line of the summary screen is none: it has no menu. */
+function lineOf(element: Element | null): { line: HTMLElement; within: Element; workItemId: number } | null {
+  const line = element?.closest<HTMLElement>("button[data-work-item]") ?? null;
+  const within = line?.closest("#repositories, .lines") ?? null;
+  return line && within ? { line, within, workItemId: Number(line.dataset.workItem) } : null;
+}
+
+/** Does what the press of a menu's item says. An opening that fails is said in the status line. */
+function pressMenu(action: MenuAction): void {
+  switch (action.do) {
+    case "rename":
+      openRename(action.id);
+      return;
+    case "open":
+      void window.owlery.openFolder(action.folder, action.app).then((failure) => {
+        if (failure !== null) tell(failure);
+      });
+      return;
+    case "copy":
+      void window.owlery.copyText(action.text);
+      return;
+    case "set":
+      send({ type: "setWorkItem", requestId: request(), id: action.id, pinned: action.pinned, muted: action.muted });
+      return;
+  }
+}
+
+/** Opens a work item's menu with its corner at `at`. The keyboard returns to the work item's line under `within`, though the line was drawn anew meanwhile. */
+function openWorkItemMenu(workItemId: number, at: { x: number; y: number }, within: Element): void {
+  const workItem = held.workItems.find((known) => known.id === workItemId);
+  if (!workItem) return;
+  openMenu(`Menu of ${workItem.title}`, workItemMenu(workItem, held.apps), at, pressMenu, () => lineIn(within, workItemId));
+}
+
+/** Opens the menu of a work item's line at a press of the right button on it, and at a press with the Control key, which raises the same event. */
+function onContextMenu(event: MouseEvent): void {
+  const on = lineOf(event.target instanceof Element ? event.target : null);
+  if (!on) return;
+  event.preventDefault();
+  openWorkItemMenu(on.workItemId, { x: event.clientX, y: event.clientY }, on.within);
+}
+
+/**
+ * Opens a menu at its key: for the line the keyboard is on, and otherwise
+ * for the selected line of the list in front. The menu opens under the
+ * line. A repository's row has no menu yet, so the key opens none there.
+ */
+function onMenuKey(event: KeyboardEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  const pressed = { code: event.code, shift: event.shiftKey, modified: event.ctrlKey || event.metaKey || event.altKey };
+  // A terminal reads its keys in a field of its own.
+  if (!menuKey(pressed, { dialogOpen: dialogOpen(), menuOpen: menuOpen(), inField: target?.closest("input, textarea, select, [contenteditable]") != null })) return;
+  const on = lineOf(target);
+  const row = target?.closest<HTMLElement>(".repository-row")?.parentElement;
+  const of = menuTarget({ workItem: on?.workItemId, repository: row?.dataset.repository === undefined ? undefined : Number(row.dataset.repository) }, listInFront()?.selected());
+  if (of === null || !("workItem" in of)) return;
+  const list = front === "inbox" || front === "history" ? screens[front] : null;
+  const within = on?.within ?? list;
+  const line = on?.line ?? listInFront()?.line(of.workItem);
+  if (!within || !line) return;
+  event.preventDefault();
+  const box = line.getBoundingClientRect();
+  openWorkItemMenu(of.workItem, { x: box.left + box.height, y: box.bottom }, within);
+}
+
+/** Draws what the rename dialog holds of its plan: whether the branch can be renamed too, and the branch it would get or why it keeps its name. */
+function showRenamePlan(): void {
+  const choice = renameChoice(renamePlan);
+  renameBranch.disabled = !choice.enabled;
+  if (!choice.enabled) renameBranch.checked = false;
+  renamePlanPlace.textContent = choice.says;
+}
+
+/** Asks the daemon what a rename of the branch after the name typed would give, now. With no name it asks nothing. */
+function askRenamePlan(): void {
+  clearTimeout(renamePlanTimer);
+  renamePlanTimer = undefined;
+  renamePlan = null;
+  if (renaming === undefined || renameField.value.trim() === "") {
+    renamePlanRequest = undefined;
+  } else {
+    renamePlanRequest = request();
+    renamePlansAsked.add(renamePlanRequest);
+    send({ type: "planRename", requestId: renamePlanRequest, id: renaming, title: renameField.value });
+  }
+  showRenamePlan();
+}
+
+/** Takes the daemon's answer to a rename's plan, or its refusal, where it answers the dialog's latest plan. It answers whether the message was of such a plan at all. */
+function takeRenamePlan(requestId: number, answered: RenamePlanned): boolean {
+  const of = planAnswer(renamePlanRequest, renamePlansAsked, requestId);
+  renamePlansAsked.delete(requestId);
+  if (of === "latest") {
+    renamePlan = answered;
+    showRenamePlan();
+  }
+  return of !== "other";
+}
+
+/** Opens the rename dialog on a work item, with its name selected in the field. */
+function openRename(workItemId: number): void {
+  const workItem = held.workItems.find((known) => known.id === workItemId);
+  if (!workItem || dialogOpen()) return;
+  renaming = workItemId;
+  renameRequest = undefined;
+  renameField.value = workItem.title;
+  renameBranch.checked = false;
+  renameError.textContent = "";
+  renameButton.disabled = false;
+  renameDialog.showModal();
+  renameField.select();
+  askRenamePlan();
+}
+
+/** Sends the rename the dialog holds: the name typed, and whether the branch is renamed too. The daemon refuses an empty name. */
+function rename(): void {
+  if (renaming === undefined) return;
+  renameRequest = request();
+  renameError.textContent = "";
+  // One rename per answer: the button stays off until the daemon answers.
+  renameButton.disabled = true;
+  send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked && !renameBranch.disabled });
 }
 
 /** Takes the repositories and the archived work items of a `ready` or an `inbox`, and what the status line has to say of the daemon that sent it. */
@@ -320,9 +491,16 @@ function onMessage(message: ServerMessage): void {
     case "workItemPlan":
       takePlan(message.requestId, { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase });
       return;
+    case "renamePlan":
+      takeRenamePlan(message.requestId, { branch: message.branch, blocked: message.blocked });
+      return;
     case "done":
       // What the request changed arrives in the `inbox` that follows.
       tell("");
+      if (message.requestId === renameRequest) {
+        renameRequest = undefined;
+        if (renameDialog.open) renameDialog.close();
+      }
       return;
     case "asked":
       takeHeadless(message.headless, message.requestId);
@@ -335,6 +513,14 @@ function onMessage(message: ServerMessage): void {
       requestRefused(message.requestId);
       // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
       if (takePlan(message.requestId, { error: message.message })) return;
+      // So is the refusal of a rename's plan the rename dialog's, and the refusal of the rename itself.
+      if (takeRenamePlan(message.requestId, { error: message.message })) return;
+      if (message.requestId === renameRequest && renameDialog.open) {
+        renameRequest = undefined;
+        renameError.textContent = message.message;
+        renameButton.disabled = false;
+        return;
+      }
       if (message.requestId === formRequest && workItemDialog.open) {
         formRequest = undefined;
         formError.textContent = message.message;
@@ -413,9 +599,16 @@ initTheme(window.owlery.appearance, {
   saved: () => untell(THEME_NOT_SAVED),
   notSaved: () => tell(THEME_NOT_SAVED),
 });
+// The editors and the terminals the Mac holds, which a menu offers to open a folder in. Until the answer a menu offers Finder alone.
+void window.owlery.installedApps().then((apps) => {
+  held.apps = apps;
+});
 // The keys pressed with the Command key are read before a terminal that has the focus reads them.
 document.addEventListener("keydown", onCommandKey, { capture: true });
+// The menu's key is read before a list's keys, which a menu that just opened no longer lets through.
+document.addEventListener("keydown", onMenuKey);
 document.addEventListener("keydown", onKey);
+document.addEventListener("contextmenu", onContextMenu);
 window.addEventListener("blur", looked);
 window.addEventListener("pagehide", looked);
 document.addEventListener("visibilitychange", () => {
@@ -440,6 +633,26 @@ baseField.addEventListener("change", () => {
 });
 // A closed form asks for no plan.
 workItemDialog.addEventListener("close", () => clearTimeout(planTimer));
+byId("rename-cancel").addEventListener("click", () => renameDialog.close());
+renameField.addEventListener("input", () => {
+  clearTimeout(renamePlanTimer);
+  renamePlanTimer = setTimeout(askRenamePlan, PLAN_WAIT_MS);
+  // The plan the dialog holds is of the name the field held before, so the choice is off until the daemon answers for this one.
+  renamePlan = null;
+  renamePlanRequest = undefined;
+  showRenamePlan();
+});
+// A closed dialog asks for no plan, and no answer is its own any more. The event of a close can arrive after the dialog opened again, on another work item, and that opening's plan is not this close's to end.
+renameDialog.addEventListener("close", () => {
+  if (renameDialog.open) return;
+  clearTimeout(renamePlanTimer);
+  renaming = undefined;
+  renamePlanRequest = undefined;
+});
+byId<HTMLFormElement>("rename-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  rename();
+});
 workItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
   createWorkItem();

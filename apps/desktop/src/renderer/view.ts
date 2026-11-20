@@ -1,6 +1,7 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
+import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
 
 /**
@@ -111,6 +112,22 @@ export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly
     .filter((group) => group.entries.length > 0);
 }
 
+/**
+ * The entries with the pinned work items before the others. The pinned keep
+ * their order among themselves, and so do the others. A list puts it over
+ * the entries of one of its parts: a repository's in the sidebar, a state's
+ * group in the inbox, which `inboxGroups` cuts from entries in this order,
+ * and the whole of the history.
+ */
+export function pinnedFirst<E extends { workItem: WorkItem }>(entries: readonly E[]): E[] {
+  return [...entries.filter((entry) => entry.workItem.pinned), ...entries.filter((entry) => !entry.workItem.pinned)];
+}
+
+/** The marks a work item's line carries after its title, each with the words a pointer and a screen reader are told: one where it is pinned, and one where its notifications are muted. */
+export function lineMarks(workItem: WorkItem): { mark: "pinned" | "muted"; words: string }[] {
+  return [...(workItem.pinned ? [{ mark: "pinned" as const, words: "Pinned" }] : []), ...(workItem.muted ? [{ mark: "muted" as const, words: "Notifications muted" }] : [])];
+}
+
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
 export function repoNameOf(workItem: WorkItem): string {
   return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
@@ -145,8 +162,8 @@ export interface SidebarRepository {
 /**
  * The sidebar's repositories: each repository the daemon keeps that is not
  * hidden, in the daemon's order, with the work items that name it by its id
- * and that the search and the filter leave, in the order given. A repository
- * with no work item is listed. While a search is typed or a state is chosen,
+ * and that the search and the filter leave, the pinned ones first and each
+ * part in the order given. A repository with no work item is listed. While a search is typed or a state is chosen,
  * a repository none of whose work items is left is not. The window makes up
  * no repository: a work item whose repository the daemon did not send is
  * under none.
@@ -157,20 +174,21 @@ export function sidebarTree(repositories: readonly Repository[], workItems: read
   return repositories
     .filter((repository) => !repository.hidden)
     .map((repository) => {
-      const entries = left.filter((entry) => entry.workItem.repoId === repository.id).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
+      const entries = pinnedFirst(left.filter((entry) => entry.workItem.repoId === repository.id)).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
       return { id: repository.id, repo: repository.folder, name: repository.name, count: entries.length, entries };
     })
     .filter((repository) => !narrowing || repository.entries.length > 0);
 }
 
 /**
- * The history screen's lines: the work items whose agent finished, the one
- * that finished last first. Two that finished at one time keep the order
- * given, and one whose time the daemon did not send stands last.
+ * The history screen's lines: the work items whose agent finished, the
+ * pinned ones first, and among the pinned and among the others the one that
+ * finished last first. Two that finished at one time keep the order given,
+ * and one whose time the daemon did not send stands last.
  */
-export function historyLines<E extends { line: InboxLine; session: SessionInfo | undefined }>(entries: readonly E[]): E[] {
+export function historyLines<E extends { workItem: WorkItem; line: InboxLine; session: SessionInfo | undefined }>(entries: readonly E[]): E[] {
   const since = (entry: E) => entry.session?.stateSince ?? Number.NEGATIVE_INFINITY;
-  return entries.filter((entry) => entry.line.state === "finished").sort((a, b) => (since(a) === since(b) ? 0 : since(b) > since(a) ? 1 : -1));
+  return pinnedFirst(entries.filter((entry) => entry.line.state === "finished").sort((a, b) => (since(a) === since(b) ? 0 : since(b) > since(a) ? 1 : -1)));
 }
 
 /**
@@ -486,9 +504,9 @@ export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now:
   ];
 }
 
-/** The keys a list says under its preview: the two that move through it, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
+/** The keys a list says under its preview: the two that move through it, the one that opens the selected line's menu, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
 export function keyHints(screen: "inbox" | "history", mac: boolean): string[] {
-  return [`J K move through the ${screen}`, `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
+  return [`J K move through the ${screen}`, "M opens the menu", `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
 }
 
 /**
@@ -513,14 +531,14 @@ export function moveSelection(ids: readonly number[], selected: number | undefin
  * history screen, or null where the window leaves it alone. J and K are read
  * by their place on the keyboard, so they act under any input source. No key
  * is read while a screen the window does not name as one is in front, a
- * dialog is open, the focus is in a field or a modifier key is held. Enter
- * on a control is that control's own press.
+ * dialog is open, a menu is open, the focus is in a field or a modifier key
+ * is held. Enter on a control is that control's own press.
  */
 export function inboxKey(
   key: { code: string; modified: boolean },
-  where: { inboxInFront: boolean; dialogOpen: boolean; inField: boolean; onControl: boolean },
+  where: { inboxInFront: boolean; dialogOpen: boolean; menuOpen: boolean; inField: boolean; onControl: boolean },
 ): "next" | "previous" | "open" | null {
-  if (!where.inboxInFront || where.dialogOpen || where.inField || key.modified) return null;
+  if (!where.inboxInFront || where.dialogOpen || where.menuOpen || where.inField || key.modified) return null;
   if (key.code === "KeyJ") return "next";
   if (key.code === "KeyK") return "previous";
   if (key.code === "Enter" && !where.onControl) return "open";
@@ -532,14 +550,84 @@ export function inboxKey(
  * where the window leaves it alone: K puts the focus in the search field,
  * and N opens the "New work item" form. The Control key stands for the
  * Command key where the keyboard has none. The key is read by its place on
- * the keyboard, and not while a dialog is open or another modifier key is
- * held as well.
+ * the keyboard, and not while a dialog is open, a menu is open or another
+ * modifier key is held as well.
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean }): "search" | "new" | null {
+export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean }): "search" | "new" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
-  if (!command || key.alt || key.shift || where.dialogOpen) return null;
+  if (!command || key.alt || key.shift || where.dialogOpen || where.menuOpen) return null;
   if (key.code === "KeyK") return "search";
   return key.code === "KeyN" ? "new" : null;
+}
+
+/**
+ * Whether a key opens a menu: M alone, read by its place on the keyboard, or
+ * F10 with the Shift key. On macOS no key raises the event a press of the
+ * right button raises, so the window reads the key itself. `modified` says
+ * that the Command, the Control or the Option key is held. The key is not
+ * read in a field, a terminal's among them, while a dialog is open or while
+ * a menu is open.
+ */
+export function menuKey(key: { code: string; shift: boolean; modified: boolean }, where: { dialogOpen: boolean; menuOpen: boolean; inField: boolean }): boolean {
+  if (where.dialogOpen || where.menuOpen || where.inField || key.modified) return false;
+  return key.shift ? key.code === "F10" : key.code === "KeyM";
+}
+
+/**
+ * What the menu's key opens a menu for: the work item of the line the
+ * keyboard is on, or the repository of the row it is on, and where it is on
+ * neither, the work item of the `selected` line of the list in front.
+ * Nothing where no list is in front or the list has no line.
+ */
+export function menuTarget(on: { workItem?: number; repository?: number }, selected: number | undefined): { workItem: number } | { repository: number } | null {
+  if (on.workItem !== undefined) return { workItem: on.workItem };
+  if (on.repository !== undefined) return { repository: on.repository };
+  return selected === undefined ? null : { workItem: selected };
+}
+
+/** What the press of a menu's item does: opens the rename dialog, opens a folder in Finder, where `app` is null, or in an installed app, writes a text to the clipboard, or sets a work item's pin or its mute. */
+export type MenuAction = { do: "rename"; id: number } | { do: "open"; folder: string; app: string | null } | { do: "copy"; text: string } | { do: "set"; id: number; pinned?: boolean; muted?: boolean };
+
+/** One item of a menu: its words, what its press does, and whether a rule stands above it, where another part of the menu begins. */
+export interface MenuEntry {
+  label: string;
+  action: MenuAction;
+  divides: boolean;
+}
+
+/**
+ * A work item's menu, in its order: Rename; Open in Finder, then one item
+ * for each installed editor and terminal; Copy path and Copy branch name;
+ * Pin or Unpin, and Mute notifications or Unmute notifications. The folder
+ * that is opened and copied is the work item's worktree.
+ */
+export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]): MenuEntry[] {
+  const { id, worktree: folder } = workItem;
+  return [
+    { label: "Rename", action: { do: "rename", id }, divides: false },
+    { label: "Open in Finder", action: { do: "open", folder, app: null }, divides: true },
+    ...apps.map(({ name }) => ({ label: `Open in ${name}`, action: { do: "open" as const, folder, app: name }, divides: false })),
+    { label: "Copy path", action: { do: "copy", text: folder }, divides: true },
+    { label: "Copy branch name", action: { do: "copy", text: workItem.branch }, divides: false },
+    { label: workItem.pinned ? "Unpin" : "Pin", action: { do: "set", id, pinned: !workItem.pinned }, divides: true },
+    { label: workItem.muted ? "Unmute notifications" : "Mute notifications", action: { do: "set", id, muted: !workItem.muted }, divides: false },
+  ];
+}
+
+/** What the daemon answered a rename's plan with: what a `renamePlan` carries, or the error it refused the plan with. */
+export type RenamePlanned = { branch: string | null; blocked: string | null } | { error: string };
+
+/**
+ * The rename dialog's choice "Rename the branch too", given the plan the
+ * dialog holds for the name typed, or null until the daemon has answered:
+ * whether it can be taken, and what the dialog says under it, the branch the
+ * rename gives or why the branch keeps its name.
+ */
+export function renameChoice(plan: RenamePlanned | null): { enabled: boolean; says: string } {
+  if (plan === null) return { enabled: false, says: "" };
+  if ("error" in plan) return { enabled: false, says: plan.error };
+  if (plan.blocked !== null || plan.branch === null) return { enabled: false, says: plan.blocked ?? "" };
+  return { enabled: true, says: `The branch becomes ${plan.branch}.` };
 }
 
 /**
@@ -732,7 +820,8 @@ export function screenTurns(term: TerminalWrites): ScreenTurns {
  * The notification for a session whose state was `previous`, or null where
  * none is shown: one is shown when the state becomes waiting or finished, and
  * never where `inFront` holds: the pane is on the stage of a focused window,
- * so the person is looking at it, whether or not it has the keyboard.
+ * so the person is looking at it, whether or not it has the keyboard. None
+ * is shown for a session of a work item whose notifications are muted.
  */
 export function notificationFor(
   previous: AgentState | null,
@@ -744,6 +833,7 @@ export function notificationFor(
   if (session.state === previous || inFront) return null;
   if (session.state !== "waiting" && session.state !== "finished") return null;
   const workItem = workItems.find((item) => item.id === session.workItemId);
+  if (workItem?.muted) return null;
   return {
     title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
     body: session.state === "waiting" ? "Waiting for you" : "Finished",

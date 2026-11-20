@@ -24,20 +24,25 @@ import {
   lastHere,
   lineBadge,
   lineCounts,
+  lineMarks,
   lineSession,
   lineText,
   markRanges,
   matchCount,
   matchSentence,
   matchWorkItems,
+  menuKey,
+  menuTarget,
   moveSelection,
   noticeWithout,
   notificationFor,
   paneInFront,
   paneTabs,
+  pinnedFirst,
   planAnswer,
   planLine,
   recentKept,
+  renameChoice,
   replayStep,
   screenMoves,
   screenTurns,
@@ -57,6 +62,7 @@ import {
   withHeadless,
   workItemEntries,
   workItemFields,
+  workItemMenu,
   type FormPlan,
   type InboxLine,
 } from "../src/renderer/view";
@@ -271,7 +277,7 @@ describe("moveSelection", () => {
 });
 
 describe("inboxKey", () => {
-  const INBOX = { inboxInFront: true, dialogOpen: false, inField: false, onControl: false };
+  const INBOX = { inboxInFront: true, dialogOpen: false, menuOpen: false, inField: false, onControl: false };
   const plain = (code: string) => ({ code, modified: false });
 
   it("reads J, K and Enter by their place on the keyboard", () => {
@@ -285,10 +291,11 @@ describe("inboxKey", () => {
     expect(inboxKey(plain("ArrowDown"), INBOX)).toBeNull();
   });
 
-  it("reads no key while another screen is in front, a dialog is open or the focus is in a field", () => {
+  it("reads no key while another screen is in front, a dialog is open, a menu is open or the focus is in a field", () => {
     for (const code of ["KeyJ", "KeyK", "Enter"]) {
       expect(inboxKey(plain(code), { ...INBOX, inboxInFront: false })).toBeNull();
       expect(inboxKey(plain(code), { ...INBOX, dialogOpen: true })).toBeNull();
+      expect(inboxKey(plain(code), { ...INBOX, menuOpen: true })).toBeNull();
       expect(inboxKey(plain(code), { ...INBOX, inField: true })).toBeNull();
     }
   });
@@ -302,6 +309,125 @@ describe("inboxKey", () => {
     expect(inboxKey(plain("Enter"), onControl)).toBeNull();
     expect(inboxKey(plain("KeyJ"), onControl)).toBe("next");
     expect(inboxKey(plain("KeyK"), onControl)).toBe("previous");
+  });
+});
+
+describe("menuKey", () => {
+  const FREE = { dialogOpen: false, menuOpen: false, inField: false };
+  const key = (code: string, held: { shift?: boolean; modified?: boolean } = {}) => ({ code, shift: false, modified: false, ...held });
+
+  it("reads M alone, by its place on the keyboard, and F10 with Shift, as the key that opens a menu", () => {
+    expect(menuKey(key("KeyM"), FREE)).toBe(true);
+    expect(menuKey(key("F10", { shift: true }), FREE)).toBe(true);
+  });
+
+  it("reads neither M with Shift nor F10 alone, no other key, and no key with the Command, the Control or the Option key held", () => {
+    expect(menuKey(key("KeyM", { shift: true }), FREE)).toBe(false);
+    expect(menuKey(key("F10"), FREE)).toBe(false);
+    expect(menuKey(key("KeyN"), FREE)).toBe(false);
+    expect(menuKey(key("F9", { shift: true }), FREE)).toBe(false);
+    expect(menuKey(key("KeyM", { modified: true }), FREE)).toBe(false);
+    expect(menuKey(key("F10", { shift: true, modified: true }), FREE)).toBe(false);
+  });
+
+  it("reads neither in a field, with a dialog open or with a menu open", () => {
+    for (const pressed of [key("KeyM"), key("F10", { shift: true })]) {
+      expect(menuKey(pressed, { ...FREE, inField: true })).toBe(false);
+      expect(menuKey(pressed, { ...FREE, dialogOpen: true })).toBe(false);
+      expect(menuKey(pressed, { ...FREE, menuOpen: true })).toBe(false);
+    }
+  });
+});
+
+describe("menuTarget", () => {
+  it("gives the work item of the line the keyboard is on, whatever line is selected", () => {
+    expect(menuTarget({ workItem: 4 }, 7)).toEqual({ workItem: 4 });
+    expect(menuTarget({ workItem: 4 }, undefined)).toEqual({ workItem: 4 });
+  });
+
+  it("gives the repository of the row the keyboard is on", () => {
+    expect(menuTarget({ repository: 2 }, 7)).toEqual({ repository: 2 });
+  });
+
+  it("gives the selected line's work item where the keyboard is on neither, and nothing where no list is in front or it has no line", () => {
+    expect(menuTarget({}, 7)).toEqual({ workItem: 7 });
+    expect(menuTarget({}, undefined)).toBeNull();
+  });
+});
+
+describe("workItemMenu", () => {
+  const APPS = [
+    { name: "Zed", kind: "editor" as const },
+    { name: "Warp", kind: "terminal" as const },
+  ];
+
+  it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin and Mute notifications, each with what its press does", () => {
+    expect(workItemMenu(LOGIN, APPS)).toEqual([
+      { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
+      { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
+      { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
+      { label: "Open in Warp", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Warp" }, divides: false },
+      { label: "Copy path", action: { do: "copy", text: "/w/project/fix-the-login-bug" }, divides: true },
+      { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
+      { label: "Pin", action: { do: "set", id: 1, pinned: true }, divides: true },
+      { label: "Mute notifications", action: { do: "set", id: 1, muted: true }, divides: false },
+    ]);
+  });
+
+  it("offers Finder alone where no app is installed", () => {
+    expect(workItemMenu(LOGIN, []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications"]);
+  });
+
+  it("offers Unpin for a pinned work item and Unmute notifications for a muted one", () => {
+    const items = workItemMenu({ ...LOGIN, pinned: true, muted: true }, []);
+    expect(items.slice(-2)).toEqual([
+      { label: "Unpin", action: { do: "set", id: 1, pinned: false }, divides: true },
+      { label: "Unmute notifications", action: { do: "set", id: 1, muted: false }, divides: false },
+    ]);
+  });
+});
+
+describe("pinnedFirst", () => {
+  const item = (id: number, pinned: boolean) => ({ workItem: { ...LOGIN, id, pinned } });
+
+  it("puts the pinned work items before the others, and keeps the order among the pinned and among the others", () => {
+    expect(pinnedFirst([item(1, false), item(2, true), item(3, false), item(4, true)]).map(({ workItem }) => workItem.id)).toEqual([2, 4, 1, 3]);
+    expect(pinnedFirst([item(1, false), item(2, false)]).map(({ workItem }) => workItem.id)).toEqual([1, 2]);
+  });
+
+  it("puts a pinned work item first in its state's group of the inbox, and before no line of a state a person acts on sooner", () => {
+    const sessions = [session(5, { workItemId: 1, state: "working" }), session(6, { workItemId: 2, state: "waiting" }), session(7, { workItemId: 3, state: "working" })];
+    const third: WorkItem = { ...LOGIN, id: 3, title: "Third", pinned: true };
+    const groups = inboxGroups(pinnedFirst(workItemEntries([LOGIN, SEARCH, third], sessions, KINDS)));
+    expect(groups.map((group) => [group.state, group.entries.map((entry) => entry.workItem.id)])).toEqual([
+      ["waiting", [2]],
+      ["working", [3, 1]],
+    ]);
+  });
+});
+
+describe("lineMarks", () => {
+  it("marks a pinned work item's line with the words Pinned, a muted one's with Notifications muted, and a line of neither with nothing", () => {
+    expect(lineMarks(LOGIN)).toEqual([]);
+    expect(lineMarks({ ...LOGIN, pinned: true })).toEqual([{ mark: "pinned", words: "Pinned" }]);
+    expect(lineMarks({ ...LOGIN, muted: true })).toEqual([{ mark: "muted", words: "Notifications muted" }]);
+    expect(lineMarks({ ...LOGIN, pinned: true, muted: true }).map(({ mark }) => mark)).toEqual(["pinned", "muted"]);
+  });
+});
+
+describe("renameChoice", () => {
+  it("enables the choice to rename the branch too where the plan names a branch and nothing stands in the way, and says the branch", () => {
+    expect(renameChoice({ branch: "owlery/second-name", blocked: null })).toEqual({ enabled: true, says: "The branch becomes owlery/second-name." });
+  });
+
+  it("disables the choice and says why, where the plan says the branch keeps its name, and where the daemon refused the plan", () => {
+    expect(renameChoice({ branch: "owlery/first-name", blocked: "The branch is already owlery/first-name." })).toEqual({ enabled: false, says: "The branch is already owlery/first-name." });
+    expect(renameChoice({ branch: null, blocked: "The name leaves no letter or digit to name a branch by." })).toEqual({ enabled: false, says: "The name leaves no letter or digit to name a branch by." });
+    expect(renameChoice({ error: "no work item 9" })).toEqual({ enabled: false, says: "no work item 9" });
+  });
+
+  it("disables the choice and says nothing until the daemon has answered", () => {
+    expect(renameChoice(null)).toEqual({ enabled: false, says: "" });
   });
 });
 
@@ -744,6 +870,15 @@ describe("notificationFor", () => {
     expect(notificationFor("finished", session(3, { state: null }), false, [LOGIN], KINDS)).toBeNull();
   });
 
+  it("shows nothing for a session of a muted work item, and the notification for the same session where the work item is not muted", () => {
+    const waits = session(3, { state: "waiting" });
+    expect(notificationFor("working", waits, false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
+    expect(notificationFor("working", session(3, { state: "finished" }), false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
+    expect(notificationFor("working", waits, false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    // Another work item's mute says nothing of this session.
+    expect(notificationFor("working", waits, false, [LOGIN, { ...SEARCH, muted: true }], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+  });
+
   it("shows nothing for a state the session was already in", () => {
     expect(notificationFor("waiting", session(3, { state: "waiting" }), false, [LOGIN], KINDS)).toBeNull();
     expect(notificationFor("finished", session(3, { state: "finished" }), false, [LOGIN], KINDS)).toBeNull();
@@ -926,6 +1061,16 @@ describe("sidebarTree", () => {
     expect(tree[2]?.entries[1]?.line.state).toBe("waiting");
   });
 
+  it("puts a repository's pinned work items before its others, each in the daemon's order, and none before a work item of another repository", () => {
+    const pinned: WorkItem = { ...SEARCH, pinned: true };
+    const fourth: WorkItem = { ...LOGIN, id: 4, title: "Fourth", pinned: true };
+    const guide: WorkItem = { ...DOCS, pinned: true };
+    expect(rows(sidebarTree([PROJECT, DOCS_REPO], [LOGIN, pinned, guide, fourth], [], KINDS))).toEqual([
+      [1, "/r/project", "project", 3, [2, 4, 1]],
+      [2, "/r/docs", "docs", 1, [3]],
+    ]);
+  });
+
   it("puts a work item under the repository whose id it names, whatever folder and name the work item carries, and keeps two repositories of one name apart", () => {
     const other: Repository = { ...PROJECT, id: 2, folder: "/elsewhere/project" };
     const moved: WorkItem = { ...SEARCH, repoId: 2 };
@@ -1018,6 +1163,19 @@ describe("historyLines", () => {
       session(8, { workItemId: 4, state: "finished", stateSince: 500 }),
     ];
     expect(historyLines(workItemEntries([LOGIN, SEARCH, third, fourth], sessions, KINDS)).map((entry) => entry.workItem.id)).toEqual([4, 2, 3, 1]);
+  });
+
+  it("puts a pinned work item first, before one that finished later, and keeps the pinned and the others each in the order of their finish", () => {
+    const pinned = (id: number): WorkItem => ({ ...LOGIN, id, pinned: true });
+    const plain = (id: number): WorkItem => ({ ...LOGIN, id });
+    const sessions = [
+      session(5, { workItemId: 1, state: "finished", stateSince: 100 }),
+      session(6, { workItemId: 2, state: "finished", stateSince: 400 }),
+      session(7, { workItemId: 3, state: "finished", stateSince: 300 }),
+      session(8, { workItemId: 4, state: "finished", stateSince: 200 }),
+      session(9, { workItemId: 5, state: "working", stateSince: 500 }),
+    ];
+    expect(historyLines(workItemEntries([pinned(1), plain(2), plain(3), pinned(4), pinned(5)], sessions, KINDS)).map((entry) => entry.workItem.id)).toEqual([4, 1, 2, 3]);
   });
 });
 
@@ -1195,7 +1353,7 @@ describe("noticeWithout", () => {
 
 describe("commandKey", () => {
   const plain = { code: "KeyK", meta: false, ctrl: false, alt: false, shift: false };
-  const free = { mac: true, dialogOpen: false };
+  const free = { mac: true, dialogOpen: false, menuOpen: false };
 
   it("reads K with the Command key as the search's key, by the key's place on the keyboard", () => {
     expect(commandKey({ ...plain, meta: true }, free)).toBe("search");
@@ -1218,8 +1376,10 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, meta: true, ctrl: true }, { ...free, mac: false })).toBeNull();
   });
 
-  it("reads no key while a dialog is open, with no modifier key, or with another one held as well", () => {
+  it("reads no key while a dialog is open, while a menu is open, with no modifier key, or with another one held as well", () => {
     expect(commandKey({ ...plain, meta: true }, { ...free, dialogOpen: true })).toBeNull();
+    expect(commandKey({ ...plain, meta: true }, { ...free, menuOpen: true })).toBeNull();
+    expect(commandKey({ ...plain, code: "KeyN", meta: true }, { ...free, menuOpen: true })).toBeNull();
     expect(commandKey(plain, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, shift: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, alt: true }, free)).toBeNull();
@@ -1491,12 +1651,12 @@ describe("viewFacts", () => {
 });
 
 describe("keyHints", () => {
-  it("says the keys of a list under its preview: the two that move through it, and the one that opens the form", () => {
-    expect(keyHints("inbox", true)).toEqual(["J K move through the inbox", "\u2318N opens a new work item"]);
+  it("says the keys of a list under its preview: the two that move through it, the one that opens the selected line's menu, and the one that opens the form", () => {
+    expect(keyHints("inbox", true)).toEqual(["J K move through the inbox", "M opens the menu", "\u2318N opens a new work item"]);
     expect(keyHints("history", true)[0]).toBe("J K move through the history");
   });
 
   it("names the Control key where the keyboard has no Command key", () => {
-    expect(keyHints("inbox", false)[1]).toBe("Ctrl N opens a new work item");
+    expect(keyHints("inbox", false)[2]).toBe("Ctrl N opens a new work item");
   });
 });
