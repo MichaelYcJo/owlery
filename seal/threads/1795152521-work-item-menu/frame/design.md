@@ -1,0 +1,282 @@
+# Design: repositories as a unit, and the menus of a work item and of a repository (#93)
+
+The ticket is issue #93.
+
+## Grounding
+
+The tree as read at `95decb6`.
+
+| Policy clause | What it fixes for this work |
+|---|---|
+| `docs/roadmap.md` *Milestones*, row 1, "Creating a work item, which gets its own branch and its own worktree" | A work item keeps one branch and one worktree. The row names no repository as a thing Owlery keeps, no menu, no archive and no delete, so `## Rule changes` adds them |
+| `docs/roadmap.md` *Milestones*, row 4, "An archive that never deletes a work item's work, and a restore" | The archive of this work deletes nothing: the worktree's folder and the branch stay where they are. Issue #60 keeps the half that moves files away, and `## Rule changes` rewrites the row to that half |
+| `docs/architecture.md` *State lives in three places* | What the daemon keeps of a repository and of a work item, its name, its pin, its mute, its group and its archive among it, is the daemon's state. None of it is written into the person's repository |
+| `docs/architecture.md` *Rules that keep it portable*, rule 1 | The messages this work adds to the protocol carry no vendor-specific field. Which apps a Mac holds stays in the desktop app's main process and never enters the protocol |
+| `docs/product.md` *Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call*, "It stays light" | The menus and the dialogs are drawn in the one window. No second window is opened |
+| `docs/product.md` *What we deliberately don't do* | Nothing there forbids a menu, an archive or a delete. No document states when Owlery may delete a person's work, so `## Rule changes` adds that rule |
+| The plugin's `skills/implement/SKILL.md` *Document layout — two roots, three lifetimes* | The subject of this work is the code, so the rules it changes stand in `## Rule changes` and the pull request edits no file of `docs/` |
+
+What the reading and the probes gave. Each fact is labelled as it was got.
+
+- `executed`: `gh issue view 93 --json title,body,comments` on 2026-11-20, run three times. The orchestrator folded two decisions of the owner into the body that day and said so in two messages, and the framer read the body again after each. The third run gave the title "feat: a work item and a repository can be neither renamed nor removed, and neither has a menu of its own", a body with the work item's half and the repository's half, a delete that is plain or forced, a repository's removal with two checkboxes, the *Done when* lines the scenarios below cite, and no comment.
+- `read`: the orchestrator's account of the owner's words of 2026-11-20 on deleting from disk, "디스크에서는 지우지 않습니다 -> 이건 체크박스로 실제 디스크에서도 지울지 고르게하는게 나을듯. 워크트리는 필요하다면 force delete도 체크해서 지울수있게해야할거같고". The orchestrator's account also says that the owner asked only for a checkbox, and that the orchestrator chose the split into two checkboxes and the macOS Trash for the repository's folder. Nobody but the orchestrator opened those words. `frame/questions.md` holds the two choices as assumptions.
+- `read`: the orchestrator's account of the owner's words of 2026-11-20, "orca처럼 그럼 프로젝트 단위 기능이 필요한거같은데" and "지금 단위설정이 잘못된거잖아". The orchestrator reads them as a judgment on the model: the repository is a unit the daemon stores and the protocol carries, with work items inside it. Nobody but the orchestrator opened those words, so they stand here as the orchestrator's account. *Scope* items 1 and 2 are built on that reading.
+- `read`: the orchestrator's account of four defaults it stated to the owner on 2026-11-20, which the owner answered after reading. Delete removes the local worktree and the local branch only. "Open in" lists Finder and the editors and terminals found installed. Archive leaves the folder and the branch untouched. Rename offers the branch's rename only while the branch has no upstream.
+- `executed`: `gh issue view 60 --json body,comments`. Issue #60, in milestone "release: 0.0.4", keeps moving an archived work item's files away, keeping its uncommitted and ignored files while the folder is gone, and running the setup script again on restore.
+- `read`, `apps/desktop/src/daemon/work-items.ts`, whole: the daemon's store is `WorkItemList`, an array of work items in `work-items.json` in the run directory, written whole at each change through `writeWholeFile`. A stored work item holds `id`, `title`, `repo`, `branch`, `worktree`, `createdAt`, `baseCommit` and `baseBranch`. A file that is no array of such entries is read as an empty list. The store holds no repository, and has no way to change or remove an entry.
+- `read`, `apps/desktop/src/renderer/view.ts#sidebarTree`: the sidebar's repositories are made up in the window from each work item's `repo`. A repository with no work item cannot stand there. `apps/desktop/src/renderer/sidebar.ts`, the listener of `add-repository`, opens the folder dialog and then the form, with the comment "the daemon keeps work items and no list of repositories".
+- `read`, `apps/desktop/src/shared/protocol.ts`, whole: `ready` and `inbox` carry `sessions` and `workItems`. No message changes or removes a work item, and none names a repository other than as a work item's `repo` and `repoName`.
+- `read`, `apps/desktop/src/daemon/daemon.ts`, whole:
+  - `Daemon#handle` ignores a message of a type it does not know, in its `default` case.
+  - The case `close` takes a pane off the lists and kills its process. Nothing ends a headless session but `Daemon#close`.
+  - `Daemon#creating` runs creations one after another.
+  - `Daemon#readCommits` reads git for every stored work item at each poll.
+  - A pane's kept output and a headless session's answer live in the daemon's memory alone, and an exited pane stays listed until a client closes it.
+- `read`, `apps/desktop/src/daemon/worktrees.ts`, whole: git runs through `execFile` with arguments and never a shell. `placeFor` names a branch `owlery/<slug>` and appends a number while the branch or the folder exists. `basesOf` lists a repository's bases and its default base. Nothing removes a worktree or a branch, and nothing renames a branch.
+- `read`, `apps/desktop/src/renderer/renderer.ts#takeLists` and `apps/desktop/src/renderer/view.ts#notificationFor`: the window raises the macOS notification, from the lists of each `inbox`. A mute is therefore read in the window.
+- `read`, `apps/desktop/src/renderer/list.ts` and `apps/desktop/src/renderer/sidebar.ts`: a work item's line is a `button`, in the sidebar and on the inbox screen and the history screen, which are two copies of the page's `list-screen` template. A repository's row is a `button` that folds it. `apps/desktop/src/renderer/work-item-view.ts#showView` leaves the view where the lists no longer hold its work item.
+- `read`, `apps/desktop/src/shared/ipc.ts`, `apps/desktop/src/preload/preload.ts` and `apps/desktop/src/main/main.ts`: the window is sandboxed and reaches the main process through four channels. None opens a folder in an app or writes the clipboard. `apps/desktop/src/main/pick-folder.ts` takes Electron's dialog as an argument, so its cases run without Electron.
+- `read`, `apps/desktop/src/daemon/last-look.ts`: a look copies the named fields of each work item, and a file whose entries lack a field of the protocol's is no look.
+- `read`, `apps/desktop/test/built-app.ts` and `apps/desktop/test/work-item-form.test.ts`: the suite builds the app and starts it in the background under `OWLERY_BACKGROUND=1`, with a user data folder of its own under the system's temporary folder, and drives its window through the debugging port. The form's case notes that the port does not reach a menu the system draws.
+- `read`, `seal/threads/1795016925-work-items/frame/design.md` *Scope* item 9: issue #6 put deleting and archiving a work item out of scope, for milestone 4. `seal/threads/1795130485-new-work-item-form/frame/design.md`: issue #85 decided what a base is and how the default base is read, and this work argues neither again.
+- `executed`, the probe `test_tmp_delete_probe.sh` in the framer's scratch, run once on 2026-11-20 with git 2.50.1 on temporary repositories under that scratch, with the global and the system configuration files set to `/dev/null`. The work item's branch was `owlery/a`, cut with `--no-track` in a linked worktree, two commits ahead of the remote's `main`:
+  - `git rev-list --count refs/heads/owlery/a --not --exclude=refs/heads/owlery/a --all` printed 0: `--all` takes the linked worktree's `HEAD`, which is the branch itself, so it hides every commit.
+  - `git rev-list --count refs/heads/owlery/a --not --exclude=owlery/a --branches --remotes --tags` printed 2. It printed 1 once a sibling branch `owlery/ab` held the first commit, 0 once a tag stood on the tip, and 0 after `git push origin owlery/a` without `-u`.
+  - With the commit of a detached `HEAD` of the worktree given beside the branch, the same read printed 3.
+  - `git for-each-ref "--format=[%(upstream)]" refs/heads/owlery/a` printed `[]` before the push and after it. After the push, `refs/remotes/origin/owlery/a` existed. A branch that was pushed without `-u` has no upstream.
+  - `git branch -m owlery/a owlery/renamed`, run in the repository while the branch was checked out in the linked worktree, exited 0, and the worktree's `HEAD` then named `refs/heads/owlery/renamed`. A rename onto an existing branch failed with "fatal: a branch named 'owlery/taken' already exists".
+  - In the worktree, `git status --porcelain=v1 -z --untracked-files=all` printed each changed tracked file and each untracked file by its path, `newdir/deep/u.txt` among them. With `--ignored=traditional` added it printed each file under `node_modules`. `git ls-files --others --ignored --exclude-standard --directory -z` printed `.env` and `node_modules/`, a directory as one name.
+  - `git branch -D owlery/a` failed while a worktree had the branch checked out, with "error: cannot delete branch 'owlery/a' used by worktree at" and the folder.
+  - `git worktree remove` failed on the changed worktree with "contains modified or untracked files, use --force to delete it". With `--force` it removed the folder, the ignored files among it, left the folder above it and left the branch. `git branch -D owlery/a` then removed the branch, and `refs/remotes/origin/owlery/a` stayed.
+  - `git worktree remove --force` on a worktree whose folder had been removed by hand exited 0 and took the worktree off git's list. On a locked worktree it failed with "fatal: cannot remove a locked working tree".
+  - `git for-each-ref "--format=%(refname) [%(worktreepath)]" refs/heads` printed, for each branch, the folder of the worktree that has it checked out, in one read.
+- `executed`, the probe `test_tmp_plain_delete_probe.sh` in the framer's scratch, run once on 2026-11-20 with the same git and configuration: `git worktree remove` without `--force` exited 0 on a worktree with nothing uncommitted, and exited 0 on one that held `.env` and `node_modules/`, both ignored, and removed them with the folder. Git's own refusal therefore covers changed and untracked files and not ignored ones.
+- `executed`, the probe `test_tmp_menu_probe.js` in the framer's scratch, run once on 2026-11-20. It started the Electron 45.3.3 binary of `apps/desktop/node_modules` on a page of its own, in the background, and ran none of the repository's code. Through the debugging port, `Input.dispatchMouseEvent` with `button: "right"` raised `contextmenu` on a button, and so did a left press with the Control key. A key press of Shift with F10 and one of the `ContextMenu` key each raised `keydown` and no `contextmenu`. On macOS the window therefore reads the menu's key itself.
+- `executed`, on the owner's Mac on 2026-11-20, read-only: `test -d` found `Visual Studio Code.app`, `Xcode.app`, `iTerm.app` and `Warp.app` in `/Applications` and `Terminal.app` in `/System/Applications/Utilities`. `mdfind "kMDItemCFBundleIdentifier == 'com.apple.Terminal'"` printed the same path in 0.05 seconds. No app was opened.
+- `executed`, searches at `95decb6`:
+  - `git grep -n -i -e 'contextmenu' -e 'clipboard' -e 'shell\.open' -e 'showItemInFolder' -e 'archiv' -e 'role="menu"' -e 'pinned:' -e 'muted:' 95decb6 -- apps` printed two lines of `apps/desktop/src/renderer/themes.css` that name the colour `--ink-muted`, and nothing else. Nothing in the tree opens a menu, writes the clipboard, opens a folder in an app, archives, pins or mutes.
+  - `git grep -n -e '"worktree", "remove"' -e '"branch", "-D"' -e '"branch", "-m"' -e 'rmSync' 95decb6 -- apps/desktop/src` printed `rmSync` in `hooks.ts`, `main.ts` and `whole-file.ts` of `src/daemon`, each on a file of the daemon's own. Nothing under `src` removes a worktree or a branch or renames a branch.
+- `executed`: `ls` at `95decb6` found no `docs/README.md` and no `seal/follow-up.md`, and `seal/parity.json` does not exist. `gh release view --json body --jq .body` printed "release not found". `git grep -n '### Process changes' -- seal/threads` printed lines of earlier frames that report the heading absent, and no changelog fragment that holds it. Each `file:` of `## Rule changes` is named as `ls docs` gives it.
+- `read`: the `## Rule changes` of the unsettled designs under `seal/threads/`. `1795046888-korean-input-test` adds a paragraph to `docs/roadmap.md` *Milestones* and changes no row of its table. None names `docs/product.md` *What we deliberately don't do* or `docs/architecture.md` *State lives in three places*.
+- `executed`: `gh pr list --state open --json number --jq length` printed 0.
+- The framer ran no check of the repository's: no test, no typecheck, no lint and no broad gate. The Owlery app was not started.
+
+## Scope
+
+In scope, as numbered items. A **running session** of a work item is a pane of it whose process is alive, or a headless session of it in the state `working`.
+
+**The repository as a unit**
+
+1. **The store.** The daemon keeps repositories, and each work item inside one, in a new file `repositories.json` in the run directory, written whole at each change as `work-items.json` is at `95decb6`. A stored repository holds its id, its folder (the repository's top-level folder), `name` (the name a person gave it, or null), `icon` (or null), `defaultBase` (or null), `hidden`, `addedAt`, its groups, each an id and a name, and its work items. A stored work item holds the fields of `95decb6` without `repo`, and `pinned`, `muted`, `groupId` (or null) and `archivedAt` (or null). A work item's id is unique over the whole store, and so is a repository's and a group's. Where `repositories.json` does not exist and `work-items.json` holds work items, the store starts as one repository for each distinct `repo` of those work items, in the order of each one's first work item, with every work item under its own and every new field at its empty value. `work-items.json` is read for that start alone and is never written again. A daemon of an earlier build writes an array over a file it cannot read as one (`work-items.ts`, the constructor and `add`), so the new shape takes a new file's name.
+2. **The protocol.** `ready` and `inbox` carry `repositories`, every stored repository, the hidden among them. They carry `workItems`, the work items that are not archived, and `archived`, the archived ones. A `WorkItem` gains `repoId`, `pinned`, `muted`, `groupId` and `archivedAt`, and its `repoName` is the repository's `name` where one is set and the last part of its folder otherwise. Where a `ready` carries no `repositories`, the daemon is of an earlier build: the window's status line says "Owlery's background process is from an earlier build. End its sessions and start Owlery again.", the sidebar lists no repository, and the inbox lists the work items as before.
+3. **Adding a repository.** A new client message adds the repository a folder is inside, with no work item. A folder outside any git repository is refused with the sentence a creation there gets. A repository already stored is not added twice, and where it was hidden it is shown again. A creation in a folder whose repository is not stored adds it first, and a creation in a hidden repository shows it again. The sidebar's `add-repository` button opens the folder dialog and adds the folder chosen. It no longer opens the form.
+4. **The sidebar.** The sidebar lists every repository that is not hidden, in the order the store holds them, with its work items under it. A repository with no work item is listed. While a search is typed or a state is chosen in the filter, a repository none of whose work items is left is not listed, as at `95decb6`. Beside the button that folds it, a repository's row holds a "+" button, which opens the "New work item" form with that repository's folder in its field, and a "…" button, which opens the repository's menu (item 12).
+
+**The menu, and a work item's**
+
+5. **How a menu opens and closes.** A menu is drawn in the window, as an element with the role `menu` whose items have the role `menuitem`. It opens:
+   - on `contextmenu` on a work item's line in the sidebar, on the inbox screen and on the history screen, and on a repository's row, which a press of the right button and a press with the Control key both raise;
+   - on the key M alone, read by its place on the keyboard, or F10 with Shift: for the line or the row the keyboard is on, and otherwise, on the inbox screen and the history screen, for the selected line. The key is not read in a field, in a terminal, while a dialog is open or while a menu is open;
+   - on a click of a repository's "…" button.
+
+   The keyboard goes to the menu's first item. The Down and Up arrows move through the items, Enter and Space press one, and Escape closes the menu and returns the keyboard to where it was. A press outside the menu closes it. While a menu is open the window reads none of its other keys (`view.ts#inboxKey`, `view.ts#commandKey`). The hints under a list's preview name the key.
+6. **A work item's menu** holds, in this order: Rename; Open in Finder, then one item for each installed editor and each installed terminal (item 7); Copy path and Copy branch name; Pin or Unpin; Mute notifications or Unmute notifications; one item for each group it can move to and one to leave its group (item 22); Archive; Delete. The menu of an archived work item holds Restore, the items of item 7, the two copies and Delete.
+7. **Open in.** The desktop app's main process holds a list of known apps, each with its name, its kind, editor or terminal, and the name of its bundle. An app is installed where its bundle stands in `/Applications`, `/Applications/Utilities`, `/System/Applications`, `/System/Applications/Utilities` or `Applications` under the person's home folder. The window asks the main process for the installed ones once at load. Open in Finder opens the folder with Electron's `shell.openPath`. Open in an app runs `open -a <the bundle's path> <the folder>` through `execFile`, with no shell. The main process opens only an app of its list, and a failure's sentence is shown in the window's status line. The folder is a work item's worktree or a repository's folder.
+8. **Copy.** The main process writes the text to the system's clipboard: a work item's worktree folder, its branch's name, or a repository's folder.
+9. **Pin.** A pinned work item stands before the unpinned ones of its list, and the pinned keep their order among themselves. Its list is: in the sidebar, its group or the ungrouped work items of its repository; on the inbox screen, its state's group; on the history screen, the whole list. A pinned line carries a mark with the words "Pinned".
+10. **Mute.** The window raises no notification for a session of a muted work item. Its line shows its state as any line does, and carries a mark with the words "Notifications muted".
+11. **Rename.** A dialog takes the new name. The daemon stores it as the work item's `title`, with the white space at its ends removed, and refuses an empty one with "Give the work item a name.". The dialog asks the daemon what a rename of the branch would give, as the name is typed, and shows the answer. The branch a rename gives is `owlery/<slug of the name>`, with `-2`, `-3` and so on appended while another local branch bears the name. The dialog's choice "Rename the branch too" is enabled only where all of these hold: the name leaves a slug; that branch is not the one the work item has; the branch has no upstream; and no remote of the clone holds a branch of its name. Otherwise the dialog says which does not hold. A rename with the choice taken runs `git branch -m` in the repository, after the daemon read the same conditions again, and stores the new branch. Where a condition no longer holds or git refuses, nothing is changed, the name neither. The worktree's folder keeps its name.
+
+**A repository's menu**
+
+12. **A repository's menu** holds, in this order: Settings; Change icon; Show archived work items; New group; Open in Finder and the installed apps (item 7); Copy path; Hide from sidebar; Remove.
+13. **Settings.** A dialog holds the name the sidebar shows and the base a new work item starts from. An empty name gives the repository the last part of its folder as its name. The base is chosen in a menu of the repository's bases, as the form's menu lists them, with a first choice "The repository's default branch" that stores null. A creation without a `base`, and a plan's `defaultBase`, use the stored base where the repository still lists it, and the default base `worktrees.ts#basesOf` reads otherwise.
+14. **Icon.** A dialog takes one character, an emoji among them, or nothing. The sidebar shows it before the repository's name. More than one character is refused. `frame/questions.md` Q1 asks what an icon is, and this item is its default.
+15. **Hide.** A hidden repository is not listed in the sidebar. Its work items stay on the inbox screen and the history screen, and their notifications arrive. While at least one repository is hidden, the sidebar shows a button under the repositories that says how many are, and opens a dialog that lists them, each with a "Show" button.
+16. **Remove.** Removing a repository takes it and its work items, the archived among them, out of the store. A dialog names each work item the repository holds and each running session, and holds two checkboxes, both unchecked when it opens.
+   - With neither checked, the removal runs no git and removes no file: the repository, each worktree's folder and each branch stay on disk, and the dialog says that Owlery will no longer list them.
+   - "Also delete the work items' worktrees and local branches" is shown where the repository holds a work item. Checked, the dialog reads the loss of each work item (item 19) and names it under that work item, with the "Force delete" checkbox of item 19 where any of them would lose something. The removal then deletes each work item as item 20 states, one after another, and takes the repository out of the store only after every one is deleted. Where one delete is refused or fails, the removal stops there: the work items deleted before it are gone, and the repository and the others stay.
+   - "Also move the repository's folder to the Trash" is enabled where the repository holds no work item or the first checkbox is checked: a linked worktree of a repository that moved to the Trash no longer works. Checked, the window asks the main process to move the folder to the macOS Trash with Electron's `shell.trashItem`, after the daemon answered that the repository is removed. The folder is moved whole and nothing in it is erased.
+
+   The removal ends the running sessions as item 21 states.
+
+**Archive**
+
+17. **Archive.** An archive sets `archivedAt` and changes nothing on disk. Where the work item has a running session, a dialog names each first, and the archive ends them (item 21). Where it has none, the archive runs at the menu's press. A pane the archive ended stays listed as an exited pane with its kept output, and a headless session it stopped is `failed` with the error "ended when the work item was archived". The daemon stops reading git for an archived work item, and refuses to start a pane or a headless session in one, with "work item <id> is archived, restore it first".
+18. **The archived list and restore.** "Show archived work items" opens a third copy of the `list-screen` template, which lists that repository's archived work items, the one archived last first, under a head that names the repository. A line there opens no view. Its menu is the archived one of item 6, and the preview's button reads "Restore". A restore sets `archivedAt` to null, and the daemon reads the work item's branch again at once. The work item is then listed where it was, with its exited panes and their output and its headless sessions' answers, for as long as the daemon that held them lives. That is what the daemon holds of a session's history at `95decb6`, and it is lost when the daemon exits, with or without an archive.
+
+**Delete**
+
+19. **What a delete would lose.** A new client message asks. The daemon answers with:
+   - the local branch, where it exists;
+   - the worktree's folder, where it exists or git still lists it;
+   - the commits that the branch or the worktree's `HEAD` holds and that no other local branch, no remote's branch as the clone holds it and no tag holds, the newest first, each by its short hash and its subject;
+   - in the worktree, the paths of the tracked files with a change that is not committed, the paths of the untracked files, each file by its own path, and the ignored files and folders, a folder as one name, such as `node_modules/`;
+   - `blocked`, the sentence why the delete cannot run, where another worktree has the branch checked out or the worktree is locked, and null otherwise;
+   - `unreachable`, true where git reads nothing in the repository's folder;
+   - a stamp, a string that differs wherever any of the above differs.
+
+   Each list carries at most 500 entries and the count of all of them. **Something would be lost** where the loss names a commit, a tracked file with a change or an untracked file. The delete dialog shows all of the answer, and the running sessions, and says "Nothing on a remote is removed.". Where a list is cut it says how many more there are. Where something would be lost, the dialog holds the checkbox "Force delete", unchecked. Its "Delete" button is disabled until the answer has arrived, while `blocked` is a sentence, and while something would be lost and "Force delete" is not checked. The keyboard starts on "Cancel". The ignored files and folders are named, because a removal of the worktree removes them (the probes) and `docs/product.md` *File explorer and editor* says a person fills in a worktree's `.env` by hand. They do not make a delete a forced one: the issue's rule names uncommitted files, untracked files and commits, and a worktree with installed dependencies would otherwise always need the force.
+20. **The delete.** A delete carries the stamp of the loss the person read, and `force`, true where the person checked "Force delete". The daemon, in this order: reads the loss again and refuses where its stamp differs, with "What the delete would remove has changed. Read it again.", and refuses where something would be lost and `force` is not true, with "The work item holds work a delete would lose. Check Force delete to delete it anyway."; ends the running sessions (item 21); reads the loss once more and refuses in the same two ways; runs `git worktree remove` on the folder where git lists a worktree there, with `--force` only where `force` is true, so a plain delete also meets git's own refusal of a changed worktree; runs `git branch -D` on the branch where it exists; takes the work item, its panes and its headless sessions off the daemon's lists. Where a step fails, the steps after it do not run, the work item stays listed and the error is the daemon's answer. Owlery removes a worktree and a branch through those two git commands alone: it removes no file by itself, runs no `git push`, and passes git no ref under `refs/remotes`. Where the loss is `unreachable`, the delete takes the work item off the list and removes nothing on disk, and the dialog says that the folder stays.
+21. **Ending sessions.** An archive, a delete and a repository's removal each carry the ids of the running sessions the person was told of. Where a session runs that the message does not name, the daemon refuses with "A session started since you looked. Read it again." and ends none. Otherwise it kills each pane's process, stops each headless run, and waits until each pane's process has exited. Where one has not exited within the wait `frame/questions.md` Q2 leaves to the work, a delete is refused and removes nothing.
+
+**Groups, and order**
+
+22. **Groups.** "New group" on a repository's menu opens a dialog that takes a name, and an empty one is refused. A group belongs to one repository. In the sidebar a repository lists its ungrouped work items first, then each group under a heading of its name, in the order the groups were made, a group with no work item among them. A work item's menu holds "Move to <group>" for each group of its repository but its own, and "Move out of <group>" where it is in one. The inbox screen and the history screen do not show groups.
+23. **One change at a time.** A rename that renames a branch, a delete and a creation run one after another, on the chain `Daemon#creating` is at `95decb6`, so no two of them pick or remove the same branch.
+
+Out of scope.
+
+- Moving an archived work item's files away, keeping its uncommitted and ignored files while the folder is gone, and running a setup script on restore. Issue #60 keeps them.
+- Renaming or moving a worktree's folder at a rename. A running session's process stands in that folder.
+- Renaming, removing or reordering a group, and reordering repositories. The issue names a new group and a move between groups, and nothing else of them.
+- Finding again the work items of a repository that was removed from Owlery and added again. Their folders and branches are on disk, and Owlery lists none of them.
+- A "…" button on a work item's line. The issue gives one to a repository's row alone.
+- A menu on the summary screen's lines and in a work item's view. The issue names the sidebar and the inbox.
+- An image file or a colour as a repository's icon, unless `frame/questions.md` Q1 is answered that way.
+- Recovering a deleted branch. The dialog shows each commit's hash before the delete.
+- Naming what a repository's folder holds before it moves to the Trash, such as a branch that was never pushed. The folder is moved whole and a person can put it back.
+- Apps installed outside the folders item 7 names, and an app that is not in the main process's list.
+- A session's history kept across the daemon's exit. `docs/roadmap.md` *Milestones* row 4 holds bringing sessions back.
+
+## User scenarios & acceptance *(mandatory)*
+
+Every case that touches git runs in a temporary repository of `apps/desktop/test/repositories.ts`, and the built app's cases start the app once, as `frame/plan.md` *Technical context* states.
+
+| Scenario | Given / When / Then | Verifiable how |
+|---|---|---|
+| 1. The store starts from the old file | Given a run directory with a `work-items.json` of three work items in two repositories and no `repositories.json`, when the store is read, then it holds two repositories in the order of their first work items, each work item under its own with its id, and `pinned` false, `muted` false, `groupId` null and `archivedAt` null. After a change, `repositories.json` holds them, and `work-items.json` holds the bytes it held | Cases in a new `apps/desktop/test/repositories.test.ts`, which takes the place of `apps/desktop/test/work-items.test.ts` |
+| 2. The lists carry repositories | Given a daemon with one repository and one work item, then `ready` and `inbox` carry `repositories` with that repository, and the work item's `repoId` is its id. An archived work item stands in `archived` and not in `workItems` | Cases in `apps/desktop/test/daemon.test.ts` |
+| 3. A repository with no work item | When `addRepository` arrives with a folder inside a repository, then `repositories` holds it with no work item, and a second one for the same repository adds none. A folder outside any repository is answered with an `error`. After a `removeRepository` with no checkbox's choice, a recursive list of the repository's folder with each file's bytes, `git for-each-ref` and `git worktree list --porcelain` print what they printed before the add | Cases in `apps/desktop/test/daemon.test.ts` |
+| 4. An earlier daemon | Given a `ready` without `repositories`, then the function that reads it gives no repository and the notice of *Scope* item 2 | A case in `apps/desktop/test/view.test.ts` |
+| 5. The sidebar's tree | Given two repositories, one hidden, one with no work item, and work items of which one is pinned and one in a group, then the tree holds the repository that is not hidden, its ungrouped work items with the pinned one first, then the group with its own. With a search typed, a repository none of whose work items match is left out | Cases in `apps/desktop/test/view.test.ts` on `sidebarTree` |
+| 6. The menu's key | M alone and F10 with Shift open a menu for the focused line or row, and for the selected line of a list screen where the keyboard is on none. Neither is read in a field, with a dialog open or with a menu open. The hints under a list's preview name the key | Cases in `apps/desktop/test/view.test.ts` |
+| 7. The menu in the built app | Given the built app on a temporary clone with one work item: a press of the right button on the work item's line in the sidebar opens an element with the role `menu` whose items are those of *Scope* item 6, in order. Escape closes it. The same press on its line on the inbox screen opens it, and so does the key M with the line selected. On the repository's row, the right button, the "…" button and the key M each open the menu of *Scope* item 12. The "+" button opens the form with the repository's folder in `work-item-repo` | A new file `apps/desktop/test/work-item-menu.test.ts`, which starts the app once with `BuiltApp.start`. It presses no "Open in" item and no "Copy" item |
+| 8. The installed apps, and what opens one | Given a list of the bundles that exist, the installed apps are the known ones among them, the editors before the terminals. Opening one runs `open` with `-a`, the bundle's path and the folder, and opening an app that is not of the list runs nothing and answers an error. Copy writes the text given to the writer it was handed | Cases in a new `apps/desktop/test/openers.test.ts`, with the read of the folders, the runner and the clipboard's writer handed in. That the Mac's Finder, an editor and a terminal open the folder, and that the system's clipboard holds the text, is `unverified`: the suite opens no app and writes no clipboard on the person's Mac. The owner answers it in the hand run of issue #24 |
+| 9. Pin and mute | When `setWorkItem` arrives with `pinned` true, then the work item's `pinned` is true in the next `inbox` and after the daemon starts again. A pinned work item stands first in its state's group of the inbox and first on the history screen. `notificationFor` gives no notification for a session of a muted work item whose state becomes waiting, and gives one for the same session of a work item that is not muted | Cases in `apps/desktop/test/daemon.test.ts` and `apps/desktop/test/view.test.ts`. In the built app, Pin on the menu puts the mark on the line |
+| 10. Rename | When a rename arrives with a name and no branch choice, then the `title` is the name and the branch is the one it was. With the choice, on a branch with no upstream that no remote holds, the branch is `owlery/<slug>`, the worktree's `HEAD` names it, and the folder is the one it was. On a branch with an upstream, and on one a remote holds under its name with no upstream, the daemon answers an error and the title and the branch are the ones they were. The plan answers the branch a rename would give, `-2` where another branch bears the name, and the sentence why it cannot | Cases in `apps/desktop/test/worktrees.test.ts` and `apps/desktop/test/daemon.test.ts`. In the built app, the rename dialog changes the line's title |
+| 11. A repository's settings | When a repository's `name` is set, then its work items' `repoName` is that name. When its `defaultBase` is set to a local branch, then a plan's `defaultBase` is that branch and a creation without `base` is cut at it. Where that branch is gone, both use the default base `basesOf` reads | Cases in `apps/desktop/test/daemon.test.ts`. In the built app, the settings dialog changes the name on the row |
+| 12. Icon, hide and show | An icon of one character is stored and one of two is refused. A hidden repository is in `repositories` with `hidden` true, the sidebar's tree leaves it out, and its work items stay in `workItems`. "Show" brings it back | Cases in `apps/desktop/test/daemon.test.ts` and `apps/desktop/test/view.test.ts`. In the built app, Hide takes the row out, the button under the repositories says one is hidden, and its dialog brings the row back |
+| 13. Removing a repository that holds work items | Given a repository with one work item whose pane runs: a removal that names neither is refused and ends nothing. One that names both and chooses no delete ends the pane, takes the repository and the work item out of the lists, and leaves the worktree's folder with each file's bytes, the branch and the repository as they were. Given a repository with a work item that holds nothing to lose and one that holds an untracked file: a removal that chooses the delete without `force` deletes the first, answers an error for the second, and leaves the repository and the second listed. With `force`, both worktrees and both branches are gone, the repository is out of the lists, and its folder stands where it stood. Moving a folder to the Trash calls the function it was handed with that folder alone, and a failure's sentence is the answer | Cases in `apps/desktop/test/daemon.test.ts` and `apps/desktop/test/openers.test.ts`. That the folder lands in the macOS Trash is `unverified`: the suite puts nothing in the person's Trash. The owner answers it in the hand run of issue #24 |
+| 14. Archive and restore | Given a work item with one commit, one changed file, one untracked file and one running pane: an archive that does not name the pane is refused. One that names it ends the pane, and the work item stands in `archived`. The folder's files, the branch and its commit are the ones they were. `start` and `ask` for it are refused. After a restore it stands in `workItems`, its pane is listed as exited, and an `attach` replays the output the pane printed before the archive | Cases in `apps/desktop/test/daemon.test.ts`. In the built app, Archive takes the line out of the sidebar, "Show archived work items" lists it, and Restore brings it back |
+| 15. What a delete would lose | Given a work item whose branch holds two commits, one of them also on another branch, and whose worktree holds one changed tracked file, one untracked file in a new folder, `.env` and `node_modules/` with a file: then the loss names the branch, the folder, the one commit, the changed file, the untracked file by its own path, and `.env` and `node_modules/`. After the branch is pushed to the remote, the loss names no commit. With a commit on a detached `HEAD` of the worktree, the loss names it. With the branch checked out in the repository's own checkout, `blocked` says so | Cases in `apps/desktop/test/worktrees.test.ts` |
+| 16. A delete removes what it named and nothing else | Given a work item with nothing to lose but an ignored `.env`: a delete with the loss's stamp and no `force` removes the folder and the branch. Given the work item of scenario 15 in a clone of a bare remote, beside a second work item and a tag: a delete with the loss's stamp and no `force` is answered with the error of *Scope* item 20, and the folder, the branch and the list are what they were. After a delete with the stamp and `force`, the folder is gone and the branch is gone. The remote's refs as `git ls-remote` prints them, the clone's refs under `refs/remotes` and `refs/tags`, every other local branch, the second work item's folder with each file's bytes, and the repository's own checkout are what they were. Every path that stood in the folder before is a file a commit of the branch holds, a path the loss named, or under a folder the loss named. Every commit that no ref holds after the delete is one the loss named | A case in `apps/desktop/test/daemon.test.ts` |
+| 17. A delete the person did not confirm | Given a loss read, when the branch gains a commit and a delete arrives with the earlier stamp, then the daemon answers the error of *Scope* item 20, and the folder, the branch and the list are what they were. A delete that does not name a running pane is refused and ends none. A delete of a work item whose loss is `blocked` is refused | Cases in `apps/desktop/test/daemon.test.ts` |
+| 18. Delete in the built app | The delete dialog shows the branch, a commit's subject, an untracked file's path and `.env`, with "Delete" disabled until "Force delete" is checked. After the check and "Delete" the line is gone from the sidebar and from the inbox, and the temporary clone holds no such branch and no such folder | The file of scenario 7 |
+| 19. Groups | When `addGroup` arrives with a name, then the repository's `groups` holds it, and an empty name is refused. When `setWorkItem` arrives with that group's id, then the work item's `groupId` is it, and with null it is null. A group's id of another repository is refused | Cases in `apps/desktop/test/daemon.test.ts`. In the built app, "New group" puts a heading under the repository, "Move to" puts the work item's line under it, and "Move out of" puts it back |
+| 20. A look written by an earlier build | Given a `last-look.json` whose work items lack the fields this work adds, then it is read as a look, with those fields at their empty values | A case in `apps/desktop/test/last-look.test.ts` |
+
+How the menus and the dialogs look when drawn is verified by no scenario: no agent reads the window as a person sees it. It is `unverified`, and the orchestrator names who looks.
+
+## Data & interfaces
+
+`apps/desktop/src/shared/protocol.ts`:
+
+- New types. `Group { id: number; name: string }`. `Repository { id: number; folder: string; name: string; customName: string | null; icon: string | null; defaultBase: string | null; hidden: boolean; groups: Group[] }`, where `name` is the name the sidebar shows and `customName` the one a person gave. `WorkItemLoss { branch: string | null; worktree: string | null; commits: { hash: string; subject: string }[]; commitCount: number; uncommitted: string[]; uncommittedCount: number; untracked: string[]; untrackedCount: number; ignored: string[]; ignoredCount: number; blocked: string | null; unreachable: boolean; stamp: string }`. `Running { panes: number[]; headless: number[] }`, the running sessions a person was told of.
+- `WorkItem` gains `repoId: number`, `pinned: boolean`, `muted: boolean`, `groupId: number | null` and `archivedAt: number | null`.
+- `ready` and `inbox` gain `repositories: Repository[]` and `archived: WorkItem[]`.
+- New client messages, each with a `requestId`:
+  - `addRepository { folder: string }`
+  - `setRepository { id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean }`
+  - `removeRepository { id: number; workItems: number[]; running: Running; delete?: { stamps: Record<number, string>; force: boolean } }`, where `workItems` names the work items the person was told of, and `delete` is present where the person chose to delete them from disk, with the stamp of each one's loss
+  - `addGroup { repoId: number; name: string }`
+  - `setWorkItem { id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }`
+  - `planRename { id: number; title: string }`
+  - `renameWorkItem { id: number; title: string; branch: boolean }`
+  - `archiveWorkItem { id: number; running: Running }`
+  - `restoreWorkItem { id: number }`
+  - `readLoss { id: number }`
+  - `deleteWorkItem { id: number; stamp: string; force: boolean; running: Running }`
+- New server messages. `done { requestId: number }` answers each of those that changed something, before the `inbox` that carries the change. `renamePlan { requestId: number; branch: string | null; blocked: string | null }`. `workItemLoss { requestId: number; id: number; loss: WorkItemLoss }`. A request that fails is answered with the `error` message of `95decb6`.
+
+`apps/desktop/src/daemon/repositories.ts` is new and holds the store of *Scope* item 1. `apps/desktop/src/daemon/work-items.ts` goes (`## Removes` row 1).
+
+`apps/desktop/src/daemon/worktrees.ts` gains the reads and the two removals of *Scope* items 11, 19 and 20: the plan of a branch's rename and the rename, the loss, and the removal of a worktree and of a branch.
+
+`apps/desktop/src/daemon/daemon.ts`: `Daemon#handle` gains a case for each new client message. `Daemon#readCommits` passes over an archived work item. `Daemon#creating` becomes the chain of *Scope* item 23.
+
+`apps/desktop/src/daemon/last-look.ts`: a look copies the new fields of a work item, and reads an entry without them as scenario 20 states.
+
+`apps/desktop/src/shared/ipc.ts`, `apps/desktop/src/preload/preload.ts` and `apps/desktop/src/main/main.ts` gain four channels: the installed apps, opening a folder in Finder or in one of them, writing the clipboard, and moving a repository's folder to the Trash. A new `apps/desktop/src/main/openers.ts` holds the list of known apps and the functions scenarios 8 and 13 name, and imports nothing of Electron. The window names the folder to move to the Trash, the folder of the repository whose removal the daemon just answered, and the main process moves that one folder and nothing else. The list it starts with: the editors Visual Studio Code, Cursor, Zed, Sublime Text and Xcode, and the terminals Terminal, iTerm, Ghostty and Warp. `frame/questions.md` Q3 holds whether each opens a folder handed to `open -a`.
+
+`apps/desktop/src/renderer/`: a new `menu.ts` draws a menu and reads its keys. `index.html` gains the dialogs, with these ids: `rename-dialog`, `settings-dialog`, `icon-dialog`, `group-dialog`, `hidden-dialog`, `sessions-dialog` (the running sessions an archive ends), `remove-dialog` and `delete-dialog`. `list.ts` takes `archived` as a third screen's name. `view.ts` holds what the scenarios of `apps/desktop/test/view.test.ts` name, and `view.ts#keyHints` gains the menu's key, so its case in `view.test.ts` expects one more hint. `sidebar.ts` draws the tree of *Scope* item 4, and `renderer.ts` holds the requests and what it does with their answers. `Front` gains `archived`.
+
+`apps/desktop/test/memory.ts#openWorkItem` and `apps/desktop/test/korean-pane.ts#openReceiverPane` fill the form by its ids and click `work-item-create`. The form and those ids are not changed, and neither file is edited.
+
+## Rule changes
+
+- change
+  file: docs/roadmap.md
+  section: Milestones
+  from: Creating a work item, which gets its own branch and its own worktree (a separate folder checked out from the same repository).
+  to: Repositories that Owlery keeps, each added and removed on its own, with its work items inside it. Creating a work item, which gets its own branch and its own worktree (a separate folder checked out from the same repository). A menu on a work item and on a repository: rename, open in, copy, pin, mute, groups, an archive that leaves the worktree's folder and the branch where they are, a restore, and a delete of the worktree and the local branch.
+
+- change
+  file: docs/roadmap.ko.md
+  section: 마일스톤
+  from: 작업 만들기. 작업은 저마다 자기 브랜치와 자기 worktree(같은 저장소를 작업마다 따로 꺼내 둔 폴더)를 갖습니다.
+  to: Owlery가 간직하는 저장소. 저장소는 작업과 따로 더하고 빼며, 작업은 저장소 안에 들어 있습니다. 작업 만들기. 작업은 저마다 자기 브랜치와 자기 worktree(같은 저장소를 작업마다 따로 꺼내 둔 폴더)를 갖습니다. 작업과 저장소의 메뉴. 이름 바꾸기, 다른 앱으로 열기, 복사, 고정, 알림 끄기, 그룹, worktree 폴더와 브랜치를 그대로 두는 보관, 복원, 그리고 worktree와 로컬 브랜치를 지우는 삭제가 들어 있습니다.
+
+- change
+  file: docs/roadmap.md
+  section: Milestones
+  from: The inbox shows that session's state, and a notification arrives when the session waits.
+  to: The inbox shows that session's state, and a notification arrives when the session waits. A person adds a repository with no work item, archives a work item and restores it, and deletes one after reading by name what the delete removes.
+
+- change
+  file: docs/roadmap.ko.md
+  section: 마일스톤
+  from: 작업함에 그 세션의 상태가 보이고, 세션이 사람을 기다리면 알림이 옵니다.
+  to: 작업함에 그 세션의 상태가 보이고, 세션이 사람을 기다리면 알림이 옵니다. 사람이 작업 없이 저장소를 더하고, 작업을 보관했다가 복원하고, 삭제가 무엇을 지우는지 이름으로 읽은 뒤에 작업을 삭제합니다.
+
+- change
+  file: docs/roadmap.md
+  section: Milestones
+  from: An archive that never deletes a work item's work, and a restore.
+  to: An archive that moves a work item's files away to free disk and never deletes its work, its uncommitted and ignored files among it, and a restore that brings them back.
+
+- change
+  file: docs/roadmap.ko.md
+  section: 마일스톤
+  from: 작업의 결과물을 지우지 않는 보관, 그리고 복원.
+  to: 디스크를 비우려고 작업의 파일을 옮겨 두되 결과물은 지우지 않는 보관. 커밋하지 않은 파일과 git이 무시하는 파일도 지우지 않습니다. 그리고 그것들을 되돌려 놓는 복원.
+
+- add
+  file: docs/product.md
+  section: What we deliberately don't do
+  to: - **Owlery deletes nothing of a person's work without that person's word.** An archive is the way out of the list, and it removes nothing. A delete removes a work item's worktree and its local branch after the person confirms, and where a commit no other branch holds or a file no commit holds would be lost, only after the person has read each by name and chosen to force the delete. Removing a repository from Owlery removes nothing on disk unless the person chooses it there, and the repository's folder then goes to the Trash. Nothing removes a branch on a remote.
+    check: apps/desktop/test/daemon.test.ts apps/desktop/test/worktrees.test.ts
+
+- add
+  file: docs/product.ko.md
+  section: 일부러 하지 않는 것
+  to: - **Owlery는 사람의 말 없이 그 사람의 결과물을 지우지 않습니다.** 목록에서 내보내는 길은 보관이고, 보관은 아무것도 지우지 않습니다. 삭제는 사람이 확인한 뒤에 작업의 worktree와 로컬 브랜치를 지웁니다. 다른 브랜치에 없는 커밋이나 어느 커밋에도 없는 파일을 잃게 될 때는, 사람이 그것들을 이름으로 읽고 강제 삭제를 고른 뒤에만 지웁니다. 저장소를 Owlery에서 뺄 때는 사람이 그 자리에서 고르지 않는 한 디스크에서 아무것도 지우지 않고, 고르면 저장소 폴더는 휴지통으로 갑니다. 원격의 브랜치는 어떤 경우에도 지우지 않습니다.
+    check: apps/desktop/test/daemon.test.ts apps/desktop/test/worktrees.test.ts
+
+- add
+  file: docs/architecture.md
+  section: State lives in three places
+  to: **The daemon keeps repositories, and every work item belongs to one.** A repository is added and removed on its own, and holds its name, its icon, the base its new work items start from, its groups and its work items. The window makes up no repository from a work item's folder. What a person sets on a repository or a work item, an archive among it, is the daemon's state and is written nowhere in the person's repository.
+    check: apps/desktop/test/repositories.test.ts apps/desktop/test/daemon.test.ts
+
+- add
+  file: docs/architecture.ko.md
+  section: 상태는 세 곳에 둡니다
+  to: **데몬은 저장소를 간직하고, 작업은 모두 저장소 하나에 속합니다.** 저장소는 작업과 따로 더하고 뺍니다. 저장소는 이름, 아이콘, 새 작업이 시작하는 브랜치, 그룹, 그리고 자기 작업을 갖습니다. 창은 작업의 폴더를 보고 저장소를 지어내지 않습니다. 사람이 저장소나 작업에 정해 둔 것은 보관까지 모두 데몬의 상태이고, 사람의 저장소에는 적지 않습니다.
+    check: apps/desktop/test/repositories.test.ts apps/desktop/test/daemon.test.ts
+
+## Removes
+
+| Removes | Coordinate | Where it lands, or why it can go |
+|---|---|---|
+| 1. The store of work items alone, and its file as the daemon's list | `apps/desktop/src/daemon/work-items.ts`, whole | `apps/desktop/src/daemon/repositories.ts`, the store of *Scope* item 1, which reads `work-items.json` once where it has no file of its own |
+| 2. The cases of that store | `apps/desktop/test/work-items.test.ts`, whole | `apps/desktop/test/repositories.test.ts`, which holds each of them against the new store, and scenario 1 |
+| 3. The repositories the window makes up from the work items' `repo` | `apps/desktop/src/renderer/view.ts#sidebarTree`, the loop that finds or makes a repository for each work item | *Scope* item 4: the tree is built from the `repositories` the daemon sends |
+| 4. The pins of that making up | `apps/desktop/test/view.test.ts`, the cases of `describe("sidebarTree")` that expect a repository for each distinct `repo` | Scenario 5's cases |
+| 5. The form as what the `add-repository` button opens, with its comment that the daemon keeps no list of repositories | `apps/desktop/src/renderer/sidebar.ts#initSidebar`, the listener of `add-repository` | *Scope* item 3: the button adds the repository |
+| 6. The rule that a look's file with an entry that lacks a field of the protocol's is no look, for the fields this work adds | `apps/desktop/src/daemon/last-look.ts#isWorkItem` and the comment on `LastLook` | Scenario 20. The rule stays for every field of `95decb6` |
+| 7. The read of git for every stored work item at each poll | `apps/desktop/src/daemon/daemon.ts#readCommits` | *Scope* item 17: an archived work item is passed over |
+
+The work adds one start of the built app to the suite, in scenario 7's file, and takes no case out in return. No case at `95decb6` reaches a menu or a dialog of this work, and the code that opens them stands in the window, which only a case that loads the window reaches.
+
+Framed 2026-11-20 by framer, before the build.
