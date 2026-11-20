@@ -179,11 +179,11 @@ export interface HeadlessInfo {
 export type ClientMessage =
   | { type: "hello"; token: string }
   | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId?: number }
-  // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent.
+  // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other.
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
   // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.
   | { type: "planWorkItem"; requestId: number; repo: string; title: string; name?: string }
-  // Adds the repository `folder` is inside, with no work item. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
+  // Adds the repository `folder` is inside, with no work item. `folder` is an absolute path, and the daemon refuses any other. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
   | { type: "addRepository"; requestId: number; folder: string }
   // Asks for the session's kept output as a `replay`, and for its output after that.
   | { type: "attach"; id: number }
