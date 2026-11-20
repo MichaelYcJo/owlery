@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { fstatSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import WebSocket from "ws";
-import { type Discovery, readDiscovery } from "../daemon/discovery";
+import { buildOf, type Discovery, readDiscovery } from "../daemon/discovery";
 
 /** Whether a daemon answers at this address with this token. */
 export function answers(discovery: Discovery, timeoutMs = 1000): Promise<boolean> {
@@ -69,6 +69,16 @@ export async function ensureDaemon(runDir: string, daemonScript: string, timeout
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`the daemon did not start; see ${logFile}`);
+}
+
+/**
+ * Whether the daemon the app found is of another build than the script the
+ * app would start: its `daemon.json` holds no build, as a daemon of an
+ * earlier build and one that could not read its script leave it, or one
+ * that differs from that script's.
+ */
+export function otherBuild(found: Discovery, daemonScript: string): boolean {
+  return found.build === undefined || found.build !== buildOf(daemonScript);
 }
 
 /** True while a process with this id exists. One of another user is there, and answers EPERM. */

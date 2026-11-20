@@ -15,6 +15,7 @@ import {
   commitLines,
   daemonEnding,
   daemonLists,
+  daemonNotice,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -1580,19 +1581,26 @@ describe("sidebarTree", () => {
 });
 
 describe("daemonLists", () => {
-  const EARLIER = "Owlery's background process is from an earlier build. End its sessions and start Owlery again.";
-
-  it("gives the repositories and the archived work items a `ready` or an `inbox` carries, and no notice", () => {
+  it("gives the repositories and the archived work items a `ready` or an `inbox` carries", () => {
     const archived: WorkItem = { ...SEARCH, archivedAt: 50 };
-    expect(daemonLists({ repositories: [PROJECT], archived: [archived] })).toEqual({ repositories: [PROJECT], archived: [archived], notice: "" });
-    expect(daemonLists({ repositories: [], archived: [] })).toEqual({ repositories: [], archived: [], notice: "" });
-    expect(daemonLists({ repositories: [PROJECT] })).toEqual({ repositories: [PROJECT], archived: [], notice: "" });
+    expect(daemonLists({ repositories: [PROJECT], archived: [archived] })).toEqual({ repositories: [PROJECT], archived: [archived] });
+    expect(daemonLists({ repositories: [], archived: [] })).toEqual({ repositories: [], archived: [] });
+    expect(daemonLists({ repositories: [PROJECT] })).toEqual({ repositories: [PROJECT], archived: [] });
   });
 
-  it("gives no repository, no archived work item and the notice of an earlier build where the daemon sends no repositories", () => {
-    expect(daemonLists({})).toEqual({ repositories: [], archived: [], notice: EARLIER });
+  it("gives no repository and no archived work item where the daemon sends no repositories, and says nothing of that daemon", () => {
+    expect(daemonLists({})).toEqual({ repositories: [], archived: [] });
     // What an earlier daemon's `ready` holds, as the window receives it.
-    expect(daemonLists(JSON.parse(JSON.stringify({ type: "ready", sessions: [], workItems: [LOGIN], paneKinds: KINDS, headless: [], lastLook: null })))).toEqual({ repositories: [], archived: [], notice: EARLIER });
+    const lists = daemonLists(JSON.parse(JSON.stringify({ type: "ready", sessions: [], workItems: [LOGIN], paneKinds: KINDS, headless: [], lastLook: null })));
+    expect(lists).toEqual({ repositories: [], archived: [] });
+    expect(Object.keys(lists).sort()).toEqual(["archived", "repositories"]);
+  });
+});
+
+describe("daemonNotice", () => {
+  it("names the menu's entry that replaces a daemon of another build, and says nothing of a daemon of the running build", () => {
+    expect(daemonNotice(true)).toBe(`Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.`);
+    expect(daemonNotice(false)).toBe("");
   });
 });
 

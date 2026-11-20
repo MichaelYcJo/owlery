@@ -48,6 +48,8 @@ export interface InstalledApp {
 export interface DaemonConnection {
   url: string;
   token: string;
+  /** Whether the daemon is of another build than the one the app would start, read at this request (src/main/daemon-client.ts, `otherBuild`). The status line then names "Restart Daemon…". */
+  otherBuild: boolean;
 }
 
 /** Why no daemon could be reached, as a sentence the window shows as it is. */
@@ -62,7 +64,7 @@ export interface PathFound {
 }
 
 export interface OwleryApi {
-  /** Finds or starts the daemon and returns how to reach it, or why it could not be started. */
+  /** Finds or starts the daemon and returns how to reach it and whether it is of another build, or why it could not be started. */
   daemon(): Promise<DaemonConnection | DaemonFailure>;
   /** Opens the native folder dialog and returns the folder chosen, or null where none was. */
   pickFolder(): Promise<string | null>;

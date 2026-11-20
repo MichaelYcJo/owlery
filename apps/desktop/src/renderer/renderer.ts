@@ -32,6 +32,7 @@ import {
   commandKey,
   daemonEnding,
   daemonLists,
+  daemonNotice,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -994,12 +995,11 @@ function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
   if (daemonDialog.open) showDaemonEnding();
 }
 
-/** Takes the repositories and the archived work items of a `ready` or an `inbox`, and what the status line has to say of the daemon that sent it. */
+/** Takes the repositories and the archived work items of a `ready` or an `inbox`. */
 function takeRepositories(message: { repositories?: Repository[]; archived?: WorkItem[] }): void {
   const lists = daemonLists(message);
   held.repositories = lists.repositories;
   held.archived = lists.archived;
-  held.daemonNotice = lists.notice;
 }
 
 /**
@@ -1305,6 +1305,8 @@ async function connect(): Promise<void> {
     return;
   }
   const { url, token } = answer;
+  // Said in the status line from the socket's opening on, in place of the daemon's state, until a restart replaces the daemon and the window loads again.
+  held.daemonNotice = daemonNotice(answer.otherBuild);
   const ws = new WebSocket(url);
   connectedBy(ws);
   ws.addEventListener("open", () => {

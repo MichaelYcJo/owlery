@@ -5,7 +5,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureDaemon, stopDaemon } from "../src/main/daemon-client";
+import { ensureDaemon, otherBuild, stopDaemon } from "../src/main/daemon-client";
 import { alive } from "./built-app";
 
 const dirs: string[] = [];
@@ -56,7 +56,7 @@ describe("ensureDaemon", () => {
        const { writeFileSync } = require("node:fs");
        const { join } = require("node:path");
        const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => {
-         const discovery = { port: server.address().port, token: "t", pid: process.pid };
+         const discovery = { port: server.address().port, token: "t", pid: process.pid, build: "0a1b" };
          writeFileSync(join(process.env.OWLERY_RUN_DIR, "daemon.json"), JSON.stringify(discovery));
        });
        server.on("connection", (socket) => socket.on("message", () => socket.send(JSON.stringify({ type: "ready" }))));`,
@@ -64,6 +64,7 @@ describe("ensureDaemon", () => {
     const found = await ensureDaemon(dir, daemon);
     pids.push(found.pid);
     expect(found.token).toBe("t");
+    expect(found.build).toBe("0a1b");
     expect(JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8"))).toEqual(found);
   });
 
@@ -165,6 +166,25 @@ function deadPort(): Promise<number> {
 function names(dir: string, discovery: { port: number; token: string; pid: number }): void {
   writeFileSync(join(dir, "daemon.json"), JSON.stringify(discovery));
 }
+
+describe("otherBuild", () => {
+  // The SHA-256 of the bytes `abc`, which the script below holds.
+  const ABC = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+  it("is false where the daemon's daemon.json holds the build of the script the app would start", () => {
+    const dir = scratch();
+    expect(otherBuild({ port: 1, token: "t", pid: 2, build: ABC }, script(dir, "abc"))).toBe(false);
+  });
+
+  it("is true where the daemon's daemon.json holds no build, as a daemon of an earlier build leaves it, or one that differs", () => {
+    const dir = scratch();
+    const file = script(dir, "abc");
+    expect(otherBuild({ port: 1, token: "t", pid: 2 }, file)).toBe(true);
+    expect(otherBuild({ port: 1, token: "t", pid: 2, build: ABC.replace("ba", "ab") }, file)).toBe(true);
+    // Neither side could read its script: nothing says the two are one build.
+    expect(otherBuild({ port: 1, token: "t", pid: 2 }, join(dir, "no-such.cjs"))).toBe(true);
+  });
+});
 
 describe("stopDaemon", () => {
   it("ends the process the run folder's daemon.json names, where a daemon answers at the file's address with the file's token", async () => {

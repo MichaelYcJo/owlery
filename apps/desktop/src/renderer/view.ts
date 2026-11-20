@@ -156,19 +156,27 @@ export function repoNameOf(workItem: WorkItem): string {
   return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
 }
 
-/** What the status line says while the daemon is one a build before the repositories started. */
-const EARLIER_DAEMON = "Owlery's background process is from an earlier build. End its sessions and start Owlery again.";
+/**
+ * What the status line says of the daemon in place of its state: that the
+ * daemon is of another build than the one the app would start, with the
+ * menu's entry that replaces it, or nothing. `otherBuild` is the main
+ * process's answer (src/shared/ipc.ts, `DaemonConnection`), the sentence's
+ * one source.
+ */
+export function daemonNotice(otherBuild: boolean): string {
+  return otherBuild ? `Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.` : "";
+}
 
 /**
- * The repositories and the archived work items of a `ready` or an `inbox`,
- * and what the status line has to say of the daemon that sent it. A daemon
- * of a build before the repositories sends neither list and answers none of
- * the messages that came with them: the window then holds no repository,
- * and the notice says why.
+ * The repositories and the archived work items of a `ready` or an `inbox`.
+ * A daemon of a build before the repositories sends neither list and
+ * answers none of the messages that came with them: the window then holds
+ * no repository. Such a daemon wrote no build either, so `daemonNotice`
+ * says of it that it is of another build.
  */
-export function daemonLists(message: { repositories?: Repository[]; archived?: WorkItem[] }): { repositories: Repository[]; archived: WorkItem[]; notice: string } {
-  if (message.repositories === undefined) return { repositories: [], archived: [], notice: EARLIER_DAEMON };
-  return { repositories: message.repositories, archived: message.archived ?? [], notice: "" };
+export function daemonLists(message: { repositories?: Repository[]; archived?: WorkItem[] }): { repositories: Repository[]; archived: WorkItem[] } {
+  if (message.repositories === undefined) return { repositories: [], archived: [] };
+  return { repositories: message.repositories, archived: message.archived ?? [] };
 }
 
 export interface SidebarRepository {

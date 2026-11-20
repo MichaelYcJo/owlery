@@ -7,7 +7,7 @@ import { Channel, type DaemonConnection, type DaemonEnd, type DaemonFailure, typ
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { closeHides, quitsWithLastWindow, takeBackground } from "./background";
 import { chooseClipboard } from "./clipboard";
-import { ensureDaemon, stopDaemon } from "./daemon-client";
+import { ensureDaemon, otherBuild, stopDaemon } from "./daemon-client";
 import { daemonControl } from "./daemon-control";
 import { chooseOpener, openLink, takeOpener } from "./links";
 import { type MenuEntry, menuTemplate, QUIT_COMPLETELY, RESTART_DAEMON } from "./menu";
@@ -77,9 +77,11 @@ const openers: Openers = {
   openPath: (folder) => shell.openPath(folder),
 };
 
+// The daemon's script, which the app starts where no daemon answers, and whose build it compares with the build of a daemon that does.
+const daemonScript = join(__dirname, "daemon.js");
 // The one place that stops and starts the daemon, in turn (./daemon-control). It stops the daemon of this app's run folder and no other (./daemon-client, `stopDaemon`).
 const control = daemonControl({
-  start: () => ensureDaemon(runDir, join(__dirname, "daemon.js")),
+  start: () => ensureDaemon(runDir, daemonScript),
   stop: () => stopDaemon(runDir),
   quit: () => app.quit(),
 });
@@ -152,8 +154,9 @@ app.whenReady().then(() => {
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   ipcMain.handle(Channel.daemon, async (): Promise<DaemonConnection | DaemonFailure> => {
     try {
-      const { port, token } = await control.daemon();
-      return { url: `ws://127.0.0.1:${port}`, token };
+      const found = await control.daemon();
+      // The script is read at each request, so a build made while the app runs is the one compared.
+      return { url: `ws://127.0.0.1:${found.port}`, token: found.token, otherBuild: otherBuild(found, daemonScript) };
     } catch (error) {
       // Answered, not rejected: Electron puts its own words in front of a rejected request's message.
       return { error: error instanceof Error ? error.message : String(error) };

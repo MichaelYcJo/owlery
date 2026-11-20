@@ -7,7 +7,8 @@
 // they started: the bystander daemon by the id its start gave, and the
 // app's own daemon through `BuiltApp.stop`.
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -40,6 +41,11 @@ function named(runDir: string): number | undefined {
   }
 }
 
+/** What a run folder's `daemon.json` holds. */
+function discovery(runDir: string): { port: number; token: string; pid: number; build?: string } {
+  return JSON.parse(readFileSync(join(runDir, "daemon.json"), "utf8")) as { port: number; token: string; pid: number; build?: string };
+}
+
 /** Starts the app on a new repository, and opens a work item with one live pane, whose process is the receiver. */
 async function startWithPane(): Promise<{ app: BuiltApp; repository: ReturnType<typeof temporaryRepository>; received: string }> {
   const repository = temporaryRepository();
@@ -55,6 +61,11 @@ async function startWithPane(): Promise<{ app: BuiltApp; repository: ReturnType<
 function choose(app: BuiltApp, id: string): Promise<boolean> {
   return app.evaluateMain<boolean>(`(() => { const entry = electron.Menu.getApplicationMenu()?.getMenuItemById(${JSON.stringify(id)}); if (!entry) return false; entry.click(); return true; })()`);
 }
+
+/** The sentence of a daemon of another build. */
+const OTHER_BUILD = `Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.`;
+/** What the status line says, and whether it is drawn as a notice. */
+const STATUS = `({ text: document.getElementById("status").textContent, notice: document.getElementById("status").classList.contains("notice") })`;
 
 const DIALOG_OPEN = `document.getElementById("daemon-dialog")?.open === true`;
 /** What the dialog shows: its head, the sessions it names, its button's words, and the id of the element the keyboard is on. */
@@ -87,11 +98,25 @@ describe("a restart of the daemon in the built app", { timeout: 60_000 }, () => 
     repository?.remove();
   }, 60_000);
 
-  it('asks before "Restart Daemon…" ends anything, ends nothing at Cancel, and at Restart ends the daemon of its own run folder with its pane and starts another, which the window attaches to', async () => {
+  it('says in the status line that a daemon whose daemon.json holds no build is from another build, asks before "Restart Daemon…" ends anything, ends nothing at Cancel, and at Restart ends the daemon of its own run folder with its pane and starts another, of this build, which the window attaches to', async () => {
     const runDir = join(app.userData, "run");
     const first = await eventually(() => app.daemonPid(), "the app's daemon.json");
     const pane = new Received(received).pid();
     expect([first, pane].map(alive)).toEqual([true, true]);
+
+    // The daemon the app started is of the app's own build: it wrote the SHA-256 of the script it runs, and the status line says nothing of it.
+    const build = createHash("sha256").update(readFileSync(join(__dirname, "..", "dist", "daemon.js"))).digest("hex");
+    const written = discovery(runDir);
+    expect(written.build).toBe(build);
+    expect(await app.evaluate(STATUS)).toEqual({ text: "Daemon running, no agent", notice: false });
+    // A daemon of an earlier build leaves a daemon.json without `build`. The file keeps the daemon's process, port and token, so the app attaches to the same daemon and the harness still ends it.
+    writeFileSync(join(runDir, "daemon.json"), JSON.stringify({ port: written.port, token: written.token, pid: written.pid }));
+    await app.cdp("Page.reload");
+    await app.until(`document.getElementById("status")?.textContent === ${JSON.stringify(OTHER_BUILD)}`, "the status line's sentence for a daemon of another build");
+    expect(await app.evaluate(STATUS)).toEqual({ text: OTHER_BUILD, notice: true });
+    expect([first, pane].map(alive)).toEqual([true, true]);
+    // The page is a new one, and without the system's focus it reports none.
+    await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
 
     expect(await choose(app, "restart-daemon"), "the menu holds the entry restart-daemon").toBe(true);
     await app.until(DIALOG_OPEN, "the dialog before a restart");
@@ -115,6 +140,9 @@ describe("a restart of the daemon in the built app", { timeout: 60_000 }, () => 
     expect(alive(second)).toBe(true);
     // The window reloaded, and its load attached to the daemon it had started.
     await app.until(`document.getElementById("status")?.textContent === "Daemon running, no agent"`, "the status line of a window attached to the new daemon");
+    expect(await app.evaluate(STATUS)).toEqual({ text: "Daemon running, no agent", notice: false });
+    // The new daemon is of this build, and says so.
+    expect(discovery(runDir)).toMatchObject({ pid: second, build });
     expect(await app.evaluate(DIALOG_OPEN)).toBe(false);
     // The app stopped the daemon of its own run folder alone.
     expect(alive(bystander.pid as number)).toBe(true);
