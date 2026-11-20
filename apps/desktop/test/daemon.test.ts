@@ -1058,6 +1058,23 @@ describe("what a person sets on a work item", () => {
     expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
   });
 
+  it("drops a read of a branch's old name that began before the rename and ends after it", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made, { commitPollMs: 20 });
+    commitFile(workItem.worktree, "work.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    c.messages.length = 0;
+    // A read of the commits asks git with these two commands, and a rename with neither.
+    const held = heldGit(made.base, '[ "$1" = rev-list ] || [ "$1" = rev-parse ]');
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    expect((await c.message("inbox")).workItems).toMatchObject([{ branch: "owlery/second-name", newCommits: 1 }]);
+    // The read that waited now asks git for the old name, which is gone.
+    held.release();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems.map((w) => [w.branch, w.newCommits, w.commits?.length]) : []))).toEqual([["owlery/second-name", 1, 1]]);
+  });
+
   it("runs a rename of a branch after a creation that is under way, so the two never take one branch", async () => {
     const made = repository();
     const { c, workItem } = await withWorkItem(made);
