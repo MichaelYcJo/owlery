@@ -431,11 +431,29 @@ export class Daemon {
         this.changing = this.changing.then(remove);
         return;
       }
+      case "addGroup": {
+        try {
+          if (typeof message.name !== "string") throw new Error("a group is added to a repository under a name");
+          const name = message.name.trim();
+          if (name === "") throw new Error("Give the group a name.");
+          if (this.store.addGroup(message.repoId, name) === undefined) throw new Error(`no repository ${String(message.repoId)}`);
+          // The answer first, so the client that asked knows its request was carried out when the inbox lists the group.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
       case "setWorkItem": {
         try {
-          const { pinned, muted } = message;
+          const { pinned, muted, groupId } = message;
           if ((pinned !== undefined && typeof pinned !== "boolean") || (muted !== undefined && typeof muted !== "boolean")) throw new Error("a work item's pin and its mute are each true or false");
-          const changed = this.store.setWorkItem(message.id, { pinned, muted });
+          if (groupId !== undefined && groupId !== null && typeof groupId !== "number") throw new Error("a work item's group is a group's id, or null for none");
+          // A work item stands in a group of its own repository, and in no other's.
+          const held = this.store.workItem(message.id);
+          if (typeof groupId === "number" && held && !held.repository.groups.some((group) => group.id === groupId)) throw new Error(`Group ${String(groupId)} is no group of the work item's repository.`);
+          const changed = this.store.setWorkItem(message.id, { pinned, muted, groupId });
           if (changed === undefined) throw new Error(`no work item ${String(message.id)}`);
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
           this.send(socket, { type: "done", requestId: message.requestId });

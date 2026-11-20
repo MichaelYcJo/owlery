@@ -118,6 +118,41 @@ describe("RepositoryStore", () => {
     expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, pinned: true });
   });
 
+  it("adds a group to a repository under an id no group bears, after the groups it has, writes the store, and gives a group's id to no group made after, though its repository was removed", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    store.addRepository("/r/project");
+    store.addRepository("/r/docs");
+    expect(store.addGroup(1, "Later")).toEqual({ id: 1, name: "Later" });
+    expect(store.addGroup(2, "Drafts")).toEqual({ id: 2, name: "Drafts" });
+    // Two groups of one repository may bear one name: each has its own id.
+    expect(store.addGroup(1, "Later")).toEqual({ id: 3, name: "Later" });
+    expect(store.addGroup(9, "Nowhere")).toBeUndefined();
+    expect(store.repositories().map(({ id, groups }) => [id, groups])).toEqual([
+      [1, [{ id: 1, name: "Later" }, { id: 3, name: "Later" }]],
+      [2, [{ id: 2, name: "Drafts" }]],
+    ]);
+    expect(counts(dir)).toEqual([1, 3, 4]);
+    expect(new RepositoryStore(dir).repositories().map(({ groups }) => groups)).toEqual(store.repositories().map(({ groups }) => groups));
+    // The repository with the highest group's id leaves the store, and a store read from the file goes on from the count.
+    store.removeRepository(1);
+    expect(new RepositoryStore(dir).addGroup(2, "Next")).toEqual({ id: 4, name: "Next" });
+  });
+
+  it("sets the group a work item stands in, and none at null, writes each, and leaves the group at a set that names none", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    const group = store.addGroup(1, "Later");
+    expect(store.setWorkItem(item.id, { groupId: group?.id })).toBe(true);
+    expect(store.setWorkItem(item.id, { groupId: 1 })).toBe(false);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, groupId: 1 });
+    expect(store.setWorkItem(item.id, { pinned: true })).toBe(true);
+    expect(store.workItem(item.id)?.item.groupId).toBe(1);
+    expect(store.setWorkItem(item.id, { groupId: null })).toBe(true);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, pinned: true });
+  });
+
   it("sets what a person sets on a repository, its name, its icon, its base and whether it is hidden, writes the store, and says whether anything is another than it was", () => {
     const dir = runDir();
     const store = new RepositoryStore(dir, () => 1);

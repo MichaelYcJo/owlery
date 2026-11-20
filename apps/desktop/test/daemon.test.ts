@@ -1440,6 +1440,84 @@ describe("what a person sets on a work item", () => {
     expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: false, muted: false }]);
   });
 
+  it("adds a group to a repository at an `addGroup`, under the name without the white space at its ends and after the groups it has, answers before the inbox that carries it, and keeps it after the daemon starts again", async () => {
+    const made = repository();
+    const { c, url, runDir } = await withWorkItem(made);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "addGroup", requestId: 1, repoId: 1, name: "  Later " });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    expect(inbox.repositories.map((r) => r.groups)).toEqual([[{ id: 1, name: "Later" }]]);
+    // Every client is told, and the one that asked alone is answered.
+    expect((await other.message("inbox")).repositories[0]?.groups).toEqual([{ id: 1, name: "Later" }]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+    c.send({ type: "addGroup", requestId: 2, repoId: 1, name: "Drafts" });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.groups.length === 2)).repositories[0]?.groups).toEqual([{ id: 1, name: "Later" }, { id: 2, name: "Drafts" }]);
+
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).repositories[0]?.groups).toEqual([{ id: 1, name: "Later" }, { id: 2, name: "Drafts" }]);
+  });
+
+  it("answers an `addGroup` with an empty name, with a name that is no text, and one that names no repository it holds, with an error, and adds no group", async () => {
+    const { c, url } = await withWorkItem(repository());
+    for (const [requestId, name] of [[1, ""], [2, "   "]] as const) {
+      c.send({ type: "addGroup", requestId, repoId: 1, name });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "Give the group a name." });
+    }
+    c.send({ type: "addGroup", requestId: 3, repoId: 1, name: 7 });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "a group is added to a repository under a name" });
+    c.send({ type: "addGroup", requestId: 4, repoId: 9, name: "Later" });
+    expect(await c.message("error", (m) => m.requestId === 4)).toEqual({ type: "error", requestId: 4, message: "no repository 9" });
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.groups)).toEqual([[]]);
+  });
+
+  it("moves a work item into a group of its repository at a `setWorkItem` with the group's id, and out of it with null, answers before the inbox that carries each, leaves the group at a set that names none, and keeps it after the daemon starts again", async () => {
+    const made = repository();
+    const { c, runDir, workItem } = await withWorkItem(made);
+    c.send({ type: "addGroup", requestId: 1, repoId: workItem.repoId, name: "Later" });
+    await c.message("inbox", (m) => m.repositories[0]?.groups.length === 1);
+    c.messages.length = 0;
+    c.send({ type: "setWorkItem", requestId: 2, id: workItem.id, groupId: 1 });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(inbox.workItems).toEqual([{ ...workItem, groupId: 1 }]);
+    // A pin leaves the group, and the group leaves the pin.
+    c.send({ type: "setWorkItem", requestId: 3, id: workItem.id, pinned: true });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.pinned === true)).workItems).toEqual([{ ...workItem, groupId: 1, pinned: true }]);
+    c.send({ type: "setWorkItem", requestId: 4, id: workItem.id, groupId: null });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.groupId === null)).workItems).toEqual([{ ...workItem, pinned: true }]);
+    c.send({ type: "setWorkItem", requestId: 5, id: workItem.id, groupId: 1 });
+    await c.message("done", (m) => m.requestId === 5);
+
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: true, groupId: 1 }]);
+  });
+
+  it("answers a `setWorkItem` whose group is a group of another repository, one no repository holds, or no id, with an error, and sets nothing of that message, its pin neither", async () => {
+    const made = repository();
+    const elsewhere = repository();
+    const { c, url, workItem } = await withWorkItem(made);
+    c.send({ type: "addRepository", requestId: 1, folder: elsewhere.repo });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "addGroup", requestId: 2, repoId: 2, name: "Theirs" });
+    await c.message("done", (m) => m.requestId === 2);
+    await c.message("inbox", (m) => m.repositories[1]?.groups.length === 1);
+    c.messages.length = 0;
+    for (const [requestId, groupId] of [[3, 1], [4, 9]] as const) {
+      c.send({ type: "setWorkItem", requestId, id: workItem.id, groupId, pinned: true });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: `Group ${groupId} is no group of the work item's repository.` });
+    }
+    for (const [requestId, groupId] of [[5, "1"], [6, true]] as const) {
+      c.send({ type: "setWorkItem", requestId, id: workItem.id, groupId, pinned: true });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a work item's group is a group's id, or null for none" });
+    }
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: false, groupId: null }]);
+  });
+
   it("renames a work item without its branch: the title is the name without the white space at its ends, and the branch and the folder are the ones they were", async () => {
     const made = repository();
     const { c, runDir, workItem } = await withWorkItem(made);
