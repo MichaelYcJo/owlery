@@ -21,6 +21,7 @@ The two comments of 2026-11-20 on the issue left these open, and the tree or the
 - How a case copies and pastes without the owner's clipboard: `frame/plan.md` *Alternatives considered*, the rows on the clipboard.
 - Whether a pane's menu is the page's or the system's, and which of its items show a key: `frame/plan.md` *Alternatives considered*, the rows on a pane's menu, and `frame/design.md` *The fold of 2026-11-20*, the last judgment.
 - Whether "Clear Screen" and "Reset Terminal" reach the daemon: `frame/plan.md` *Alternatives considered*, the rows on the daemon's `forget`.
+- What "Clear Screen" has the daemon keep, and whether the daemon or the window reads a program's modes: `frame/design.md` *The fold on a program's modes*, and `frame/plan.md` *Alternatives considered*, the rows on the modes.
 - Whether the hide breaks the case that reads "Close Window" or the cases of a click on a notification: `frame/design.md` scenario 26, and `frame/plan.md` *Alternatives considered*, the rows on the window's close.
 - Whether a background start hides its window: `frame/plan.md` *Alternatives considered*, the row on a background start.
 
