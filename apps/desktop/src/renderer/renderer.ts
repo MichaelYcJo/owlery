@@ -10,16 +10,18 @@
 // with its two choices to delete from disk, and the dialog that asks before
 // the daemon ends, for a restart or for a complete quit, at a choice of the
 // application menu. How a menu is drawn is ./menu. The theme
-// and its control are ./theme. The sidebar, the list with its preview, a
+// and its control are ./theme, and the choice of when the Mac is kept awake
+// with its control is ./keep-awake. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
 import type { DaemonEnd, OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, HeadlessInfo, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
+import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
-import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from "./sidebar";
+import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import {
@@ -1169,6 +1171,9 @@ function onMessage(message: ServerMessage): void {
       held.headless = message.headless;
       // A daemon of an earlier build sends no look.
       held.lastLook = message.lastLook ?? null;
+      // A daemon of an earlier build, and one that can hold nothing, send no such choice, and the control is then hidden.
+      held.keepAwake = message.keepAwake ?? null;
+      showKeepAwake();
       // The counts of this `ready` were read from git at this window's hello, so the changes are worked out here, once.
       held.changes = held.lastLook ? changesSince(held.lastLook, held.workItems, held.sessions, held.paneKinds) : [];
       showPaneButtons();
@@ -1184,6 +1189,12 @@ function onMessage(message: ServerMessage): void {
     }
     case "inbox":
       takeLists(message);
+      return;
+    case "keepAwake":
+      // The daemon's choice changed, here or in another client, or its hold began or ended.
+      held.keepAwake = message.keepAwake;
+      showKeepAwake();
+      showStatus();
       return;
     case "started":
       tell("");
@@ -1334,6 +1345,7 @@ initSidebar(
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
 initView(() => openList("inbox"), MAC, openView);
+initKeepAwake();
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
   save: (choice) => window.owlery.saveAppearance(choice),

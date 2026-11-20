@@ -1,6 +1,7 @@
 // The daemon process. The app starts it detached, with Electron's Node, so it
 // outlives the app; it exits by itself once no session is alive, no headless
-// session is working and no window is connected.
+// session is working and no window is connected. On macOS it keeps the Mac
+// from idle sleep while an agent works.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -9,6 +10,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { HookServer, paneCommands, writeHookSettings } from "./hooks";
 import { Daemon } from "./daemon";
 import { readDiscovery, writeDiscovery } from "./discovery";
+import { holdAwakeFor } from "./keep-awake";
 import { PANE_KINDS } from "./pane-kinds";
 
 async function main(): Promise<void> {
@@ -18,7 +20,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the repositories with their work items and the last look.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look and the choice of when to keep the Mac awake.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
@@ -40,8 +42,10 @@ async function main(): Promise<void> {
     token,
     // A pane opened without a work item runs in the user's home; a work item's pane runs in its worktree.
     cwd: process.env.OWLERY_CWD || homedir(),
-    // The repositories with their work items and the last look sit beside the discovery file, and outlive this process.
+    // The repositories with their work items, the last look and the choice of when to keep the Mac awake sit beside the discovery file, and outlive this process.
     runDir,
+    // The hold is a program of macOS, and watches this process so that it ends when the daemon ends, however it ends. On another platform the daemon holds nothing.
+    holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
     commandFor: paneCommands(process.env, hookSettingsFile, hooks.socketPath),
