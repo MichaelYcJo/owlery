@@ -655,6 +655,13 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await headings()).toEqual([["Later", "0"]]);
     expect([await ungrouped(), await under(1), await order(SIDEBAR)]).toEqual([[1, 2], [], [1, 2]]);
     expect(await value<boolean>(`document.querySelector('${repository(1)} ul:not([data-group])').compareDocumentPosition(document.querySelector('${repository(1)} .group-head')) === Node.DOCUMENT_POSITION_FOLLOWING`)).toBe(true);
+    // The heading stands right above its group's list, and a folded repository shows neither.
+    const drawn = (): Promise<unknown[]> => value(`(() => { const head = document.querySelector('${repository(1)} .group-head'); return [head.nextElementSibling.dataset.group, getComputedStyle(head).display === "none", getComputedStyle(head.nextElementSibling).display === "none"]; })()`);
+    expect(await drawn()).toEqual(["1", false, false]);
+    await app.click(`${repository(1)} .fold`);
+    expect(await drawn()).toEqual(["1", true, true]);
+    await app.click(`${repository(1)} .fold`);
+    expect(await drawn()).toEqual(["1", false, false]);
     // The dialog holds no name of the opening before.
     await fromMenu(1, "New group");
     await dialogOpen("group-dialog");
