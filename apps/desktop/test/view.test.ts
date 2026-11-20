@@ -8,6 +8,7 @@ import {
   changesSince,
   commandKey,
   commitLines,
+  daemonLists,
   daemonStatus,
   emptyList,
   fileLines,
@@ -59,11 +60,12 @@ import {
   type FormPlan,
   type InboxLine,
 } from "../src/renderer/view";
-import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
   title: "Fix the login bug",
+  repoId: 1,
   repo: "/r/project",
   repoName: "project",
   branch: "owlery/fix-the-login-bug",
@@ -75,7 +77,12 @@ const LOGIN: WorkItem = {
   newCommits: null,
   commits: null,
   changes: null,
+  pinned: false,
+  muted: false,
+  groupId: null,
+  archivedAt: null,
 };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -900,41 +907,46 @@ describe("workItemEntries", () => {
 });
 
 describe("sidebarTree", () => {
-  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+  const DOCS_REPO: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs" };
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repoId: 2, repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+  const rows = (tree: ReturnType<typeof sidebarTree>) => tree.map((repository) => [repository.id, repository.repo, repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
 
-  it("lists each repository that has a work item, in the order of its first one, with its name, its count and its work items in the daemon's order", () => {
+  it("lists every repository the daemon keeps that is not hidden, in the daemon's order, each with its name, its count and its work items in the daemon's order, a repository with no work item among them", () => {
+    const hidden: Repository = { ...PROJECT, id: 3, folder: "/r/hidden", name: "hidden", hidden: true };
+    const empty: Repository = { ...PROJECT, id: 4, folder: "/r/empty", name: "empty" };
+    const unseen: WorkItem = { ...LOGIN, id: 4, title: "Out of sight", repoId: 3, repo: "/r/hidden", repoName: "hidden" };
     const sessions = [session(4, { workItemId: 2, state: "waiting" })];
-    const tree = sidebarTree([LOGIN, DOCS, SEARCH], sessions, KINDS);
-    expect(tree.map((repository) => [repository.repo, repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)])).toEqual([
-      ["/r/project", "project", 2, [1, 2]],
-      ["/r/docs", "docs", 1, [3]],
+    // The repositories stand in the store's order, whichever has the first work item.
+    const tree = sidebarTree([DOCS_REPO, hidden, empty, PROJECT], [LOGIN, unseen, DOCS, SEARCH], sessions, KINDS);
+    expect(rows(tree)).toEqual([
+      [2, "/r/docs", "docs", 1, [3]],
+      [4, "/r/empty", "empty", 0, []],
+      [1, "/r/project", "project", 2, [1, 2]],
     ]);
-    expect(tree[0]?.entries[1]?.line.state).toBe("waiting");
+    expect(tree[2]?.entries[1]?.line.state).toBe("waiting");
   });
 
-  it("keeps two repositories of one name apart, each under its own folder", () => {
-    const other: WorkItem = { ...SEARCH, repo: "/elsewhere/project" };
-    expect(sidebarTree([LOGIN, other], [], KINDS).map((repository) => [repository.repo, repository.name, repository.count])).toEqual([
-      ["/r/project", "project", 1],
-      ["/elsewhere/project", "project", 1],
+  it("puts a work item under the repository whose id it names, whatever folder and name the work item carries, and keeps two repositories of one name apart", () => {
+    const other: Repository = { ...PROJECT, id: 2, folder: "/elsewhere/project" };
+    const moved: WorkItem = { ...SEARCH, repoId: 2 };
+    expect(rows(sidebarTree([PROJECT, other], [LOGIN, moved], [], KINDS))).toEqual([
+      [1, "/r/project", "project", 1, [1]],
+      [2, "/elsewhere/project", "project", 1, [2]],
     ]);
   });
 
   it("names a repository as the daemon names it", () => {
-    expect(sidebarTree([{ ...LOGIN, repoName: "the project" }], [], KINDS).map((repository) => repository.name)).toEqual(["the project"]);
+    expect(sidebarTree([{ ...PROJECT, name: "the project", customName: "the project" }], [LOGIN], [], KINDS).map((repository) => repository.name)).toEqual(["the project"]);
   });
 
-  it("names a repository by the last part of its folder where the daemon sent no name, as one of an earlier build does", () => {
-    const unnamed = { ...LOGIN, repo: "/r/older/", repoName: undefined } as unknown as WorkItem;
-    expect(sidebarTree([unnamed], [], KINDS).map((repository) => repository.name)).toEqual(["older"]);
-  });
-
-  it("lists nothing where no work item is given", () => {
-    expect(sidebarTree([], [], KINDS)).toEqual([]);
+  it("makes up no repository: it lists none where the daemon sends none, and none for a work item whose repository the daemon did not send", () => {
+    expect(sidebarTree([], [], [], KINDS)).toEqual([]);
+    expect(sidebarTree([], [LOGIN, DOCS], [], KINDS)).toEqual([]);
+    expect(rows(sidebarTree([PROJECT], [LOGIN, DOCS], [], KINDS))).toEqual([[1, "/r/project", "project", 1, [1]]]);
   });
 
   it("marks in each title the letters a search matches, and none where nothing is typed or the match stands elsewhere", () => {
-    const titles = (query: string) => sidebarTree([LOGIN, SEARCH, DOCS], [], KINDS, query).flatMap((repository) => repository.entries.map((entry) => [entry.line.title, entry.marks]));
+    const titles = (query: string) => sidebarTree([PROJECT, DOCS_REPO], [LOGIN, SEARCH, DOCS], [], KINDS, query).flatMap((repository) => repository.entries.map((entry) => [entry.line.title, entry.marks]));
     // "search" stands in the second title and in its branch, and the sidebar draws no branch.
     expect(titles("SEARCH")).toEqual([["Speed up search", [[9, 15]]]]);
     // "docs" is the name of the third work item's repository, so its title stays plain.
@@ -946,17 +958,41 @@ describe("sidebarTree", () => {
     ]);
   });
 
-  it("counts under a repository the work items a search and a filter leave, and leaves out a repository none of whose work items is left", () => {
+  it("counts under a repository the work items a search and a filter leave, and leaves out a repository none of whose work items is left, one with no work item among them, while a search is typed or a state is chosen", () => {
+    const empty: Repository = { ...PROJECT, id: 4, folder: "/r/empty", name: "empty" };
     const sessions = [session(4, { workItemId: 2, state: "waiting" }), session(5, { workItemId: 3, state: "waiting" })];
-    const counts = (query: string, state: Parameters<typeof sidebarTree>[4]) =>
-      sidebarTree([LOGIN, SEARCH, DOCS], sessions, KINDS, query, state).map((repository) => [repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
+    const counts = (query: string, state: Parameters<typeof sidebarTree>[5]) =>
+      sidebarTree([PROJECT, empty, DOCS_REPO], [LOGIN, SEARCH, DOCS], sessions, KINDS, query, state).map((repository) => [repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
+    expect(counts("", "all")).toEqual([
+      ["project", 2, [1, 2]],
+      ["empty", 0, []],
+      ["docs", 1, [3]],
+    ]);
     expect(counts("login", "all")).toEqual([["project", 1, [1]]]);
     expect(counts("", "waiting")).toEqual([
       ["project", 1, [2]],
       ["docs", 1, [3]],
     ]);
     expect(counts("the", "waiting")).toEqual([["docs", 1, [3]]]);
+    // The repository's own name is typed, and it has no work item to show for it.
+    expect(counts("empty", "all")).toEqual([]);
     expect(counts("nowhere", "all")).toEqual([]);
+  });
+});
+
+describe("daemonLists", () => {
+  const EARLIER = "Owlery's background process is from an earlier build. End its sessions and start Owlery again.";
+
+  it("gives the repositories and the archived work items a `ready` or an `inbox` carries, and no notice", () => {
+    const archived: WorkItem = { ...SEARCH, archivedAt: 50 };
+    expect(daemonLists({ repositories: [PROJECT], archived: [archived] })).toEqual({ repositories: [PROJECT], archived: [archived], notice: "" });
+    expect(daemonLists({ repositories: [], archived: [] })).toEqual({ repositories: [], archived: [], notice: "" });
+  });
+
+  it("gives no repository, no archived work item and the notice of an earlier build where the daemon sends no repositories", () => {
+    expect(daemonLists({})).toEqual({ repositories: [], archived: [], notice: EARLIER });
+    // What an earlier daemon's `ready` holds, as the window receives it.
+    expect(daemonLists(JSON.parse(JSON.stringify({ type: "ready", sessions: [], workItems: [LOGIN], paneKinds: KINDS, headless: [], lastLook: null })))).toEqual({ repositories: [], archived: [], notice: EARLIER });
   });
 });
 
@@ -1008,7 +1044,7 @@ describe("markRanges", () => {
 });
 
 describe("matchWorkItems", () => {
-  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repoId: 2, repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
   const sessions = [session(4, { workItemId: 1, state: "waiting" }), session(5, { workItemId: 2, state: "working" }), session(6, { workItemId: 3, state: "finished" })];
   const FOURTH: WorkItem = { ...LOGIN, id: 4, title: "Tidy up", branch: "owlery/tidy-up" };
   const ids = (query: string, state: Parameters<typeof matchWorkItems>[2]) =>

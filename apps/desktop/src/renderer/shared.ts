@@ -2,7 +2,7 @@
 // the window's own state, the connection to the daemon, and the pieces every
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
-import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, Look, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
 import { commitLines, fileLines, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
@@ -13,6 +13,11 @@ export const held = {
   /** The sessions and the work items as the daemon last listed them, at `ready` and at each `inbox`, and what this window started or created since. */
   sessions: [] as SessionInfo[],
   workItems: [] as WorkItem[],
+  /** The repositories the daemon keeps, the hidden among them, and the archived work items, as the daemon last listed them. Both are empty against a daemon of a build before the repositories, and `daemonNotice` then says so. */
+  repositories: [] as Repository[],
+  archived: [] as WorkItem[],
+  /** What the status line says of the daemon in place of its state, or nothing. A notice of the window's own stands before it. */
+  daemonNotice: "",
   /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since. */
   headless: [] as HeadlessInfo[],
   /** The look the daemon held when this window said hello, or null where no person looked before. The window keeps none of its own. */
@@ -150,6 +155,10 @@ export function icon(shapes: readonly (string | { circle: [number, number, numbe
 
 /** The mark of a repository's fold, which the style turns where the repository is folded. */
 export const CHEVRON = ["M4.5 6.5L8 10l3.5-3.5"] as const;
+/** The mark of the button that makes a new work item, as the head of the repositories draws it. */
+export const PLUS = ["M8 3.5v9M3.5 8h9"] as const;
+/** The mark of the button that opens a menu: three dots in a row. */
+export const DOTS = [{ circle: [3.5, 8, 0.5] }, { circle: [8, 8, 0.5] }, { circle: [12.5, 8, 0.5] }] as const satisfies Parameters<typeof icon>[0];
 
 // The shapes of a state's icon: a speech mark for a wait, a ring that turns for work, a check in a circle for an end, a crescent for no agent, and a triangle for a failure.
 type StateShape = "waiting" | "working" | "finished" | "no-agent" | "failed";

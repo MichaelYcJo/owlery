@@ -56,15 +56,45 @@ export interface Changes {
   list: FileChange[];
 }
 
+/** A group of a repository's work items, which the sidebar lists under the group's name. It belongs to one repository, and its id is no other group's. */
+export interface Group {
+  id: number;
+  name: string;
+}
+
 /**
- * One piece of work, in a worktree of its own: `repo` is the repository's
- * top-level folder, `branch` the branch cut for it, `worktree` its folder.
+ * A repository the daemon keeps. It is added and removed on its own, and its
+ * work items name it by its id. A repository with no work item is one.
+ */
+export interface Repository {
+  id: number;
+  /** The repository's top-level folder. */
+  folder: string;
+  /** The name a person reads: `customName` where one is set, and the last part of `folder` otherwise. */
+  name: string;
+  /** The name a person gave the repository, or null where they gave none. */
+  customName: string | null;
+  icon: string | null;
+  /** The base a person chose for the repository's new work items, named as `WorkItem.baseBranch` names one, or null for the repository's default base. */
+  defaultBase: string | null;
+  /** True where the sidebar does not list the repository. Its work items are listed as any others are. */
+  hidden: boolean;
+  /** In the order they were made. */
+  groups: Group[];
+}
+
+/**
+ * One piece of work, in a worktree of its own, of one repository: `repoId` is
+ * that repository's id and `repo` its top-level folder, `branch` the branch
+ * cut for the work item, `worktree` its folder.
  */
 export interface WorkItem {
   id: number;
   title: string;
+  /** The id of its `Repository`. In a look that a build before the repositories wrote it is 0, which no repository bears. */
+  repoId: number;
   repo: string;
-  /** The last part of `repo`, which a person reads as the repository's name. */
+  /** Its repository's `name`. */
   repoName: string;
   branch: string;
   worktree: string;
@@ -89,6 +119,13 @@ export interface WorkItem {
   commits: CommitInfo[] | null;
   /** Null where the daemon has read none. */
   changes: Changes | null;
+  pinned: boolean;
+  /** True where the window raises no notification for a session of the work item. */
+  muted: boolean;
+  /** The group of its repository it stands in, or null where it stands in none. */
+  groupId: number | null;
+  /** When it was archived, or null while it is not. */
+  archivedAt: number | null;
 }
 
 export interface SessionInfo {
@@ -110,7 +147,7 @@ export interface SessionInfo {
 /**
  * When a person last looked, and what the daemon listed then: `at` is the
  * time, and the two lists are as an `inbox` sent at that moment would carry
- * them. The daemon keeps one, for whichever client sent `looked` last.
+ * its `sessions` and its `workItems`. The daemon keeps one, for whichever client sent `looked` last.
  */
 export interface Look {
   at: number;
@@ -146,6 +183,8 @@ export type ClientMessage =
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
   // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.
   | { type: "planWorkItem"; requestId: number; repo: string; title: string; name?: string }
+  // Adds the repository `folder` is inside, with no work item. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
+  | { type: "addRepository"; requestId: number; folder: string }
   // Asks for the session's kept output as a `replay`, and for its output after that.
   | { type: "attach"; id: number }
   // Ends this client's receiving of the session's output until it attaches again. The session and its process are untouched, and the daemon answers nothing.
@@ -160,10 +199,10 @@ export type ClientMessage =
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  // `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`.
-  | { type: "ready"; sessions: SessionInfo[]; workItems: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null }
-  // The whole of both lists, sent to every client whenever either changes.
-  | { type: "inbox"; sessions: SessionInfo[]; workItems: WorkItem[] }
+  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`.
+  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null }
+  // The whole of the four lists, sent to every client whenever one of them changes.
+  | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
   // Answers a creation and carries the pane it opened, whose output the creating client receives.
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
@@ -173,6 +212,8 @@ export type ServerMessage =
   | { type: "asked"; requestId: number; headless: HeadlessInfo }
   // One headless session whole, sent to every client whenever it changes.
   | { type: "headless"; headless: HeadlessInfo }
+  // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.
+  | { type: "done"; requestId: number }
   // Answers a request that failed; nothing was created or started.
   | { type: "error"; requestId: number; message: string }
   | { type: "output"; id: number; data: string }

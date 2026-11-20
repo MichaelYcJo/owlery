@@ -1,7 +1,7 @@
 // What the window says and sends, apart from the page that shows it, so the
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
-import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -111,12 +111,28 @@ export function inboxGroups<Entry extends { line: InboxLine }>(entries: readonly
     .filter((group) => group.entries.length > 0);
 }
 
-/** A repository's name: the one the daemon sends, or the last part of its folder for a daemon of an earlier build, which sends none. */
+/** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
 export function repoNameOf(workItem: WorkItem): string {
   return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
 }
 
+/** What the status line says while the daemon is one a build before the repositories started. */
+const EARLIER_DAEMON = "Owlery's background process is from an earlier build. End its sessions and start Owlery again.";
+
+/**
+ * The repositories and the archived work items of a `ready` or an `inbox`,
+ * and what the status line has to say of the daemon that sent it. A daemon
+ * of a build before the repositories sends neither list and answers none of
+ * the messages that came with them: the window then holds no repository,
+ * and the notice says why.
+ */
+export function daemonLists(message: { repositories?: Repository[]; archived?: WorkItem[] }): { repositories: Repository[]; archived: WorkItem[]; notice: string } {
+  if (message.repositories === undefined) return { repositories: [], archived: [], notice: EARLIER_DAEMON };
+  return { repositories: message.repositories, archived: message.archived ?? [], notice: "" };
+}
+
 export interface SidebarRepository {
+  id: number;
   /** The repository's folder, which tells two repositories of one name apart. */
   repo: string;
   name: string;
@@ -127,23 +143,24 @@ export interface SidebarRepository {
 }
 
 /**
- * The sidebar's repositories: each repository that has a work item the
- * search and the filter leave, in the order of its first such work item,
- * with those work items in the order given. A repository is its folder, so
- * two of one name are two.
+ * The sidebar's repositories: each repository the daemon keeps that is not
+ * hidden, in the daemon's order, with the work items that name it by its id
+ * and that the search and the filter leave, in the order given. A repository
+ * with no work item is listed. While a search is typed or a state is chosen,
+ * a repository none of whose work items is left is not. The window makes up
+ * no repository: a work item whose repository the daemon did not send is
+ * under none.
  */
-export function sidebarTree(workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
-  const tree: SidebarRepository[] = [];
-  for (const entry of matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state)) {
-    let repository = tree.find((held) => held.repo === entry.workItem.repo);
-    if (!repository) {
-      repository = { repo: entry.workItem.repo, name: repoNameOf(entry.workItem), count: 0, entries: [] };
-      tree.push(repository);
-    }
-    repository.entries.push({ ...entry, marks: markRanges(entry.line.title, query) });
-    repository.count = repository.entries.length;
-  }
-  return tree;
+export function sidebarTree(repositories: readonly Repository[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
+  const left = matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state);
+  const narrowing = query !== "" || state !== "all";
+  return repositories
+    .filter((repository) => !repository.hidden)
+    .map((repository) => {
+      const entries = left.filter((entry) => entry.workItem.repoId === repository.id).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
+      return { id: repository.id, repo: repository.folder, name: repository.name, count: entries.length, entries };
+    })
+    .filter((repository) => !narrowing || repository.entries.length > 0);
 }
 
 /**

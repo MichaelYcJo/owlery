@@ -87,7 +87,7 @@ interface Naming {
 }
 
 /** The repository's top-level folder, given a folder inside it. A folder outside any git repository is refused. */
-async function repositoryOf(folder: string): Promise<string> {
+export async function repositoryOf(folder: string): Promise<string> {
   let repo: string;
   try {
     repo = (await git(folder, ["rev-parse", "--show-toplevel"])).trim();

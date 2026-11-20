@@ -4,14 +4,14 @@ import type { AddressInfo } from "node:net";
 import { basename } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
-import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type PaneKind, type PaneKindInfo, type Repository, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { LastLook } from "./last-look";
-import { type StoredWorkItem, WorkItemList } from "./work-items";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, worktreesRoot } from "./worktrees";
+import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
 const STATE_TEXT_CHARS = 2000;
@@ -49,7 +49,7 @@ export interface DaemonOptions {
   roleAdapter: RoleAdapter;
   /** Where a pane opened without a work item runs. */
   cwd?: string;
-  /** Where the list of work items is kept, in `work-items.json`, and the last look, in `last-look.json`; without it both are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, and the last look, in `last-look.json`; without it both are in memory alone. */
   runDir?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
@@ -104,7 +104,7 @@ export class Daemon {
   private readonly headless = new Map<number, HeadlessSession>();
   private nextHeadlessId = 1;
   private idleTimer: NodeJS.Timeout | undefined;
-  private readonly workItems: WorkItemList;
+  private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
   // Creations run one after another, so two of one title never pick the same branch and folder. A plan creates nothing and does not wait behind them.
   private creating: Promise<void> = Promise.resolve();
@@ -121,7 +121,7 @@ export class Daemon {
   private closed = false;
 
   constructor(private readonly options: DaemonOptions) {
-    this.workItems = new WorkItemList(options.runDir, options.now);
+    this.store = new RepositoryStore(options.runDir, options.now);
     this.lastLook = new LastLook(options.runDir);
   }
 
@@ -235,7 +235,7 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", sessions: this.sessionList(), workItems: this.workItemList(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get() });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -261,12 +261,12 @@ export class Daemon {
             // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
             const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random });
-            // A work item nobody named is called what its branch and its folder are, the number they got among it.
-            const stored = this.workItems.add({ title: message.title.trim() || basename(place.worktree), ...place });
+            // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
+            const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
-            this.commitCounts.set(stored.id, 0);
-            if (place.baseBranch !== null) this.aheadCounts.set(stored.id, 0);
-            this.branches.set(stored.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
+            this.commitCounts.set(stored.item.id, 0);
+            if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, 0);
+            this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
             const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
@@ -290,6 +290,23 @@ export class Daemon {
         };
         // A plan is a read, so it is answered while a creation is under way and can name what that creation is about to take.
         void plan();
+        return;
+      }
+      case "addRepository": {
+        const add = async (): Promise<void> => {
+          try {
+            // An empty folder would have git answer for the folder the daemon itself runs in.
+            if (typeof message.folder !== "string" || message.folder === "") throw new Error("a repository is added by a folder inside it");
+            const { changed } = this.store.addRepository(await repositoryOf(message.folder));
+            // The answer first, so the client that asked knows its request was carried out when the inbox lists the repository.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            if (changed) this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // The store holds a folder once however many adds of it arrive together, so an add does not wait behind the creations.
+        void add();
         return;
       }
       case "attach": {
@@ -362,7 +379,7 @@ export class Daemon {
 
   /** The worktree of the work item a request names; where it has none to run in, the request is answered with an error. */
   private worktreeFor(socket: WebSocket, requestId: number, workItemId: number): string | undefined {
-    const workItem = this.workItems.get(workItemId);
+    const workItem = this.store.workItem(workItemId)?.item;
     if (!workItem) {
       this.send(socket, { type: "error", requestId, message: `no work item ${String(workItemId)}` });
       return undefined;
@@ -491,19 +508,44 @@ export class Daemon {
     return [...this.headless.values()].map((s) => s.info);
   }
 
+  /** The work items that are not archived, as an `inbox` and a look list them. */
   private workItemList(): WorkItem[] {
-    return this.workItems.all().map((item) => this.workItemOf(item));
+    return this.store.workItems().filter(({ item }) => item.archivedAt === null).map((held) => this.workItemOf(held));
   }
 
-  /** A work item as a client is sent it: with its repository's name, and with what was last read of its branch. */
-  private workItemOf(item: StoredWorkItem): WorkItem {
+  /** The four lists a `ready` and an `inbox` carry: the sessions, every repository, the work items that are not archived, and the archived ones. */
+  private lists(): { sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] } {
+    return {
+      sessions: this.sessionList(),
+      repositories: this.store.repositories().map((repository) => this.repositoryOf(repository)),
+      workItems: this.workItemList(),
+      archived: this.store.workItems().filter(({ item }) => item.archivedAt !== null).map((held) => this.workItemOf(held)),
+    };
+  }
+
+  /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
+  private repositoryOf({ id, folder, name, icon, defaultBase, hidden, groups }: StoredRepository): Repository {
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })) };
+  }
+
+  /** A work item as a client is sent it: with its repository's id, folder and name, and with what was last read of its branch. */
+  private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
-    return { ...item, repoName: basename(item.repo), aheadOfBase: this.aheadCounts.get(item.id) ?? null, newCommits: this.commitCounts.get(item.id) ?? null, commits: read?.commits ?? null, changes: read?.changes ?? null };
+    return {
+      ...item,
+      repoId: repository.id,
+      repo: repository.folder,
+      repoName: repository.name ?? basename(repository.folder),
+      aheadOfBase: this.aheadCounts.get(item.id) ?? null,
+      newCommits: this.commitCounts.get(item.id) ?? null,
+      commits: read?.commits ?? null,
+      changes: read?.changes ?? null,
+    };
   }
 
-  /** Sends every client the whole of both lists, after either changed. */
+  /** Sends every client the whole of the four lists, after one of them changed. */
   private broadcastInbox(): void {
-    this.broadcast({ type: "inbox", sessions: this.sessionList(), workItems: this.workItemList() });
+    this.broadcast({ type: "inbox", ...this.lists() });
   }
 
   /**
@@ -546,16 +588,17 @@ export class Daemon {
   private async readCommits(): Promise<void> {
     let changed = false;
     await Promise.all(
-      this.workItems.all().map(async (item) => {
+      this.store.workItems().map(async ({ repository, item }) => {
         // A work item from before the base commit was recorded has nothing to count from.
         const { baseCommit } = item;
         if (baseCommit === null) return;
-        const [count, head] = await Promise.all([newCommits(item.repo, item.branch, baseCommit), branchHead(item.repo, item.branch)]);
+        const repo = repository.folder;
+        const [count, head] = await Promise.all([newCommits(repo, item.branch, baseCommit), branchHead(repo, item.branch)]);
         if (count !== (this.commitCounts.get(item.id) ?? null)) {
           this.commitCounts.set(item.id, count);
           changed = true;
         }
-        const ahead = item.baseBranch === null || head === null ? null : await aheadOf(item.repo, item.baseBranch, head);
+        const ahead = item.baseBranch === null || head === null ? null : await aheadOf(repo, item.baseBranch, head);
         if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
           this.aheadCounts.set(item.id, ahead);
           changed = true;
@@ -568,7 +611,7 @@ export class Daemon {
           return;
         }
         // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
-        const [commits, changes] = await Promise.all([branchCommits(item.repo, baseCommit, head), branchChanges(item.repo, baseCommit, head)]);
+        const [commits, changes] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head)]);
         this.branches.set(item.id, { head, commits, changes });
       }),
     );

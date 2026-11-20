@@ -5,13 +5,13 @@
 // each, and what each says and decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
-import type { AgentState, ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, ClientMessage, Repository, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
-import { agentKind, baseMenu, changesSince, commandKey, inboxKey, notificationFor, planAnswer, planLine, workItemFields, type BaseChoice, type FormPlan, type PlanAnswered, type StateFilter } from "./view";
+import { agentKind, baseMenu, changesSince, commandKey, daemonLists, inboxKey, notificationFor, planAnswer, planLine, workItemFields, type BaseChoice, type FormPlan, type PlanAnswered, type StateFilter } from "./view";
 import { detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
@@ -159,11 +159,20 @@ function onKey(event: KeyboardEvent): void {
   else if (list.selected() !== undefined) openView(list.selected() as number);
 }
 
+/** Takes the repositories and the archived work items of a `ready` or an `inbox`, and what the status line has to say of the daemon that sent it. */
+function takeRepositories(message: { repositories?: Repository[]; archived?: WorkItem[] }): void {
+  const lists = daemonLists(message);
+  held.repositories = lists.repositories;
+  held.archived = lists.archived;
+  held.daemonNotice = lists.notice;
+}
+
 /** Takes the daemon's lists at an `inbox`: notifies of each state that changed, drops the closed panes, and redraws the sidebar and the screen in front. */
-function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[] }): void {
+function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   held.sessions = next.sessions;
   held.workItems = next.workItems;
+  takeRepositories(next);
   for (const session of held.sessions) {
     // A pane on the stage of a focused window is one the person is looking at, whether or not it has the keyboard.
     const inFront = onStage(session.id) && document.hasFocus();
@@ -272,6 +281,7 @@ function onMessage(message: ServerMessage): void {
       held.paneKinds = message.paneKinds;
       held.sessions = message.sessions;
       held.workItems = message.workItems;
+      takeRepositories(message);
       held.headless = message.headless;
       // A daemon of an earlier build sends no look.
       held.lastLook = message.lastLook ?? null;
@@ -309,6 +319,10 @@ function onMessage(message: ServerMessage): void {
     }
     case "workItemPlan":
       takePlan(message.requestId, { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase });
+      return;
+    case "done":
+      // What the request changed arrives in the `inbox` that follows.
+      tell("");
       return;
     case "asked":
       takeHeadless(message.headless, message.requestId);
@@ -375,6 +389,7 @@ initSidebar(
     openView,
     openForm: openWorkItemForm,
     pickFolder: () => window.owlery.pickFolder(),
+    addRepository: (folder) => send({ type: "addRepository", requestId: request(), folder }),
     search(query) {
       held.query = query;
       showNarrowed();

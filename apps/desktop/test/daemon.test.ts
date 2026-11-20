@@ -21,7 +21,11 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "id", "newCommits", "repo", "repoName", "title", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
+/** What a work item holds of the fields a person sets, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
+/** What a repository holds of the fields a person sets, before any is set. */
+const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -340,7 +344,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repo, repoName: "project", branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -373,10 +377,11 @@ describe("work items", () => {
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["headless", "lastLook", "paneKinds", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["kind", "label", "reportsState"]);
-    expect(Object.keys(inbox).sort()).toEqual(["sessions", "type", "workItems"]);
+    expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
     for (const lists of [inbox, ready, ready.lastLook!]) {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
@@ -614,7 +619,7 @@ describe("work items", () => {
     git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
     git(workItem.worktree, "commit", "--quiet", "--allow-empty", "-m", "two");
     await first.close();
-    expect(statSync(join(runDir, "work-items.json")).mode & 0o777).toBe(0o600);
+    expect(statSync(join(runDir, "repositories.json")).mode & 0o777).toBe(0o600);
 
     const { url } = await daemon({ runDir, worktreesRoot: root });
     const ready = await (await client(url)).message("ready");
@@ -669,6 +674,172 @@ describe("work items", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 2, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
     expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([session.id]);
+  });
+});
+
+describe("repositories", () => {
+  function repository(name?: string) {
+    const made = temporaryRepository(name);
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  /** A run folder whose store holds what is given, made before the daemon that reads it. */
+  function runFolder(base: string, repositories: object[]): string {
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify(repositories));
+    return runDir;
+  }
+
+  /** A work item as the store keeps one that git is never asked about: it has no base commit. */
+  const stored = (id: number, fields: object = {}) => ({ id, title: `Work item ${id}`, branch: `owlery/work-item-${id}`, worktree: `/w/project/work-item-${id}`, createdAt: id, baseCommit: null, baseBranch: null, ...UNSET, ...fields });
+  const storedRepository = (id: number, folder: string, fields: object = {}) => ({ id, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems: [], ...fields });
+
+  /** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
+  let refused = 700;
+  async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
+    const requestId = refused++;
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+    await c.message("error", (m) => m.requestId === requestId);
+  }
+
+  it("carries in `ready` and in an `inbox` the repository of a work item, which the work item names by its id", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    expect([ready.repositories, ready.workItems, ready.archived]).toEqual([[], [], []]);
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "In a repository", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    const kept = { id: 1, folder: repo, name: "project", ...PLAIN };
+    const inbox = await c.message("inbox");
+    expect(inbox.repositories).toEqual([kept]);
+    expect(inbox.workItems).toEqual([workItem]);
+    expect(inbox.archived).toEqual([]);
+    expect(workItem).toMatchObject({ repoId: 1, repo, repoName: "project", ...UNSET });
+    const later = await (await client(url)).message("ready");
+    expect(later.repositories).toEqual([kept]);
+    expect(later.workItems).toEqual([workItem]);
+    expect(later.archived).toEqual([]);
+  });
+
+  it("lists an archived work item in `archived` and not in `workItems`, each under its repository's id, folder and name, the name a person gave where one is set", async () => {
+    const { base } = repository();
+    const runDir = runFolder(base, [
+      storedRepository(1, "/r/project", { name: "The project", workItems: [stored(1), stored(2, { archivedAt: 50 })] }),
+      storedRepository(4, "/r/docs", { hidden: true, icon: "D", defaultBase: "origin/main", groups: [{ id: 3, name: "Later" }], workItems: [stored(3, { pinned: true, muted: true, groupId: 3 })] }),
+    ]);
+    const { url } = await daemon({ runDir });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    expect(ready.repositories).toEqual([
+      { id: 1, folder: "/r/project", name: "The project", ...PLAIN, customName: "The project" },
+      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }] },
+    ]);
+    expect(ready.workItems.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.pinned, w.muted, w.groupId, w.archivedAt])).toEqual([
+      [1, 1, "/r/project", "The project", false, false, null, null],
+      [3, 4, "/r/docs", "docs", true, true, 3, null],
+    ]);
+    expect(ready.archived.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.archivedAt])).toEqual([[2, 1, "/r/project", "The project", 50]]);
+    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS);
+    // An inbox carries the same lists: a pane's start sends one.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    const inbox = await c.message("inbox");
+    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([ready.repositories, ready.workItems, ready.archived]);
+    // The look holds the work items an inbox lists, so none that is archived.
+    c.send({ type: "looked" });
+    await settled(c);
+    expect((await (await client(url)).message("ready")).lastLook?.workItems.map((w) => w.id)).toEqual([1, 3]);
+  });
+
+  it("adds the repository a folder is inside, with no work item, answers before the inbox that lists it, and changes nothing in the repository", async () => {
+    const { repo, root, base } = repository();
+    const inside = join(repo, "src", "deep");
+    mkdirSync(inside, { recursive: true });
+    const read = () => [git(repo, "status", "--porcelain=v1", "--ignored"), git(repo, "for-each-ref"), git(repo, "worktree", "list", "--porcelain"), readdirSync(repo, { recursive: true }).sort()];
+    const before = read();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    const { url } = await daemon({ runDir, worktreesRoot: root });
+    const c = await client(url);
+    const other = await client(url);
+    await c.message("ready");
+    await other.message("ready");
+    c.send({ type: "addRepository", requestId: 5, folder: inside });
+    const inbox = await c.message("inbox");
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox"]);
+    expect(c.messages[1]).toEqual({ type: "done", requestId: 5 });
+    const kept = { id: 1, folder: repo, name: "project", ...PLAIN };
+    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([[kept], [], []]);
+    // Every client is told, and the one that asked alone is answered.
+    expect((await other.message("inbox")).repositories).toEqual([kept]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+    expect(read()).toEqual(before);
+    expect(existsSync(root)).toBe(false);
+    // The repository outlives the daemon.
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject([{ id: 1, folder: repo, workItems: [] }]);
+  });
+
+  it("adds a repository it keeps no second time: the second add is answered, and no inbox follows it", async () => {
+    const { repo, root } = repository();
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    await c.message("inbox");
+    c.send({ type: "addRepository", requestId: 2, folder: repo });
+    expect(await c.message("done", (m) => m.requestId === 2)).toEqual({ type: "done", requestId: 2 });
+    // An inbox for the second add would have arrived before the refusal of a start sent after its answer.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "done", "error"]);
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.folder)).toEqual([repo]);
+    // A work item made in it stands under the repository that was added, and adds no other.
+    c.send({ type: "createWorkItem", requestId: 3, repo, title: "Inside", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("workItemCreated")).workItem.repoId).toBe(1);
+    expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
+  });
+
+  it("answers an add in a folder outside any git repository with the sentence a creation there gets, and one whose folder is no folder's name with an error, and adds nothing", async () => {
+    const { base } = repository();
+    const folder = join(base, "plain");
+    mkdirSync(folder);
+    const { url } = await daemon();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: `${folder} is not inside a git repository` });
+    for (const [requestId, wrong] of [[2, 7], [3, ""], [4, undefined]] as const) {
+      c.send({ type: "addRepository", requestId, folder: wrong });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a repository is added by a folder inside it" });
+    }
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).repositories).toEqual([]);
+  });
+
+  it("shows a hidden repository again when its folder is added, and when a work item is created in it", async () => {
+    const one = repository();
+    const two = repository("docs");
+    const runDir = runFolder(one.base, [storedRepository(1, one.repo, { hidden: true }), storedRepository(2, two.repo, { hidden: true })]);
+    const { url } = await daemon({ runDir, worktreesRoot: one.root });
+    const c = await client(url);
+    expect((await c.message("ready")).repositories.map((r) => r.hidden)).toEqual([true, true]);
+    c.send({ type: "addRepository", requestId: 1, folder: one.repo });
+    expect((await c.message("inbox")).repositories.map((r) => [r.id, r.hidden])).toEqual([[1, false], [2, true]]);
+    c.send({ type: "createWorkItem", requestId: 2, repo: two.repo, title: "Shown again", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    expect(workItem.repoId).toBe(2);
+    expect((await c.message("inbox", (m) => m.workItems.length === 1)).repositories.map((r) => [r.id, r.hidden])).toEqual([[1, false], [2, false]]);
+  });
+
+  it("starts from the work items a build before the repositories listed, each under the repository of its folder", async () => {
+    const made = repository();
+    const { runDir, workItem } = await runFolderWithWorkItem(made, "Made before");
+    const { url } = await daemon({ runDir, worktreesRoot: made.root });
+    const ready = await (await client(url)).message("ready");
+    expect(ready.repositories).toEqual([{ id: 1, folder: made.repo, name: "project", ...PLAIN }]);
+    expect(ready.workItems).toMatchObject([{ id: workItem.id, title: "Made before", repoId: 1, repo: made.repo, newCommits: 1, ...UNSET }]);
+    expect(readdirSync(runDir).sort()).toEqual(["work-items.json"]);
   });
 });
 
@@ -1412,7 +1583,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoName: "project", aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {

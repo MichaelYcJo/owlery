@@ -186,7 +186,9 @@
       /* The dot on the bell where a work item waits, in the strong ink. */
       #bell.ringing::after { content: ""; position: absolute; left: 14px; top: 3px; width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--ink-strong); box-shadow: var(--dot-edge); }
       #repositories { flex: 1; display: flex; flex-direction: column; gap: var(--space-1); min-height: 0; overflow: auto; padding: 0 10px var(--space-4); }
-      .repository .fold { gap: var(--space-3); font-weight: 600; }
+      /* A repository's row: the button that folds it, which takes the width the two buttons after it leave. */
+      .repository-row { display: flex; align-items: center; gap: 1px; }
+      .repository .fold { flex: 1 1 auto; min-width: 0; width: auto; gap: var(--space-3); font-weight: 600; }
       .repository .fold svg.icon { width: var(--space-5); height: var(--space-5); color: var(--ink-faint); }
       .repository .fold[aria-expanded="false"] svg.icon { transform: rotate(-90deg); }
       .repository li .side-item { padding-left: 26px; }

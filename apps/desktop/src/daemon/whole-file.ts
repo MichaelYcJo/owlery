@@ -1,5 +1,5 @@
 // The one way the app writes a file a reader must never find half-written:
-// the daemon's discovery file, its list of work items and its last look, and
+// the daemon's discovery file, its repositories and its last look, and
 // the main process's theme file. It is kept beside the daemon's files, whose
 // three writers use it, and the app's main process imports it as it imports
 // the discovery file's reader. It reads `node:fs`, so nothing the page loads
