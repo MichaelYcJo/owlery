@@ -197,6 +197,10 @@
       .repository .fold { flex: 1 1 auto; min-width: 0; width: auto; gap: var(--space-3); font-weight: 600; }
       .repository .fold svg.icon { width: var(--space-5); height: var(--space-5); color: var(--ink-faint); }
       .repository .fold[aria-expanded="false"] svg.icon { transform: rotate(-90deg); }
+      /* The one character a person gave a repository, before its name. */
+      .repository-icon { flex: none; }
+      /* The button under the repositories that says how many are hidden. */
+      #hidden-repositories { flex: none; color: var(--ink-faint); font-size: var(--size-second); }
       .repository li .side-item { padding-left: 26px; }
       /* The foot: the status line, and the control that chooses the theme, which is its icon with the choices laid over it as the filter's are. */
       #sidebar-foot { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: var(--sidebar-line); padding: var(--space-3) 10px 10px 18px; }
@@ -341,7 +345,7 @@
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
       input::placeholder { color: var(--ink-faint); }
 
-      /* A dialog: the "New work item" form, and the rename dialog. */
+      /* A dialog: the "New work item" form, the rename dialog, and the dialogs of a repository's menu. */
       dialog { box-sizing: border-box; width: var(--dialog-width); padding: var(--space-7); border: 0; border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); color: inherit; }
       dialog::backdrop { background: var(--backdrop); }
       dialog h2 { margin-bottom: var(--space-6); }
@@ -354,7 +358,15 @@
       dialog label.check:has(input:disabled) { color: var(--ink-faint); }
       dialog input[type="checkbox"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
       #rename-plan { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-faint); overflow-wrap: anywhere; }
-      #rename-error { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
+      #rename-error, dialog .refusal { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
+      /* What a dialog says before it asks, and the things it names: each on a line, a long one cut at the dialog's edge. */
+      dialog .says { margin-bottom: var(--space-5); color: var(--ink-muted); }
+      dialog section { margin-bottom: var(--space-5); }
+      dialog section h3 { margin-bottom: var(--space-2); }
+      dialog .named { max-height: var(--said-height); margin-bottom: var(--space-5); overflow: auto; }
+      dialog section .named { margin-bottom: 0; }
+      dialog .named li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--control-height); }
+      dialog .named li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* A menu, drawn over the window where it was asked for: its items in a column, and a rule where another part of it begins. */
       .menu { position: fixed; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; min-width: var(--menu-width); max-width: var(--menu-width-most); padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
       /* The menu itself draws no ring when a press on no item puts the keyboard on it. */
@@ -409,10 +421,7 @@
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
           <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state"></select>
         </label>
-        <button id="add-repository" class="icon-button" title="Add a repository" aria-label="Add a repository">
-          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 4.3a1 1 0 0 1 1-1h3l1.4 1.5h6a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z" /><path d="M8 7.3v3.4M6.3 9h3.4" /></svg>
-        </button>
-        <button id="new-work-item" class="icon-button" title="New work item" aria-label="New work item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg></button>
+        <button id="new-work-item" class="icon-button" aria-label="New work item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg></button>
       </div>
       <div id="repositories"></div>
       <div id="sidebar-foot">
@@ -535,6 +544,7 @@
             <button type="button" id="work-item-browse" class="quiet">Browse…</button>
           </span>
         </label>
+        <label class="check"><input type="checkbox" id="work-item-register-only" />Register the repository only</label>
         <label>
           Name
           <span class="row"><input id="work-item-title" autocomplete="off" /></span>
@@ -572,6 +582,66 @@
         <div class="row end">
           <button type="button" id="rename-cancel" class="quiet">Cancel</button>
           <button type="submit" id="rename-submit" class="primary">Rename</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="settings-dialog">
+      <form id="settings-form">
+        <h2 class="head">Repository settings</h2>
+        <label>
+          Name in the sidebar
+          <span class="row"><input id="settings-name" autocomplete="off" /></span>
+        </label>
+        <label>
+          New work items start from
+          <span class="row">
+            <select id="settings-base"></select>
+          </span>
+        </label>
+        <p id="settings-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="settings-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="settings-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="icon-dialog">
+      <form id="icon-form">
+        <h2 class="head">Change the icon</h2>
+        <label>
+          One character, an emoji among them, shown before the repository's name. Leave it empty for no icon.
+          <span class="row"><input id="icon-field" autocomplete="off" /></span>
+        </label>
+        <p id="icon-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="icon-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="icon-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="hidden-dialog">
+      <h2 class="head">Hidden repositories</h2>
+      <ul id="hidden-list" class="named"></ul>
+      <div class="row end">
+        <button type="button" id="hidden-close" class="quiet">Done</button>
+      </div>
+    </dialog>
+    <dialog id="remove-dialog">
+      <form id="remove-form">
+        <h2 id="remove-head" class="head"></h2>
+        <p id="remove-says" class="says">Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.</p>
+        <section id="remove-work-items" hidden>
+          <h3 class="caption">Work items that leave the lists</h3>
+          <ul class="named"></ul>
+        </section>
+        <section id="remove-sessions" hidden>
+          <h3 class="caption">Running sessions that end</h3>
+          <ul class="named"></ul>
+        </section>
+        <p id="remove-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="remove-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="remove-submit" class="primary">Remove</button>
         </div>
       </form>
     </dialog>

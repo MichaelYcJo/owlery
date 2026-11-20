@@ -15,6 +15,7 @@ import {
   filterChoices,
   gainedSince,
   headlessLines,
+  hiddenRepositories,
   historyLines,
   inboxGroups,
   inboxKey,
@@ -34,6 +35,7 @@ import {
   menuKey,
   menuTarget,
   moveSelection,
+  NEW_WORK_ITEM_SAYS,
   noticeWithout,
   notificationFor,
   paneInFront,
@@ -42,11 +44,18 @@ import {
   planAnswer,
   planLine,
   recentKept,
+  REGISTER_ONLY_SAYS,
+  registerFields,
+  removalOf,
   renameChoice,
   replayStep,
+  repositoryMenu,
+  rowButtons,
   screenMoves,
   screenTurns,
   selectedLine,
+  settingsBases,
+  settingsFields,
   sidebarTree,
   stageOf,
   stateHeading,
@@ -355,14 +364,16 @@ describe("menuTarget", () => {
   });
 });
 
-describe("workItemMenu", () => {
-  const APPS = [
-    { name: "Zed", kind: "editor" as const },
-    { name: "Warp", kind: "terminal" as const },
-  ];
+const APPS = [
+  { name: "Zed", kind: "editor" as const },
+  { name: "Warp", kind: "terminal" as const },
+];
+/** A menu's entries without their descriptions, which a case of their own holds. */
+const plain = (entries: readonly { label: string; description: string; action: unknown; divides: boolean }[]) => entries.map(({ description: _says, ...entry }) => entry);
 
+describe("workItemMenu", () => {
   it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin and Mute notifications, each with what its press does", () => {
-    expect(workItemMenu(LOGIN, APPS)).toEqual([
+    expect(plain(workItemMenu(LOGIN, APPS))).toEqual([
       { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
       { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
       { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
@@ -379,11 +390,137 @@ describe("workItemMenu", () => {
   });
 
   it("offers Unpin for a pinned work item and Unmute notifications for a muted one", () => {
-    const items = workItemMenu({ ...LOGIN, pinned: true, muted: true }, []);
+    const items = plain(workItemMenu({ ...LOGIN, pinned: true, muted: true }, []));
     expect(items.slice(-2)).toEqual([
       { label: "Unpin", action: { do: "set", id: 1, pinned: false }, divides: true },
       { label: "Unmute notifications", action: { do: "set", id: 1, muted: false }, divides: false },
     ]);
+  });
+});
+
+describe("repositoryMenu", () => {
+  it("holds, in this order, Settings, Change icon, Show archived work items, New group, Open in Finder and in each installed app, Copy path, Hide from sidebar and Remove, each with what its press does", () => {
+    expect(plain(repositoryMenu(PROJECT, APPS))).toEqual([
+      { label: "Settings", action: { do: "settings", id: 1 }, divides: false },
+      { label: "Change icon", action: { do: "icon", id: 1 }, divides: false },
+      { label: "Show archived work items", action: { do: "archived", id: 1 }, divides: true },
+      { label: "New group", action: { do: "group", id: 1 }, divides: false },
+      { label: "Open in Finder", action: { do: "open", folder: "/r/project", app: null }, divides: true },
+      { label: "Open in Zed", action: { do: "open", folder: "/r/project", app: "Zed" }, divides: false },
+      { label: "Open in Warp", action: { do: "open", folder: "/r/project", app: "Warp" }, divides: false },
+      { label: "Copy path", action: { do: "copy", text: "/r/project" }, divides: true },
+      { label: "Hide from sidebar", action: { do: "hide", id: 1 }, divides: true },
+      { label: "Remove", action: { do: "remove", id: 1 }, divides: false },
+    ]);
+  });
+
+  it("offers Finder alone where no app is installed", () => {
+    expect(repositoryMenu(PROJECT, []).map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in Finder", "Copy path", "Hide from sidebar", "Remove"]);
+  });
+});
+
+describe("a description on hover", () => {
+  it("gives every entry of a work item's menu and of a repository's menu a description that is not empty and is not its label, and no two entries of one menu the same one", () => {
+    const menus = [workItemMenu(LOGIN, APPS), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS), repositoryMenu(PROJECT, APPS)];
+    for (const menu of menus) {
+      for (const { label, description } of menu) {
+        expect(description.trim(), label).not.toBe("");
+        expect(description, label).not.toBe(label);
+        // A sentence, and not the label with a full stop.
+        expect(description.endsWith("."), label).toBe(true);
+        expect(description.toLowerCase(), label).not.toBe(`${label.toLowerCase()}.`);
+      }
+      expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
+    }
+    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 10]);
+  });
+
+  it("says of the button at the sidebar's top, of a repository's two buttons and of the form's choice what each does, and tells registering a repository from creating a work item", () => {
+    expect(NEW_WORK_ITEM_SAYS).toBe("Create a work item: a new branch and worktree in a repository. The form can also register a repository alone.");
+    expect(REGISTER_ONLY_SAYS).toBe("Add the repository to the sidebar without creating a work item, a branch or a worktree.");
+    expect(rowButtons("the project")).toEqual({
+      add: { name: "New work item in the project", says: "Create a work item in the project: a new branch and worktree." },
+      menu: { name: "Menu of the project", says: "Open the menu of the project: its settings, its icon, hiding it and removing it." },
+    });
+  });
+});
+
+describe("hiddenRepositories", () => {
+  it("gives the hidden repositories in the daemon's order, and says how many they are, or nothing where none is hidden", () => {
+    const docs: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs", hidden: true };
+    const third: Repository = { ...PROJECT, id: 3, folder: "/r/third", name: "third", hidden: true };
+    expect(hiddenRepositories([PROJECT])).toEqual({ says: "", hidden: [] });
+    expect(hiddenRepositories([])).toEqual({ says: "", hidden: [] });
+    expect(hiddenRepositories([docs, PROJECT])).toEqual({ says: "1 hidden repository", hidden: [docs] });
+    expect(hiddenRepositories([third, PROJECT, docs])).toEqual({ says: "2 hidden repositories", hidden: [third, docs] });
+  });
+});
+
+describe("removalOf", () => {
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repoId: 2 };
+  const SHELVED: WorkItem = { ...LOGIN, id: 4, title: "Shelved", archivedAt: 50 };
+
+  it("names each work item the repository holds, the archived among them, and none of another repository", () => {
+    expect(removalOf(PROJECT, [LOGIN, DOCS, SEARCH], [SHELVED, { ...SHELVED, id: 5, repoId: 2 }], [], [], KINDS)).toEqual({
+      workItems: [
+        { id: 1, title: "Fix the login bug", archived: false },
+        { id: 2, title: "Speed up search", archived: false },
+        { id: 4, title: "Shelved", archived: true },
+      ],
+      sessions: [],
+      running: { panes: [], headless: [] },
+    });
+    expect(removalOf(PROJECT, [DOCS], [], [], [], KINDS)).toEqual({ workItems: [], sessions: [], running: { panes: [], headless: [] } });
+  });
+
+  it("names each running session of those work items, a pane by its tab's label and a headless session by its prompt, and gives their ids: no pane that exited, no headless session that ended, and none of another repository's work item", () => {
+    const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 3 }), session(9, { workItemId: 4 }), session(10, { workItemId: null })];
+    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 3 }), headless(5, { workItemId: 2, prompt: "Where is the index built?" })];
+    expect(removalOf(PROJECT, [LOGIN, DOCS, SEARCH], [SHELVED], sessions, asked, KINDS)).toMatchObject({
+      sessions: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Asked in Fix the login bug: Which file holds the login form?", "Asked in Speed up search: Where is the index built?"],
+      running: { panes: [5, 7, 9], headless: [1, 5] },
+    });
+  });
+});
+
+describe("settingsBases", () => {
+  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop" };
+
+  it("lists the repository's local and remote bases whole, under a first choice that stores none, and chooses the base the repository has where the plan lists it", () => {
+    expect(settingsBases(PLAN, "develop")).toEqual({ local: ["main", "develop"], remote: ["origin/main"], value: "develop" });
+    expect(settingsBases(PLAN, "origin/main").value).toBe("origin/main");
+    expect(settingsBases(PLAN, null).value).toBe("");
+  });
+
+  it("lists a base the repository has and the plan does not, so the choice the daemon keeps stays the one shown, and lists that base alone until the daemon answers and where it refuses", () => {
+    expect(settingsBases(PLAN, "gone")).toEqual({ local: ["main", "develop", "gone"], remote: ["origin/main"], value: "gone" });
+    expect(settingsBases(null, "develop")).toEqual({ local: ["develop"], remote: [], value: "develop" });
+    expect(settingsBases({ error: "/r/project is not inside a git repository" }, null)).toEqual({ local: [], remote: [], value: "" });
+  });
+});
+
+describe("settingsFields", () => {
+  const NAMED: Repository = { ...PROJECT, name: "The project", customName: "The project", defaultBase: "develop" };
+
+  it("sends the name where it is another than the one a person gave, without the white space at its ends, and null for an empty one", () => {
+    expect(settingsFields(PROJECT, "  The project ", "")).toEqual({ name: "The project" });
+    expect(settingsFields(NAMED, "", "develop")).toEqual({ name: null });
+    expect(settingsFields(NAMED, "Another", "develop")).toEqual({ name: "Another" });
+  });
+
+  it("sends the base where it is another than the one the repository has, null for the first choice, and nothing where neither field changed", () => {
+    expect(settingsFields(PROJECT, "", "develop")).toEqual({ defaultBase: "develop" });
+    expect(settingsFields(NAMED, "The project", "")).toEqual({ defaultBase: null });
+    expect(settingsFields(NAMED, "Renamed", "main")).toEqual({ name: "Renamed", defaultBase: "main" });
+    expect(settingsFields(NAMED, " The project ", "develop")).toEqual({});
+    expect(settingsFields(PROJECT, "  ", "")).toEqual({});
+  });
+});
+
+describe("registerFields", () => {
+  it("gives the folder the form's field holds, without the spaces around it, and refuses an empty one in the form's words", () => {
+    expect(registerFields("  /r/project ")).toEqual({ folder: "/r/project" });
+    expect(registerFields("   ")).toEqual({ error: "Choose the repository folder." });
   });
 });
 
@@ -1080,8 +1217,11 @@ describe("sidebarTree", () => {
     ]);
   });
 
-  it("names a repository as the daemon names it", () => {
-    expect(sidebarTree([{ ...PROJECT, name: "the project", customName: "the project" }], [LOGIN], [], KINDS).map((repository) => repository.name)).toEqual(["the project"]);
+  it("names a repository as the daemon names it, and carries its icon, or none", () => {
+    expect(sidebarTree([{ ...PROJECT, name: "the project", customName: "the project", icon: "P" }, { ...PROJECT, id: 2 }], [LOGIN], [], KINDS).map((repository) => [repository.name, repository.icon])).toEqual([
+      ["the project", "P"],
+      ["project", null],
+    ]);
   });
 
   it("makes up no repository: it lists none where the daemon sends none, and none for a work item whose repository the daemon did not send", () => {

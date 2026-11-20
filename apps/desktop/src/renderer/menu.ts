@@ -1,5 +1,6 @@
 // A menu, drawn in the window: an element with the role `menu` whose items
-// have the role `menuitem`. The system draws none of it, so the page's
+// have the role `menuitem`, each with the description a pointer over it is
+// told. The system draws none of it, so the page's
 // themes colour it and a case can read and press it. What a menu holds is a
 // function of ./view, and one menu is open at a time.
 import type { MenuAction, MenuEntry } from "./view";
@@ -83,6 +84,8 @@ export function openMenu(says: string, entries: readonly MenuEntry[], at: { x: n
     // The arrows move through the items, and the Tab key does not.
     item.tabIndex = -1;
     item.textContent = entry.label;
+    // What a press does, which the system shows a pointer that rests on the item.
+    item.title = entry.description;
     item.addEventListener("click", () => {
       closeMenu();
       press(entry.action);

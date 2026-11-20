@@ -277,7 +277,9 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
-  close.title = `Close ${label.textContent}`;
+  // The button shows a mark alone: a screen reader is told its name, and a pointer that rests on it what a press does.
+  close.setAttribute("aria-label", `Close ${label.textContent}`);
+  close.title = `End ${label.textContent} and close its tab.`;
   label.addEventListener("click", () => {
     if (held.viewing === undefined) return;
     broughtToFront(held.viewing, session.id);

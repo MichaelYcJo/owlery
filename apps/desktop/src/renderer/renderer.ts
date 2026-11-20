@@ -1,13 +1,15 @@
 // The window: its connection to the daemon, which of its four screens is in
 // front, the keys it reads, the "New work item" form with the plan it asks
-// the daemon for, and a work item's menu with what the press of each item
-// does, the rename dialog among it. How a menu is drawn is ./menu. The theme
+// the daemon for and its choice to register a repository alone, and the
+// menus of a work item and of a repository with what the press of each item
+// does: the rename dialog, and a repository's settings, its icon, the list
+// of the hidden ones and its removal. How a menu is drawn is ./menu. The theme
 // and its control are ./theme. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
-import type { AgentState, ClientMessage, Repository, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, ClientMessage, HeadlessInfo, Repository, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
@@ -20,19 +22,27 @@ import {
   changesSince,
   commandKey,
   daemonLists,
+  hiddenRepositories,
   inboxKey,
   menuKey,
   menuTarget,
   notificationFor,
   planAnswer,
   planLine,
+  REGISTER_ONLY_SAYS,
+  registerFields,
+  removalOf,
   renameChoice,
+  repositoryMenu,
+  settingsBases,
+  settingsFields,
   workItemFields,
   workItemMenu,
   type BaseChoice,
   type FormPlan,
   type MenuAction,
   type PlanAnswered,
+  type Removal,
   type RenamePlanned,
   type StateFilter,
 } from "./view";
@@ -96,6 +106,36 @@ const renameBranch = byId<HTMLInputElement>("rename-branch");
 const renamePlanPlace = byId("rename-plan");
 const renameError = byId("rename-error");
 const renameButton = byId<HTMLButtonElement>("rename-submit");
+const registerOnly = byId<HTMLInputElement>("work-item-register-only");
+const settingsDialog = byId<HTMLDialogElement>("settings-dialog");
+const settingsName = byId<HTMLInputElement>("settings-name");
+const settingsBase = byId<HTMLSelectElement>("settings-base");
+const iconDialog = byId<HTMLDialogElement>("icon-dialog");
+const iconField = byId<HTMLInputElement>("icon-field");
+const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
+const removeDialog = byId<HTMLDialogElement>("remove-dialog");
+
+/** A dialog that waits on the daemon's answer to one request: where its refusal is shown, and the button that sent it. */
+interface Asking {
+  dialog: HTMLDialogElement;
+  error: HTMLElement;
+  button: HTMLButtonElement;
+}
+const FORM: Asking = { dialog: workItemDialog, error: formError, button: createButton };
+const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
+const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
+const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
+// The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
+const asking = new Map<number, Asking>();
+// The repository the settings dialog, the icon's dialog and the removal's dialog are each open on.
+let settingsOf: number | undefined;
+let iconOf: number | undefined;
+let removing: number | undefined;
+// What the removal's dialog names, which is what its request tells the daemon the person was told of.
+let removal: Removal | undefined;
+// The plan the settings dialog asked for, to list the repository's bases: its request, and what the daemon answered.
+let settingsPlanRequest: number | undefined;
+let settingsPlan: PlanAnswered | null = null;
 
 /** Whether a dialog of the window is open, the form or any other. */
 function dialogOpen(): boolean {
@@ -203,6 +243,63 @@ function onKey(event: KeyboardEvent): void {
   else if (list.selected() !== undefined) openView(list.selected() as number);
 }
 
+function forget(dialog: HTMLDialogElement): void {
+  for (const [requestId, known] of asking) if (known.dialog === dialog) asking.delete(requestId);
+}
+
+/** Opens a dialog that waits on a request, with no refusal shown and its button on. Nothing opens over another dialog. */
+function opened(of: Asking): boolean {
+  if (dialogOpen()) return false;
+  forget(of.dialog);
+  of.error.textContent = "";
+  of.button.disabled = false;
+  of.dialog.showModal();
+  return true;
+}
+
+/** Sends a dialog's request. One request per answer: the dialog's button stays off until the daemon answers. */
+function ask(of: Asking, message: (requestId: number) => ClientMessage): void {
+  const requestId = request();
+  forget(of.dialog);
+  asking.set(requestId, of);
+  of.error.textContent = "";
+  of.button.disabled = true;
+  send(message(requestId));
+}
+
+/** Takes the daemon's answer to a dialog's request: `done` closes the dialog, and a refusal is shown in it. It answers whether the dialog took the answer: one that closed meanwhile takes none. */
+function answered(requestId: number, refusal: string | null): boolean {
+  const of = asking.get(requestId);
+  if (!of) return false;
+  asking.delete(requestId);
+  if (!of.dialog.open) return false;
+  if (refusal === null) {
+    of.dialog.close();
+  } else {
+    of.error.textContent = refusal;
+    of.button.disabled = false;
+  }
+  return true;
+}
+
+function repositoryOf(id: number | undefined): Repository | undefined {
+  return held.repositories.find((known) => known.id === id);
+}
+
+/** A button of a repository's row in the sidebar, as it is drawn now: the one that folds it, its "+" or its "…". */
+function rowButton(repositoryId: number, selector: ".fold" | ".repository-add" | ".repository-menu"): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`#repositories section[data-repository="${repositoryId}"] ${selector}`);
+}
+
+/** The repository's row an element is inside, where it is inside one: the repository's id, and which of the row's buttons the element is. */
+function rowOf(element: Element | null): { repositoryId: number; button: ".fold" | ".repository-add" | ".repository-menu" } | null {
+  const row = element?.closest<HTMLElement>(".repository-row");
+  const id = row?.parentElement?.dataset.repository;
+  if (!row || id === undefined) return null;
+  const button = element?.closest(".repository-add") ? ".repository-add" : element?.closest(".repository-menu") ? ".repository-menu" : ".fold";
+  return { repositoryId: Number(id), button };
+}
+
 /** The line of a work item under an element, where one is drawn there: in the sidebar's repositories, or in a list. */
 function lineIn(within: Element, workItemId: number): HTMLElement | null {
   return within.querySelector<HTMLElement>(`button[data-work-item="${workItemId}"]`);
@@ -232,7 +329,30 @@ function pressMenu(action: MenuAction): void {
     case "set":
       send({ type: "setWorkItem", requestId: request(), id: action.id, pinned: action.pinned, muted: action.muted });
       return;
+    case "settings":
+      openSettings(action.id);
+      return;
+    case "icon":
+      openIcon(action.id);
+      return;
+    case "hide":
+      send({ type: "setRepository", requestId: request(), id: action.id, hidden: true });
+      return;
+    case "remove":
+      openRemove(action.id);
+      return;
+    case "archived":
+    case "group":
+      // The list of the archived work items and the dialog of a new group are not built yet: the items are drawn, and their press opens nothing.
+      return;
   }
+}
+
+/** Opens a repository's menu with its corner at `at`. The keyboard returns to the button of the repository's row it was on, as `back` finds it once the sidebar drew the row anew. */
+function openRepositoryMenu(repositoryId: number, at: { x: number; y: number }, back: () => HTMLElement | null): void {
+  const repository = repositoryOf(repositoryId);
+  if (!repository) return;
+  openMenu(`Menu of ${repository.name}`, repositoryMenu(repository, held.apps), at, pressMenu, back);
 }
 
 /** Opens a work item's menu with its corner at `at`. The keyboard returns to the work item's line under `within`, though the line was drawn anew meanwhile. */
@@ -242,18 +362,26 @@ function openWorkItemMenu(workItemId: number, at: { x: number; y: number }, with
   openMenu(`Menu of ${workItem.title}`, workItemMenu(workItem, held.apps), at, pressMenu, () => lineIn(within, workItemId));
 }
 
-/** Opens the menu of a work item's line at a press of the right button on it, and at a press with the Control key, which raises the same event. */
+/** Opens the menu of a work item's line, or of a repository's row, at a press of the right button on it, and at a press with the Control key, which raises the same event. */
 function onContextMenu(event: MouseEvent): void {
-  const on = lineOf(event.target instanceof Element ? event.target : null);
-  if (!on) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const at = { x: event.clientX, y: event.clientY };
+  const on = lineOf(target);
+  if (on) {
+    event.preventDefault();
+    openWorkItemMenu(on.workItemId, at, on.within);
+    return;
+  }
+  const row = rowOf(target);
+  if (!row) return;
   event.preventDefault();
-  openWorkItemMenu(on.workItemId, { x: event.clientX, y: event.clientY }, on.within);
+  openRepositoryMenu(row.repositoryId, at, () => rowButton(row.repositoryId, row.button));
 }
 
 /**
- * Opens a menu at its key: for the line the keyboard is on, and otherwise
- * for the selected line of the list in front. The menu opens under the
- * line. A repository's row has no menu yet, so the key opens none there.
+ * Opens a menu at its key: for the line or the repository's row the
+ * keyboard is on, and otherwise for the selected line of the list in front.
+ * The menu opens under the line or the row.
  */
 function onMenuKey(event: KeyboardEvent): void {
   const target = event.target instanceof Element ? event.target : null;
@@ -261,9 +389,17 @@ function onMenuKey(event: KeyboardEvent): void {
   // A terminal reads its keys in a field of its own.
   if (!menuKey(pressed, { dialogOpen: dialogOpen(), menuOpen: menuOpen(), inField: target?.closest("input, textarea, select, [contenteditable]") != null })) return;
   const on = lineOf(target);
-  const row = target?.closest<HTMLElement>(".repository-row")?.parentElement;
-  const of = menuTarget({ workItem: on?.workItemId, repository: row?.dataset.repository === undefined ? undefined : Number(row.dataset.repository) }, listInFront()?.selected());
-  if (of === null || !("workItem" in of)) return;
+  const row = rowOf(target);
+  const of = menuTarget({ workItem: on?.workItemId, repository: row?.repositoryId }, listInFront()?.selected());
+  if (of === null) return;
+  if ("repository" in of) {
+    const button = row?.button ?? ".fold";
+    const box = rowButton(of.repository, ".fold")?.getBoundingClientRect();
+    if (!box) return;
+    event.preventDefault();
+    openRepositoryMenu(of.repository, { x: box.left + box.height, y: box.bottom }, () => rowButton(of.repository, button));
+    return;
+  }
   const list = front === "inbox" || front === "history" ? screens[front] : null;
   const within = on?.within ?? list;
   const line = on?.line ?? listInFront()?.line(of.workItem);
@@ -332,6 +468,148 @@ function rename(): void {
   send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked && !renameBranch.disabled });
 }
 
+/** The last part of a folder's path, which names a repository a person gave no name. */
+function lastPart(folder: string): string {
+  return folder.split("/").filter(Boolean).at(-1) ?? folder;
+}
+
+/** Draws the settings dialog's menu of bases, from the plan the dialog holds, with `value` chosen where the menu lists it. */
+function showSettingsBases(value: string): void {
+  const menu = settingsBases(settingsPlan, repositoryOf(settingsOf)?.defaultBase ?? null);
+  const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
+  const group = (label: string, bases: readonly string[]): HTMLOptGroupElement[] => {
+    if (bases.length === 0) return [];
+    const element = document.createElement("optgroup");
+    element.label = label;
+    element.append(...options(bases));
+    return [element];
+  };
+  settingsBase.replaceChildren(new Option("The repository's default branch", ""), ...group("Local", menu.local), ...group("Remote", menu.remote));
+  settingsBase.value = ["", ...menu.local, ...menu.remote].includes(value) ? value : menu.value;
+}
+
+/** Opens a repository's settings: the name a person gave it, and the base of its new work items, in a menu of the bases the daemon is asked for. */
+function openSettings(repositoryId: number): void {
+  const repository = repositoryOf(repositoryId);
+  if (!repository || !opened(SETTINGS)) return;
+  settingsOf = repositoryId;
+  settingsName.value = repository.customName ?? "";
+  // An empty name gives the repository the last part of its folder as its name.
+  settingsName.placeholder = lastPart(repository.folder);
+  settingsPlan = null;
+  showSettingsBases(repository.defaultBase ?? "");
+  settingsName.select();
+  // A plan lists the repository's bases as the form's menu lists them, and creates nothing.
+  settingsPlanRequest = request();
+  send({ type: "planWorkItem", requestId: settingsPlanRequest, repo: repository.folder, title: "" });
+}
+
+/** Takes the daemon's answer to the settings dialog's plan, or its refusal, which the dialog shows. It answers whether the message was of that plan. */
+function takeSettingsPlan(requestId: number, plan: PlanAnswered): boolean {
+  if (requestId !== settingsPlanRequest) return false;
+  settingsPlanRequest = undefined;
+  if (!settingsDialog.open) return true;
+  settingsPlan = plan;
+  // The base a person chose while the daemon was asked stays chosen.
+  showSettingsBases(settingsBase.value);
+  if ("error" in plan) SETTINGS.error.textContent = plan.error;
+  return true;
+}
+
+/** Sends what the settings dialog changed, and closes it where it changed nothing. */
+function saveSettings(): void {
+  const repository = repositoryOf(settingsOf);
+  if (!repository) return;
+  const fields = settingsFields(repository, settingsName.value, settingsBase.value);
+  if (Object.keys(fields).length === 0) settingsDialog.close();
+  else ask(SETTINGS, (requestId) => ({ type: "setRepository", requestId, id: repository.id, ...fields }));
+}
+
+/** Opens the dialog that takes a repository's icon, with the one it has selected in the field. */
+function openIcon(repositoryId: number): void {
+  const repository = repositoryOf(repositoryId);
+  if (!repository || !opened(ICON)) return;
+  iconOf = repositoryId;
+  iconField.value = repository.icon ?? "";
+  iconField.select();
+}
+
+/** Draws the list of the hidden repositories, each with the button that shows it again, and closes the dialog where none is hidden any more. */
+function showHidden(): void {
+  const { hidden } = hiddenRepositories(held.repositories);
+  if (hidden.length === 0 && hiddenDialog.open) hiddenDialog.close();
+  byId("hidden-list").replaceChildren(
+    ...hidden.map((repository) => {
+      const name = document.createElement("span");
+      name.textContent = repository.name;
+      // Two repositories of one name are told apart by their folders.
+      name.title = repository.folder;
+      const show = document.createElement("button");
+      show.type = "button";
+      show.className = "quiet";
+      show.textContent = "Show";
+      show.addEventListener("click", () => send({ type: "setRepository", requestId: request(), id: repository.id, hidden: false }));
+      const item = document.createElement("li");
+      item.append(name, show);
+      return item;
+    }),
+  );
+}
+
+function openHidden(): void {
+  if (dialogOpen()) return;
+  showHidden();
+  hiddenDialog.showModal();
+}
+
+/** Draws what the removal's dialog names, from the daemon's lists as they are now: the repository, each work item it holds and each running session. It closes the dialog where the daemon no longer keeps the repository. */
+function showRemove(): void {
+  const repository = repositoryOf(removing);
+  if (!repository) {
+    if (removeDialog.open) removeDialog.close();
+    return;
+  }
+  removal = removalOf(repository, held.workItems, held.archived, held.sessions, held.headless, held.paneKinds);
+  byId("remove-head").textContent = `Remove ${repository.name} from Owlery`;
+  const list = (id: string, lines: readonly string[]): void => {
+    const section = byId(id);
+    section.hidden = lines.length === 0;
+    section.querySelector("ul")?.replaceChildren(
+      ...lines.map((line) => {
+        const item = document.createElement("li");
+        const words = document.createElement("span");
+        words.textContent = line;
+        item.append(words);
+        return item;
+      }),
+    );
+  };
+  list("remove-work-items", removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title)));
+  list("remove-sessions", removal.sessions);
+}
+
+/** Opens the dialog of a repository's removal, with the keyboard on the button that removes nothing. */
+function openRemove(repositoryId: number): void {
+  if (!repositoryOf(repositoryId) || !opened(REMOVE)) return;
+  removing = repositoryId;
+  showRemove();
+  byId("remove-cancel").focus();
+}
+
+/** Sends the removal the dialog holds, with the work items and the running sessions it named, so the daemon removes and ends what the person read and nothing else. */
+function remove(): void {
+  const told = removal;
+  const id = removing;
+  if (told === undefined || id === undefined) return;
+  ask(REMOVE, (requestId) => ({ type: "removeRepository", requestId, id, workItems: told.workItems.map((workItem) => workItem.id), running: told.running }));
+}
+
+/** Takes a headless session the daemon sent, and names it in the removal's dialog where that is open: a session that started or ended is one the dialog has to say. */
+function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
+  takeHeadless(headless, requestId);
+  if (removeDialog.open) showRemove();
+}
+
 /** Takes the repositories and the archived work items of a `ready` or an `inbox`, and what the status line has to say of the daemon that sent it. */
 function takeRepositories(message: { repositories?: Repository[]; archived?: WorkItem[] }): void {
   const lists = daemonLists(message);
@@ -356,6 +634,18 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   showSidebar();
   listInFront()?.show();
   if (front === "view") showView();
+  // A dialog that names what the daemon lists says the lists as they are now.
+  if (hiddenDialog.open) showHidden();
+  if (removeDialog.open) showRemove();
+}
+
+/** Draws the form as its choice "Register the repository only" has it: with the choice taken, the name, the base and the kind of pane are off, the form shows no plan, and its button reads "Register". */
+function showFormMode(): void {
+  const only = registerOnly.checked;
+  titleField.disabled = only;
+  kindField.disabled = only;
+  createButton.textContent = only ? "Register" : "Create";
+  showPlan();
 }
 
 /** Opens the "New work item" form, with `folder` as its repository where one is given. Before the daemon's `ready` the form has no kind of pane to offer, so it does not open. */
@@ -366,18 +656,28 @@ function openWorkItemForm(folder?: string): void {
   titleField.value = "";
   formName = generateName();
   titleField.placeholder = formName;
-  // Each opening starts from the repository's default base and from no answer.
+  // Each opening starts from the repository's default base and from no answer, and creates a work item.
   baseChoice = null;
   formPlan = null;
   formError.textContent = "";
   createButton.disabled = false;
+  forget(workItemDialog);
+  registerOnly.checked = false;
+  showFormMode();
   workItemDialog.showModal();
   (repoField.value ? titleField : repoField).focus();
   askPlan();
 }
 
-/** Draws what the form holds of its plan: the branch and the folder under the name, or the plan's error in their place, and the menu of bases. */
+/** Draws what the form holds of its plan: the branch and the folder under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
 function showPlan(): void {
+  if (registerOnly.checked) {
+    branchPlace.textContent = "";
+    worktreePlace.textContent = "";
+    planPlace.classList.remove("failed");
+    baseField.disabled = true;
+    return;
+  }
   const line = planLine(formPlan, repoField.value);
   branchPlace.textContent = line.branch;
   worktreePlace.textContent = line.worktree;
@@ -446,6 +746,16 @@ function createWorkItem(): void {
   send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize() });
 }
 
+/** Registers the repository of the form's folder, with no work item: the daemon's answer closes the form, and its refusal is shown in it, as a creation's is. */
+function registerRepository(): void {
+  const fields = registerFields(repoField.value);
+  if ("error" in fields) {
+    formError.textContent = fields.error;
+    return;
+  }
+  ask(FORM, (requestId) => ({ type: "addRepository", requestId, folder: fields.folder }));
+}
+
 function onMessage(message: ServerMessage): void {
   switch (message.type) {
     case "ready": {
@@ -490,25 +800,28 @@ function onMessage(message: ServerMessage): void {
       openView(message.workItem.id);
       return;
     }
-    case "workItemPlan":
-      takePlan(message.requestId, { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase });
+    case "workItemPlan": {
+      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase };
+      if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
+    }
     case "renamePlan":
       takeRenamePlan(message.requestId, { branch: message.branch, blocked: message.blocked });
       return;
     case "done":
       // What the request changed arrives in the `inbox` that follows.
       tell("");
+      if (answered(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
       }
       return;
     case "asked":
-      takeHeadless(message.headless, message.requestId);
+      takeHeadlessSession(message.headless, message.requestId);
       return;
     case "headless":
-      takeHeadless(message.headless);
+      takeHeadlessSession(message.headless);
       return;
     case "error":
       // Nothing was created or started.
@@ -517,6 +830,9 @@ function onMessage(message: ServerMessage): void {
       if (takePlan(message.requestId, { error: message.message })) return;
       // So is the refusal of a rename's plan the rename dialog's, and the refusal of the rename itself.
       if (takeRenamePlan(message.requestId, { error: message.message })) return;
+      // The refusal of the plan that lists a repository's bases is the settings dialog's, and so is a refusal of what a dialog sent that dialog's.
+      if (takeSettingsPlan(message.requestId, { error: message.message })) return;
+      if (answered(message.requestId, message.message)) return;
       if (message.requestId === renameRequest && renameDialog.open) {
         renameRequest = undefined;
         renameError.textContent = message.message;
@@ -576,8 +892,11 @@ initSidebar(
     openScreen,
     openView,
     openForm: openWorkItemForm,
-    pickFolder: () => window.owlery.pickFolder(),
-    addRepository: (folder) => send({ type: "addRepository", requestId: request(), folder }),
+    openRepositoryMenu(repositoryId, from) {
+      const box = from.getBoundingClientRect();
+      openRepositoryMenu(repositoryId, { x: box.left, y: box.bottom }, () => rowButton(repositoryId, ".repository-menu"));
+    },
+    openHidden,
     search(query) {
       held.query = query;
       showNarrowed();
@@ -657,7 +976,28 @@ byId<HTMLFormElement>("rename-form").addEventListener("submit", (event) => {
 });
 workItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  createWorkItem();
+  if (registerOnly.checked) registerRepository();
+  else createWorkItem();
+});
+registerOnly.closest("label")?.setAttribute("title", REGISTER_ONLY_SAYS);
+registerOnly.addEventListener("change", showFormMode);
+byId("settings-cancel").addEventListener("click", () => settingsDialog.close());
+byId<HTMLFormElement>("settings-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveSettings();
+});
+byId("icon-cancel").addEventListener("click", () => iconDialog.close());
+byId<HTMLFormElement>("icon-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  // The daemon takes one character, or none, and refuses more.
+  const id = iconOf;
+  if (id !== undefined) ask(ICON, (requestId) => ({ type: "setRepository", requestId, id, icon: iconField.value }));
+});
+byId("hidden-close").addEventListener("click", () => hiddenDialog.close());
+byId("remove-cancel").addEventListener("click", () => removeDialog.close());
+byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  remove();
 });
 
 void connect();

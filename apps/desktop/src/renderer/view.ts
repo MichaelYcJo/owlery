@@ -2,7 +2,7 @@
 // cases can read it without a browser. The kinds of pane, with their labels,
 // are the daemon's list from `ready`: nothing here names one.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, FileChange, HeadlessInfo, HeadlessState, Look, PaneKind, PaneKindInfo, Repository, Running, SessionInfo, WorkItem } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -153,6 +153,8 @@ export interface SidebarRepository {
   /** The repository's folder, which tells two repositories of one name apart. */
   repo: string;
   name: string;
+  /** The one character the sidebar shows before the name, or null where a person set none. */
+  icon: string | null;
   /** How many work items are listed under it: those the search and the filter leave. */
   count: number;
   /** Its work items, each with the places of its title that match what is typed. */
@@ -175,9 +177,44 @@ export function sidebarTree(repositories: readonly Repository[], workItems: read
     .filter((repository) => !repository.hidden)
     .map((repository) => {
       const entries = pinnedFirst(left.filter((entry) => entry.workItem.repoId === repository.id)).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
-      return { id: repository.id, repo: repository.folder, name: repository.name, count: entries.length, entries };
+      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: entries.length, entries };
     })
     .filter((repository) => !narrowing || repository.entries.length > 0);
+}
+
+/** The repositories the sidebar does not list, in the daemon's order, and what the button under the sidebar's repositories says of them: how many they are, or nothing where none is hidden. */
+export function hiddenRepositories(repositories: readonly Repository[]): { says: string; hidden: Repository[] } {
+  const hidden = repositories.filter((repository) => repository.hidden);
+  return { says: hidden.length === 0 ? "" : hidden.length === 1 ? "1 hidden repository" : `${hidden.length} hidden repositories`, hidden };
+}
+
+/** What a repository's removal takes off Owlery's lists and ends, as its dialog names it: the work items, each by its title, and the running sessions, each by a line of words and, in `running`, by its id. */
+export interface Removal {
+  workItems: { id: number; title: string; archived: boolean }[];
+  sessions: string[];
+  running: Running;
+}
+
+/**
+ * What removing a repository takes with it: every work item the repository
+ * holds, the archived after the others, and every running session of one of
+ * them. A pane runs while its process is alive, and is named by its tab's
+ * label and its work item. A headless session runs while it is working, and
+ * is named by its prompt. `running` is what the removal sends the daemon, so
+ * the daemon ends the sessions the person was told of and no other.
+ */
+export function removalOf(repository: Repository, workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): Removal {
+  const held = [...workItems, ...archived].filter((workItem) => workItem.repoId === repository.id);
+  const panes = held.flatMap((workItem) => {
+    const tabs = paneTabs(workItem, sessions);
+    return tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, says: `${tabLabel(tab, tabs, paneKinds)} in ${workItem.title}` }));
+  });
+  const asked = held.flatMap((workItem) => headless.filter((session) => session.workItemId === workItem.id && session.state === "working").map((session) => ({ id: session.id, says: `Asked in ${workItem.title}: ${session.prompt}` })));
+  return {
+    workItems: held.map((workItem) => ({ id: workItem.id, title: workItem.title, archived: workItem.archivedAt !== null })),
+    sessions: [...panes, ...asked].map(({ says }) => says),
+    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+  };
 }
 
 /**
@@ -585,14 +622,36 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
   return selected === undefined ? null : { workItem: selected };
 }
 
-/** What the press of a menu's item does: opens the rename dialog, opens a folder in Finder, where `app` is null, or in an installed app, writes a text to the clipboard, or sets a work item's pin or its mute. */
-export type MenuAction = { do: "rename"; id: number } | { do: "open"; folder: string; app: string | null } | { do: "copy"; text: string } | { do: "set"; id: number; pinned?: boolean; muted?: boolean };
+/**
+ * What the press of a menu's item does. On a work item's menu: opens the
+ * rename dialog, or sets the work item's pin or its mute. On a repository's:
+ * opens its settings, its icon's dialog or its removal's, hides it, or, for
+ * `archived` and `group`, opens what a later build draws. On both: opens a
+ * folder in Finder, where `app` is null, or in an installed app, or writes a
+ * text to the clipboard.
+ */
+export type MenuAction =
+  | { do: "rename"; id: number }
+  | { do: "open"; folder: string; app: string | null }
+  | { do: "copy"; text: string }
+  | { do: "set"; id: number; pinned?: boolean; muted?: boolean }
+  | { do: "settings" | "icon" | "archived" | "group" | "hide" | "remove"; id: number };
 
-/** One item of a menu: its words, what its press does, and whether a rule stands above it, where another part of the menu begins. */
+/** One item of a menu: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuEntry {
   label: string;
+  /** What a press does, in other words than the label's. */
+  description: string;
   action: MenuAction;
   divides: boolean;
+}
+
+/** The items that open a folder in Finder and in each installed app, with `whose` naming the folder in their descriptions. */
+function openEntries(folder: string, whose: string, apps: readonly InstalledApp[]): MenuEntry[] {
+  return [
+    { label: "Open in Finder", description: `Show ${whose} folder in a Finder window.`, action: { do: "open", folder, app: null }, divides: true },
+    ...apps.map(({ name, kind }) => ({ label: `Open in ${name}`, description: `Start ${name}, ${kind === "editor" ? "an editor" : "a terminal"}, on ${whose} folder.`, action: { do: "open" as const, folder, app: name }, divides: false })),
+  ];
 }
 
 /**
@@ -604,14 +663,50 @@ export interface MenuEntry {
 export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[]): MenuEntry[] {
   const { id, worktree: folder } = workItem;
   return [
-    { label: "Rename", action: { do: "rename", id }, divides: false },
-    { label: "Open in Finder", action: { do: "open", folder, app: null }, divides: true },
-    ...apps.map(({ name }) => ({ label: `Open in ${name}`, action: { do: "open" as const, folder, app: name }, divides: false })),
-    { label: "Copy path", action: { do: "copy", text: folder }, divides: true },
-    { label: "Copy branch name", action: { do: "copy", text: workItem.branch }, divides: false },
-    { label: workItem.pinned ? "Unpin" : "Pin", action: { do: "set", id, pinned: !workItem.pinned }, divides: true },
-    { label: workItem.muted ? "Unmute notifications" : "Mute notifications", action: { do: "set", id, muted: !workItem.muted }, divides: false },
+    { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
+    ...openEntries(folder, "the work item's", apps),
+    { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
+    { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
+    workItem.pinned
+      ? { label: "Unpin", description: "Let the work item stand among the others of its list again.", action: { do: "set", id, pinned: false }, divides: true }
+      : { label: "Pin", description: "Keep the work item at the top of its list.", action: { do: "set", id, pinned: true }, divides: true },
+    workItem.muted
+      ? { label: "Unmute notifications", description: "Let this work item's sessions notify you again.", action: { do: "set", id, muted: false }, divides: false }
+      : { label: "Mute notifications", description: "Raise no notification for this work item's sessions. Its line still shows its state.", action: { do: "set", id, muted: true }, divides: false },
   ];
+}
+
+/**
+ * A repository's menu, in its order: Settings and Change icon; Show archived
+ * work items and New group; Open in Finder, then one item for each installed
+ * editor and terminal; Copy path; Hide from sidebar and Remove. The folder
+ * that is opened and copied is the repository's.
+ */
+export function repositoryMenu(repository: Repository, apps: readonly InstalledApp[]): MenuEntry[] {
+  const { id, folder } = repository;
+  return [
+    { label: "Settings", description: "Change the name the sidebar shows and the branch new work items start from.", action: { do: "settings", id }, divides: false },
+    { label: "Change icon", description: "Choose one character to show before the repository's name.", action: { do: "icon", id }, divides: false },
+    { label: "Show archived work items", description: "List the work items of this repository that were archived.", action: { do: "archived", id }, divides: true },
+    { label: "New group", description: "Make a heading to gather some of this repository's work items under.", action: { do: "group", id }, divides: false },
+    ...openEntries(folder, "the repository's", apps),
+    { label: "Copy path", description: "Put the repository folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
+    { label: "Hide from sidebar", description: "Take the repository out of the sidebar. Its work items stay in the inbox.", action: { do: "hide", id }, divides: true },
+    { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed.", action: { do: "remove", id }, divides: false },
+  ];
+}
+
+/** What a pointer over the "+" button at the sidebar's top is told: it creates a work item, and its form is where a repository is registered alone. */
+export const NEW_WORK_ITEM_SAYS = "Create a work item: a new branch and worktree in a repository. The form can also register a repository alone.";
+/** What a pointer over the form's choice "Register the repository only" is told. */
+export const REGISTER_ONLY_SAYS = "Add the repository to the sidebar without creating a work item, a branch or a worktree.";
+
+/** The two icon buttons of a repository's row: the name of each, which a screen reader is told, and what a pointer over it is told that a press does. */
+export function rowButtons(repositoryName: string): Record<"add" | "menu", { name: string; says: string }> {
+  return {
+    add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new branch and worktree.` },
+    menu: { name: `Menu of ${repositoryName}`, says: `Open the menu of ${repositoryName}: its settings, its icon, hiding it and removing it.` },
+  };
 }
 
 /** What the daemon answered a rename's plan with: what a `renamePlan` carries, or the error it refused the plan with. */
@@ -855,6 +950,12 @@ export function workItemFields(repo: string, title: string, name: string, base: 
   return base === null ? fields : { ...fields, base };
 }
 
+/** The folder the form registers a repository by, where "Register the repository only" is chosen: the repository field's text without the spaces around it. An empty one is refused here, in the words a creation's is. */
+export function registerFields(repo: string): { folder: string } | { error: string } {
+  const folder = repo.trim();
+  return folder ? { folder } : { error: "Choose the repository folder." };
+}
+
 /** What the daemon answered a plan with: what a `workItemPlan` carries, or the error it refused the plan with. */
 export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null } | { error: string };
 
@@ -918,6 +1019,34 @@ export function baseMenu(plan: FormPlan | null, choice: BaseChoice | null, repo:
   const listed = [...(first === null ? [] : [first]), ...local, ...remote];
   const kept = choice !== null && choice.repo === shown.repo && listed.includes(choice.base) ? choice.base : null;
   return { first, local, remote, value: kept ?? listed[0] ?? null };
+}
+
+/**
+ * The settings dialog's menu of the bases a repository's new work items can
+ * start from: the `local` branches and the `remote` ones, whole, as the plan
+ * the dialog asked for lists them, and the `value` chosen, the base the
+ * repository has, or an empty string for the first choice, the repository's
+ * default branch. A base the repository has and the plan does not list
+ * stands among the local ones, so the menu shows the choice the daemon
+ * keeps. It stands alone until the daemon answers, and where it refuses.
+ */
+export function settingsBases(plan: PlanAnswered | null, chosen: string | null): { local: string[]; remote: string[]; value: string } {
+  const listed = plan !== null && !("error" in plan) ? { local: plan.localBases, remote: plan.remoteBases } : { local: [], remote: [] };
+  const known = chosen === null || listed.local.includes(chosen) || listed.remote.includes(chosen);
+  return { local: known ? [...listed.local] : [...listed.local, chosen], remote: [...listed.remote], value: chosen ?? "" };
+}
+
+/**
+ * What the settings dialog sends for a repository: the name where it is
+ * another than the one a person gave, null for an empty one, and the base
+ * where the menu's value is another than the repository's, null for the
+ * first choice. A field that did not change is left out, and an object with
+ * none is nothing to send.
+ */
+export function settingsFields(repository: Repository, name: string, base: string): { name?: string | null; defaultBase?: string | null } {
+  const named = name.trim() || null;
+  const chosen = base || null;
+  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }) };
 }
 
 /**
