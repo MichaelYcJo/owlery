@@ -28,6 +28,7 @@ const api: OwleryApi = {
   installedApps: () => ipcRenderer.invoke(Channel.installedApps),
   openFolder: (folder, app) => ipcRenderer.invoke(Channel.openFolder, folder, app),
   copyText: (text) => ipcRenderer.invoke(Channel.copyText, text),
+  comeForward: () => ipcRenderer.invoke(Channel.comeForward),
 };
 
 contextBridge.exposeInMainWorld("owlery", api);

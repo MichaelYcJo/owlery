@@ -6,8 +6,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { claudeAdapter } from "./adapters/claude";
-import { claudePaneCommand, HookServer, writeHookSettings } from "./hooks";
-import { loginShell } from "./pty";
+import { HookServer, paneCommands, writeHookSettings } from "./hooks";
 import { Daemon } from "./daemon";
 import { readDiscovery, writeDiscovery } from "./discovery";
 import { PANE_KINDS } from "./pane-kinds";
@@ -45,10 +44,7 @@ async function main(): Promise<void> {
     runDir,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
-    commandFor: (kind, id) => ({
-      ...(kind === "claude" ? claudePaneCommand(process.env, hookSettingsFile) : loginShell(process.env)),
-      env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: hooks.socketPath },
-    }),
+    commandFor: paneCommands(process.env, hookSettingsFile, hooks.socketPath),
     // Every headless session is the user's own CLI, found once through their login shell.
     roleAdapter: claudeAdapter(process.env),
     onIdle: () => void stop(0),

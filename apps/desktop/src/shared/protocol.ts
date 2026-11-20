@@ -24,6 +24,8 @@ export interface PaneKindInfo {
   kind: PaneKind;
   label: string;
   reportsState: boolean;
+  /** Whether a pane of the kind can start on the latest conversation of its folder. A daemon of an earlier build sends no such field, and a client reads its absence as false. */
+  continues: boolean;
 }
 
 /** One commit of a work item's branch. */
@@ -185,7 +187,8 @@ export interface HeadlessInfo {
 
 export type ClientMessage =
   | { type: "hello"; token: string }
-  | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId?: number }
+  // `continueLatest` starts the pane on the latest conversation of its folder, the work item's worktree where `workItemId` names one. The daemon answers it with an `error` for a kind that does not declare `continues`.
+  | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId?: number; continueLatest?: true }
   // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other.
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
   // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.

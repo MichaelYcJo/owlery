@@ -1,9 +1,10 @@
 // The channels between the window and the main process: where the daemon is,
 // the native folder dialog, which a page cannot open, the theme a person
-// chose, which the main process keeps (./appearance), and what a menu's
+// chose, which the main process keeps (./appearance), what a menu's
 // "Open in" and "Copy" items need of the Mac: the editors and terminals it
 // holds, a folder opened in Finder or in one of them, and the clipboard
-// (src/main/openers). Everything else goes between the window and the
+// (src/main/openers), and the window's coming forward, which a sandboxed
+// page cannot do itself. Everything else goes between the window and the
 // daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
 
@@ -16,6 +17,7 @@ export const Channel = {
   installedApps: "owlery:installed-apps",
   openFolder: "owlery:open-folder",
   copyText: "owlery:copy-text",
+  comeForward: "owlery:come-forward",
 } as const;
 
 /** An editor or a terminal the Mac holds, which a menu offers to open a folder in. */
@@ -49,4 +51,6 @@ export interface OwleryApi {
   openFolder(folder: string, app: string | null): Promise<string | null>;
   /** Writes a text to the system's clipboard. */
   copyText(text: string): Promise<void>;
+  /** Asks the main process to bring the window in front of the person, and answers whether it did: an app started in the background brings nothing forward. */
+  comeForward(): Promise<boolean>;
 }

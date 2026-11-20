@@ -399,7 +399,7 @@ describe("work items", () => {
     expect(Object.keys(ready).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
     expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
-    expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["kind", "label", "reportsState"]);
+    expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
     expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
     for (const lists of [inbox, ready, ready.lastLook!]) {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
@@ -683,6 +683,65 @@ describe("work items", () => {
     const { session } = await c.message("started");
     expect(session.workItemId).toBeNull();
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${base}\r`)) ? true : undefined));
+  });
+
+  it("starts a pane on the latest conversation where the start asks it of a kind that continues: its command is the one asked to continue, in the work item's worktree, and the pane is of the kind asked and takes its agent's state", async () => {
+    const { repo, root } = repository();
+    const asked: unknown[][] = [];
+    const { daemon: d, url } = await daemon({
+      worktreesRoot: root,
+      commandFor: (...given) => {
+        asked.push(given);
+        return printsItsFolder();
+      },
+    });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "Back to it", kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session: first } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id, continueLatest: true });
+    const { session } = await c.message("started", (m) => m.requestId === 2);
+    // The pane a work item is created with is asked nothing, and the continuing pane is the one asked.
+    expect(asked).toEqual([
+      ["shell", first.id, { continueLatest: false }],
+      ["claude", session.id, { continueLatest: true }],
+    ]);
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, ...NO_STATE });
+    await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
+    // A continued session is listed and told as any pane of its kind is.
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await c.message("inbox", (m) => m.sessions.find((s) => s.id === session.id)?.state === "working");
+  });
+
+  it("asks the command of a pane to continue nothing where the start does not ask it", async () => {
+    const asked: unknown[][] = [];
+    const { url } = await daemon({
+      commandFor: (...given) => {
+        asked.push(given);
+        return printsItsFolder();
+      },
+    });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1 });
+    const { session } = await c.message("started");
+    expect(asked).toEqual([["claude", session.id, { continueLatest: false }]]);
+  });
+
+  it("answers a start that asks a kind that does not continue to continue with an error, and starts nothing", async () => {
+    const asked: unknown[][] = [];
+    const { url } = await daemon({
+      commandFor: (...given) => {
+        asked.push(given);
+        return printsItsFolder();
+      },
+    });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, continueLatest: true });
+    expect(await c.message("error")).toEqual({ type: "error", requestId: 7, message: "a pane of kind shell continues no conversation" });
+    expect(asked).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([]);
   });
 
   it("answers a start that names a work item it does not hold with an error, and starts nothing", async () => {
@@ -1494,8 +1553,8 @@ describe("the inbox", () => {
   const inboxes = (c: { messages: ServerMessage[] }): Inbox[] => c.messages.filter((m): m is Inbox => m.type === "inbox");
   const stateOf = (m: Inbox, id: number) => m.sessions.find((s) => s.id === id)?.state;
 
-  it("offers in `ready` the kinds of pane it was given, each with its label and whether it reports state", async () => {
-    const paneKinds = [{ kind: "shell" as const, label: "A shell", reportsState: false }];
+  it("offers in `ready` the kinds of pane it was given, each with its label, whether it reports state and whether it continues", async () => {
+    const paneKinds = [{ kind: "shell" as const, label: "A shell", reportsState: false, continues: true }];
     const { url } = await daemon({ paneKinds });
     expect((await (await client(url)).message("ready")).paneKinds).toEqual(paneKinds);
   });

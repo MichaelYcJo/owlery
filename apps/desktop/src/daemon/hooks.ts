@@ -1,6 +1,9 @@
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, join } from "node:path";
+import type { PaneKind } from "../shared/protocol";
+import type { PaneCommand } from "./daemon";
+import { loginShell } from "./pty";
 
 /**
  * The Claude Code hook events Owlery listens to: the inbox reads session state
@@ -78,11 +81,26 @@ function shellQuote(value: string): string {
 /**
  * The command of a Claude Code pane: the user's interactive login shell, so
  * `claude` is found on the PATH their profile sets, replaced by `claude` with
- * Owlery's hook settings. The pane ends when `claude` does.
+ * Owlery's hook settings. The pane ends when `claude` does. With
+ * `continueLatest`, `claude` starts on the latest conversation of the folder
+ * the pane runs in, which Claude Code chooses, and ends at once where the
+ * folder holds none.
  */
-export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string): { command: string; args: string[] } {
+export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false): { command: string; args: string[] } {
   const shell = env.SHELL || "/bin/zsh";
-  return { command: shell, args: ["-l", "-i", "-c", `exec claude --settings ${shellQuote(settingsFile)}`] };
+  return { command: shell, args: ["-l", "-i", "-c", `exec claude --settings ${shellQuote(settingsFile)}${continueLatest ? " --continue" : ""}`] };
+}
+
+/**
+ * The daemon's `commandFor`: a pane's command by its kind, with the pane's id
+ * and the hook socket in its environment, where the hook command reads both.
+ * A Claude Code pane continues where the start asks it, and a shell never does.
+ */
+export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socketPath: string): (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand {
+  return (kind, id, start) => ({
+    ...(kind === "claude" ? claudePaneCommand(env, settingsFile, start.continueLatest) : loginShell(env)),
+    env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath },
+  });
 }
 
 /** Reads the pane's id on the first line and the hook's JSON after it; anything else is no event. */
