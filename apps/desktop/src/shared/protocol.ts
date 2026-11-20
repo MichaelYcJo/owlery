@@ -185,6 +185,12 @@ export type ClientMessage =
   | { type: "planWorkItem"; requestId: number; repo: string; title: string; name?: string }
   // Adds the repository `folder` is inside, with no work item. `folder` is an absolute path, and the daemon refuses any other. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
   | { type: "addRepository"; requestId: number; folder: string }
+  // Sets a work item's pin, its mute, or both: a field that is absent is left as it is. The daemon answers with `done`.
+  | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean }
+  // Asks what renaming the work item's branch after the name `title` would give. The daemon renames nothing, and answers with a `renamePlan`.
+  | { type: "planRename"; requestId: number; id: number; title: string }
+  // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so is a rename of the branch that a plan would answer with `blocked`: nothing is then changed, the name neither. The worktree's folder keeps its name. The daemon answers with `done`.
+  | { type: "renameWorkItem"; requestId: number; id: number; title: string; branch: boolean }
   // Asks for the session's kept output as a `replay`, and for its output after that.
   | { type: "attach"; id: number }
   // Ends this client's receiving of the session's output until it attaches again. The session and its process are untouched, and the daemon answers nothing.
@@ -208,6 +214,8 @@ export type ServerMessage =
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
   // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none.
   | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null }
+  // Answers a `planRename`. `branch` is the branch a rename would give the work item, `owlery/<slug of the name>` with -2, -3 and so on while another local branch bears the name, or null where the name leaves no slug. `blocked` is why the branch cannot be renamed, as a sentence the window shows as it is, or null where it can: it can where the branch has another name than `branch`, no upstream, and no remote of the clone holds a branch of its name.
+  | { type: "renamePlan"; requestId: number; branch: string | null; blocked: string | null }
   // Answers an `ask` with the headless session it started.
   | { type: "asked"; requestId: number; headless: HeadlessInfo }
   // One headless session whole, sent to every client whenever it changes.

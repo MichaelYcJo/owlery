@@ -217,6 +217,22 @@ export class RepositoryStore {
     return { repository, item };
   }
 
+  /**
+   * Sets on a work item the fields given, of those a person sets: its pin,
+   * its mute, its title and its branch. It answers whether the work item is
+   * another than it was, and writes the store only where it is. Undefined
+   * where no work item has the id.
+   */
+  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch">>): boolean | undefined {
+    const item = this.workItem(id)?.item;
+    if (!item) return undefined;
+    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch } = fields;
+    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch) return false;
+    Object.assign(item, { pinned, muted, title, branch });
+    this.write();
+    return true;
+  }
+
   /** The repository of a folder, not hidden: the one held, or a new one. Nothing is written here. */
   private shown(folder: string): { repository: StoredRepository; changed: boolean } {
     const known = this.held.find((repository) => repository.folder === folder);

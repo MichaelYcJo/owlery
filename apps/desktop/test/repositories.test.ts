@@ -80,6 +80,25 @@ describe("RepositoryStore", () => {
     expect(file(dir)).toEqual([{ ...hidden, hidden: false, workItems: [made.item] }]);
   });
 
+  it("sets what a person sets on a work item, its title and its branch among it, writes the store, and says whether anything is another than it was", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    expect(store.setWorkItem(item.id, { pinned: true })).toBe(true);
+    expect(store.setWorkItem(item.id, { pinned: true })).toBe(false);
+    expect(store.setWorkItem(item.id, { muted: true, title: "Another name", branch: "owlery/another-name" })).toBe(true);
+    expect(store.workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, pinned: true, muted: true, title: "Another name", branch: "owlery/another-name" });
+    expect(store.setWorkItem(item.id, { pinned: false })).toBe(true);
+    expect(store.setWorkItem(item.id, {})).toBe(false);
+    // Each change was written: a store read from the file holds the last of them.
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, muted: true, title: "Another name", branch: "owlery/another-name" });
+    expect(store.setWorkItem(9, { pinned: true })).toBeUndefined();
+    // A set that changes nothing writes nothing.
+    rmSync(join(dir, "repositories.json"));
+    expect(store.setWorkItem(item.id, { muted: true })).toBe(false);
+    expect(existsSync(join(dir, "repositories.json"))).toBe(false);
+  });
+
   it("writes repositories.json in the run directory, readable by the user alone", () => {
     const dir = runDir();
     new RepositoryStore(dir).addWorkItem(PLACE);

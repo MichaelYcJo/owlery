@@ -106,20 +106,23 @@ function watchedGit(base: string, seconds = 0): { calls: (command: string) => nu
 /**
  * Puts a `git` before the real one on the path the daemon runs git from: its
  * `git worktree` waits until `release`, and every other command runs at once.
+ * `when` names another command to hold, as a test of the shell over git's
+ * arguments. `waiting` says whether a held command has arrived.
  */
-function heldGit(base: string): { release: () => void } {
+function heldGit(base: string, when = '[ "$1" = worktree ]'): { release: () => void; waiting: () => boolean } {
   const bin = join(base, "held-bin");
   const released = join(base, "git-released");
+  const arrived = join(base, "git-arrived");
   const path = process.env.PATH ?? "";
   mkdirSync(bin);
-  writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$1" = worktree ]; then while [ ! -e '${released}' ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nif ${when}; then touch '${arrived}'; while [ ! -e '${released}' ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
   process.env.PATH = `${bin}:${path}`;
   const release = (): void => {
     writeFileSync(released, "");
     process.env.PATH = path;
   };
   cleanups.push(release);
-  return { release };
+  return { release, waiting: () => existsSync(arrived) };
 }
 
 /**
@@ -867,6 +870,209 @@ describe("repositories", () => {
     expect(ready.repositories).toEqual([{ id: 1, folder: made.repo, name: "project", ...PLAIN }]);
     expect(ready.workItems).toMatchObject([{ id: workItem.id, title: "Made before", repoId: 1, repo: made.repo, newCommits: 1, ...UNSET }]);
     expect(readdirSync(runDir).sort()).toEqual(["work-items.json"]);
+  });
+});
+
+describe("what a person sets on a work item", () => {
+  function repository() {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  // A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
+  const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
+
+  /** A daemon on a run folder of the repository's temporary folder, a client of it, and a work item the client created. */
+  async function withWorkItem(made: { repo: string; root: string; base: string }, options: Partial<DaemonOptions> = {}) {
+    const title = "First name";
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir, { recursive: true });
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: silent, ...options });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated", (m) => m.requestId === 100);
+    await c.message("inbox", (m) => m.workItems.length === 1);
+    c.messages.length = 0;
+    return { c, url, runDir, workItem };
+  }
+
+  /** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
+  let refused = 900;
+  async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
+    const requestId = refused++;
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+    await c.message("error", (m) => m.requestId === requestId);
+  }
+
+  it("pins and mutes a work item at a `setWorkItem`, answers before the inbox that carries it, and keeps both after the daemon starts again", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem } = await withWorkItem(made);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "setWorkItem", requestId: 1, id: workItem.id, pinned: true });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    expect(inbox.workItems).toEqual([{ ...workItem, pinned: true }]);
+    // Every client is told, and the one that asked alone is answered.
+    expect((await other.message("inbox")).workItems).toEqual([{ ...workItem, pinned: true }]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+    c.send({ type: "setWorkItem", requestId: 2, id: workItem.id, muted: true });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.muted === true)).workItems).toEqual([{ ...workItem, pinned: true, muted: true }]);
+    c.send({ type: "setWorkItem", requestId: 3, id: workItem.id, pinned: false });
+    expect((await c.message("inbox", (m) => m.workItems[0]?.pinned === false)).workItems).toEqual([{ ...workItem, muted: true }]);
+    c.send({ type: "setWorkItem", requestId: 4, id: workItem.id, pinned: true });
+    await c.message("done", (m) => m.requestId === 4);
+
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: true, muted: true }]);
+  });
+
+  it("answers a `setWorkItem` that changes nothing, and sends no inbox for it", async () => {
+    const { c, workItem } = await withWorkItem(repository());
+    c.send({ type: "setWorkItem", requestId: 1, id: workItem.id, pinned: false, muted: false });
+    expect(await c.message("done")).toEqual({ type: "done", requestId: 1 });
+    // An inbox for it would have arrived before the refusal of a start sent after its answer.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["done", "error"]);
+  });
+
+  it("answers a `setWorkItem` that names no work item it holds, and one whose pin or mute is no boolean, with an error, and sets nothing", async () => {
+    const { c, url, workItem } = await withWorkItem(repository());
+    c.send({ type: "setWorkItem", requestId: 1, id: 9, pinned: true });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "no work item 9" });
+    for (const [requestId, fields] of [[2, { pinned: "yes" }], [3, { muted: 1 }], [4, { pinned: true, muted: null }]] as const) {
+      c.send({ type: "setWorkItem", requestId, id: workItem.id, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "a work item's pin and its mute are each true or false" });
+    }
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, pinned: false, muted: false }]);
+  });
+
+  it("renames a work item without its branch: the title is the name without the white space at its ends, and the branch and the folder are the ones they were", async () => {
+    const made = repository();
+    const { c, runDir, workItem } = await withWorkItem(made);
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "  Second name ", branch: false });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    expect(inbox.workItems).toEqual([{ ...workItem, title: "Second name" }]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/first-name");
+    // The name outlives the daemon.
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, title: "Second name", branch: "owlery/first-name" }]);
+  });
+
+  it("refuses an empty name, a name of white space, a name that is no string, a branch choice that is neither true nor false and a work item it does not hold, and renames nothing", async () => {
+    const made = repository();
+    const { c, url, workItem } = await withWorkItem(made);
+    for (const [requestId, title] of [[1, ""], [2, "  \t "]] as const) {
+      c.send({ type: "renameWorkItem", requestId, id: workItem.id, title, branch: true });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "Give the work item a name." });
+    }
+    c.send({ type: "renameWorkItem", requestId: 3, id: workItem.id, title: 7, branch: false });
+    expect((await c.message("error", (m) => m.requestId === 3)).message).toBe("a rename needs the work item's new name, and whether its branch is renamed too");
+    c.send({ type: "renameWorkItem", requestId: 4, id: workItem.id, title: "Second name" });
+    expect((await c.message("error", (m) => m.requestId === 4)).message).toBe("a rename needs the work item's new name, and whether its branch is renamed too");
+    c.send({ type: "renameWorkItem", requestId: 5, id: 9, title: "Second name", branch: false });
+    expect((await c.message("error", (m) => m.requestId === 5)).message).toBe("no work item 9");
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error", "error", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, title: "First name", branch: "owlery/first-name" }]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/first-name");
+  });
+
+  it("renames the branch too where the rename says so, on a branch with no upstream that no remote holds: the worktree's HEAD names owlery/<slug>, the folder is the one it was, and the branch's commits are still listed", async () => {
+    const made = clone();
+    const { c, runDir, workItem } = await withWorkItem(made, { commitPollMs: 50 });
+    const commit = commitFile(workItem.worktree, "work.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    c.messages.length = 0;
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(inbox.workItems).toMatchObject([{ id: workItem.id, title: "Second name", branch: "owlery/second-name", worktree: workItem.worktree, newCommits: 1, commits: [{ subject: "add work.txt" }] }]);
+    expect(git(workItem.worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/second-name");
+    expect(git(made.repo, "rev-parse", "refs/heads/owlery/second-name").trim()).toBe(commit);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/second-name");
+    expect(existsSync(join(workItem.worktree, "work.txt"))).toBe(true);
+    // A later read counts the commits of the branch under its new name.
+    commitFile(workItem.worktree, "more.txt");
+    expect((await c.message("inbox", (m) => m.workItems[0]?.newCommits === 2)).workItems[0]?.branch).toBe("owlery/second-name");
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ title: "Second name", branch: "owlery/second-name", newCommits: 2 }]);
+  });
+
+  it("answers a rename of the branch with the reason, on a branch with an upstream and on one a remote holds under its name with no upstream, and the title and the branch are the ones they were", async () => {
+    const made = clone();
+    const { c, url, workItem } = await withWorkItem(made);
+    git(made.repo, "push", "--quiet", "origin", workItem.branch);
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "The remote origin holds a branch owlery/first-name, so the branch keeps its name." });
+    git(made.repo, "branch", "--quiet", `--set-upstream-to=origin/${workItem.branch}`, workItem.branch);
+    c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "Second name", branch: true });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "The branch owlery/first-name has an upstream, origin/owlery/first-name, so it keeps its name." });
+    expect(c.messages.map((m) => m.type)).toEqual(["error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ id: workItem.id, title: "First name", branch: "owlery/first-name" }]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/first-name");
+  });
+
+  it("answers a `planRename` with the branch a rename would give, -2 where another branch bears the name, and the reason where the branch keeps its name, and renames nothing", async () => {
+    const made = clone();
+    const { c, url, workItem } = await withWorkItem(made);
+    c.send({ type: "planRename", requestId: 1, id: workItem.id, title: "Second name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 1)).toEqual({ type: "renamePlan", requestId: 1, branch: "owlery/second-name", blocked: null });
+    git(made.repo, "branch", "--quiet", "owlery/second-name");
+    c.send({ type: "planRename", requestId: 2, id: workItem.id, title: "Second name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 2)).toEqual({ type: "renamePlan", requestId: 2, branch: "owlery/second-name-2", blocked: null });
+    c.send({ type: "planRename", requestId: 3, id: workItem.id, title: "First name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 3)).toEqual({ type: "renamePlan", requestId: 3, branch: "owlery/first-name", blocked: "The branch is already owlery/first-name." });
+    git(made.repo, "push", "--quiet", "origin", workItem.branch);
+    c.send({ type: "planRename", requestId: 4, id: workItem.id, title: "Second name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 4)).toEqual({ type: "renamePlan", requestId: 4, branch: "owlery/second-name-2", blocked: "The remote origin holds a branch owlery/first-name, so the branch keeps its name." });
+    c.send({ type: "planRename", requestId: 5, id: 9, title: "Second name" });
+    expect(await c.message("error", (m) => m.requestId === 5)).toEqual({ type: "error", requestId: 5, message: "no work item 9" });
+    c.send({ type: "planRename", requestId: 6, id: workItem.id, title: 7 });
+    expect((await c.message("error", (m) => m.requestId === 6)).message).toBe("a rename's plan needs the work item's new name");
+    expect(c.messages.map((m) => m.type)).toEqual(["renamePlan", "renamePlan", "renamePlan", "renamePlan", "error", "error"]);
+    expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ title: "First name", branch: "owlery/first-name" }]);
+  });
+
+  it("sends no list read from a branch's old name while the branch is being renamed", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made, { commitPollMs: 20 });
+    commitFile(workItem.worktree, "work.txt");
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    c.messages.length = 0;
+    const held = heldGit(made.base, '[ "$1" = branch ] && [ "$2" = -m ]');
+    c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
+    await c.until(() => (held.waiting() ? true : undefined));
+    // Git's own rename takes the old name away a moment before the daemon hears that it ended. The case stretches that moment: the branch leaves its old name here, and the reads of several intervals pass.
+    git(made.repo, "branch", "-M", workItem.branch, "owlery/elsewhere");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(c.messages).toEqual([]);
+    git(made.repo, "branch", "-M", "owlery/elsewhere", workItem.branch);
+    held.release();
+    expect((await c.message("inbox")).workItems).toMatchObject([{ title: "Second name", branch: "owlery/second-name", newCommits: 1, commits: [{ subject: "add work.txt" }] }]);
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+  });
+
+  it("runs a rename of a branch after a creation that is under way, so the two never take one branch", async () => {
+    const made = repository();
+    const { c, workItem } = await withWorkItem(made);
+    const held = heldGit(made.base);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Taken name", kind: "shell", cols: 80, rows: 24 });
+    c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "Taken name", branch: true });
+    // The creation chose its branch and waits in `git worktree add`. A plan is a read, and does not wait behind it.
+    c.send({ type: "planRename", requestId: 3, id: workItem.id, title: "Meanwhile" });
+    await c.message("renamePlan", (m) => m.requestId === 3);
+    expect(c.messages.map((m) => m.type)).toEqual(["renamePlan"]);
+    held.release();
+    expect((await c.message("workItemCreated", (m) => m.requestId === 1)).workItem.branch).toBe("owlery/taken-name");
+    await c.message("done", (m) => m.requestId === 2);
+    expect((await c.message("inbox", (m) => m.workItems.some((w) => w.id === workItem.id && w.title === "Taken name"))).workItems.map((w) => w.branch).sort()).toEqual(["owlery/taken-name", "owlery/taken-name-2"]);
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim().split("\n").map((line) => line.trim())).toEqual(["+ owlery/taken-name", "+ owlery/taken-name-2"]);
   });
 });
 

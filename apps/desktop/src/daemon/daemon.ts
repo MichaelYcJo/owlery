@@ -11,7 +11,7 @@ import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { LastLook } from "./last-look";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, repositoryOf, worktreesRoot } from "./worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
 const STATE_TEXT_CHARS = 2000;
@@ -113,14 +113,16 @@ export class Daemon {
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
-  // Creations run one after another, so two of one title never pick the same branch and folder. A plan creates nothing and does not wait behind them.
-  private creating: Promise<void> = Promise.resolve();
+  // What takes or gives up a branch runs one after another: a creation, and a rename that renames a branch. So two creations of one title never pick the same branch and folder, and a rename never takes the branch a creation chose. A plan changes nothing and does not wait behind them.
+  private changing: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
   // How many commits each work item's branch was last read to hold that its base branch does not, by the work item's id.
   private readonly aheadCounts = new Map<number, number | null>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
+  // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
+  private readonly renaming = new Set<number>();
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
   // The read of the counts under way, which a hello that arrives meanwhile waits on.
@@ -282,7 +284,7 @@ export class Daemon {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
         };
-        this.creating = this.creating.then(create);
+        this.changing = this.changing.then(create);
         return;
       }
       case "planWorkItem": {
@@ -314,6 +316,67 @@ export class Daemon {
         };
         // The store holds a folder once however many adds of it arrive together, so an add does not wait behind the creations.
         void add();
+        return;
+      }
+      case "setWorkItem": {
+        try {
+          const { pinned, muted } = message;
+          if ((pinned !== undefined && typeof pinned !== "boolean") || (muted !== undefined && typeof muted !== "boolean")) throw new Error("a work item's pin and its mute are each true or false");
+          const changed = this.store.setWorkItem(message.id, { pinned, muted });
+          if (changed === undefined) throw new Error(`no work item ${String(message.id)}`);
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (changed) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "planRename": {
+        const plan = async (): Promise<void> => {
+          try {
+            if (typeof message.title !== "string") throw new Error("a rename's plan needs the work item's new name");
+            const held = this.store.workItem(message.id);
+            if (!held) throw new Error(`no work item ${String(message.id)}`);
+            this.send(socket, { type: "renamePlan", requestId: message.requestId, ...(await planBranchRename(held.repository.folder, held.item.branch, message.title)) });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A plan is a read, so it is answered while a creation or a rename is under way.
+        void plan();
+        return;
+      }
+      case "renameWorkItem": {
+        const rename = async (): Promise<void> => {
+          try {
+            if (typeof message.title !== "string" || typeof message.branch !== "boolean") throw new Error("a rename needs the work item's new name, and whether its branch is renamed too");
+            const title = message.title.trim();
+            if (title === "") throw new Error("Give the work item a name.");
+            const held = this.store.workItem(message.id);
+            if (!held) throw new Error(`no work item ${String(message.id)}`);
+            let branch = held.item.branch;
+            if (message.branch) {
+              // The conditions the person's dialog read are read again here, at the rename, and nothing is changed where one no longer holds or git refuses.
+              const plan = await planBranchRename(held.repository.folder, branch, title);
+              if (plan.blocked !== null || plan.branch === null) throw new Error(plan.blocked ?? "The name names no branch.");
+              this.renaming.add(message.id);
+              await renameBranch(held.repository.folder, branch, plan.branch);
+              branch = plan.branch;
+            }
+            // What was read of the branch is kept by the work item's id, and its head did not move, so the counts and the commits stand.
+            const changed = this.store.setWorkItem(message.id, { title, branch });
+            this.send(socket, { type: "done", requestId: message.requestId });
+            if (changed) this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          } finally {
+            this.renaming.delete(message.id);
+          }
+        };
+        // A rename that takes a branch waits behind the creations and the other renames. One of the name alone takes none, and runs at once.
+        if (message.branch === true) this.changing = this.changing.then(rename);
+        else void rename();
         return;
       }
       case "attach": {
@@ -597,10 +660,12 @@ export class Daemon {
     await Promise.all(
       this.store.workItems().map(async ({ repository, item }) => {
         // A work item from before the base commit was recorded has nothing to count from.
-        const { baseCommit } = item;
+        const { baseCommit, branch } = item;
         if (baseCommit === null) return;
         const repo = repository.folder;
-        const [count, head] = await Promise.all([newCommits(repo, item.branch, baseCommit), branchHead(repo, item.branch)]);
+        const [count, head] = await Promise.all([newCommits(repo, branch, baseCommit), branchHead(repo, branch)]);
+        // A rename takes the old name away before the store holds the new one, and a read in between finds no branch. It is dropped, and the next read is of the new name.
+        if (this.renaming.has(item.id) || item.branch !== branch) return;
         if (count !== (this.commitCounts.get(item.id) ?? null)) {
           this.commitCounts.set(item.id, count);
           changed = true;

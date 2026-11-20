@@ -241,6 +241,64 @@ export async function createWorktree(options: Naming & { folder: string; root: s
   return { repo, branch, worktree, baseCommit, baseBranch };
 }
 
+/** What a rename of a work item's branch would give: the branch, or null where the name names none, and why the rename cannot run, or null where it can. */
+export interface RenamePlan {
+  branch: string | null;
+  blocked: string | null;
+}
+
+/**
+ * What renaming `branch` after a work item's new name would give, read in the
+ * repository. Nothing is renamed. The branch is `owlery/<slug of the name>`,
+ * with -2, -3 and so on appended while another local branch bears the name.
+ * The rename can run where the name leaves a slug, the branch exists, that
+ * branch is not the one the name gives, it has no upstream, and no remote of
+ * the clone holds a branch of its name: a branch that was pushed without an
+ * upstream has none, and its rename would leave the remote's branch under the
+ * old name. `blocked` says the first of these that does not hold. Nothing is
+ * fetched: a remote's branches are read as the clone holds them.
+ */
+export async function planBranchRename(repo: string, branch: string, title: string): Promise<RenamePlan> {
+  const slug = slugFor(title);
+  if (slug === "") return { branch: null, blocked: "The name leaves no letter or digit to name a branch by." };
+  let named = `owlery/${slug}`;
+  // The work item's own branch does not stand in the way of its own name.
+  for (let n = 2; named !== branch && (await branchExists(repo, named)); n++) named = `owlery/${slug}-${n}`;
+  const blocked = (sentence: string): RenamePlan => ({ branch: named, blocked: sentence });
+  const local = `refs/heads/${branch}`;
+  let refs: string[];
+  let remotes: string[];
+  try {
+    // A pattern also matches the refs under it, so each line's ref is compared whole.
+    refs = (await git(repo, ["for-each-ref", "--format=%(refname) %(upstream:short)", local])).split("\n");
+    remotes = (await git(repo, ["remote"])).split("\n").filter((name) => name !== "");
+  } catch {
+    return blocked(`The branch ${branch} is gone.`);
+  }
+  const own = refs.find((line) => line.startsWith(`${local} `));
+  if (own === undefined) return blocked(`The branch ${branch} is gone.`);
+  if (named === branch) return blocked(`The branch is already ${branch}.`);
+  const upstream = own.slice(local.length + 1);
+  if (upstream !== "") return blocked(`The branch ${branch} has an upstream, ${upstream}, so it keeps its name.`);
+  if (remotes.length > 0) {
+    // With no pattern git would list every ref, so it is asked only where the clone has a remote.
+    const held = (await git(repo, ["for-each-ref", "--format=%(refname)", ...remotes.map((remote) => `refs/remotes/${remote}/${branch}`)], BRANCH_OUTPUT_BYTES)).split("\n");
+    const holder = remotes.find((remote) => held.includes(`refs/remotes/${remote}/${branch}`));
+    if (holder !== undefined) return blocked(`The remote ${holder} holds a branch ${branch}, so the branch keeps its name.`);
+  }
+  return { branch: named, blocked: null };
+}
+
+/**
+ * Renames a local branch in the repository, with `git branch -m`. A worktree
+ * that has the branch checked out then stands on the new name, and its folder
+ * is untouched. Git refuses a name another branch bears, and its sentence is
+ * the error.
+ */
+export async function renameBranch(repo: string, from: string, to: string): Promise<void> {
+  await git(repo, ["branch", "-m", from, to]);
+}
+
 /**
  * How many commits the branch holds after `baseCommit`, read in the
  * repository: every commit since the branch was cut, the base's own among

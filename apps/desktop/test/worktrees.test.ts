@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, renameBranch, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
@@ -520,5 +520,69 @@ describe("what a branch holds since its base", () => {
     expect(await branchChanges(join(made.base, "missing"), made.baseCommit, head)).toBeNull();
     expect(await branchCommits(made.repo, "0".repeat(40), head)).toBeNull();
     expect(await branchChanges(made.repo, "0".repeat(40), head)).toBeNull();
+  });
+});
+
+describe("renaming a work item's branch", () => {
+  it("plans owlery/<slug of the name> for a branch with no upstream that no remote holds, with -2 where another branch bears the name, and renames nothing", async () => {
+    const { repo, root } = clone();
+    const made = await createWorktree({ folder: repo, title: "First name", root });
+    expect(await planBranchRename(repo, made.branch, "  Second name!  ")).toEqual({ branch: "owlery/second-name", blocked: null });
+    git(repo, "branch", "--quiet", "owlery/second-name");
+    expect(await planBranchRename(repo, made.branch, "Second name")).toEqual({ branch: "owlery/second-name-2", blocked: null });
+    git(repo, "branch", "--quiet", "owlery/second-name-2");
+    expect(await planBranchRename(repo, made.branch, "Second name")).toEqual({ branch: "owlery/second-name-3", blocked: null });
+    expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/first-name");
+  });
+
+  it("says that a name which leaves no slug names no branch, and that a name whose branch the work item has changes none, the numbered one among them", async () => {
+    const { repo, root } = repository();
+    await createWorktree({ folder: repo, title: "Same name", root });
+    const second = await createWorktree({ folder: repo, title: "Same name", root });
+    expect(second.branch).toBe("owlery/same-name-2");
+    expect(await planBranchRename(repo, second.branch, " ?! ")).toEqual({ branch: null, blocked: "The name leaves no letter or digit to name a branch by." });
+    // `owlery/same-name` is another work item's, so the name gives the branch the work item already has.
+    expect(await planBranchRename(repo, second.branch, "Same name")).toEqual({ branch: "owlery/same-name-2", blocked: "The branch is already owlery/same-name-2." });
+  });
+
+  it("says that a branch with an upstream keeps its name, and so does one a remote holds under its name with no upstream", async () => {
+    const { repo, root } = clone();
+    const tracked = await createWorktree({ folder: repo, title: "Tracked", root });
+    git(repo, "push", "--quiet", "-u", "origin", tracked.branch);
+    expect(upstreamOf(repo, tracked.branch)).toBe("refs/remotes/origin/owlery/tracked");
+    expect(await planBranchRename(repo, tracked.branch, "Other")).toEqual({ branch: "owlery/other", blocked: "The branch owlery/tracked has an upstream, origin/owlery/tracked, so it keeps its name." });
+    const pushed = await createWorktree({ folder: repo, title: "Pushed", root });
+    git(repo, "push", "--quiet", "origin", pushed.branch);
+    expect(upstreamOf(repo, pushed.branch)).toBe("");
+    expect(await planBranchRename(repo, pushed.branch, "Other")).toEqual({ branch: "owlery/other", blocked: "The remote origin holds a branch owlery/pushed, so the branch keeps its name." });
+    // A remote's branch of a longer name is not the branch's.
+    const short = await createWorktree({ folder: repo, title: "Push", root });
+    expect(await planBranchRename(repo, short.branch, "Other")).toEqual({ branch: "owlery/other", blocked: null });
+  });
+
+  it("says that a branch which is gone cannot be renamed", async () => {
+    const { repo } = repository();
+    expect(await planBranchRename(repo, "owlery/gone", "Other")).toEqual({ branch: "owlery/other", blocked: "The branch owlery/gone is gone." });
+  });
+
+  it("renames the branch while its worktree has it checked out: the worktree's HEAD names the new branch at the same commit, and the folder is the one it was", async () => {
+    const { repo, root } = repository();
+    const made = await createWorktree({ folder: repo, title: "First name", root });
+    const commit = commitFile(made.worktree, "work.txt");
+    await renameBranch(repo, made.branch, "owlery/second-name");
+    expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/second-name");
+    expect(git(made.worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/second-name");
+    expect(commitOf(repo, "refs/heads/owlery/second-name")).toBe(commit);
+    expect(await branchHead(repo, made.branch)).toBeNull();
+    expect(existsSync(join(made.worktree, "work.txt"))).toBe(true);
+  });
+
+  it("refuses a rename onto a branch that exists, with git's own sentence, and leaves both branches as they were", async () => {
+    const { repo, root } = repository();
+    const made = await createWorktree({ folder: repo, title: "First name", root });
+    git(repo, "branch", "--quiet", "owlery/taken");
+    await expect(renameBranch(repo, made.branch, "owlery/taken")).rejects.toThrow("a branch named 'owlery/taken' already exists");
+    expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/first-name");
+    expect(commitOf(repo, "refs/heads/owlery/taken")).toBe(commitOf(repo, "refs/heads/main"));
   });
 });
