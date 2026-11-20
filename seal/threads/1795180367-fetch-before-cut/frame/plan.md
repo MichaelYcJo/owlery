@@ -50,7 +50,7 @@ What breaks in six months:
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 8: the fetch of one branch, its limit, its result, the cut after it, the daemon's keeper, the protocol's additions, and the end of fetches at the daemon's close. `## Removes` rows 1 and 2. After this phase a work item created from a remote's branch starts at the remote's commit | The cases of scenarios 1 to 10, each seen red before it is kept: `node scripts/test-in-electron.mjs test/worktrees.test.ts test/daemon.test.ts`, run from `apps/desktop/`. Scenario 13's search | |
+| 1 | `frame/design.md` *Scope* items 1 to 8: the fetch of one branch, its limit, its result, the cut after it, the daemon's keeper, the protocol's additions, and the end of fetches at the daemon's close. `## Removes` rows 1 and 2. After this phase a work item created from a remote's branch starts at the remote's commit | The cases of scenarios 1 to 10, each seen red before it is kept: `node scripts/test-in-electron.mjs test/worktrees.test.ts test/daemon.test.ts`, run from `apps/desktop/`. Scenario 13's search | `882335a` |
 | 2 | `frame/design.md` *Scope* items 9 to 13: the form's request, its paragraph and sentences, the wait with no answer, the status line after a late failure, and `changelog.md` | The cases of scenarios 11 and 12, each seen red before it is kept: `node scripts/test-in-electron.mjs test/view.test.ts test/work-item-form.test.ts`, run from `apps/desktop/`. `frame/questions.md` Q1 goes into `gaps.md` *Not verified* with the owner as its answerer | |
 
 The suite, the typecheck and the lint are the orchestrator's broad gate, and no phase runs them.
