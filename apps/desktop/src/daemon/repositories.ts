@@ -268,16 +268,17 @@ export class RepositoryStore {
 
   /**
    * Sets on a work item the fields given, of those a person sets: its pin,
-   * its mute, its title and its branch. It answers whether the work item is
-   * another than it was, and writes the store only where it is. Undefined
-   * where no work item has the id.
+   * its mute, its title, its branch and its archive, which is the time it
+   * was archived, or null for a work item that is restored. It answers
+   * whether the work item is another than it was, and writes the store only
+   * where it is. Undefined where no work item has the id.
    */
-  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch">>): boolean | undefined {
+  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch" | "archivedAt">>): boolean | undefined {
     const item = this.workItem(id)?.item;
     if (!item) return undefined;
-    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch } = fields;
-    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch) return false;
-    Object.assign(item, { pinned, muted, title, branch });
+    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch, archivedAt = item.archivedAt } = fields;
+    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch && archivedAt === item.archivedAt) return false;
+    Object.assign(item, { pinned, muted, title, branch, archivedAt });
     this.write();
     return true;
   }

@@ -159,6 +159,19 @@ async function runFolderWithWorkItem(made: { repo: string; root: string; base: s
   return { runDir, workItem };
 }
 
+/** Every file under a folder with its bytes, and the repository's refs and worktrees as git prints them. */
+function onDisk(repo: string, ...folders: string[]): unknown[] {
+  const files = (folder: string) =>
+    (readdirSync(folder, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name))
+      .sort()
+      .map((file) => [file, readFileSync(file, "base64")]);
+  return [git(repo, "for-each-ref"), git(repo, "worktree", "list", "--porcelain"), ...[repo, ...folders].map(files)];
+}
+/** What a request that ends sessions names where the person was told of none. */
+const NONE_RUNNING = { panes: [], headless: [] };
+
 describe("the daemon's local server", () => {
   it("listens on the loopback address only", async () => {
     const { daemon: d } = await daemon();
@@ -934,18 +947,6 @@ describe("repositories", () => {
     expect(readdirSync(runDir).sort()).toEqual(["work-items.json"]);
   });
 
-  /** Every file under a folder with its bytes, and the repository's refs and worktrees as git prints them. */
-  function onDisk(repo: string, ...folders: string[]): unknown[] {
-    const files = (folder: string) =>
-      (readdirSync(folder, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
-        .filter((entry) => entry.isFile())
-        .map((entry) => join(entry.parentPath, entry.name))
-        .sort()
-        .map((file) => [file, readFileSync(file, "base64")]);
-    return [git(repo, "for-each-ref"), git(repo, "worktree", "list", "--porcelain"), ...[repo, ...folders].map(files)];
-  }
-  const NONE_RUNNING = { panes: [], headless: [] };
-
   it("adds the repository a linked worktree belongs to, by a folder inside the worktree, once with its main checkout's folder, and puts a work item created in the worktree's folder under it", async () => {
     const { repo, root, base } = repository();
     const linked = join(base, "linked");
@@ -1303,10 +1304,10 @@ describe("what a person sets on a work item", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await c.message("workItemCreated", (m) => m.requestId === 100);
+    const { workItem, session } = await c.message("workItemCreated", (m) => m.requestId === 100);
     await c.message("inbox", (m) => m.workItems.length === 1);
     c.messages.length = 0;
-    return { c, url, runDir, workItem };
+    return { c, url, runDir, workItem, session };
   }
 
   /** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
@@ -1505,6 +1506,158 @@ describe("what a person sets on a work item", () => {
     await c.message("done", (m) => m.requestId === 2);
     expect((await c.message("inbox", (m) => m.workItems.some((w) => w.id === workItem.id && w.title === "Taken name"))).workItems.map((w) => w.branch).sort()).toEqual(["owlery/taken-name", "owlery/taken-name-2"]);
     expect(git(made.repo, "branch", "--list", "owlery/*").trim().split("\n").map((line) => line.trim())).toEqual(["+ owlery/taken-name", "+ owlery/taken-name-2"]);
+  });
+
+  const ARCHIVED = "work item 1 is archived, restore it first";
+  /** Waits until the daemon lists no pane whose process runs. */
+  async function allExited(url: string): Promise<void> {
+    for (;;) {
+      const ready = await (await client(url)).message("ready");
+      if (ready.sessions.every((s) => !s.alive)) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  }
+  /** The first of a client's messages that is an inbox listing an archived work item, and where it stands among the messages. */
+  const archivedInbox = (c: Awaited<ReturnType<typeof client>>) => c.until(() => { const at = c.messages.findIndex((m) => m.type === "inbox" && m.archived.length > 0); return at === -1 ? undefined : { at, inbox: c.messages[at] as Extract<ServerMessage, { type: "inbox" }> }; });
+
+  it("archives a work item whose pane runs only where the archive names the pane: it ends the pane, lists the work item in `archived` and not in `workItems`, and leaves the folder's files, the branch and its commit as they were; it refuses a pane and an ask in it; and after a restore lists it in `workItems`, with its pane exited and the output the pane printed before the archive", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem, session } = await withWorkItem(made, { now: () => 77, commandFor: () => ({ command: "/bin/sh", args: ["-c", "echo printed before the archive; sleep 30"], env: {} }) });
+    commitFile(workItem.worktree, "work.txt");
+    writeFileSync(join(workItem.worktree, "README.md"), "changed and not committed\n");
+    writeFileSync(join(workItem.worktree, "untracked.txt"), "kept\n");
+    const before = onDisk(made.repo, workItem.worktree);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "A session started since you looked. Read it again." });
+    // The refusal ended nothing and archived nothing.
+    const still = await (await client(url)).message("ready");
+    expect([still.workItems.map((w) => w.id), still.archived, still.sessions.map((s) => [s.id, s.alive])]).toEqual([[workItem.id], [], [[session.id, true]]]);
+
+    c.send({ type: "archiveWorkItem", requestId: 2, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    const { at, inbox } = await archivedInbox(c);
+    // The answer first, then the inbox that carries the archive.
+    expect(c.messages.findIndex((m) => m.type === "done" && m.requestId === 2)).toBeLessThan(at);
+    expect(c.messages.findIndex((m) => m.type === "done" && m.requestId === 2)).not.toBe(-1);
+    expect(inbox.workItems).toEqual([]);
+    expect(inbox.archived).toMatchObject([{ id: workItem.id, title: workItem.title, branch: workItem.branch, worktree: workItem.worktree, archivedAt: 77 }]);
+    expect(inbox.sessions.map((s) => [s.id, s.alive])).toEqual([[session.id, false]]);
+    expect(onDisk(made.repo, workItem.worktree)).toEqual(before);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0].workItems[0].archivedAt).toBe(77);
+
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: ARCHIVED });
+    c.send({ type: "ask", requestId: 4, workItemId: workItem.id, prompt: "Which file?" });
+    expect(await c.message("error", (m) => m.requestId === 4)).toEqual({ type: "error", requestId: 4, message: ARCHIVED });
+    const archived = await (await client(url)).message("ready");
+    expect([archived.workItems, archived.archived.map((w) => w.id), archived.sessions.map((s) => s.id), archived.headless]).toEqual([[], [workItem.id], [session.id], []]);
+
+    c.messages.length = 0;
+    c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
+    const restored = await c.message("inbox", (m) => m.workItems.length === 1);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 5 });
+    expect(restored.archived).toEqual([]);
+    expect(restored.workItems).toMatchObject([{ id: workItem.id, title: workItem.title, branch: workItem.branch, archivedAt: null }]);
+    expect(restored.sessions.map((s) => [s.id, s.workItemId, s.alive])).toEqual([[session.id, workItem.id, false]]);
+    c.send({ type: "attach", id: session.id });
+    expect((await c.message("replay", (m) => m.id === session.id)).data).toContain("printed before the archive");
+    expect(onDisk(made.repo, workItem.worktree)).toEqual(before);
+    // A pane starts in it again.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 6, workItemId: workItem.id });
+    expect((await c.message("started", (m) => m.requestId === 6)).session.workItemId).toBe(workItem.id);
+  });
+
+  it("stops a working headless session of a work item it archives, where the archive names it: the session failed, says that it ended when the work item was archived, and stays listed with the answers of the others after a restore", async () => {
+    const made = repository();
+    let stopped = 0;
+    const slow = fakeAdapter({ delayMs: 60_000 });
+    const quick = fakeAdapter();
+    // The prompt "Quick?" is answered at once, and any other after a minute.
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const { c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    await allExited(url);
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
+    const finished = (await c.message("headless", (m) => m.headless.state === "finished")).headless;
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    c.send({ type: "archiveWorkItem", requestId: 3, id: workItem.id, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "A session started since you looked. Read it again." });
+    expect(stopped).toBe(0);
+    c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: { panes: [], headless: [headless.id] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(stopped).toBe(1);
+    const failed = { ...headless, state: "failed", error: "ended when the work item was archived" };
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
+    c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
+    await c.message("done", (m) => m.requestId === 5);
+    const after = await (await client(url)).message("ready");
+    expect([after.workItems.map((w) => w.id), after.archived, after.headless]).toEqual([[workItem.id], [], [finished, failed]]);
+  });
+
+  it("archives a work item with no running session at once, answers a second archive and a restore of a work item that is not archived with no inbox, and keeps the archive after the daemon starts again", async () => {
+    const made = repository();
+    const { c, url, runDir, workItem } = await withWorkItem(made, { now: () => 77, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    await allExited(url);
+    await settled(c);
+    c.messages.length = 0;
+    c.send({ type: "restoreWorkItem", requestId: 1, id: workItem.id });
+    expect(await c.message("done")).toEqual({ type: "done", requestId: 1 });
+    c.send({ type: "archiveWorkItem", requestId: 2, id: workItem.id, running: NONE_RUNNING });
+    await c.message("inbox", (m) => m.archived.length === 1);
+    c.send({ type: "archiveWorkItem", requestId: 3, id: workItem.id, running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 3);
+    // An inbox for either request that changed nothing would have arrived before the refusal of a start sent after its answer.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["done", "done", "inbox", "done", "error"]);
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    const ready = await (await client(later.url)).message("ready");
+    expect([ready.workItems, ready.archived.map((w) => [w.id, w.archivedAt])]).toEqual([[], [[workItem.id, 77]]]);
+  });
+
+  it("answers an archive and a restore that name no work item it holds, and an archive that names no running sessions, with an error, and archives nothing", async () => {
+    const { c, url, workItem } = await withWorkItem(repository());
+    c.send({ type: "archiveWorkItem", requestId: 1, id: 9, running: NONE_RUNNING });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "no work item 9" });
+    c.send({ type: "restoreWorkItem", requestId: 2, id: 9 });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "no work item 9" });
+    for (const [requestId, running] of [[3, undefined], [4, null], [5, { panes: [1] }], [6, { panes: "all", headless: [] }]] as const) {
+      c.send({ type: "archiveWorkItem", requestId, id: workItem.id, running });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message: "an archive names the work item's running sessions" });
+    }
+    const ready = await (await client(url)).message("ready");
+    expect([ready.workItems.map((w) => w.id), ready.archived, ready.sessions.map((s) => s.alive)]).toEqual([[workItem.id], [], [true]]);
+  });
+
+  it("reads git for no archived work item, at a hello among them, and reads a restored work item's branch at once", async () => {
+    const made = repository();
+    // The reads follow one another a minute apart, so a count that moves here moved at a hello or at the restore.
+    const { c, url, workItem, session } = await withWorkItem(made, { commitPollMs: 60_000 });
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 1);
+    commitFile(workItem.worktree, "work.txt");
+    const ready = await (await client(url)).message("ready");
+    expect(ready.archived.map((w) => [w.id, w.newCommits])).toEqual([[workItem.id, 0]]);
+    c.send({ type: "restoreWorkItem", requestId: 2, id: workItem.id });
+    const read = await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    expect(read.workItems[0]?.commits?.map((commit) => commit.subject)).toEqual(["add work.txt"]);
+  });
+
+  it("archives a work item though a pane of it outlives the wait for its end, and starts no pane in it meanwhile", async () => {
+    const made = repository();
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    const { c, workItem, session } = await withWorkItem(made, { endWaitMs: 400, commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; echo deaf; sleep 1.5"], env: {} }) });
+    c.send({ type: "attach", id: session.id });
+    await c.until(() => (c.messages.some((m) => (m.type === "output" || m.type === "replay") && m.id === session.id && m.data.includes("deaf")) ? true : undefined));
+    c.send({ type: "archiveWorkItem", requestId: 1, id: workItem.id, running: { panes: [session.id], headless: [] } });
+    // The start arrives once the archive waits: two messages sent together are read in one turn, the start before the archive.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(c.messages.some((m) => (m.type === "done" || m.type === "error") && m.requestId === 1)).toBe(false);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: ARCHIVED });
+    await c.message("done", (m) => m.requestId === 1);
+    const { inbox } = await archivedInbox(c);
+    expect([inbox.workItems, inbox.archived.map((w) => w.id), inbox.sessions.map((s) => [s.id, s.alive])]).toEqual([[], [workItem.id], [[session.id, true]]]);
+    // The pane is listed as exited once its process ends.
+    expect((await c.message("inbox", (m) => m.sessions.every((s) => !s.alive))).archived.map((w) => w.id)).toEqual([workItem.id]);
   });
 });
 

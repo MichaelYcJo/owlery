@@ -103,6 +103,21 @@ describe("RepositoryStore", () => {
     expect(existsSync(join(dir, "repositories.json"))).toBe(false);
   });
 
+  it("archives a work item by setting the time of its archive, restores it by setting none, and writes each", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    expect(store.setWorkItem(item.id, { archivedAt: 50 })).toBe(true);
+    expect(store.setWorkItem(item.id, { archivedAt: 50 })).toBe(false);
+    expect(store.workItem(item.id)?.item.archivedAt).toBe(50);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, archivedAt: 50 });
+    // A set that names no archive leaves the one the work item has, and null takes it away.
+    expect(store.setWorkItem(item.id, { pinned: true })).toBe(true);
+    expect(store.workItem(item.id)?.item.archivedAt).toBe(50);
+    expect(store.setWorkItem(item.id, { archivedAt: null })).toBe(true);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, pinned: true });
+  });
+
   it("sets what a person sets on a repository, its name, its icon, its base and whether it is hidden, writes the store, and says whether anything is another than it was", () => {
     const dir = runDir();
     const store = new RepositoryStore(dir, () => 1);

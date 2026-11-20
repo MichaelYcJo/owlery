@@ -51,6 +51,7 @@ const SILENT_START_MS = 10_000;
 const END_WAIT_MS = 3000;
 
 const isIds = (value: unknown): value is number[] => Array.isArray(value) && value.every((id) => typeof id === "number");
+const isRunning = (value: unknown): value is Running => typeof value === "object" && value !== null && isIds((value as Running).panes) && isIds((value as Running).headless);
 const isTextOrNull = (value: unknown): value is string | null => value === null || typeof value === "string";
 
 /** How many characters a text holds as a person counts them: an emoji of several code points is one. */
@@ -145,6 +146,8 @@ export class Daemon {
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
+  // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
+  private readonly archiving = new Set<number>();
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
   // The read of the counts under way, which a hello that arrives meanwhile waits on.
@@ -369,15 +372,13 @@ export class Daemon {
         const remove = async (): Promise<void> => {
           try {
             const { workItems, running } = message as { workItems: unknown; running: unknown };
-            if (!isIds(workItems) || typeof running !== "object" || running === null || !isIds((running as Running).panes) || !isIds((running as Running).headless)) {
-              throw new Error("a removal names the repository's work items and its running sessions");
-            }
+            if (!isIds(workItems) || !isRunning(running)) throw new Error("a removal names the repository's work items and its running sessions");
             const repository = this.store.repository(message.id);
             if (!repository) throw new Error(`no repository ${String(message.id)}`);
             const ids = new Set(repository.workItems.map((item) => item.id));
             // Every work item that leaves the lists is one the person read by name.
             if ([...ids].some((id) => !workItems.includes(id))) throw new Error("A work item was added since you looked. Read it again.");
-            await this.endSessions(ids, running as Running, "ended when a removal of its repository began");
+            await this.endSessions(ids, running, "ended when a removal of its repository began", "A session did not end in time, so nothing was removed. Try again.");
             // Off the daemon's lists: the panes of the work items, the exited among them, the headless sessions, and what was read of each branch.
             for (const [id, session] of this.sessions) {
               if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
@@ -467,6 +468,54 @@ export class Daemon {
         else void rename();
         return;
       }
+      case "archiveWorkItem": {
+        const archive = async (): Promise<void> => {
+          try {
+            const { id } = message;
+            const { running } = message as { running: unknown };
+            if (!isRunning(running)) throw new Error("an archive names the work item's running sessions");
+            const held = this.store.workItem(id);
+            if (!held) throw new Error(`no work item ${String(id)}`);
+            // A work item that is archived, or that another archive is ending the sessions of, is archived by this one no second time.
+            if (held.item.archivedAt === null && !this.archiving.has(id)) {
+              this.archiving.add(id);
+              try {
+                // Nothing on disk is touched, so a pane that outlives the wait holds nothing back: the work item is archived, and the pane is listed as exited once its process ends.
+                await this.endSessions(new Set([id]), running, "ended when the work item was archived", null);
+              } finally {
+                this.archiving.delete(id);
+              }
+              // A removal of its repository can take the work item out of the store while the archive waits.
+              if (this.store.setWorkItem(id, { archivedAt: (this.options.now ?? Date.now)() }) === undefined) throw new Error(`no work item ${String(id)}`);
+              // The answer first, so the client that asked knows its request was carried out when the inbox carries the archive.
+              this.send(socket, { type: "done", requestId: message.requestId });
+              this.broadcastInbox();
+              return;
+            }
+            this.send(socket, { type: "done", requestId: message.requestId });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // An archive takes and gives up no branch, so it does not wait behind the creations.
+        void archive();
+        return;
+      }
+      case "restoreWorkItem": {
+        try {
+          const changed = this.store.setWorkItem(message.id, { archivedAt: null });
+          if (changed === undefined) throw new Error(`no work item ${String(message.id)}`);
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (!changed) return;
+          this.broadcastInbox();
+          // No read passed over the work item's branch while it was archived, so it is read now, and not at the next read of them all.
+          const held = this.store.workItem(message.id);
+          if (held) void this.readBranch(held).then((moved) => { if (moved) this.broadcastInbox(); });
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
       case "attach": {
         const session = this.sessions.get(message.id);
         if (!session) return;
@@ -542,6 +591,11 @@ export class Daemon {
       this.send(socket, { type: "error", requestId, message: `no work item ${String(workItemId)}` });
       return undefined;
     }
+    // Nothing runs in an archived work item, nor in one an archive is ending the sessions of.
+    if (workItem.archivedAt !== null || this.archiving.has(workItem.id)) {
+      this.send(socket, { type: "error", requestId, message: `work item ${workItem.id} is archived, restore it first` });
+      return undefined;
+    }
     // A person can remove a worktree's folder by hand, and a process cannot start in it.
     if (!existsSync(workItem.worktree)) {
       this.send(socket, { type: "error", requestId, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
@@ -566,12 +620,13 @@ export class Daemon {
    * carries the sessions the person was told of. Where a session runs that
    * `told` does not name, it refuses and ends none. Otherwise it kills each
    * pane's process and stops each headless run, which is then `failed` with
-   * the error `why`, and waits until each pane's process has exited. It
-   * refuses where one has not within the wait, and where a session started
-   * in one of the work items while it waited. The panes stay listed, as
-   * exited ones.
+   * the error `why`, and waits until each pane's process has exited. Where
+   * one has not within the wait, it refuses with the sentence `late`, and
+   * goes on where `late` is null. It refuses where a session started in one
+   * of the work items while it waited. The panes stay listed, as exited
+   * ones.
    */
-  private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string): Promise<void> {
+  private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const running = (): { panes: Session[]; headless: HeadlessSession[] } => {
       const found = this.runningIn(workItemIds);
       if (found.panes.some(({ info }) => !told.panes.includes(info.id)) || found.headless.some(({ info }) => !told.headless.includes(info.id))) throw new Error("A session started since you looked. Read it again.");
@@ -592,7 +647,7 @@ export class Daemon {
     });
     await Promise.race([Promise.all(panes.map((session) => session.exited)), waited]);
     clearTimeout(waitTimer);
-    if (panes.some(({ info }) => info.alive)) throw new Error("A session did not end in time, so nothing was removed. Try again.");
+    if (late !== null && panes.some(({ info }) => info.alive)) throw new Error(late);
     running();
   }
 
@@ -797,45 +852,55 @@ export class Daemon {
   }
 
   /**
-   * Reads each work item's new commits from git, and tells every client where
-   * a count changed or a branch's head moved. How far a branch is ahead of its
+   * Reads from git the new commits of each work item that is not archived,
+   * and tells every client where a count changed or a branch's head moved.
+   * An archived work item keeps what was last read of its branch.
+   */
+  private async readCommits(): Promise<void> {
+    const moved = await Promise.all(
+      this.store
+        .workItems()
+        .filter(({ item }) => item.archivedAt === null)
+        .map((held) => this.readBranch(held)),
+    );
+    if (moved.includes(true)) this.broadcastInbox();
+  }
+
+  /**
+   * Reads one work item's new commits from git, and answers whether a count
+   * changed or its branch's head moved. How far a branch is ahead of its
    * base branch is counted at every read, since the base moves by itself. The
    * commits and the changed files are read only where the head is another
    * commit than the one they were last read at.
    */
-  private async readCommits(): Promise<void> {
+  private async readBranch({ repository, item }: Held): Promise<boolean> {
+    // A work item from before the base commit was recorded has nothing to count from.
+    const { baseCommit, branch } = item;
+    if (baseCommit === null) return false;
     let changed = false;
-    await Promise.all(
-      this.store.workItems().map(async ({ repository, item }) => {
-        // A work item from before the base commit was recorded has nothing to count from.
-        const { baseCommit, branch } = item;
-        if (baseCommit === null) return;
-        const repo = repository.folder;
-        const [count, head] = await Promise.all([newCommits(repo, branch, baseCommit), branchHead(repo, branch)]);
-        // A rename takes the old name away before the store holds the new one, and a read in between finds no branch. It is dropped, and the next read is of the new name.
-        if (this.renaming.has(item.id) || item.branch !== branch) return;
-        if (count !== (this.commitCounts.get(item.id) ?? null)) {
-          this.commitCounts.set(item.id, count);
-          changed = true;
-        }
-        const ahead = item.baseBranch === null || head === null ? null : await aheadOf(repo, item.baseBranch, head);
-        if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
-          this.aheadCounts.set(item.id, ahead);
-          changed = true;
-        }
-        if (head === (this.branches.get(item.id)?.head ?? null)) return;
-        changed = true;
-        if (head === null) {
-          // The branch is gone, and what was read of it with it.
-          this.branches.delete(item.id);
-          return;
-        }
-        // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
-        const [commits, changes] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head)]);
-        this.branches.set(item.id, { head, commits, changes });
-      }),
-    );
-    if (changed) this.broadcastInbox();
+    const repo = repository.folder;
+    const [count, head] = await Promise.all([newCommits(repo, branch, baseCommit), branchHead(repo, branch)]);
+    // A rename takes the old name away before the store holds the new one, and a read in between finds no branch. It is dropped, and the next read is of the new name.
+    if (this.renaming.has(item.id) || item.branch !== branch) return false;
+    if (count !== (this.commitCounts.get(item.id) ?? null)) {
+      this.commitCounts.set(item.id, count);
+      changed = true;
+    }
+    const ahead = item.baseBranch === null || head === null ? null : await aheadOf(repo, item.baseBranch, head);
+    if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
+      this.aheadCounts.set(item.id, ahead);
+      changed = true;
+    }
+    if (head === (this.branches.get(item.id)?.head ?? null)) return changed;
+    if (head === null) {
+      // The branch is gone, and what was read of it with it.
+      this.branches.delete(item.id);
+      return true;
+    }
+    // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
+    const [commits, changes] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head)]);
+    this.branches.set(item.id, { head, commits, changes });
+    return true;
   }
 
   private send(socket: WebSocket, message: ServerMessage): void {

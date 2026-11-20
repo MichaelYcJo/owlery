@@ -205,6 +205,10 @@ export type ClientMessage =
   | { type: "planRename"; requestId: number; id: number; title: string }
   // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so is a rename of the branch that a plan would answer with `blocked`: nothing is then changed, the name neither. The worktree's folder keeps its name. The daemon answers with `done`.
   | { type: "renameWorkItem"; requestId: number; id: number; title: string; branch: boolean }
+  // Archives a work item: it leaves `workItems` for `archived`, and nothing on disk is changed, its worktree's folder and its branch neither. `running` names the running sessions the person was told of. Where a session of the work item runs that the message does not name, the daemon refuses and ends none. Otherwise it ends the sessions named, waits for the panes' processes to exit, as long as it waits at a removal, and archives the work item whether or not each has exited by then. A pane it ended stays listed, as an exited one, and a headless session it stopped as a failed one. The daemon reads git for no archived work item, and starts no pane and no headless session in one. It answers with `done`, and an archive of a work item that is archived changes nothing.
+  | { type: "archiveWorkItem"; requestId: number; id: number; running: Running }
+  // Restores an archived work item: it stands in `workItems` again, with the panes and the headless sessions the daemon still lists for it, and the daemon reads its branch at once. The daemon answers with `done`, and a restore of a work item that is not archived changes nothing.
+  | { type: "restoreWorkItem"; requestId: number; id: number }
   // Asks for the session's kept output as a `replay`, and for its output after that.
   | { type: "attach"; id: number }
   // Ends this client's receiving of the session's output until it attaches again. The session and its process are untouched, and the daemon answers nothing.
