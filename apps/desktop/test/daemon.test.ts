@@ -115,7 +115,8 @@ function heldGit(base: string, when = '[ "$1" = worktree ]'): { release: () => v
   const arrived = join(base, "git-arrived");
   const path = process.env.PATH ?? "";
   mkdirSync(bin);
-  writeFileSync(join(bin, "git"), `#!/bin/sh\nif ${when}; then touch '${arrived}'; while [ ! -e '${released}' ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+  // A held command also ends its wait once this script is gone, with the temporary folder of a case that failed before its release.
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nif ${when}; then touch '${arrived}'; while [ ! -e '${released}' ] && [ -e "$0" ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
   process.env.PATH = `${bin}:${path}`;
   const release = (): void => {
     writeFileSync(released, "");
