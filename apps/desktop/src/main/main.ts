@@ -12,7 +12,8 @@ import { pickFolder } from "./pick-folder";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
 // over WebSocket. The main process finds or starts it, opens the folder
-// dialog the window asks for, and keeps the theme a person chose.
+// dialog the window asks for, and keeps the theme a person chose. It sets
+// the app's menu, and keeps the one window on Owlery's own page.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
 // A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard.

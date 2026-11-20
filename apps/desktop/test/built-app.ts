@@ -1,6 +1,7 @@
 // Builds the app from the tree, starts it with the binary the suite runs in,
 // and speaks to its window through Electron's debugging port. A case that
-// reads the window as a person sees it starts here.
+// reads the window as a person sees it starts here, and so does one that
+// reads what the main process holds, through that process's inspector.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
