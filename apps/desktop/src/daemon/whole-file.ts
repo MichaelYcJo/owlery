@@ -1,5 +1,5 @@
 // The one way the app writes a file a reader must never find half-written:
-// the daemon's discovery file, its list of work items, its last look and its
+// the daemon's discovery file, its repositories, its last look and its
 // choice of when to keep the Mac awake, and the main process's theme file. It
 // is kept beside the daemon's files, whose four writers use it, and the app's
 // main process imports it as it imports the discovery file's reader. It reads

@@ -37,7 +37,12 @@ function isChanges(value: unknown): value is Changes {
   return isRecord(value) && typeof value.files === "number" && typeof value.added === "number" && typeof value.removed === "number" && Array.isArray(value.list) && value.list.every(isFileChange);
 }
 
-function isWorkItem(value: unknown): value is WorkItem {
+/** The fields of a work item that came with the repositories. A look written by a build before them holds none, and each is read as `lookOf` reads an absent one. */
+type SinceRepositories = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt";
+/** A work item as a look's file holds one: every field of the protocol's, the ones that came with the repositories absent or of the protocol's type. */
+type WrittenWorkItem = Omit<WorkItem, SinceRepositories> & Partial<Pick<WorkItem, SinceRepositories>>;
+
+function isWorkItem(value: unknown): value is WrittenWorkItem {
   const item = value as Partial<WorkItem> | null;
   return (
     typeof item === "object" &&
@@ -54,23 +59,35 @@ function isWorkItem(value: unknown): value is WorkItem {
     isNumberOrNull(item.aheadOfBase) &&
     isNumberOrNull(item.newCommits) &&
     (item.commits === null || (Array.isArray(item.commits) && item.commits.every(isCommit))) &&
-    (item.changes === null || isChanges(item.changes))
+    (item.changes === null || isChanges(item.changes)) &&
+    (item.repoId === undefined || typeof item.repoId === "number") &&
+    (item.pinned === undefined || typeof item.pinned === "boolean") &&
+    (item.muted === undefined || typeof item.muted === "boolean") &&
+    (item.groupId === undefined || isNumberOrNull(item.groupId)) &&
+    (item.archivedAt === undefined || isNumberOrNull(item.archivedAt))
   );
 }
 
-function isLook(value: unknown): value is Look {
+function isLook(value: unknown): value is Omit<Look, "workItems"> & { workItems: WrittenWorkItem[] } {
   const look = value as Partial<Look> | null;
   return typeof look === "object" && look !== null && typeof look.at === "number" && Array.isArray(look.sessions) && look.sessions.every(isSession) && Array.isArray(look.workItems) && look.workItems.every(isWorkItem);
 }
 
-/** Only the fields of a look, each entry a copy, its commits and its changes among it: what the lists or a file's entries carry beyond them, or become afterwards, is not the look's. */
-function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonly WorkItem[]): Look {
+/**
+ * Only the fields of a look, each entry a copy, its commits and its changes
+ * among it: what the lists or a file's entries carry beyond them, or become
+ * afterwards, is not the look's. A work item without a field that came with
+ * the repositories gets that field's empty value: the id 0, which no
+ * repository bears, no pin, no mute, no group and no archive.
+ */
+function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonly WrittenWorkItem[]): Look {
   return {
     at,
     sessions: sessions.map(({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool }) => ({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool })),
-    workItems: workItems.map(({ id, title, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes }) => ({
+    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt }) => ({
       id,
       title,
+      repoId: repoId ?? 0,
       repo,
       repoName,
       branch,
@@ -82,6 +99,10 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
       newCommits,
       commits: commits && commits.map(({ hash, subject, at, added, removed }) => ({ hash, subject, at, added, removed })),
       changes: changes && { files: changes.files, added: changes.added, removed: changes.removed, list: changes.list.map(({ path, added, removed }) => ({ path, added, removed })) },
+      pinned: pinned ?? false,
+      muted: muted ?? false,
+      groupId: groupId ?? null,
+      archivedAt: archivedAt ?? null,
     })),
   };
 }
@@ -89,12 +110,13 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
 /**
  * The daemon's record of when a person last looked: the time, and the
  * sessions and the work items as they were listed then. It is one record,
- * which a later look replaces. Like the list of work items it is the daemon's
+ * which a later look replaces. Like the repositories it is the daemon's
  * state: it lives in `last-look.json` in the run directory, readable by the
  * user alone, and is read at start, so the look outlives the daemon. A file
  * whose entries lack a field of the protocol's, as one a build before that
- * field wrote, is no look. Given no run directory, the look is kept in
- * memory alone.
+ * field wrote, is no look, but for the fields of a work item that came with
+ * the repositories: a look without them is read with each at its empty
+ * value. Given no run directory, the look is kept in memory alone.
  */
 export class LastLook {
   private look: Look | null = null;

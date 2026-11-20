@@ -1,18 +1,23 @@
 // The sidebar, which stands at the left of every screen: the search field,
-// the three screens it opens, the repositories with their work items, and the
-// status line at its foot.
-import { byId, changedSince, CHEVRON, entries, held, icon, marked, narrowed, part, stateIcon, titleClass } from "./shared";
-import { ageOf, daemonStatus, filterChoices, matchCount, noticeWithout, sidebarTree, summaryCount, type StateFilter } from "./view";
+// the three screens it opens, the repositories the daemon keeps with their
+// work items, the button that says how many repositories are hidden, and
+// the status line at its foot.
+import type { WorkItem } from "../shared/protocol";
+import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
+import { ageOf, daemonStatus, filterChoices, hiddenRepositories, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, summaryCount, type StateFilter } from "./view";
 
-/** The screen in front, or null before the daemon's `ready`. */
-export type Front = "summary" | "inbox" | "history" | "view" | null;
+/** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
+export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
 
 export interface SidebarActions {
   openScreen(screen: "summary" | "inbox" | "history"): void;
   openView(workItemId: number): void;
   /** Opens the "New work item" form, with `folder` as its repository where one is given. It does not open before the daemon's `ready`. */
   openForm(folder?: string): void;
-  pickFolder(): Promise<string | null>;
+  /** Opens a repository's menu under the button of its row that was pressed. */
+  openRepositoryMenu(repositoryId: number, from: HTMLElement): void;
+  /** Opens the dialog that lists the hidden repositories. */
+  openHidden(): void;
   /** Takes what the search field holds, as it is typed. */
   search(query: string): void;
   filter(state: StateFilter): void;
@@ -32,8 +37,8 @@ const filterControl = byId("sidebar-filter-control");
 const filter = byId<HTMLSelectElement>("sidebar-filter");
 const repositories = byId("repositories");
 const status = byId("status");
-// The repositories a person folded, by their folders. None is folded at load, and the fold is kept nowhere.
-const folded = new Set<string>();
+// The repositories a person folded, by their ids. None is folded at load, and the fold is kept nowhere.
+const folded = new Set<number>();
 // What the status line has to tell in place of the daemon's state: that the window is reconnecting, or a request the daemon refused.
 let notice = "";
 let front: Front = null;
@@ -54,15 +59,9 @@ export function initSidebar(given: SidebarActions, mac: boolean): void {
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
   bell.addEventListener("click", () => actions.filter("waiting"));
+  // The one button of the sidebar's top makes a work item, and its form is where a repository is registered alone.
+  byId("new-work-item").title = NEW_WORK_ITEM_SAYS;
   byId("new-work-item").addEventListener("click", () => actions.openForm());
-  byId("add-repository").addEventListener("click", () => {
-    // Before the daemon's `ready` the form does not open, so neither does the folder dialog.
-    if (!held.ready) return;
-    // The repository stands in the sidebar once the form made a work item in it: the daemon keeps work items and no list of repositories.
-    void actions.pickFolder().then((folder) => {
-      if (folder) actions.openForm(folder);
-    });
-  });
   showStatus();
 }
 
@@ -83,20 +82,32 @@ export function untell(text: string): void {
   tell(noticeWithout(notice, text));
 }
 
-/** Draws the status line: the notice where there is one, and otherwise the daemon's state, once the daemon said it. */
+/** Draws the status line: the window's own notice first, then what there is to say of the daemon, then the daemon's state, once the daemon said it. */
 export function showStatus(): void {
-  status.textContent = notice || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false) : "");
-  status.classList.toggle("notice", notice !== "");
+  const said = notice || held.daemonNotice;
+  status.textContent = said || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false) : "");
+  status.classList.toggle("notice", said !== "");
 }
 
-function workItemElement(workItemId: number, title: string, marks: readonly (readonly [number, number])[], state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
+/** A button of a repository's row that shows an icon alone: a screen reader is told its name, and a pointer that rests on it what a press does. */
+function rowButton(className: string, { name, says }: { name: string; says: string }, shapes: Parameters<typeof icon>[0]): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = `icon-button ${className}`;
+  button.title = says;
+  button.setAttribute("aria-label", name);
+  button.append(icon(shapes));
+  return button;
+}
+
+function workItemElement(workItem: WorkItem, title: string, marks: readonly (readonly [number, number])[], state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
+  const workItemId = workItem.id;
   const button = document.createElement("button");
   button.className = "side-item";
   button.dataset.workItem = String(workItemId);
   // The sidebar marks the work item whose view is on screen.
   if (workItemId === held.viewing) button.setAttribute("aria-current", "page");
-  // The letters of the title that match what is typed in the search field are marked, as a line of the list marks them.
-  button.append(stateIcon(state, changedSince(workItemId)), marked(titleClass(workItemId), title, marks), part("age", ageOf(since, Date.now())));
+  // The letters of the title that match what is typed in the search field are marked, as a line of the list marks them. A pin and a mute each put a mark after the title.
+  button.append(stateIcon(state, changedSince(workItemId)), marked(titleClass(workItemId), title, marks), ...lineMarkIcons(workItem), part("age", ageOf(since, Date.now())));
   button.addEventListener("click", () => {
     if (workItemId !== held.viewing) actions.openView(workItemId);
   });
@@ -107,9 +118,15 @@ function workItemElement(workItemId: number, title: string, marks: readonly (rea
 
 /**
  * Draws the sidebar: which screen is in front, the counts, the filter, and
- * each repository that has a work item the search and the filter leave, with
- * those work items under it. The search field is the person's and is left as
- * it is.
+ * each repository `sidebarTree` lists, with its work items under it: the
+ * ungrouped ones, and then each of its groups under a heading of the
+ * group's name with how many work items stand in it, the pinned ones first
+ * in each list. A repository's row holds the button that folds it,
+ * with the repository's icon before its name where it has one, a "+" button
+ * that opens the "New work item" form on its folder, and a "…" button that
+ * opens its menu. Under the repositories a button says how many are hidden,
+ * where any is, and opens their list. The search field is the person's and
+ * is left as it is.
  */
 export function showSidebar(inFront: Front = front): void {
   front = inFront;
@@ -132,28 +149,63 @@ export function showSidebar(inFront: Front = front): void {
   filterControl.classList.toggle("on", held.filter !== "all");
   searchCount.textContent = held.query === "" ? "" : matchCount(left.length, all.length);
   repositories.replaceChildren(
-    ...sidebarTree(held.workItems, held.sessions, held.paneKinds, held.query, held.filter).map((repository) => {
-      const isFolded = folded.has(repository.repo);
+    ...sidebarTree(held.repositories, held.workItems, held.sessions, held.paneKinds, held.query, held.filter).map((repository) => {
+      const isFolded = folded.has(repository.id);
       const section = document.createElement("section");
       section.className = "repository";
+      section.dataset.repository = String(repository.id);
       const head = document.createElement("button");
       head.className = "side-item fold";
       // Two repositories of one name are told apart by their folders.
       head.title = repository.repo;
       head.dataset.repo = repository.repo;
       head.setAttribute("aria-expanded", String(!isFolded));
-      head.append(icon(CHEVRON), part("word", repository.name), part("count", String(repository.count)));
+      head.append(icon(CHEVRON), ...(repository.icon === null ? [] : [part("repository-icon", repository.icon)]), part("word", repository.name), part("count", String(repository.count)));
       head.addEventListener("click", () => {
-        if (!folded.delete(repository.repo)) folded.add(repository.repo);
+        if (!folded.delete(repository.id)) folded.add(repository.id);
         showSidebar();
         repositories.querySelector<HTMLElement>(`button[data-repo="${CSS.escape(repository.repo)}"]`)?.focus();
       });
-      const list = document.createElement("ul");
-      list.hidden = isFolded;
-      list.append(...repository.entries.map(({ workItem, line, session, marks }) => workItemElement(workItem.id, line.title, marks, line.state, session?.stateSince)));
-      section.append(head, list);
+      const buttons = rowButtons(repository.name);
+      const add = rowButton("repository-add", buttons.add, PLUS);
+      add.addEventListener("click", () => actions.openForm(repository.repo));
+      const menu = rowButton("repository-menu", buttons.menu, DOTS);
+      menu.setAttribute("aria-haspopup", "menu");
+      menu.addEventListener("click", () => actions.openRepositoryMenu(repository.id, menu));
+      const row = document.createElement("div");
+      row.className = "repository-row";
+      row.append(head, add, menu);
+      const listOf = (entries: typeof repository.entries): HTMLUListElement => {
+        const list = document.createElement("ul");
+        list.hidden = isFolded;
+        list.append(...entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, session?.stateSince)));
+        return list;
+      };
+      // The ungrouped work items first, then each group's under a heading of its name.
+      section.append(
+        row,
+        listOf(repository.entries),
+        ...repository.groups.flatMap((group) => {
+          const heading = document.createElement("h3");
+          heading.className = "group-head";
+          heading.hidden = isFolded;
+          heading.append(part("word", group.name), part("count", String(group.entries.length)));
+          const list = listOf(group.entries);
+          list.dataset.group = String(group.id);
+          return [heading, list];
+        }),
+      );
       return section;
     }),
   );
+  const { says } = hiddenRepositories(held.repositories);
+  if (says !== "") {
+    const hidden = document.createElement("button");
+    hidden.id = "hidden-repositories";
+    hidden.className = "side-item";
+    hidden.append(part("word", says));
+    hidden.addEventListener("click", () => actions.openHidden());
+    repositories.append(hidden);
+  }
   showStatus();
 }

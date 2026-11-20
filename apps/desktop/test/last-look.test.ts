@@ -22,6 +22,7 @@ const FILE = { path: "src/form.ts", added: 3, removed: 1 };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
+  repoId: 1,
   repo: "/r/project",
   repoName: "project",
   branch: "owlery/fix-the-login-bug",
@@ -33,6 +34,10 @@ const WORK_ITEM: WorkItem = {
   newCommits: 2,
   commits: [COMMIT, { hash: "def5678", subject: "add an image", at: 1000, added: null, removed: null }],
   changes: { files: 2, added: 3, removed: 1, list: [FILE, { path: "owl.png", added: null, removed: null }] },
+  pinned: true,
+  muted: true,
+  groupId: 2,
+  archivedAt: null,
 };
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
@@ -140,6 +145,7 @@ describe("LastLook", () => {
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, repoName: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, baseBranch: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, aheadOfBase: "2" }] }))).toBeNull();
+    for (const field of [{ repoId: "1" }, { repoId: null }, { pinned: "yes" }, { pinned: null }, { muted: 1 }, { muted: null }, { groupId: "2" }, { archivedAt: "9" }]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, ...field }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: "none" }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: [null] }] }))).toBeNull();
     for (const commit of [{ hash: 7 }, { subject: 7 }, { at: "1100" }, { added: "3" }, { removed: "1" }]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: [{ ...COMMIT, ...commit }] }] }))).toBeNull();
@@ -168,6 +174,20 @@ describe("LastLook", () => {
     for (const field of ["repoName", "baseBranch", "aheadOfBase", "commits", "changes"]) {
       writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, [field]: undefined }] }));
       expect(new LastLook(dir).get()).toBeNull();
+    }
+  });
+
+  it("reads a look a build before the repositories wrote, whose work items lack the fields they brought, with no repository's id, no pin, no mute, no group and no archive", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { repoId: _repo, pinned: _pinned, muted: _muted, groupId: _group, archivedAt: _archived, ...before } = WORK_ITEM;
+    const empty = { repoId: 0, pinned: false, muted: false, groupId: null, archivedAt: null };
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, ...empty }] });
+    // Each of the fields alone, absent: the others are read as the file holds them.
+    for (const field of ["repoId", "pinned", "muted", "groupId", "archivedAt"] as const) {
+      writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, archivedAt: 9, [field]: undefined }] }));
+      expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, archivedAt: 9, [field]: empty[field] }] });
     }
   });
 

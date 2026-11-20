@@ -3,11 +3,14 @@
 // chose, which the main process keeps (./appearance), the address of a
 // link a person clicked in a pane, which only the main process may open
 // (src/main/links.ts), what stands on the disk at a path a pane printed and
-// the showing of one in Finder (src/main/paths.ts), the clipboard, which a
-// start in the background keeps to itself (src/main/clipboard.ts), and the
-// window's coming forward, which a sandboxed page cannot do itself.
-// Everything else goes between the window and the daemon, over the protocol
-// in ./protocol.
+// the showing of one in Finder (src/main/paths.ts), what a menu's "Open in"
+// items need of the Mac: the editors and terminals it holds and a folder
+// opened in Finder or in one of them, the Trash a removed repository's
+// folder moves to where the person chose it (src/main/openers.ts), the
+// clipboard, which a start in the background keeps to itself
+// (src/main/clipboard.ts), and the window's coming forward, which a
+// sandboxed page cannot do itself. Everything else goes between the window
+// and the daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
 
 export const Channel = {
@@ -16,6 +19,9 @@ export const Channel = {
   /** Answered at once, not by a promise: the preload reads the saved choice before the page is drawn. */
   appearance: "owlery:appearance",
   saveAppearance: "owlery:save-appearance",
+  installedApps: "owlery:installed-apps",
+  openFolder: "owlery:open-folder",
+  trashFolder: "owlery:trash-folder",
   openLink: "owlery:open-link",
   pathsOf: "owlery:paths-of",
   showInFinder: "owlery:show-in-finder",
@@ -23,6 +29,12 @@ export const Channel = {
   clipboardText: "owlery:clipboard-text",
   comeForward: "owlery:come-forward",
 } as const;
+
+/** An editor or a terminal the Mac holds, which a menu offers to open a folder in. */
+export interface InstalledApp {
+  name: string;
+  kind: "editor" | "terminal";
+}
 
 export interface DaemonConnection {
   url: string;
@@ -49,6 +61,12 @@ export interface OwleryApi {
   appearance: ThemeChoice;
   /** Has the main process keep a new choice, so the next window opens in it. */
   saveAppearance(choice: ThemeChoice): Promise<void>;
+  /** The editors and the terminals the Mac holds, of those the main process knows, the editors first. */
+  installedApps(): Promise<InstalledApp[]>;
+  /** Opens a folder in Finder, where `app` is null, or in the installed app of that name. The folder is a work item's worktree or a repository's folder, and the main process opens no other path. It answers null, or why nothing was opened, as a sentence the window shows as it is. */
+  openFolder(folder: string, app: string | null): Promise<string | null>;
+  /** Moves a repository's folder to the macOS Trash, whole. The window asks it after the daemon answered that the repository is removed, and only where the person chose it. The main process moves a folder that holds `.git` at its top and no other path. It answers null, or why nothing was moved, as a sentence the window shows as it is. */
+  trashFolder(folder: string): Promise<string | null>;
   /** Asks the main process to open an address outside Owlery, and answers whether it opened it. It opens only an `http` or `https` address. */
   openLink(url: string): Promise<boolean>;
   /** Asks the main process what stands at each text a pane printed, read from `worktree` where the text is no whole path, and answers in the texts' order: the whole path and whether it is a folder, or null where neither a file nor a folder stands there. */

@@ -20,7 +20,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the list of work items, the last look and the choice of when to keep the Mac awake.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look and the choice of when to keep the Mac awake.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     token,
     // A pane opened without a work item runs in the user's home; a work item's pane runs in its worktree.
     cwd: process.env.OWLERY_CWD || homedir(),
-    // The list of work items, the last look and the choice of when to keep the Mac awake sit beside the discovery file, and outlive this process.
+    // The repositories with their work items, the last look and the choice of when to keep the Mac awake sit beside the discovery file, and outlive this process.
     runDir,
     // The hold is a program of macOS, and watches this process so that it ends when the daemon ends, however it ends. On another platform the daemon holds nothing.
     holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,

@@ -3,6 +3,9 @@ import {
   agentKind,
   ageOf,
   ahead,
+  archivalOf,
+  archivedHead,
+  archivedIn,
   askButton,
   baseMenu,
   cardStaysAt,
@@ -10,6 +13,10 @@ import {
   closeAsks,
   commandKey,
   commitLines,
+  daemonLists,
+  deleteChoice,
+  deleteSays,
+  deletionOf,
   daemonStatus,
   droppedText,
   emptyList,
@@ -17,6 +24,7 @@ import {
   filterChoices,
   gainedSince,
   headlessLines,
+  hiddenRepositories,
   historyLines,
   inboxGroups,
   inboxKey,
@@ -27,8 +35,10 @@ import {
   lastHere,
   lineBadge,
   lineCounts,
+  lineMarks,
   lineSession,
   lineText,
+  lossSections,
   linkCard,
   linkClick,
   type LinkTarget,
@@ -36,7 +46,10 @@ import {
   matchCount,
   matchSentence,
   matchWorkItems,
+  menuKey,
+  menuTarget,
   moveSelection,
+  NEW_WORK_ITEM_SAYS,
   noticeWithout,
   notificationFor,
   notificationOpens,
@@ -45,15 +58,25 @@ import {
   paneKey,
   paneMenu,
   paneTabs,
+  pinnedFirst,
   pathCandidates,
   pathTarget,
   planAnswer,
   planLine,
   recentKept,
+  REGISTER_ONLY_SAYS,
+  registerFields,
+  removalChoice,
+  removalOf,
+  renameChoice,
   replayStep,
+  repositoryMenu,
+  rowButtons,
   screenMoves,
   screenTurns,
   selectedLine,
+  settingsBases,
+  settingsFields,
   sidebarTree,
   stageOf,
   stateHeading,
@@ -70,14 +93,16 @@ import {
   withHeadless,
   workItemEntries,
   workItemFields,
+  workItemMenu,
   type FormPlan,
   type InboxLine,
 } from "../src/renderer/view";
-import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, Repository, SessionInfo, WorkItem, WorkItemLoss } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
   title: "Fix the login bug",
+  repoId: 1,
   repo: "/r/project",
   repoName: "project",
   branch: "owlery/fix-the-login-bug",
@@ -89,7 +114,12 @@ const LOGIN: WorkItem = {
   newCommits: null,
   commits: null,
   changes: null,
+  pinned: false,
+  muted: false,
+  groupId: null,
+  archivedAt: null,
 };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -299,7 +329,7 @@ describe("moveSelection", () => {
 });
 
 describe("inboxKey", () => {
-  const INBOX = { inboxInFront: true, dialogOpen: false, inField: false, onControl: false };
+  const INBOX = { inboxInFront: true, dialogOpen: false, menuOpen: false, inField: false, onControl: false };
   const plain = (code: string) => ({ code, modified: false });
 
   it("reads J, K and Enter by their place on the keyboard", () => {
@@ -313,10 +343,11 @@ describe("inboxKey", () => {
     expect(inboxKey(plain("ArrowDown"), INBOX)).toBeNull();
   });
 
-  it("reads no key while another screen is in front, a dialog is open or the focus is in a field", () => {
+  it("reads no key while another screen is in front, a dialog is open, a menu is open or the focus is in a field", () => {
     for (const code of ["KeyJ", "KeyK", "Enter"]) {
       expect(inboxKey(plain(code), { ...INBOX, inboxInFront: false })).toBeNull();
       expect(inboxKey(plain(code), { ...INBOX, dialogOpen: true })).toBeNull();
+      expect(inboxKey(plain(code), { ...INBOX, menuOpen: true })).toBeNull();
       expect(inboxKey(plain(code), { ...INBOX, inField: true })).toBeNull();
     }
   });
@@ -330,6 +361,402 @@ describe("inboxKey", () => {
     expect(inboxKey(plain("Enter"), onControl)).toBeNull();
     expect(inboxKey(plain("KeyJ"), onControl)).toBe("next");
     expect(inboxKey(plain("KeyK"), onControl)).toBe("previous");
+  });
+});
+
+describe("menuKey", () => {
+  const FREE = { dialogOpen: false, menuOpen: false, inField: false };
+  const key = (code: string, held: { shift?: boolean; modified?: boolean } = {}) => ({ code, shift: false, modified: false, ...held });
+
+  it("reads M alone, by its place on the keyboard, and F10 with Shift, as the key that opens a menu", () => {
+    expect(menuKey(key("KeyM"), FREE)).toBe(true);
+    expect(menuKey(key("F10", { shift: true }), FREE)).toBe(true);
+  });
+
+  it("reads neither M with Shift nor F10 alone, no other key, and no key with the Command, the Control or the Option key held", () => {
+    expect(menuKey(key("KeyM", { shift: true }), FREE)).toBe(false);
+    expect(menuKey(key("F10"), FREE)).toBe(false);
+    expect(menuKey(key("KeyN"), FREE)).toBe(false);
+    expect(menuKey(key("F9", { shift: true }), FREE)).toBe(false);
+    expect(menuKey(key("KeyM", { modified: true }), FREE)).toBe(false);
+    expect(menuKey(key("F10", { shift: true, modified: true }), FREE)).toBe(false);
+  });
+
+  it("reads neither in a field, with a dialog open or with a menu open", () => {
+    for (const pressed of [key("KeyM"), key("F10", { shift: true })]) {
+      expect(menuKey(pressed, { ...FREE, inField: true })).toBe(false);
+      expect(menuKey(pressed, { ...FREE, dialogOpen: true })).toBe(false);
+      expect(menuKey(pressed, { ...FREE, menuOpen: true })).toBe(false);
+    }
+  });
+});
+
+describe("menuTarget", () => {
+  it("gives the work item of the line the keyboard is on, whatever line is selected", () => {
+    expect(menuTarget({ workItem: 4 }, 7)).toEqual({ workItem: 4 });
+    expect(menuTarget({ workItem: 4 }, undefined)).toEqual({ workItem: 4 });
+  });
+
+  it("gives the repository of the row the keyboard is on", () => {
+    expect(menuTarget({ repository: 2 }, 7)).toEqual({ repository: 2 });
+  });
+
+  it("gives the selected line's work item where the keyboard is on neither, and nothing where no list is in front or it has no line", () => {
+    expect(menuTarget({}, 7)).toEqual({ workItem: 7 });
+    expect(menuTarget({}, undefined)).toBeNull();
+  });
+});
+
+const APPS = [
+  { name: "Zed", kind: "editor" as const },
+  { name: "Warp", kind: "terminal" as const },
+];
+/** Two groups of a repository, in the order they were made. */
+const GROUPS = [
+  { id: 7, name: "Later" },
+  { id: 8, name: "Drafts" },
+];
+/** A menu's entries without their descriptions, which a case of their own holds. */
+const plain = (entries: readonly { label: string; description: string; action: unknown; divides: boolean }[]) => entries.map(({ description: _says, ...entry }) => entry);
+
+describe("workItemMenu", () => {
+  it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin, Mute notifications, Archive and Delete, each with what its press does", () => {
+    expect(plain(workItemMenu(LOGIN, APPS, []))).toEqual([
+      { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
+      { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
+      { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
+      { label: "Open in Warp", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Warp" }, divides: false },
+      { label: "Copy path", action: { do: "copy", text: "/w/project/fix-the-login-bug" }, divides: true },
+      { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
+      { label: "Pin", action: { do: "set", id: 1, pinned: true }, divides: true },
+      { label: "Mute notifications", action: { do: "set", id: 1, muted: true }, divides: false },
+      { label: "Archive", action: { do: "archive", id: 1 }, divides: true },
+      { label: "Delete", action: { do: "delete", id: 1 }, divides: false },
+    ]);
+  });
+
+  it("offers Finder alone where no app is installed", () => {
+    expect(workItemMenu(LOGIN, [], []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive", "Delete"]);
+  });
+
+  it("offers Unpin for a pinned work item and Unmute notifications for a muted one", () => {
+    const items = plain(workItemMenu({ ...LOGIN, pinned: true, muted: true }, [], []));
+    expect(items.slice(-4, -2)).toEqual([
+      { label: "Unpin", action: { do: "set", id: 1, pinned: false }, divides: true },
+      { label: "Unmute notifications", action: { do: "set", id: 1, muted: false }, divides: false },
+    ]);
+  });
+
+  it("holds, between Mute notifications and Archive, Move to for each group of the work item's repository but its own, in the groups' order, and Move out of where it stands in one, each with what its press sets", () => {
+    const moves = (workItem: WorkItem) => plain(workItemMenu(workItem, [], GROUPS)).slice(6, -2);
+    expect(moves(LOGIN)).toEqual([
+      { label: "Move to Later", action: { do: "set", id: 1, groupId: 7 }, divides: true },
+      { label: "Move to Drafts", action: { do: "set", id: 1, groupId: 8 }, divides: false },
+    ]);
+    expect(moves({ ...LOGIN, groupId: 7 })).toEqual([
+      { label: "Move to Drafts", action: { do: "set", id: 1, groupId: 8 }, divides: true },
+      { label: "Move out of Later", action: { do: "set", id: 1, groupId: null }, divides: false },
+    ]);
+    // In the one group its repository has, it can move nowhere but out.
+    expect(plain(workItemMenu({ ...LOGIN, groupId: 8 }, [], [{ id: 8, name: "Drafts" }])).slice(6, -2)).toEqual([{ label: "Move out of Drafts", action: { do: "set", id: 1, groupId: null }, divides: true }]);
+    // A group the repository does not hold is one it cannot be moved out of by name: it is offered every group.
+    expect(moves({ ...LOGIN, groupId: 99 }).map((item) => item.label)).toEqual(["Move to Later", "Move to Drafts"]);
+    // The items around them stand as they do without a group.
+    expect(workItemMenu(LOGIN, [], GROUPS).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Move to Later", "Move to Drafts", "Archive", "Delete"]);
+  });
+
+  it("holds for an archived work item, in this order, Restore, Open in Finder and in each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
+    expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS, GROUPS))).toEqual([
+      { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
+      { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
+      { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
+      { label: "Open in Warp", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Warp" }, divides: false },
+      { label: "Copy path", action: { do: "copy", text: "/w/project/fix-the-login-bug" }, divides: true },
+      { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
+      { label: "Delete", action: { do: "delete", id: 1 }, divides: true },
+    ]);
+  });
+});
+
+describe("repositoryMenu", () => {
+  it("holds, in this order, Settings, Change icon, Show archived work items, New group, Open in Finder and in each installed app, Copy path, Hide from sidebar and Remove, each with what its press does", () => {
+    expect(plain(repositoryMenu(PROJECT, APPS))).toEqual([
+      { label: "Settings", action: { do: "settings", id: 1 }, divides: false },
+      { label: "Change icon", action: { do: "icon", id: 1 }, divides: false },
+      { label: "Show archived work items", action: { do: "archived", id: 1 }, divides: true },
+      { label: "New group", action: { do: "group", id: 1 }, divides: false },
+      { label: "Open in Finder", action: { do: "open", folder: "/r/project", app: null }, divides: true },
+      { label: "Open in Zed", action: { do: "open", folder: "/r/project", app: "Zed" }, divides: false },
+      { label: "Open in Warp", action: { do: "open", folder: "/r/project", app: "Warp" }, divides: false },
+      { label: "Copy path", action: { do: "copy", text: "/r/project" }, divides: true },
+      { label: "Hide from sidebar", action: { do: "hide", id: 1 }, divides: true },
+      { label: "Remove", action: { do: "remove", id: 1 }, divides: false },
+    ]);
+  });
+
+  it("offers Finder alone where no app is installed", () => {
+    expect(repositoryMenu(PROJECT, []).map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in Finder", "Copy path", "Hide from sidebar", "Remove"]);
+  });
+});
+
+describe("a description on hover", () => {
+  it("gives every entry of a work item's menu and of a repository's menu a description that is not empty and is not its label, and no two entries of one menu the same one", () => {
+    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS)];
+    for (const menu of menus) {
+      for (const { label, description } of menu) {
+        expect(description.trim(), label).not.toBe("");
+        expect(description, label).not.toBe(label);
+        // A sentence, and not the label with a full stop.
+        expect(description.endsWith("."), label).toBe(true);
+        expect(description.toLowerCase(), label).not.toBe(`${label.toLowerCase()}.`);
+      }
+      expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
+    }
+    expect(menus.map((menu) => menu.length)).toEqual([10, 10, 10, 7, 12, 12]);
+  });
+
+  it("says of the button at the sidebar's top, of a repository's two buttons and of the form's choice what each does, and tells registering a repository from creating a work item", () => {
+    expect(NEW_WORK_ITEM_SAYS).toBe("Create a work item: a new branch and worktree in a repository. The form can also register a repository alone.");
+    expect(REGISTER_ONLY_SAYS).toBe("Add the repository to the sidebar without creating a work item, a branch or a worktree.");
+    expect(rowButtons("the project")).toEqual({
+      add: { name: "New work item in the project", says: "Create a work item in the project: a new branch and worktree." },
+      menu: { name: "Menu of the project", says: "Open the menu of the project: its settings, its icon, hiding it and removing it." },
+    });
+  });
+});
+
+describe("hiddenRepositories", () => {
+  it("gives the hidden repositories in the daemon's order, and says how many they are, or nothing where none is hidden", () => {
+    const docs: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs", hidden: true };
+    const third: Repository = { ...PROJECT, id: 3, folder: "/r/third", name: "third", hidden: true };
+    expect(hiddenRepositories([PROJECT])).toEqual({ says: "", hidden: [] });
+    expect(hiddenRepositories([])).toEqual({ says: "", hidden: [] });
+    expect(hiddenRepositories([docs, PROJECT])).toEqual({ says: "1 hidden repository", hidden: [docs] });
+    expect(hiddenRepositories([third, PROJECT, docs])).toEqual({ says: "2 hidden repositories", hidden: [third, docs] });
+  });
+});
+
+describe("removalOf", () => {
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repoId: 2 };
+  const SHELVED: WorkItem = { ...LOGIN, id: 4, title: "Shelved", archivedAt: 50 };
+
+  it("names each work item the repository holds, the archived among them, and none of another repository", () => {
+    expect(removalOf(PROJECT, [LOGIN, DOCS, SEARCH], [SHELVED, { ...SHELVED, id: 5, repoId: 2 }], [], [], KINDS)).toEqual({
+      workItems: [
+        { id: 1, title: "Fix the login bug", archived: false },
+        { id: 2, title: "Speed up search", archived: false },
+        { id: 4, title: "Shelved", archived: true },
+      ],
+      sessions: [],
+      running: { panes: [], headless: [] },
+    });
+    expect(removalOf(PROJECT, [DOCS], [], [], [], KINDS)).toEqual({ workItems: [], sessions: [], running: { panes: [], headless: [] } });
+  });
+
+  it("names each running session of those work items, a pane by its tab's label and a headless session by its prompt, and gives their ids: no pane that exited, no headless session that ended, and none of another repository's work item", () => {
+    const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 3 }), session(9, { workItemId: 4 }), session(10, { workItemId: null })];
+    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 3 }), headless(5, { workItemId: 2, prompt: "Where is the index built?" })];
+    expect(removalOf(PROJECT, [LOGIN, DOCS, SEARCH], [SHELVED], sessions, asked, KINDS)).toMatchObject({
+      sessions: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Asked in Fix the login bug: Which file holds the login form?", "Asked in Speed up search: Where is the index built?"],
+      running: { panes: [5, 7, 9], headless: [1, 5] },
+    });
+  });
+});
+
+describe("what a delete dialog says of a loss", () => {
+  const NOTHING: WorkItemLoss = { branch: null, worktree: null, commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null, unreachable: false, stamp: "s" };
+  const CLEAN: WorkItemLoss = { ...NOTHING, branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", ignored: [".env", "node_modules/"], ignoredCount: 2 };
+  const HOLDS: WorkItemLoss = { ...CLEAN, commits: [{ hash: "abc1234", subject: "add the form" }], commitCount: 1, uncommitted: ["README.md"], uncommittedCount: 1, untracked: ["newdir/deep/u.txt"], untrackedCount: 1 };
+
+  it("names the branch and the folder a delete removes, each commit by its hash and its subject, and each file by its path, under a heading for each kind, and leaves out a kind the loss holds none of", () => {
+    expect(lossSections(HOLDS)).toEqual([
+      { caption: "Removed from disk", lines: ["The branch owlery/fix-the-login-bug", "The folder /w/project/fix-the-login-bug"], more: "" },
+      { caption: "Commits no other branch, no remote and no tag holds", lines: ["abc1234 add the form"], more: "" },
+      { caption: "Files with changes that are not committed", lines: ["README.md"], more: "" },
+      { caption: "Untracked files", lines: ["newdir/deep/u.txt"], more: "" },
+      { caption: "Ignored files and folders, which go with the folder", lines: [".env", "node_modules/"], more: "" },
+    ]);
+    expect(lossSections(CLEAN).map(({ caption }) => caption)).toEqual(["Removed from disk", "Ignored files and folders, which go with the folder"]);
+    expect(lossSections({ ...NOTHING, branch: "owlery/gone-folder" })).toEqual([{ caption: "Removed from disk", lines: ["The branch owlery/gone-folder"], more: "" }]);
+    expect(lossSections({ ...NOTHING, unreachable: true })).toEqual([]);
+  });
+
+  it("says how many more there are where a list is cut, of each kind by its own count", () => {
+    const cut = lossSections({ ...HOLDS, commitCount: 501, uncommittedCount: 2, untrackedCount: 1, ignoredCount: 14 });
+    expect(cut.map(({ more }) => more)).toEqual(["", "and 500 more", "and 1 more", "", "and 12 more"]);
+  });
+
+  it("offers Force delete only where a commit, a changed file or an untracked file would be lost, and turns Delete on once the loss has arrived, unless the delete is blocked or would lose work and is not forced", () => {
+    expect(deleteChoice(null, false)).toEqual({ forceShown: false, enabled: false });
+    expect(deleteChoice(null, true)).toEqual({ forceShown: false, enabled: false });
+    // The ignored files are named and need no force.
+    expect(deleteChoice(CLEAN, false)).toEqual({ forceShown: false, enabled: true });
+    expect(deleteChoice(HOLDS, false)).toEqual({ forceShown: true, enabled: false });
+    expect(deleteChoice(HOLDS, true)).toEqual({ forceShown: true, enabled: true });
+    for (const lost of [{ commitCount: 1 }, { uncommittedCount: 1 }, { untrackedCount: 1 }]) expect(deleteChoice({ ...CLEAN, ...lost }, false)).toEqual({ forceShown: true, enabled: false });
+    expect(deleteChoice({ ...CLEAN, blocked: "The worktree is locked." }, false)).toEqual({ forceShown: false, enabled: false });
+    expect(deleteChoice({ ...HOLDS, blocked: "The worktree is locked." }, true)).toEqual({ forceShown: true, enabled: false });
+    expect(deleteChoice({ ...NOTHING, unreachable: true }, false)).toEqual({ forceShown: false, enabled: true });
+  });
+
+  it("says before the lists what the delete does: that it is being read, why it cannot run, that work would be lost, that the folder stays where git reads nothing, or what it removes", () => {
+    expect(deleteSays(null)).toBe("Reading what a delete would remove.");
+    expect(deleteSays({ ...HOLDS, blocked: "The worktree /w is locked, so git does not remove it." })).toBe("The worktree /w is locked, so git does not remove it.");
+    expect(deleteSays(HOLDS)).toBe("A delete would lose the work named below. It runs only with Force delete checked.");
+    expect(deleteSays(CLEAN)).toBe("A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists.");
+    expect(deleteSays({ ...NOTHING, unreachable: true })).toBe("Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.");
+  });
+
+  describe("removalChoice", () => {
+    const NEITHER = "Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.";
+
+    it("shows the choice to delete the work items only where the repository holds one, and turns the Trash's choice on where it holds none or the work items are deleted", () => {
+      expect(removalChoice(0, false, false, [], false)).toEqual({ deleteShown: false, trashEnabled: true, forceShown: false, enabled: true, says: NEITHER });
+      expect(removalChoice(2, false, false, [], false)).toEqual({ deleteShown: true, trashEnabled: false, forceShown: false, enabled: true, says: NEITHER });
+      expect(removalChoice(2, true, false, [CLEAN, CLEAN], false)).toMatchObject({ deleteShown: true, trashEnabled: true, forceShown: false, enabled: true });
+    });
+
+    it("turns Remove off, where the work items are deleted, until every loss has arrived, while one is blocked, and while one would lose work and Force delete is not checked", () => {
+      expect(removalChoice(2, true, false, [CLEAN, undefined], false)).toMatchObject({ forceShown: false, enabled: false });
+      expect(removalChoice(2, true, false, [CLEAN, { ...CLEAN, blocked: "locked" }], true)).toMatchObject({ forceShown: false, enabled: false });
+      expect(removalChoice(2, true, false, [CLEAN, HOLDS], false)).toMatchObject({ forceShown: true, enabled: false });
+      expect(removalChoice(2, true, false, [CLEAN, HOLDS], true)).toMatchObject({ forceShown: true, enabled: true });
+      // With the choice not taken, a loss decides nothing.
+      expect(removalChoice(2, false, false, [HOLDS, undefined], false)).toMatchObject({ forceShown: false, enabled: true });
+    });
+
+    it("says what the removal does on disk for each choice", () => {
+      expect(removalChoice(2, true, false, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
+      expect(removalChoice(0, false, true, [], false).says).toBe("Owlery will no longer list the repository. Its folder moves to the Trash, whole, and nothing in it is erased.");
+      expect(removalChoice(2, true, true, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.");
+      // The Trash's choice counts only where it can be taken.
+      expect(removalChoice(2, false, true, [], false).says).toBe(NEITHER);
+    });
+  });
+
+  it("gives a removal that deletes the stamp of each work item's loss, by the work item's id, and whether it is forced", () => {
+    expect(deletionOf([1, 4], new Map([[1, CLEAN], [4, { ...HOLDS, stamp: "t" }], [9, HOLDS]]), true)).toEqual({ stamps: { 1: "s", 4: "t" }, force: true });
+    // A work item whose loss has not arrived has no stamp, and the daemon refuses the removal.
+    expect(deletionOf([1, 4], new Map([[1, CLEAN]]), false)).toStrictEqual({ stamps: { 1: "s" }, force: false });
+  });
+});
+
+describe("archivalOf", () => {
+  it("names each running session of the work item, a pane by its tab's label and a headless session by its prompt, and gives their ids: no pane that exited, no headless session that ended, and none of another work item", () => {
+    const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 2 }), session(9), session(10, { workItemId: null })];
+    const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 2 })];
+    expect(archivalOf(LOGIN, sessions, asked, KINDS)).toEqual({
+      sessions: ["Shell 1", "Shell 3", "Claude Code", "Asked: Which file holds the login form?"],
+      running: { panes: [5, 7, 9], headless: [1] },
+    });
+  });
+
+  it("names none where no session of the work item runs, so its archive asks nothing first", () => {
+    expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
+  });
+});
+
+describe("archivedIn", () => {
+  it("gives a repository's archived work items, the one archived last first, and none of another repository", () => {
+    const shelved = (id: number, archivedAt: number, repoId = 1): WorkItem => ({ ...LOGIN, id, repoId, archivedAt });
+    expect(archivedIn(1, [shelved(4, 50), shelved(5, 70, 2), shelved(6, 90), shelved(7, 60)]).map((workItem) => workItem.id)).toEqual([6, 7, 4]);
+    expect(archivedIn(3, [shelved(4, 50)])).toEqual([]);
+  });
+
+  it("keeps two archived at one time in the order given", () => {
+    const shelved = (id: number, archivedAt: number): WorkItem => ({ ...LOGIN, id, archivedAt });
+    expect(archivedIn(1, [shelved(4, 50), shelved(5, 50), shelved(6, 80)]).map((workItem) => workItem.id)).toEqual([6, 4, 5]);
+  });
+});
+
+describe("archivedHead", () => {
+  it("names the repository whose archived work items the screen lists", () => {
+    expect(archivedHead("the project")).toBe("Archived in the project");
+  });
+});
+
+describe("settingsBases", () => {
+  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop" };
+
+  it("lists the repository's local and remote bases whole, under a first choice that stores none, and chooses the base the repository has where the plan lists it", () => {
+    expect(settingsBases(PLAN, "develop")).toEqual({ local: ["main", "develop"], remote: ["origin/main"], value: "develop" });
+    expect(settingsBases(PLAN, "origin/main").value).toBe("origin/main");
+    expect(settingsBases(PLAN, null).value).toBe("");
+  });
+
+  it("lists a base the repository has and the plan does not, so the choice the daemon keeps stays the one shown, and lists that base alone until the daemon answers and where it refuses", () => {
+    expect(settingsBases(PLAN, "gone")).toEqual({ local: ["main", "develop", "gone"], remote: ["origin/main"], value: "gone" });
+    expect(settingsBases(null, "develop")).toEqual({ local: ["develop"], remote: [], value: "develop" });
+    expect(settingsBases({ error: "/r/project is not inside a git repository" }, null)).toEqual({ local: [], remote: [], value: "" });
+  });
+});
+
+describe("settingsFields", () => {
+  const NAMED: Repository = { ...PROJECT, name: "The project", customName: "The project", defaultBase: "develop" };
+
+  it("sends the name where it is another than the one a person gave, without the white space at its ends, and null for an empty one", () => {
+    expect(settingsFields(PROJECT, "  The project ", "")).toEqual({ name: "The project" });
+    expect(settingsFields(NAMED, "", "develop")).toEqual({ name: null });
+    expect(settingsFields(NAMED, "Another", "develop")).toEqual({ name: "Another" });
+  });
+
+  it("sends the base where it is another than the one the repository has, null for the first choice, and nothing where neither field changed", () => {
+    expect(settingsFields(PROJECT, "", "develop")).toEqual({ defaultBase: "develop" });
+    expect(settingsFields(NAMED, "The project", "")).toEqual({ defaultBase: null });
+    expect(settingsFields(NAMED, "Renamed", "main")).toEqual({ name: "Renamed", defaultBase: "main" });
+    expect(settingsFields(NAMED, " The project ", "develop")).toEqual({});
+    expect(settingsFields(PROJECT, "  ", "")).toEqual({});
+  });
+});
+
+describe("registerFields", () => {
+  it("gives the folder the form's field holds, without the spaces around it, and refuses an empty one in the form's words", () => {
+    expect(registerFields("  /r/project ")).toEqual({ folder: "/r/project" });
+    expect(registerFields("   ")).toEqual({ error: "Choose the repository folder." });
+  });
+});
+
+describe("pinnedFirst", () => {
+  const item = (id: number, pinned: boolean) => ({ workItem: { ...LOGIN, id, pinned } });
+
+  it("puts the pinned work items before the others, and keeps the order among the pinned and among the others", () => {
+    expect(pinnedFirst([item(1, false), item(2, true), item(3, false), item(4, true)]).map(({ workItem }) => workItem.id)).toEqual([2, 4, 1, 3]);
+    expect(pinnedFirst([item(1, false), item(2, false)]).map(({ workItem }) => workItem.id)).toEqual([1, 2]);
+  });
+
+  it("puts a pinned work item first in its state's group of the inbox, and before no line of a state a person acts on sooner", () => {
+    const sessions = [session(5, { workItemId: 1, state: "working" }), session(6, { workItemId: 2, state: "waiting" }), session(7, { workItemId: 3, state: "working" })];
+    const third: WorkItem = { ...LOGIN, id: 3, title: "Third", pinned: true };
+    const groups = inboxGroups(pinnedFirst(workItemEntries([LOGIN, SEARCH, third], sessions, KINDS)));
+    expect(groups.map((group) => [group.state, group.entries.map((entry) => entry.workItem.id)])).toEqual([
+      ["waiting", [2]],
+      ["working", [3, 1]],
+    ]);
+  });
+});
+
+describe("lineMarks", () => {
+  it("marks a pinned work item's line with the words Pinned, a muted one's with Notifications muted, and a line of neither with nothing", () => {
+    expect(lineMarks(LOGIN)).toEqual([]);
+    expect(lineMarks({ ...LOGIN, pinned: true })).toEqual([{ mark: "pinned", words: "Pinned" }]);
+    expect(lineMarks({ ...LOGIN, muted: true })).toEqual([{ mark: "muted", words: "Notifications muted" }]);
+    expect(lineMarks({ ...LOGIN, pinned: true, muted: true }).map(({ mark }) => mark)).toEqual(["pinned", "muted"]);
+  });
+});
+
+describe("renameChoice", () => {
+  it("enables the choice to rename the branch too where the plan names a branch and nothing stands in the way, and says the branch", () => {
+    expect(renameChoice({ branch: "owlery/second-name", blocked: null })).toEqual({ enabled: true, says: "The branch becomes owlery/second-name." });
+  });
+
+  it("disables the choice and says why, where the plan says the branch keeps its name, and where the daemon refused the plan", () => {
+    expect(renameChoice({ branch: "owlery/first-name", blocked: "The branch is already owlery/first-name." })).toEqual({ enabled: false, says: "The branch is already owlery/first-name." });
+    expect(renameChoice({ branch: null, blocked: "The name leaves no letter or digit to name a branch by." })).toEqual({ enabled: false, says: "The name leaves no letter or digit to name a branch by." });
+    expect(renameChoice({ error: "no work item 9" })).toEqual({ enabled: false, says: "no work item 9" });
+  });
+
+  it("disables the choice and says nothing until the daemon has answered", () => {
+    expect(renameChoice(null)).toEqual({ enabled: false, says: "" });
   });
 });
 
@@ -772,6 +1199,23 @@ describe("notificationFor", () => {
     expect(notificationFor("finished", session(3, { state: null }), false, [LOGIN], KINDS)).toBeNull();
   });
 
+  it("shows nothing for a session of a muted work item, and the notification for the same session where the work item is not muted", () => {
+    const waits = session(3, { state: "waiting" });
+    expect(notificationFor("working", waits, false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
+    expect(notificationFor("working", session(3, { state: "finished" }), false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
+    expect(notificationFor("working", waits, false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    // Another work item's mute says nothing of this session.
+    expect(notificationFor("working", waits, false, [LOGIN, { ...SEARCH, muted: true }], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+  });
+
+  it("shows nothing for a session of an archived work item, which the list of work items does not hold, and the notification for a session of another", () => {
+    const shelved: WorkItem = { ...LOGIN, archivedAt: 50 };
+    expect(notificationFor("working", session(3, { state: "finished" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
+    expect(notificationFor("working", session(3, { state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
+    expect(notificationFor("working", session(3, { workItemId: 2, state: "finished" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Speed up search", body: "Finished" });
+    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Claude Code", body: "Waiting for you" });
+  });
+
   it("shows nothing for a state the session was already in", () => {
     expect(notificationFor("waiting", session(3, { state: "waiting" }), false, [LOGIN], KINDS)).toBeNull();
     expect(notificationFor("finished", session(3, { state: "finished" }), false, [LOGIN], KINDS)).toBeNull();
@@ -953,41 +1397,104 @@ describe("workItemEntries", () => {
 });
 
 describe("sidebarTree", () => {
-  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+  const DOCS_REPO: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs" };
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repoId: 2, repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+  const rows = (tree: ReturnType<typeof sidebarTree>) => tree.map((repository) => [repository.id, repository.repo, repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
+  /** Each repository of a tree with its count, its ungrouped work items and its groups, each group with its name, its id and its work items. */
+  const grouping = (tree: ReturnType<typeof sidebarTree>) => tree.map((repository) => [repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id), repository.groups.map((group) => [group.name, group.id, group.entries.map((entry) => entry.workItem.id)])]);
 
-  it("lists each repository that has a work item, in the order of its first one, with its name, its count and its work items in the daemon's order", () => {
+  it("lists every repository the daemon keeps that is not hidden, in the daemon's order, each with its name, its count and its work items in the daemon's order, a repository with no work item among them", () => {
+    const hidden: Repository = { ...PROJECT, id: 3, folder: "/r/hidden", name: "hidden", hidden: true };
+    const empty: Repository = { ...PROJECT, id: 4, folder: "/r/empty", name: "empty" };
+    const unseen: WorkItem = { ...LOGIN, id: 4, title: "Out of sight", repoId: 3, repo: "/r/hidden", repoName: "hidden" };
     const sessions = [session(4, { workItemId: 2, state: "waiting" })];
-    const tree = sidebarTree([LOGIN, DOCS, SEARCH], sessions, KINDS);
-    expect(tree.map((repository) => [repository.repo, repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)])).toEqual([
-      ["/r/project", "project", 2, [1, 2]],
-      ["/r/docs", "docs", 1, [3]],
+    // The repositories stand in the store's order, whichever has the first work item.
+    const tree = sidebarTree([DOCS_REPO, hidden, empty, PROJECT], [LOGIN, unseen, DOCS, SEARCH], sessions, KINDS);
+    expect(rows(tree)).toEqual([
+      [2, "/r/docs", "docs", 1, [3]],
+      [4, "/r/empty", "empty", 0, []],
+      [1, "/r/project", "project", 2, [1, 2]],
     ]);
-    expect(tree[0]?.entries[1]?.line.state).toBe("waiting");
+    expect(tree[2]?.entries[1]?.line.state).toBe("waiting");
   });
 
-  it("keeps two repositories of one name apart, each under its own folder", () => {
-    const other: WorkItem = { ...SEARCH, repo: "/elsewhere/project" };
-    expect(sidebarTree([LOGIN, other], [], KINDS).map((repository) => [repository.repo, repository.name, repository.count])).toEqual([
-      ["/r/project", "project", 1],
-      ["/elsewhere/project", "project", 1],
+  it("puts a repository's pinned work items before its others, each in the daemon's order, and none before a work item of another repository", () => {
+    const pinned: WorkItem = { ...SEARCH, pinned: true };
+    const fourth: WorkItem = { ...LOGIN, id: 4, title: "Fourth", pinned: true };
+    const guide: WorkItem = { ...DOCS, pinned: true };
+    expect(rows(sidebarTree([PROJECT, DOCS_REPO], [LOGIN, pinned, guide, fourth], [], KINDS))).toEqual([
+      [1, "/r/project", "project", 3, [2, 4, 1]],
+      [2, "/r/docs", "docs", 1, [3]],
     ]);
   });
 
-  it("names a repository as the daemon names it", () => {
-    expect(sidebarTree([{ ...LOGIN, repoName: "the project" }], [], KINDS).map((repository) => repository.name)).toEqual(["the project"]);
+  it("lists under a repository its ungrouped work items, the pinned one first, and then each group with its own, and leaves a hidden repository out", () => {
+    const hidden: Repository = { ...PROJECT, id: 3, folder: "/r/hidden", name: "hidden", hidden: true, groups: [{ id: 9, name: "Unseen" }] };
+    const empty: Repository = { ...PROJECT, id: 4, folder: "/r/empty", name: "empty" };
+    const grouped: Repository = { ...PROJECT, groups: [{ id: 7, name: "Later" }] };
+    const pinned: WorkItem = { ...SEARCH, pinned: true };
+    const later: WorkItem = { ...LOGIN, id: 5, title: "Later on", groupId: 7 };
+    const unseen: WorkItem = { ...LOGIN, id: 6, repoId: 3, groupId: 9 };
+    expect(grouping(sidebarTree([grouped, hidden, empty], [LOGIN, later, pinned, unseen], [], KINDS))).toEqual([
+      ["project", 3, [2, 1], [["Later", 7, [5]]]],
+      ["empty", 0, [], []],
+    ]);
   });
 
-  it("names a repository by the last part of its folder where the daemon sent no name, as one of an earlier build does", () => {
-    const unnamed = { ...LOGIN, repo: "/r/older/", repoName: undefined } as unknown as WorkItem;
-    expect(sidebarTree([unnamed], [], KINDS).map((repository) => repository.name)).toEqual(["older"]);
+  it("lists a repository's groups in the order they were made, one with no work item among them, each group's pinned work items before its others, and a work item whose group its repository does not hold among the ungrouped", () => {
+    const grouped: Repository = { ...PROJECT, groups: [{ id: 7, name: "Later" }, { id: 8, name: "Drafts" }, { id: 4, name: "Earlier id, made last" }] };
+    const other: Repository = { ...DOCS_REPO, groups: [{ id: 9, name: "Theirs" }] };
+    const items: WorkItem[] = [
+      { ...LOGIN, groupId: 4 },
+      { ...SEARCH, groupId: 7 },
+      { ...LOGIN, id: 5, groupId: 7, pinned: true },
+      // A group of another repository, and one no repository holds.
+      { ...LOGIN, id: 6, groupId: 9 },
+      { ...LOGIN, id: 7, groupId: 99 },
+      { ...DOCS, groupId: 9 },
+    ];
+    expect(grouping(sidebarTree([grouped, other], items, [], KINDS))).toEqual([
+      ["project", 5, [6, 7], [["Later", 7, [5, 2]], ["Drafts", 8, []], ["Earlier id, made last", 4, [1]]]],
+      ["docs", 1, [], [["Theirs", 9, [3]]]],
+    ]);
   });
 
-  it("lists nothing where no work item is given", () => {
-    expect(sidebarTree([], [], KINDS)).toEqual([]);
+  it("leaves out a group none of whose work items a search or a filter leaves, counts under the repository the ones left in and out of its groups, and marks a grouped title as an ungrouped one", () => {
+    const grouped: Repository = { ...PROJECT, groups: [{ id: 7, name: "Later" }, { id: 8, name: "Drafts" }] };
+    const items: WorkItem[] = [LOGIN, { ...SEARCH, groupId: 7 }, { ...LOGIN, id: 5, title: "Search the logs", branch: "owlery/search-the-logs", groupId: 8 }];
+    const sessions = [session(4, { workItemId: 2, state: "waiting" })];
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "search"))).toEqual([["project", 2, [], [["Later", 7, [2]], ["Drafts", 8, [5]]]]]);
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "", "waiting"))).toEqual([["project", 1, [], [["Later", 7, [2]]]]]);
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "login"))).toEqual([["project", 1, [1], []]]);
+    // A repository whose one match stands in a group is listed, and one with a group and no match is not.
+    expect(grouping(sidebarTree([grouped], items, sessions, KINDS, "nowhere"))).toEqual([]);
+    expect(sidebarTree([grouped], items, sessions, KINDS, "LOGS")[0]?.groups[0]?.entries.map((entry) => [entry.line.title, entry.marks])).toEqual([["Search the logs", [[11, 15]]]]);
+  });
+
+  it("puts a work item under the repository whose id it names, whatever folder and name the work item carries, and keeps two repositories of one name apart", () => {
+    const other: Repository = { ...PROJECT, id: 2, folder: "/elsewhere/project" };
+    const moved: WorkItem = { ...SEARCH, repoId: 2 };
+    expect(rows(sidebarTree([PROJECT, other], [LOGIN, moved], [], KINDS))).toEqual([
+      [1, "/r/project", "project", 1, [1]],
+      [2, "/elsewhere/project", "project", 1, [2]],
+    ]);
+  });
+
+  it("names a repository as the daemon names it, and carries its icon, or none", () => {
+    expect(sidebarTree([{ ...PROJECT, name: "the project", customName: "the project", icon: "P" }, { ...PROJECT, id: 2 }], [LOGIN], [], KINDS).map((repository) => [repository.name, repository.icon])).toEqual([
+      ["the project", "P"],
+      ["project", null],
+    ]);
+  });
+
+  it("makes up no repository: it lists none where the daemon sends none, and none for a work item whose repository the daemon did not send", () => {
+    expect(sidebarTree([], [], [], KINDS)).toEqual([]);
+    expect(sidebarTree([], [LOGIN, DOCS], [], KINDS)).toEqual([]);
+    expect(rows(sidebarTree([PROJECT], [LOGIN, DOCS], [], KINDS))).toEqual([[1, "/r/project", "project", 1, [1]]]);
   });
 
   it("marks in each title the letters a search matches, and none where nothing is typed or the match stands elsewhere", () => {
-    const titles = (query: string) => sidebarTree([LOGIN, SEARCH, DOCS], [], KINDS, query).flatMap((repository) => repository.entries.map((entry) => [entry.line.title, entry.marks]));
+    const titles = (query: string) => sidebarTree([PROJECT, DOCS_REPO], [LOGIN, SEARCH, DOCS], [], KINDS, query).flatMap((repository) => repository.entries.map((entry) => [entry.line.title, entry.marks]));
     // "search" stands in the second title and in its branch, and the sidebar draws no branch.
     expect(titles("SEARCH")).toEqual([["Speed up search", [[9, 15]]]]);
     // "docs" is the name of the third work item's repository, so its title stays plain.
@@ -999,17 +1506,42 @@ describe("sidebarTree", () => {
     ]);
   });
 
-  it("counts under a repository the work items a search and a filter leave, and leaves out a repository none of whose work items is left", () => {
+  it("counts under a repository the work items a search and a filter leave, and leaves out a repository none of whose work items is left, one with no work item among them, while a search is typed or a state is chosen", () => {
+    const empty: Repository = { ...PROJECT, id: 4, folder: "/r/empty", name: "empty" };
     const sessions = [session(4, { workItemId: 2, state: "waiting" }), session(5, { workItemId: 3, state: "waiting" })];
-    const counts = (query: string, state: Parameters<typeof sidebarTree>[4]) =>
-      sidebarTree([LOGIN, SEARCH, DOCS], sessions, KINDS, query, state).map((repository) => [repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
+    const counts = (query: string, state: Parameters<typeof sidebarTree>[5]) =>
+      sidebarTree([PROJECT, empty, DOCS_REPO], [LOGIN, SEARCH, DOCS], sessions, KINDS, query, state).map((repository) => [repository.name, repository.count, repository.entries.map((entry) => entry.workItem.id)]);
+    expect(counts("", "all")).toEqual([
+      ["project", 2, [1, 2]],
+      ["empty", 0, []],
+      ["docs", 1, [3]],
+    ]);
     expect(counts("login", "all")).toEqual([["project", 1, [1]]]);
     expect(counts("", "waiting")).toEqual([
       ["project", 1, [2]],
       ["docs", 1, [3]],
     ]);
     expect(counts("the", "waiting")).toEqual([["docs", 1, [3]]]);
+    // The repository's own name is typed, and it has no work item to show for it.
+    expect(counts("empty", "all")).toEqual([]);
     expect(counts("nowhere", "all")).toEqual([]);
+  });
+});
+
+describe("daemonLists", () => {
+  const EARLIER = "Owlery's background process is from an earlier build. End its sessions and start Owlery again.";
+
+  it("gives the repositories and the archived work items a `ready` or an `inbox` carries, and no notice", () => {
+    const archived: WorkItem = { ...SEARCH, archivedAt: 50 };
+    expect(daemonLists({ repositories: [PROJECT], archived: [archived] })).toEqual({ repositories: [PROJECT], archived: [archived], notice: "" });
+    expect(daemonLists({ repositories: [], archived: [] })).toEqual({ repositories: [], archived: [], notice: "" });
+    expect(daemonLists({ repositories: [PROJECT] })).toEqual({ repositories: [PROJECT], archived: [], notice: "" });
+  });
+
+  it("gives no repository, no archived work item and the notice of an earlier build where the daemon sends no repositories", () => {
+    expect(daemonLists({})).toEqual({ repositories: [], archived: [], notice: EARLIER });
+    // What an earlier daemon's `ready` holds, as the window receives it.
+    expect(daemonLists(JSON.parse(JSON.stringify({ type: "ready", sessions: [], workItems: [LOGIN], paneKinds: KINDS, headless: [], lastLook: null })))).toEqual({ repositories: [], archived: [], notice: EARLIER });
   });
 });
 
@@ -1034,6 +1566,19 @@ describe("historyLines", () => {
       session(8, { workItemId: 4, state: "finished", stateSince: 500 }),
     ];
     expect(historyLines(workItemEntries([LOGIN, SEARCH, third, fourth], sessions, KINDS)).map((entry) => entry.workItem.id)).toEqual([4, 2, 3, 1]);
+  });
+
+  it("puts a pinned work item first, before one that finished later, and keeps the pinned and the others each in the order of their finish", () => {
+    const pinned = (id: number): WorkItem => ({ ...LOGIN, id, pinned: true });
+    const plain = (id: number): WorkItem => ({ ...LOGIN, id });
+    const sessions = [
+      session(5, { workItemId: 1, state: "finished", stateSince: 100 }),
+      session(6, { workItemId: 2, state: "finished", stateSince: 400 }),
+      session(7, { workItemId: 3, state: "finished", stateSince: 300 }),
+      session(8, { workItemId: 4, state: "finished", stateSince: 200 }),
+      session(9, { workItemId: 5, state: "working", stateSince: 500 }),
+    ];
+    expect(historyLines(workItemEntries([pinned(1), plain(2), plain(3), pinned(4), pinned(5)], sessions, KINDS)).map((entry) => entry.workItem.id)).toEqual([4, 1, 2, 3]);
   });
 });
 
@@ -1061,7 +1606,7 @@ describe("markRanges", () => {
 });
 
 describe("matchWorkItems", () => {
-  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
+  const DOCS: WorkItem = { ...LOGIN, id: 3, title: "Write the guide", repoId: 2, repo: "/r/docs", repoName: "docs", branch: "owlery/write-the-guide" };
   const sessions = [session(4, { workItemId: 1, state: "waiting" }), session(5, { workItemId: 2, state: "working" }), session(6, { workItemId: 3, state: "finished" })];
   const FOURTH: WorkItem = { ...LOGIN, id: 4, title: "Tidy up", branch: "owlery/tidy-up" };
   const ids = (query: string, state: Parameters<typeof matchWorkItems>[2]) =>
@@ -1140,6 +1685,9 @@ describe("emptyList", () => {
   it("says in each screen's own sentence that it has no line at all", () => {
     expect(emptyList("inbox", 0, 0)).toBe("No work items yet.");
     expect(emptyList("history", 0, 0)).toBe("Nothing has finished yet.");
+    expect(emptyList("archived", 0, 0)).toBe("No work item of this repository is archived.");
+    expect(emptyList("archived", 2, 0)).toBe("No work item matches.");
+    expect(emptyList("archived", 2, 1)).toBe("");
   });
 });
 
@@ -1230,7 +1778,7 @@ describe("noticeWithout", () => {
 
 describe("commandKey", () => {
   const plain = { code: "KeyK", meta: false, ctrl: false, alt: false, shift: false };
-  const free = { mac: true, dialogOpen: false };
+  const free = { mac: true, dialogOpen: false, menuOpen: false };
 
   it("reads K with the Command key as the search's key, by the key's place on the keyboard", () => {
     expect(commandKey({ ...plain, meta: true }, free)).toBe("search");
@@ -1265,8 +1813,10 @@ describe("commandKey", () => {
     expect(commandKey({ ...w, meta: true, alt: true }, free)).toBeNull();
   });
 
-  it("reads no key while a dialog is open, with no modifier key, or with another one held as well", () => {
+  it("reads no key while a dialog is open, while a menu is open, with no modifier key, or with another one held as well", () => {
     expect(commandKey({ ...plain, meta: true }, { ...free, dialogOpen: true })).toBeNull();
+    expect(commandKey({ ...plain, meta: true }, { ...free, menuOpen: true })).toBeNull();
+    expect(commandKey({ ...plain, code: "KeyN", meta: true }, { ...free, menuOpen: true })).toBeNull();
     expect(commandKey(plain, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, shift: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, alt: true }, free)).toBeNull();
@@ -1842,12 +2392,13 @@ describe("viewFacts", () => {
 });
 
 describe("keyHints", () => {
-  it("says the keys of a list under its preview: the two that move through it, and the one that opens the form", () => {
-    expect(keyHints("inbox", true)).toEqual(["J K move through the inbox", "\u2318N opens a new work item"]);
+  it("says the keys of a list under its preview: the two that move through it, the one that opens the selected line's menu, and the one that opens the form", () => {
+    expect(keyHints("inbox", true)).toEqual(["J K move through the inbox", "M opens the menu", "\u2318N opens a new work item"]);
     expect(keyHints("history", true)[0]).toBe("J K move through the history");
+    expect(keyHints("archived", true)).toEqual(["J K move through the archived work items", "M opens the menu", "\u2318N opens a new work item"]);
   });
 
   it("names the Control key where the keyboard has no Command key", () => {
-    expect(keyHints("inbox", false)[1]).toBe("Ctrl N opens a new work item");
+    expect(keyHints("inbox", false)[2]).toBe("Ctrl N opens a new work item");
   });
 });
