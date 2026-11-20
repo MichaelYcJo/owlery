@@ -91,6 +91,20 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
   }
 
+  /** Has a client of the daemon other than the window close a pane, as a second window of the app would. */
+  async function closeFromElsewhere(pane: number): Promise<void> {
+    const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")), { once: true });
+      // The daemon answers a hello it takes with `ready`, and a close sent before that is no client's.
+      socket.addEventListener("message", () => resolve(), { once: true });
+      socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })), { once: true });
+    });
+    socket.send(JSON.stringify({ type: "close", id: pane }));
+    socket.close();
+  }
+
   /** Puts the one work item's view in front from another screen, by its line in the sidebar. */
   async function openView(): Promise<void> {
     await app.click("#repositories [data-work-item]");
@@ -234,6 +248,17 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click("#close-pane-confirm");
     await app.until(`${TABS}.length === 1`, "one tab");
     expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell"]);
+    expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it("closes the dialog where its pane is gone while it asks", async () => {
+    const pane = await openPane("Claude Code");
+    await app.until(`document.getElementById("strip-state").textContent.startsWith("Working")`, "the new pane's session as working");
+    await command("W");
+    await app.until(DIALOG_OPEN, "the dialog that asks before the close");
+    await closeFromElsewhere(pane);
+    await app.until(`${TABS}.length === 1`, "one tab");
     expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
