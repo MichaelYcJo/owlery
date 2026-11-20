@@ -1964,6 +1964,36 @@ describe("OutputBuffer", () => {
     expect(modesOf("\u001b[?025l\u001b[?25h")).toBe("\u001b[?25h");
   });
 
+  it("keeps the sequence its output stopped inside after the modes, so what the program prints next completes it", () => {
+    const buffer = new OutputBuffer(1000);
+    buffer.append("a line\r\n\u001b[?1000h\u001b[?20");
+    buffer.clear(true);
+    expect(buffer.text()).toBe("\u001b[?1000h\u001b[?20");
+    buffer.append("04hrest\r\n");
+    expect(buffer.text()).toBe("\u001b[?1000h\u001b[?2004hrest\r\n");
+    // Emptied without its modes, it keeps no unfinished sequence either.
+    buffer.append("\u001b[?20");
+    buffer.clear();
+    expect(buffer.text()).toBe("");
+  });
+
+  it.each([
+    ["an escape with nothing after it", "\u001b"],
+    ["an escape sequence that has only its intermediate character", "\u001b("],
+    ["a CSI sequence that has its parameters and no final character", "\u001b[38;5;1"],
+    ["an OSC string with no end", "\u001b]0;a ti"],
+  ])("keeps %s where its output stopped there", (_kind, open) => {
+    expect(modesOf(`one\r\n\u001b[1mtwo${open}`)).toBe(open);
+  });
+
+  it("keeps no sequence that ended before its output stopped: an OSC string ended by a bell or by a cancel, and a CSI sequence with its final character", () => {
+    expect(modesOf("\u001b]0;a title\u0007")).toBe("");
+    expect(modesOf("\u001b]0;a title\u0007one")).toBe("");
+    expect(modesOf("\u001b]0;a ti\u0018one")).toBe("");
+    expect(modesOf("\u001b[1m")).toBe("");
+    expect(modesOf("\u001b(B")).toBe("");
+  });
+
   it("keeps a mode that was only reset", () => {
     expect(modesOf("\u001b[?25lone\r\n")).toBe("\u001b[?25l");
   });

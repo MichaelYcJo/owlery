@@ -5,6 +5,8 @@ const LINE_REST_MAX = 4096;
 const PRIVATE_MODES = /\u001b\[\?(\d+(?:;\d+)*)([hl])/g;
 // The full reset, `ESC c`, which ends every mode.
 const FULL_RESET = "\u001bc";
+// The sequence the output stops inside, where it stops inside one: an escape alone or with its intermediate characters, a CSI sequence with no final character yet, or an OSC string with no end yet. A bell, a cancel (`18`, `1a`) and an escape each end an OSC string. Its rest arrives later, and a terminal that was cleared and not reset reads that rest as the sequence's.
+const OPEN_SEQUENCE = /\u001b(?:[ -/]*|\[[0-?]*[ -/]*|\][^\u0007\u0018\u001a\u001b]*)$/;
 
 /**
  * The private modes a text of output leaves a terminal with, as sequences:
@@ -77,10 +79,13 @@ export class OutputBuffer {
    * its place one sequence for each mode (`lastModes`). A replay then opens
    * with those sequences, so a terminal drawn from it has the modes again.
    * They count toward the buffer's size as output does, and the next
-   * emptying with `keepModes` reads them as it reads output.
+   * emptying with `keepModes` reads them as it reads output. Where the output
+   * stops inside a sequence, that unfinished sequence is kept after them, so
+   * the rest the program prints next completes it.
    */
   clear(keepModes = false): void {
-    const kept = keepModes ? lastModes(this.text()) : "";
+    const text = keepModes ? this.text() : "";
+    const kept = lastModes(text) + (OPEN_SEQUENCE.exec(text)?.[0] ?? "");
     this.chunks = kept === "" ? [] : [kept];
     this.size = kept.length;
   }
