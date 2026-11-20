@@ -4,7 +4,7 @@
 
 **The frame holds for this phase.** Each coordinate `frame/plan.md` *Technical context* gives was opened at `5e743e9` and stands where the frame says: `main.ts#createWindow` at lines 22 to 43 and the handlers at 45 to 77, `work-item-view.ts#newScreen` at 102 to 146, `tabElement` at 271 to 290 with its `close` at 287, `front` at line 31, `renderer.ts#onCommandKey` at 122 to 129, the reload at 368, the capture listener at 402, and `BuiltApp.start` at 121 to 144. The frame is wrong about the tree nowhere this phase reads it.
 
-The phase's code is in two commits, `373e20e` and `414d47f`. A third, `25d8045`, rewords two comments and changes no code.
+The phase's code is in two commits, `373e20e` and `414d47f`. Two more, `25d8045` and `ec84d9c`, change comments alone.
 
 ### `frame/questions.md` Q3: option (a)
 
