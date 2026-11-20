@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { Opener } from "../src/main/links";
 import { chooseFinder, type Finder, finderAct, pathsOf, showInFinder, standsAt } from "../src/main/paths";
@@ -62,7 +62,8 @@ describe("standsAt", () => {
 
   it("answers nothing for a path from the worktree where no worktree is named, or the one named is no whole path", async () => {
     expect(await standsAt(null, "src/a.ts", home)).toBeNull();
-    expect(await standsAt("worktree", "src/a.ts", home)).toBeNull();
+    // A worktree written from the folder the app runs in would be read from wherever that is.
+    expect(await standsAt(relative(process.cwd(), worktree), "src/a.ts", home)).toBeNull();
     expect(await standsAt("", "src/a.ts", home)).toBeNull();
   });
 
