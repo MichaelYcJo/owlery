@@ -4,7 +4,7 @@
 
 **The frame holds for this phase.** Each coordinate `frame/design.md` *Grounding* gives for the window was opened at `09ee137` and stands where the frame says: the foot's style and its markup at `src/renderer/index.html:194-199` and `:408-414`, `daemonStatus` at `src/renderer/view.ts:323-327`, its expectations at `test/view.test.ts:1189-1199`, and `BuiltApp.start`'s background default at `test/built-app.ts:179`. `KeepAwake`, `KeepAwakeChoice`, the `keepAwake` message and `setKeepAwake` stand in `src/shared/protocol.ts` as phase 1 left them, and this phase changed nothing of the daemon or of the protocol.
 
-The phase's code and cases are in commit `6ccb066`.
+The phase's code and cases are in commit `6ccb066`. Commit `d67ba47` removes one line of the built-app case that nothing read, found when the range's diff was read whole.
 
 ### Decisions the frame left to the build
 
@@ -46,6 +46,6 @@ A batch prints no case's failing line, so three mutants were read alone: the gua
 
 ### What the runs started
 
-The case of scenario 13 holds the plan's one `BuiltApp.start`. That case ran 18 times in this phase: twice red, once green, 14 times under `seal mutate` (a baseline for each of the four batches and a run for each of the ten mutants), and once in the phase boundary's run. Every start was in the background. After every run `ps -axo pid=,ppid=,args=` listed no `caffeinate` this phase started and no process of a temporary user data folder. One `caffeinate -i -t 300` whose parent is process 11040 ran throughout under changing ids, and is not this work's.
+The case of scenario 13 holds the plan's one `BuiltApp.start`. That case ran 19 times in this phase: twice red, once green, 14 times under `seal mutate` (a baseline for each of the four batches and a run for each of the ten mutants), once in the phase boundary's run at `6ccb066`, and once in the same run at `d67ba47`. Every start was in the background. After every run `ps -axo pid=,ppid=,args=` listed no `caffeinate` this phase started and no process of a temporary user data folder. One `caffeinate -i -t 300` whose parent is process 11040 ran throughout under changing ids, and is not this work's.
 
-The phase boundary's run was `node scripts/test-in-electron.mjs test/view.test.ts test/keep-awake.test.ts test/themes.test.ts test/navigation.test.ts`, from `apps/desktop/`: the plan's two files, and the two other files whose cases open a path this phase changed and start no app. `test/themes.test.ts` reads `index.html` and every module of `src/renderer/`. `test/terminal-basics.test.ts` and the other case files of the built app also run the page this phase changed, and the spawn allows the app's start to scenario 13's case alone, so they stay with the broad gate (`gaps.md` *Not verified*).
+The phase boundary's run, made at `6ccb066` and again at `d67ba47`, was `node scripts/test-in-electron.mjs test/view.test.ts test/keep-awake.test.ts test/themes.test.ts test/navigation.test.ts`, from `apps/desktop/`: the plan's two files, and the two other files whose cases open a path this phase changed and start no app. `test/themes.test.ts` reads `index.html` and every module of `src/renderer/`. `test/terminal-basics.test.ts` and the other case files of the built app also run the page this phase changed, and the spawn allows the app's start to scenario 13's case alone, so they stay with the broad gate (`gaps.md` *Not verified*).

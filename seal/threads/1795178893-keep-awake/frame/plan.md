@@ -51,7 +51,7 @@ What breaks in six months:
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 6: the choice and its file, the want, the hold and its child process, the protocol's three additions, and the holder given to the daemon on macOS. After this phase the Mac stays awake while an agent works, under the default choice | The cases of scenarios 1 to 11, each seen red before it is kept: `node scripts/test-in-electron.mjs test/keep-awake.test.ts test/daemon.test.ts`, run from `apps/desktop/` | `21cc0d0` |
-| 2 | `frame/design.md` *Scope* items 7 to 9: the control in the sidebar's foot, the status line's words, and the window against a daemon that sends no `keepAwake` | The cases of scenarios 12 to 14, each seen red before it is kept: `node scripts/test-in-electron.mjs test/view.test.ts test/keep-awake.test.ts`, run from `apps/desktop/`. Scenario 15 goes into `gaps.md` *Not verified* with the owner as its answerer (`frame/questions.md` Q1) | `6ccb066` |
+| 2 | `frame/design.md` *Scope* items 7 to 9: the control in the sidebar's foot, the status line's words, and the window against a daemon that sends no `keepAwake` | The cases of scenarios 12 to 14, each seen red before it is kept: `node scripts/test-in-electron.mjs test/view.test.ts test/keep-awake.test.ts`, run from `apps/desktop/`. Scenario 15 goes into `gaps.md` *Not verified* with the owner as its answerer (`frame/questions.md` Q1) | `d67ba47` |
 
 ## Overlap with the release
 
