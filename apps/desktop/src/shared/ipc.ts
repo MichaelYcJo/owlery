@@ -1,7 +1,10 @@
 // The channels between the window and the main process: where the daemon is,
-// the native folder dialog, which a page cannot open, and the theme a person
-// chose, which the main process keeps (./appearance). Everything else goes
-// between the window and the daemon, over the protocol in ./protocol.
+// the native folder dialog, which a page cannot open, the theme a person
+// chose, which the main process keeps (./appearance), and what a menu's
+// "Open in" and "Copy" items need of the Mac: the editors and terminals it
+// holds, a folder opened in Finder or in one of them, and the clipboard
+// (src/main/openers). Everything else goes between the window and the
+// daemon, over the protocol in ./protocol.
 import type { ThemeChoice } from "./appearance";
 
 export const Channel = {
@@ -10,7 +13,16 @@ export const Channel = {
   /** Answered at once, not by a promise: the preload reads the saved choice before the page is drawn. */
   appearance: "owlery:appearance",
   saveAppearance: "owlery:save-appearance",
+  installedApps: "owlery:installed-apps",
+  openFolder: "owlery:open-folder",
+  copyText: "owlery:copy-text",
 } as const;
+
+/** An editor or a terminal the Mac holds, which a menu offers to open a folder in. */
+export interface InstalledApp {
+  name: string;
+  kind: "editor" | "terminal";
+}
 
 export interface DaemonConnection {
   url: string;
@@ -31,4 +43,10 @@ export interface OwleryApi {
   appearance: ThemeChoice;
   /** Has the main process keep a new choice, so the next window opens in it. */
   saveAppearance(choice: ThemeChoice): Promise<void>;
+  /** The editors and the terminals the Mac holds, of those the main process knows, the editors first. */
+  installedApps(): Promise<InstalledApp[]>;
+  /** Opens a folder in Finder, where `app` is null, or in the installed app of that name. It answers null, or why nothing was opened, as a sentence the window shows as it is. */
+  openFolder(folder: string, app: string | null): Promise<string | null>;
+  /** Writes a text to the system's clipboard. */
+  copyText(text: string): Promise<void>;
 }

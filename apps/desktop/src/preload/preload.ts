@@ -25,6 +25,9 @@ const api: OwleryApi = {
   pickFolder: () => ipcRenderer.invoke(Channel.pickFolder),
   appearance,
   saveAppearance: (choice) => ipcRenderer.invoke(Channel.saveAppearance, choice),
+  installedApps: () => ipcRenderer.invoke(Channel.installedApps),
+  openFolder: (folder, app) => ipcRenderer.invoke(Channel.openFolder, folder, app),
+  copyText: (text) => ipcRenderer.invoke(Channel.copyText, text),
 };
 
 contextBridge.exposeInMainWorld("owlery", api);
