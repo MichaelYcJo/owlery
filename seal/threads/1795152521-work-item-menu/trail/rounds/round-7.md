@@ -66,6 +66,11 @@ frame/design.md:204, its first sentence:
 `apps/desktop/src/shared/ipc.ts`, `apps/desktop/src/preload/preload.ts` and `apps/desktop/src/main/main.ts` gain three channels: the installed apps, opening a folder in Finder or in one of them, and moving a repository's folder to the Trash. A menu's Copy goes over the channel `copyText` of the terminal basics work (issue #95), whose handler writes through `openers.ts#copyText`.
 ```
 
+```seal
+verdict: fixed d1187df
+answer: The finding holds. The orchestrator replaced the three sentences with the record's snippets word for word at `d1187df`, after reading `apps/desktop/src/main/main.ts:57` and `:149`, which hand `copyText` the writer of `chooseClipboard`. The change touches `gaps.md` and `frame/design.md` alone.
+```
+
 ### 2. The plan says no work item of the release meets this work, and three merged into it, one of them through seven conflicts
 
 ```seal
@@ -92,6 +97,11 @@ The spawn names no other open work item of `release/v0.0.1` and says none is in 
 | #31, the notification click (`485ba74`) | `apps/desktop/src/main/main.ts`, `src/preload/preload.ts`, `src/shared/ipc.ts`, `src/renderer/renderer.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts`, `test/view.test.ts` | #31 | Merged into this branch at `bb7e314`. The order #31, #94, #95, then #93 is the one `seal/threads/1795158088-terminal-basics/frame/plan.md` states |
 | #94, the continue pane (`02dea83`) | `apps/desktop/src/daemon/daemon.ts`, `src/daemon/main.ts`, `src/shared/protocol.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts`, `test/daemon.test.ts`, `test/view.test.ts` | #94 | Merged into this branch at `bb7e314` |
 | #95, terminal basics (`5413f0b`, pull request #103) | `apps/desktop/src/daemon/daemon.ts`, `src/main/main.ts`, `src/preload/preload.ts`, `src/shared/ipc.ts`, `src/shared/protocol.ts`, `src/renderer/index.html`, `src/renderer/renderer.ts`, `src/renderer/view.ts`, `src/renderer/work-item-view.ts`, `test/daemon.test.ts`, `test/view.test.ts` | #95 | Merged into this branch at `dc715b7`, with seven files in conflict. A menu's Copy writes #95's clipboard (`src/main/clipboard.ts`). The window's read of an open dialog reads every menu. The page draws a pane's menu in `work-item-view.ts` beside this work's `menu.ts`, and review round 7 found no defect a person meets from the two |
+```
+
+```seal
+verdict: fixed d1187df
+answer: The finding holds. The orchestrator replaced the paragraph and the table of `frame/plan.md` *Overlap with the release* with the record's snippet word for word at `d1187df`, after checking that `bb7e314` and `dc715b7` are the merges of `release/v0.0.1` into this branch. The change touches `frame/plan.md` alone.
 ```
 
 ## Confirmations
