@@ -4,6 +4,7 @@ import {
   ageOf,
   ahead,
   askButton,
+  baseMenu,
   changesSince,
   commandKey,
   commitLines,
@@ -33,6 +34,8 @@ import {
   notificationFor,
   paneInFront,
   paneTabs,
+  planAnswer,
+  planLine,
   recentKept,
   replayStep,
   screenMoves,
@@ -53,6 +56,7 @@ import {
   withHeadless,
   workItemEntries,
   workItemFields,
+  type FormPlan,
   type InboxLine,
 } from "../src/renderer/view";
 import type { CommitInfo, HeadlessInfo, Look, PaneKindInfo, SessionInfo, WorkItem } from "../src/shared/protocol";
@@ -744,16 +748,92 @@ describe("notificationFor", () => {
 });
 
 describe("workItemFields", () => {
-  it("gives the folder and the title without the spaces around them", () => {
-    expect(workItemFields("  /r/project ", " Fix the login bug  ")).toEqual({ repo: "/r/project", title: "Fix the login bug" });
+  it("gives the folder and the title without the spaces around them, with the generated name and the chosen base", () => {
+    expect(workItemFields("  /r/project ", " Fix the login bug  ", "amber-heron", "origin/main")).toEqual({ repo: "/r/project", title: "Fix the login bug", name: "amber-heron", base: "origin/main" });
   });
 
   it("refuses an empty folder, so nothing is sent that the daemon would run in its own folder", () => {
-    expect(workItemFields("   ", "Fix the login bug")).toEqual({ error: "Choose the repository folder." });
+    expect(workItemFields("   ", "Fix the login bug", "amber-heron", "main")).toEqual({ error: "Choose the repository folder." });
   });
 
-  it("refuses an empty title", () => {
-    expect(workItemFields("/r/project", " ")).toEqual({ error: "Give the work item a title." });
+  it("gives the fields of a creation for an empty name, which the daemon names by the generated name", () => {
+    expect(workItemFields("/r/project", " ", "amber-heron", "main")).toEqual({ repo: "/r/project", title: "", name: "amber-heron", base: "main" });
+  });
+
+  it("gives no base where none is chosen, so the daemon starts the work item from the default base", () => {
+    expect(workItemFields("/r/project", "", "amber-heron", null)).toEqual({ repo: "/r/project", title: "", name: "amber-heron" });
+  });
+});
+
+// A plan's answer as the form holds it: a clone whose checkout stands on `feature`.
+const PLAN: FormPlan = {
+  repo: "/r/project",
+  branch: "owlery/amber-heron",
+  worktree: "/w/project/amber-heron",
+  localBases: ["feature", "main", "owlery/fix-the-login-bug"],
+  remoteBases: ["origin/main", "origin/release"],
+  defaultBase: "origin/main",
+};
+
+describe("planAnswer", () => {
+  it("tells the answer to the form's latest plan from the answer to an earlier one, which is not shown", () => {
+    expect(planAnswer(7, new Set([5, 7]), 7)).toBe("latest");
+    expect(planAnswer(7, new Set([5, 7]), 5)).toBe("earlier");
+  });
+
+  it("is of no plan where the form asked no plan under the id, so a creation's error keeps its place", () => {
+    expect(planAnswer(7, new Set([5, 7]), 6)).toBe("other");
+    expect(planAnswer(undefined, new Set(), 1)).toBe("other");
+  });
+
+  it("is an earlier plan's once the form has asked for no plan since it was emptied", () => {
+    expect(planAnswer(undefined, new Set([5]), 5)).toBe("earlier");
+  });
+});
+
+describe("planLine", () => {
+  it("shows the branch and the folder the plan's answer gave", () => {
+    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", failed: false });
+  });
+
+  it("shows the error's message in the place of the branch where the daemon refused the plan", () => {
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", failed: true });
+  });
+
+  it("shows nothing where the form holds no answer, and where the answer is of another repository's text", () => {
+    const nothing = { branch: "", worktree: "", failed: false };
+    expect(planLine(null, "/r/project")).toEqual(nothing);
+    expect(planLine(PLAN, "/r/other")).toEqual(nothing);
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project")).toEqual(nothing);
+  });
+});
+
+describe("baseMenu", () => {
+  it("holds the default base first and chosen, then the local branches and the remotes' branches, with the default base in neither", () => {
+    expect(baseMenu(PLAN, null, "/r/project")).toEqual({ first: "origin/main", local: ["feature", "main", "owlery/fix-the-login-bug"], remote: ["origin/release"], value: "origin/main" });
+    expect(baseMenu({ ...PLAN, remoteBases: [], defaultBase: "main" }, null, "/r/project")).toEqual({ first: "main", local: ["feature", "owlery/fix-the-login-bug"], remote: [], value: "main" });
+  });
+
+  it("keeps the person's choice while the repository's text is the same and the answer lists the base", () => {
+    expect(baseMenu(PLAN, { repo: "/r/project", base: "feature" }, "/r/project ").value).toBe("feature");
+    expect(baseMenu(PLAN, { repo: "/r/project", base: "origin/release" }, "/r/project").value).toBe("origin/release");
+  });
+
+  it("goes back to the default base where the choice was made for another repository's text, or the answer no longer lists it", () => {
+    expect(baseMenu(PLAN, { repo: "/r/other", base: "feature" }, "/r/project").value).toBe("origin/main");
+    expect(baseMenu(PLAN, { repo: "/r/project", base: "gone" }, "/r/project").value).toBe("origin/main");
+  });
+
+  it("holds nothing and chooses nothing where the form holds no answer, an error, or an answer of another repository's text", () => {
+    const empty = { first: null, local: [], remote: [], value: null };
+    expect(baseMenu(null, null, "/r/project")).toEqual(empty);
+    expect(baseMenu({ repo: "/r/project", error: "refused" }, { repo: "/r/project", base: "main" }, "/r/project")).toEqual(empty);
+    expect(baseMenu(PLAN, { repo: "/r/project", base: "feature" }, "/r/other")).toEqual(empty);
+    expect(baseMenu({ ...PLAN, localBases: [], remoteBases: [], defaultBase: null }, null, "/r/project")).toEqual(empty);
+  });
+
+  it("chooses the first base listed where the repository has no default base, so the menu shows what the creation sends", () => {
+    expect(baseMenu({ ...PLAN, localBases: [], remoteBases: ["fork/main"], defaultBase: null }, null, "/r/project")).toEqual({ first: null, local: [], remote: ["fork/main"], value: "fork/main" });
   });
 });
 
@@ -1244,6 +1324,11 @@ describe("ahead", () => {
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 6, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main", fact: "main · 6 ahead" });
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 1, newCommits: 1 })).toEqual({ sentence: "1 commit ahead of main", fact: "main · 1 ahead" });
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 0, newCommits: 0 })).toEqual({ sentence: "0 commits ahead of main", fact: "main · 0 ahead" });
+  });
+
+  it("prints a base that is a remote's branch as it is stored, with the remote's name", () => {
+    expect(ahead({ ...LOGIN, baseBranch: "origin/main", aheadOfBase: 1, newCommits: 1 })).toEqual({ sentence: "1 commit ahead of origin/main", fact: "origin/main · 1 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: "origin/main", aheadOfBase: 6, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of origin/main", fact: "origin/main · 6 ahead" });
   });
 
   it("counts the commits the base branch does not hold, and not the commits since the cut, which hold the base's own once the base was merged in", () => {

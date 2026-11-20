@@ -71,9 +71,17 @@ export interface WorkItem {
   createdAt: number;
   /** The commit the branch was cut at, or null for a work item made before this was recorded. */
   baseCommit: string | null;
-  /** The branch the repository's HEAD was on when the branch was cut, or null where it was on none and for a work item made before this was recorded. */
+  /**
+   * The branch the work item's branch was cut at, a local branch or a remote's,
+   * named as a person reads it: a local branch by its name, such as `main`, and
+   * a remote's branch by the remote's name, a slash and the branch's name, such
+   * as `origin/main`. The daemon reads the name as the local branch of that name
+   * where one exists, and as the remote's branch otherwise. Null where the
+   * branch was cut at the checkout's commit, in a repository with no default
+   * base, and for a work item made before this was recorded.
+   */
   baseBranch: string | null;
-  /** How many commits the branch holds that `baseBranch` does not hold, or null where no base branch is recorded, that branch is gone, or the daemon has read none. A base merged into the branch adds none of its own, and a branch its base took is ahead by none. */
+  /** How many commits the branch holds that `baseBranch` does not hold, or null where no base branch is recorded, that branch is gone, or the daemon has read none. A remote's branch is counted as the person's clone holds it, so the count moves at a fetch. A base merged into the branch adds none of its own, and a branch its base took is ahead by none. */
   aheadOfBase: number | null;
   /** How many commits the branch holds after `baseCommit`, the base's own among them once the base was merged in, or null where the daemon has read none. */
   newCommits: number | null;
@@ -134,7 +142,10 @@ export interface HeadlessInfo {
 export type ClientMessage =
   | { type: "hello"; token: string }
   | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId?: number }
-  | { type: "createWorkItem"; requestId: number; repo: string; title: string; kind: PaneKind; cols: number; rows: number }
+  // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent.
+  | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
+  // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.
+  | { type: "planWorkItem"; requestId: number; repo: string; title: string; name?: string }
   // Asks for the session's kept output as a `replay`, and for its output after that.
   | { type: "attach"; id: number }
   // Ends this client's receiving of the session's output until it attaches again. The session and its process are untouched, and the daemon answers nothing.
@@ -156,6 +167,8 @@ export type ServerMessage =
   | { type: "started"; requestId: number; session: SessionInfo }
   // Answers a creation and carries the pane it opened, whose output the creating client receives.
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
+  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none.
+  | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null }
   // Answers an `ask` with the headless session it started.
   | { type: "asked"; requestId: number; headless: HeadlessInfo }
   // One headless session whole, sent to every client whenever it changes.

@@ -1,16 +1,17 @@
 // The window: its connection to the daemon, which of its four screens is in
-// front, the keys it reads, and the "New work item" form. The theme and its
-// control are ./theme. The sidebar, the
-// list with its preview, a work item's view and the summary are a module
+// front, the keys it reads, and the "New work item" form with the plan it
+// asks the daemon for. The theme and its control are ./theme. The sidebar,
+// the list with its preview, a work item's view and the summary are a module
 // each, and what each says and decides is a function of ./view.
 import type { OwleryApi } from "../shared/ipc";
+import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, showSummary } from "./summary";
 import { initTheme } from "./theme";
-import { agentKind, changesSince, commandKey, inboxKey, notificationFor, workItemFields, type StateFilter } from "./view";
+import { agentKind, baseMenu, changesSince, commandKey, inboxKey, notificationFor, planAnswer, planLine, workItemFields, type BaseChoice, type FormPlan, type PlanAnswered, type StateFilter } from "./view";
 import { detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
@@ -26,6 +27,19 @@ const MAC = navigator.platform.startsWith("Mac");
 let front: Front = null;
 // The request the "New work item" form is waiting on.
 let formRequest: number | undefined;
+// The name the window generated when the form last opened. It names the work item where the name field leaves no letter or digit to name it by.
+let formName = "";
+// The form's latest plan: its request, the repository's text it was asked for, and what the daemon answered, or null until it answers. A daemon of an earlier build never answers.
+let planRequest: number | undefined;
+let planRepo = "";
+let formPlan: FormPlan | null = null;
+// The plans the daemon has not answered, so the error of one a later plan overtook stays out of the status line.
+const plansAsked = new Set<number>();
+// The base the person chose in the menu since the form opened.
+let baseChoice: BaseChoice | null = null;
+let planTimer: ReturnType<typeof setTimeout> | undefined;
+// How long the form waits after a key before it asks for a plan. A plan took 28 ms in a clone of one branch and 130 ms beside 2,000 more, so keys closer together than this ask once, after the last of them.
+const PLAN_WAIT_MS = 150;
 
 const screens: Record<Exclude<Front, null>, HTMLElement> = {
   summary: byId("summary-screen"),
@@ -37,6 +51,10 @@ const workItemDialog = byId<HTMLDialogElement>("work-item-dialog");
 const workItemForm = byId<HTMLFormElement>("work-item-form");
 const repoField = byId<HTMLInputElement>("work-item-repo");
 const titleField = byId<HTMLInputElement>("work-item-title");
+const planPlace = byId("work-item-plan");
+const branchPlace = byId("work-item-branch");
+const worktreePlace = byId("work-item-worktree");
+const baseField = byId<HTMLSelectElement>("work-item-base");
 const kindField = byId<HTMLSelectElement>("work-item-kind");
 const formError = byId("work-item-error");
 const createButton = byId<HTMLButtonElement>("work-item-create");
@@ -164,14 +182,74 @@ function openWorkItemForm(folder?: string): void {
   // The folder stays from the last time, because the next work item is often of the same repository.
   if (folder !== undefined) repoField.value = folder;
   titleField.value = "";
+  formName = generateName();
+  titleField.placeholder = formName;
+  // Each opening starts from the repository's default base and from no answer.
+  baseChoice = null;
+  formPlan = null;
   formError.textContent = "";
   createButton.disabled = false;
   workItemDialog.showModal();
   (repoField.value ? titleField : repoField).focus();
+  askPlan();
+}
+
+/** Draws what the form holds of its plan: the branch and the folder under the name, or the plan's error in their place, and the menu of bases. */
+function showPlan(): void {
+  const line = planLine(formPlan, repoField.value);
+  branchPlace.textContent = line.branch;
+  worktreePlace.textContent = line.worktree;
+  planPlace.classList.toggle("failed", line.failed);
+  const menu = baseMenu(formPlan, baseChoice, repoField.value);
+  const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
+  const group = (label: string, bases: readonly string[]): HTMLOptGroupElement[] => {
+    if (bases.length === 0) return [];
+    const element = document.createElement("optgroup");
+    element.label = label;
+    element.append(...options(bases));
+    return [element];
+  };
+  baseField.replaceChildren(...options(menu.first === null ? [] : [menu.first]), ...group("Local", menu.local), ...group("Remote", menu.remote));
+  baseField.disabled = menu.value === null;
+  if (menu.value !== null) baseField.value = menu.value;
+}
+
+/** Asks the daemon what a creation with the form's fields would give, now. With no repository folder it asks nothing, and the form shows no plan. */
+function askPlan(): void {
+  clearTimeout(planTimer);
+  planTimer = undefined;
+  const fields = workItemFields(repoField.value, titleField.value, formName, null);
+  if ("error" in fields) {
+    planRequest = undefined;
+    formPlan = null;
+  } else {
+    planRequest = request();
+    planRepo = fields.repo;
+    plansAsked.add(planRequest);
+    send({ type: "planWorkItem", requestId: planRequest, ...fields });
+  }
+  showPlan();
+}
+
+/** Asks for a plan once the person has typed nothing for `PLAN_WAIT_MS`. Until its answer the form shows the plan it holds. */
+function askPlanSoon(): void {
+  clearTimeout(planTimer);
+  planTimer = setTimeout(askPlan, PLAN_WAIT_MS);
+}
+
+/** Takes the daemon's answer to a plan, or its refusal, where it answers the form's latest plan. It answers whether the message was of a plan at all. */
+function takePlan(requestId: number, answered: PlanAnswered): boolean {
+  const of = planAnswer(planRequest, plansAsked, requestId);
+  plansAsked.delete(requestId);
+  if (of === "latest") {
+    formPlan = { repo: planRepo, ...answered };
+    showPlan();
+  }
+  return of !== "other";
 }
 
 function createWorkItem(): void {
-  const fields = workItemFields(repoField.value, titleField.value);
+  const fields = workItemFields(repoField.value, titleField.value, formName, baseMenu(formPlan, baseChoice, repoField.value).value);
   if ("error" in fields) {
     formError.textContent = fields.error;
     return;
@@ -229,6 +307,9 @@ function onMessage(message: ServerMessage): void {
       openView(message.workItem.id);
       return;
     }
+    case "workItemPlan":
+      takePlan(message.requestId, { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase });
+      return;
     case "asked":
       takeHeadless(message.headless, message.requestId);
       return;
@@ -238,6 +319,8 @@ function onMessage(message: ServerMessage): void {
     case "error":
       // Nothing was created or started.
       requestRefused(message.requestId);
+      // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
+      if (takePlan(message.requestId, { error: message.message })) return;
       if (message.requestId === formRequest && workItemDialog.open) {
         formRequest = undefined;
         formError.textContent = message.message;
@@ -326,9 +409,22 @@ document.addEventListener("visibilitychange", () => {
 byId("work-item-cancel").addEventListener("click", () => workItemDialog.close());
 byId("work-item-browse").addEventListener("click", () => {
   void window.owlery.pickFolder().then((folder) => {
-    if (folder) repoField.value = folder;
+    if (!folder) return;
+    repoField.value = folder;
+    askPlan();
   });
 });
+repoField.addEventListener("input", () => {
+  askPlanSoon();
+  // The plan the form holds is of the text the field held before, so its branch and its bases leave the form now.
+  showPlan();
+});
+titleField.addEventListener("input", askPlanSoon);
+baseField.addEventListener("change", () => {
+  baseChoice = { repo: repoField.value.trim(), base: baseField.value };
+});
+// A closed form asks for no plan.
+workItemDialog.addEventListener("close", () => clearTimeout(planTimer));
 workItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
   createWorkItem();

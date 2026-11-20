@@ -2,8 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, slugFor, worktreesRoot } from "../src/daemon/worktrees";
-import { git, temporaryRepository } from "./repositories";
+import { aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planWorktree, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { generateName } from "../src/shared/names";
+import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -14,6 +15,22 @@ function repository(name?: string) {
   const made = temporaryRepository(name);
   cleanups.push(made.remove);
   return made;
+}
+
+function clone(branch?: string) {
+  const made = temporaryClone(branch);
+  cleanups.push(made.remove);
+  return made;
+}
+
+/** The commit a ref of the repository points at. */
+function commitOf(repo: string, ref: string): string {
+  return git(repo, "rev-parse", "--verify", ref).trim();
+}
+
+/** The upstream of a local branch, or an empty string where it has none. */
+function upstreamOf(repo: string, branch: string): string {
+  return git(repo, "for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`).trim();
 }
 
 /** The branch each worktree of the repository is on, by the worktree's folder. */
@@ -42,9 +59,10 @@ describe("slugFor", () => {
     expect(slugFor(`${"a".repeat(39)} bcd`)).toBe("a".repeat(39));
   });
 
-  it("names a title with no letter or digit of its own work-item", () => {
-    expect(slugFor("")).toBe("work-item");
-    expect(slugFor("로그인 버그")).toBe("work-item");
+  it("leaves nothing of a title with no letter or digit of its own", () => {
+    expect(slugFor("")).toBe("");
+    expect(slugFor("로그인 버그")).toBe("");
+    expect(slugFor(" -- ")).toBe("");
   });
 });
 
@@ -57,7 +75,7 @@ describe("worktreesRoot", () => {
 });
 
 describe("createWorktree", () => {
-  it("cuts the branch owlery/<slug> at HEAD and checks it out in <root>/<repo name>/<slug>", async () => {
+  it("cuts the branch owlery/<slug> at the default base and checks it out in <root>/<repo name>/<slug>", async () => {
     const { repo, root } = repository();
     const made = await createWorktree({ folder: repo, title: "Fix the login bug", root });
     const head = git(repo, "rev-parse", "HEAD").trim();
@@ -69,19 +87,155 @@ describe("createWorktree", () => {
     expect(worktrees(repo)[repo]).toBe("refs/heads/main");
   });
 
-  it("gives no base branch where the repository's HEAD is on no branch", async () => {
+  it("gives no base branch, and cuts at the checkout's commit, where the checkout is on no branch and the repository has no local branch and no remote", async () => {
     const { repo, root } = repository();
     git(repo, "checkout", "--quiet", "--detach");
+    git(repo, "branch", "--quiet", "-D", "main");
     const made = await createWorktree({ folder: repo, title: "Cut from a commit", root });
     expect(made.baseBranch).toBeNull();
-    expect(made.baseCommit).toBe(git(repo, "rev-parse", "HEAD").trim());
+    expect(made.baseCommit).toBe(commitOf(repo, "HEAD"));
+    expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/cut-from-a-commit");
   });
 
-  it("names as the base the branch HEAD is on, slashes and all, though a tag of the same name exists", async () => {
+  it("cuts at the branch a base names, slashes and all, though a tag of the same name stands at another commit", async () => {
     const { repo, root } = repository();
-    git(repo, "checkout", "--quiet", "-b", "feat/login");
     git(repo, "tag", "feat/login");
-    expect((await createWorktree({ folder: repo, title: "Cut from a feature", root })).baseBranch).toBe("feat/login");
+    git(repo, "checkout", "--quiet", "-b", "feat/login");
+    const feature = commitFile(repo, "login.txt");
+    git(repo, "checkout", "--quiet", "main");
+    const made = await createWorktree({ folder: repo, title: "Cut from a feature", root, base: "feat/login" });
+    expect(made.baseBranch).toBe("feat/login");
+    expect(made.baseCommit).toBe(feature);
+    expect(made.baseCommit).not.toBe(commitOf(repo, "refs/tags/feat/login"));
+  });
+
+  it("names the branch and the folder by the title's slug, by the slug of the name sent where the title leaves none, and by a generated name where neither leaves one", async () => {
+    const { repo, root } = repository();
+    const korean = await createWorktree({ folder: repo, title: "로그인 버그", name: "amber-heron", root });
+    expect([korean.branch, korean.worktree]).toEqual(["owlery/amber-heron", join(root, "project", "amber-heron")]);
+    const titled = await createWorktree({ folder: repo, title: "Fix the login bug", name: "amber-heron", root });
+    expect([titled.branch, titled.worktree]).toEqual(["owlery/fix-the-login-bug", join(root, "project", "fix-the-login-bug")]);
+    // A name is made a slug as a title is.
+    const sent = await createWorktree({ folder: repo, title: "", name: " Quiet Otter! ", root });
+    expect([sent.branch, sent.worktree]).toEqual(["owlery/quiet-otter", join(root, "project", "quiet-otter")]);
+    // A name already taken gets the number a title already taken gets.
+    const again = await createWorktree({ folder: repo, title: "  ", name: "amber-heron", root });
+    expect([again.branch, again.worktree]).toEqual(["owlery/amber-heron-2", join(root, "project", "amber-heron-2")]);
+    const generated = generateName(() => 0.5);
+    const unnamed = await createWorktree({ folder: repo, title: "", root, random: () => 0.5 });
+    expect([unnamed.branch, unnamed.worktree]).toEqual([`owlery/${generated}`, join(root, "project", generated)]);
+    const neither = await createWorktree({ folder: repo, title: "버그", name: "이름", root, random: () => 0.5 });
+    expect([neither.branch, neither.worktree]).toEqual([`owlery/${generated}-2`, join(root, "project", `${generated}-2`)]);
+  });
+
+  it("cuts a work item no base was sent for at the branch the remote's HEAD names, as the clone holds it, and at neither local branch, and gives the new branch no upstream", async () => {
+    const { repo, root } = clone("trunk");
+    // A person's setting that would give every new branch its start as its upstream.
+    git(repo, "config", "branch.autoSetupMerge", "always");
+    const remote = commitOf(repo, "refs/remotes/origin/trunk");
+    // The local trunk is one commit ahead of the remote's, and the checkout stands on a branch one commit further.
+    const local = commitFile(repo, "local.txt");
+    git(repo, "checkout", "--quiet", "-b", "feature");
+    const feature = commitFile(repo, "feature.txt");
+    const made = await createWorktree({ folder: repo, title: "From the remote", root });
+    expect(made.baseBranch).toBe("origin/trunk");
+    expect(made.baseCommit).toBe(remote);
+    expect(new Set([remote, local, feature]).size).toBe(3);
+    expect(commitOf(repo, "refs/heads/owlery/from-the-remote")).toBe(remote);
+    expect(upstreamOf(repo, "owlery/from-the-remote")).toBe("");
+    // The local branch as a base gives none either.
+    const fromLocal = await createWorktree({ folder: repo, title: "From the local", root, base: "trunk" });
+    expect([fromLocal.baseBranch, fromLocal.baseCommit]).toEqual(["trunk", local]);
+    expect(upstreamOf(repo, "owlery/from-the-local")).toBe("");
+  });
+
+  describe("the default base", () => {
+    /** A repository whose checkout stands on `feature`, beside the local `main`, and the commit both stand at. */
+    function onFeature() {
+      const made = repository();
+      git(made.repo, "checkout", "--quiet", "-b", "feature");
+      return { ...made, commit: commitOf(made.repo, "HEAD") };
+    }
+
+    /** Adds remotes to the repository, and plants the branches named as a fetch from them would leave them. Nothing is fetched. */
+    function remotes(made: { repo: string; base: string; commit: string }, names: string[], branches: string[]): void {
+      for (const name of names) git(made.repo, "remote", "add", name, join(made.base, `${name}.git`));
+      for (const branch of branches) git(made.repo, "update-ref", `refs/remotes/${branch}`, made.commit);
+    }
+
+    /** The base a creation without one gets in the repository now. */
+    async function defaultBase(made: { repo: string; root: string }): Promise<string | null> {
+      const { baseBranch } = await createWorktree({ folder: made.repo, title: "Default", root: made.root });
+      // A plan names the same default.
+      expect((await planWorktree({ folder: made.repo, title: "Default", root: made.root })).defaultBase).toBe(baseBranch);
+      return baseBranch;
+    }
+
+    it("is the branch a remote's HEAD names: origin's first, then the other remotes' in the order of their names, and none whose branch the clone does not hold", async () => {
+      const made = onFeature();
+      remotes(made, ["beta", "origin", "alpha"], ["origin/main", "origin/side", "alpha/dev", "beta/dev"]);
+      git(made.repo, "symbolic-ref", "refs/remotes/beta/HEAD", "refs/remotes/beta/dev");
+      git(made.repo, "symbolic-ref", "refs/remotes/alpha/HEAD", "refs/remotes/alpha/dev");
+      // Origin has no HEAD, and its `main` stands behind another remote's HEAD.
+      expect(await defaultBase(made)).toBe("alpha/dev");
+      git(made.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/side");
+      expect(await defaultBase(made)).toBe("origin/side");
+      git(made.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone");
+      expect(await defaultBase(made)).toBe("alpha/dev");
+      git(made.repo, "symbolic-ref", "--delete", "refs/remotes/alpha/HEAD");
+      expect(await defaultBase(made)).toBe("beta/dev");
+    });
+
+    it("is, where no remote's HEAD names one, a remote's branch of the name init.defaultBranch gives, then `main`, then `master`: every name in origin before any in another remote, and all before a local branch", async () => {
+      const made = onFeature();
+      git(made.repo, "config", "init.defaultBranch", "trunk");
+      git(made.repo, "branch", "--quiet", "trunk");
+      remotes(made, ["origin", "alpha"], ["origin/master", "origin/main", "origin/trunk", "origin/side", "alpha/trunk"]);
+      expect(await defaultBase(made)).toBe("origin/trunk");
+      git(made.repo, "update-ref", "-d", "refs/remotes/origin/trunk");
+      expect(await defaultBase(made)).toBe("origin/main");
+      git(made.repo, "update-ref", "-d", "refs/remotes/origin/main");
+      expect(await defaultBase(made)).toBe("origin/master");
+      git(made.repo, "update-ref", "-d", "refs/remotes/origin/master");
+      expect(await defaultBase(made)).toBe("alpha/trunk");
+      // A remote's branch of no such name is no default, and the local branch of the first name is.
+      git(made.repo, "update-ref", "-d", "refs/remotes/alpha/trunk");
+      expect(await defaultBase(made)).toBe("trunk");
+    });
+
+    it("is, where no remote holds one, the local branch of the name init.defaultBranch gives, then `main`, then `master`, then the branch the checkout stands on", async () => {
+      const made = onFeature();
+      git(made.repo, "config", "init.defaultBranch", "trunk");
+      git(made.repo, "branch", "--quiet", "trunk");
+      git(made.repo, "branch", "--quiet", "master");
+      git(made.repo, "branch", "--quiet", "aaa");
+      expect(await defaultBase(made)).toBe("trunk");
+      git(made.repo, "branch", "--quiet", "-D", "trunk");
+      expect(await defaultBase(made)).toBe("main");
+      git(made.repo, "branch", "--quiet", "-D", "main");
+      expect(await defaultBase(made)).toBe("master");
+      git(made.repo, "branch", "--quiet", "-D", "master");
+      // Neither the first branch by name nor the newest: the one the checkout stands on.
+      expect(await defaultBase(made)).toBe("feature");
+    });
+
+    it("is no remote's branch whose name a local branch bears, which a base's name reads as the local branch", async () => {
+      const made = onFeature();
+      remotes(made, ["origin"], ["origin/main", "origin/side"]);
+      git(made.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/side");
+      git(made.repo, "branch", "--quiet", "origin/side");
+      expect(await defaultBase(made)).toBe("origin/main");
+    });
+
+    it("is no local branch that names another ref, which a base's name never reads", async () => {
+      const made = repository();
+      // An old repository on `master` that keeps `main` as an alias of it.
+      git(made.repo, "branch", "--quiet", "-m", "main", "master");
+      git(made.repo, "symbolic-ref", "refs/heads/main", "refs/heads/master");
+      const plan = await planWorktree({ folder: made.repo, title: "Alias", root: made.root });
+      expect([plan.localBases, plan.defaultBase]).toEqual([["master"], "master"]);
+      expect((await createWorktree({ folder: made.repo, title: "Alias", root: made.root })).baseBranch).toBe("master");
+    });
   });
 
   it("takes the repository's top-level folder when given a folder inside it", async () => {
@@ -315,6 +469,33 @@ describe("what a branch holds since its base", () => {
     git(made.repo, "merge", "--quiet", "--ff-only", made.branch);
     expect(await aheadOf(made.repo, "main", await made.head())).toBe(0);
     expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(4);
+  });
+
+  it("counts against a remote's branch as the clone holds it, so a fetch moves the count, gives none once a fetch pruned the branch, and reads a base's name as the local branch where one bears it", async () => {
+    const { repo, origin, root } = clone();
+    const made = await createWorktree({ folder: repo, title: "Ahead of the remote", root });
+    expect(made.baseBranch).toBe("origin/main");
+    commitFile(made.worktree, "own.txt");
+    const head = (await branchHead(made.repo, made.branch))!;
+    expect(await aheadOf(repo, "origin/main", head)).toBe(1);
+    // The remote's main takes the commit, and the count moves only once the clone fetches.
+    git(origin, "pull", "--quiet", "--ff-only", repo, made.branch);
+    expect(await aheadOf(repo, "origin/main", head)).toBe(1);
+    git(repo, "fetch", "--quiet", "origin");
+    expect(await aheadOf(repo, "origin/main", head)).toBe(0);
+    // The local main never moved, and a base named `main` is still read as it.
+    expect(await aheadOf(repo, "main", head)).toBe(1);
+    git(origin, "checkout", "--quiet", "-b", "renamed");
+    git(origin, "branch", "--quiet", "-D", "main");
+    git(repo, "fetch", "--quiet", "--prune", "origin");
+    expect(await aheadOf(repo, "origin/main", head)).toBeNull();
+    // A remote's HEAD entry is no base.
+    git(repo, "remote", "set-head", "origin", "renamed");
+    expect(commitOf(repo, "refs/remotes/origin/HEAD")).toBe(head);
+    expect(await aheadOf(repo, "origin/HEAD", `${head}~1`)).toBeNull();
+    // A local branch of a remote's branch's name is the one a base's name reads.
+    git(repo, "branch", "--quiet", "origin/renamed", made.baseCommit);
+    expect(await aheadOf(repo, "origin/renamed", head)).toBe(1);
   });
 
   it("gives no count of commits ahead where the base branch is gone, or the repository is", async () => {
