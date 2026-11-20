@@ -320,13 +320,19 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`!(${overLink})`, "no link under the pointer");
   }
 
-  /** The addresses the opener was handed so far, once it was handed `count` of them, or after a moment in which one more would have arrived. */
+  /** The addresses the opener was handed so far: it waits until `count` of them are there, five seconds at most, and then a moment longer, in which one more would have arrived. A case that expects no address more gives the count there was. */
   async function opened(count: number): Promise<string[]> {
     const lines = (): string[] => (existsSync(openedFile) ? readFileSync(openedFile, "utf8").split("\n").filter(Boolean) : []);
     const deadline = Date.now() + 5_000;
     while (lines().length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
     await new Promise((resolve) => setTimeout(resolve, 500));
     return lines();
+  }
+
+  /** The bytes the first pane's process was handed, in hex, in the moment after something that should hand it none. A dropped path arrives in less. */
+  async function handedMeanwhile(): Promise<string> {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return (await received.next(0)).toString("hex");
   }
 
   /** A press and a release of Enter in the pane in front, with the modifier keys held. */
@@ -399,7 +405,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     writeFileSync(file, "");
     await received.next(0);
     await drop(`document.querySelector("#stage .pane:not([hidden])")`, [file]);
-    expect((await received.next(1)).toString("hex")).toBe("");
+    expect(await handedMeanwhile()).toBe("");
   });
 
   it("takes no drag that carries a text and no file", async () => {
@@ -408,7 +414,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector("#stage .pane:not([hidden])").getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
     const data = { items: [{ mimeType: "text/plain", data: "dragged text" }], dragOperationsMask: 1 };
     for (const type of ["dragEnter", "dragOver", "drop"]) await app.cdp("Input.dispatchDragEvent", { type, ...at, data });
-    expect((await received.next(1)).toString("hex")).toBe("");
+    expect(await handedMeanwhile()).toBe("");
     // A pane that took the drop would have taken the keyboard.
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(false);
     await app.click("#stage .pane:not([hidden])");
@@ -420,7 +426,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     writeFileSync(file, "");
     await received.next(0);
     await drop(`document.getElementById("view-title")`, [file]);
-    expect((await received.next(1)).toString("utf8")).toBe("");
+    expect(await handedMeanwhile()).toBe("");
     expect(await app.pages()).toHaveLength(1);
   });
 
@@ -435,14 +441,14 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   it("opens nothing at a click on a link without the Command key", async () => {
     await clickLink(0, 0);
     await clickLink(0, SHIFT);
-    expect(await opened(2)).toEqual([PRINTED]);
+    expect(await opened(1)).toEqual([PRINTED]);
   });
 
   it("opens a link that a name carries under the same rule, and asks nothing", async () => {
     // The terminal's own way with such a link is the browser's question. Should it ask, the answer is no and the case says so.
     await app.evaluate(`void (window.confirm = () => { window.__asked = true; return false; })`);
     await clickLink(1, 0);
-    expect(await opened(2)).toEqual([PRINTED]);
+    expect(await opened(1)).toEqual([PRINTED]);
     await clickLink(1, COMMAND);
     expect(await opened(2)).toEqual([PRINTED, NAMED]);
     expect(await app.evaluate<boolean>("window.__asked === undefined")).toBe(true);

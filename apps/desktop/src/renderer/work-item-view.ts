@@ -108,21 +108,18 @@ function openLink(event: MouseEvent, address: string): void {
  * (./view, `droppedText`), so a program that asked for pastes in brackets
  * receives one, and it takes the keyboard, so its pane is in front. A drag
  * that carries no file is not taken, and neither is a drop anywhere else in
- * the window.
+ * the window. The drop's own default is left alone: the window goes nowhere
+ * a dropped file would take it (src/main/main.ts, the guard on navigation).
  */
 function takesDrops(element: HTMLElement, term: Terminal): void {
-  const carriesFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes("Files") === true;
   element.addEventListener("dragover", (event) => {
-    if (!carriesFiles(event) || !event.dataTransfer) return;
     // An element takes a drop only where it answered the drag.
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
+    if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
   });
   element.addEventListener("drop", (event) => {
-    if (!carriesFiles(event) || !event.dataTransfer) return;
-    event.preventDefault();
-    const text = droppedText([...event.dataTransfer.files].map((file) => window.owlery.pathOf(file)));
+    const text = droppedText([...(event.dataTransfer?.files ?? [])].map((file) => window.owlery.pathOf(file)));
     term.focus();
+    // An empty paste would still send its brackets.
     if (text !== "") term.paste(text);
   });
 }
