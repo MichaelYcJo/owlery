@@ -108,8 +108,9 @@ function openLink(event: MouseEvent, address: string): void {
  * (./view, `droppedText`), so a program that asked for pastes in brackets
  * receives one, and it takes the keyboard, so its pane is in front. A drag
  * that carries no file is not taken, and neither is a drop anywhere else in
- * the window. The drop's own default is left alone: the window goes nowhere
- * a dropped file would take it (src/main/main.ts, the guard on navigation).
+ * the window. The drop's own default is left alone: Electron starts no
+ * navigation for a dropped file while `navigateOnDragDrop` is false, its
+ * default, which src/main/main.ts does not change.
  */
 function takesDrops(element: HTMLElement, term: Terminal): void {
   element.addEventListener("dragover", (event) => {
