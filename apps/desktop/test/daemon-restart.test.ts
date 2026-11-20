@@ -118,6 +118,8 @@ describe("a restart of the daemon in the built app", { timeout: 60_000 }, () => 
     expect([first, pane].map(alive)).toEqual([true, true]);
     // The page is a new one, and without the system's focus it reports none.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
+    // The status line's sentence comes from the connection, before the daemon's lists: the dialog names the sessions from those lists.
+    await app.until(`document.querySelector("#repositories [data-work-item]") !== null`, "the reloaded window's lists");
 
     expect(await choose(app, "restart-daemon"), "the menu holds the entry restart-daemon").toBe(true);
     await app.until(DIALOG_OPEN, "the dialog before a restart");
@@ -154,6 +156,8 @@ describe("a restart of the daemon in the built app", { timeout: 60_000 }, () => 
     const daemon = app.daemonPid() as number;
     // A pane of the new daemon: the receiver writes its process id anew.
     rmSync(`${received}.pid`, { force: true });
+    // The status line of the new daemon can come before its lists are drawn.
+    await app.until(`document.querySelector("#repositories [data-work-item]") !== null`, "the work item's line from the new daemon's lists");
     await app.click("#repositories [data-work-item]");
     await app.until(`!document.getElementById("work-item-view").hidden && document.querySelectorAll("#pane-buttons button").length > 0`, "the work item's view with its pane buttons");
     await app.evaluate(`[...document.querySelectorAll("#pane-buttons button")].find((button) => button.textContent === "+ Shell").click()`);
