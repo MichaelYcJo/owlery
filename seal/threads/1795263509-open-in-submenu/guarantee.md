@@ -34,3 +34,21 @@ Not re-run: 32 of the 33 mutants of *Mutation runs*, all but the one above, and 
 target: 4c94f5d against 5bd94bf
 Verdict: sealed
 ```
+
+## Re-audit at `ebdb559`
+
+Two commits follow `4c94f5d`: `7b26905`, which adds this file, and `ebdb559`, which appends a blank line and `🤖 Generated with [Claude Code](https://claude.com/claude-code)` to `pr.md` and changes nothing else. No claim of the run above has a coordinate either commit touched, so none is re-run.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate's commit is followed only by this work item's records | `trail/gate.md`, `run: d2efdee against 5bd94bf` | `git log --no-merges --name-only d2efdee..HEAD ^5bd94bf` | Holds. `4c94f5d` touches `trail/gate.md`, `7b26905` `guarantee.md`, and `ebdb559` `pr.md`, each under `seal/threads/1795263509-open-in-submenu/` |
+| The body file is what the records give at HEAD | the body file the prompt names, `<scratchpad>/1795263509-open-in-submenu/pr-body.md`, last written at 21:57 | `seal pr-body seal/threads/1795263509-open-in-submenu --body <pr-body.md> --check` | Does not hold. Exit 1, first line: refused: pr-body.md:24: lacks ``, then `🤖 Generated with [Claude Code](https://claude.com/claude-code)`, which pr.md gives. The file was composed before `ebdb559` |
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the orchestrator's part of the pull request body | `pr.md` at `ebdb559`: as at `4c94f5d`, with the attribution line appended | the other parties, as in the run above; the line states nothing of the work | none in what it says. The body file that carries it to the pull request is stale, as the claim above reads |
+
+```seal
+target: ebdb559 against 5bd94bf
+Verdict: withheld reason: refused: pr-body.md:24: lacks ``, then `🤖 Generated with [Claude Code](https://claude.com/claude-code)`, which pr.md gives
+```
