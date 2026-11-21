@@ -80,8 +80,6 @@ export interface DaemonOptions {
   commandFor: (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where a pane opened without a work item runs. */
-  cwd?: string;
   /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, and the choice of when to keep the Mac awake, in `keep-awake.json`; without them all three are in memory alone. */
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
@@ -303,18 +301,19 @@ export class Daemon {
   private handle(socket: WebSocket, message: ClientMessage): void {
     switch (message.type) {
       case "start": {
+        // A pane runs in a work item's worktree and nowhere else: the daemon has no folder of its own to open one in.
+        if (typeof message.workItemId !== "number") {
+          this.send(socket, { type: "error", requestId: message.requestId, message: "a pane opens in a work item" });
+          return;
+        }
         const continueLatest = message.continueLatest === true;
         if (continueLatest && !this.continues(message.kind)) {
           this.send(socket, { type: "error", requestId: message.requestId, message: `a pane of kind ${message.kind} continues no conversation` });
           return;
         }
-        let cwd = this.options.cwd ?? process.cwd();
-        if (message.workItemId !== undefined) {
-          const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
-          if (worktree === undefined) return;
-          cwd = worktree;
-        }
-        const info = this.startSession(socket, message, cwd, message.workItemId ?? null, continueLatest);
+        const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
+        if (worktree === undefined) return;
+        const info = this.startSession(socket, message, worktree, message.workItemId, continueLatest);
         // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
         this.send(socket, { type: "started", requestId: message.requestId, session: info });
         this.broadcastInbox();
@@ -910,7 +909,7 @@ export class Daemon {
   }
 
   /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. */
-  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number | null, continueLatest = false): SessionInfo {
+  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false): SessionInfo {
     const id = this.nextId++;
     const { command, args, env } = this.options.commandFor(pane.kind, id, { continueLatest });
     const terminal = TerminalSession.spawn({
