@@ -160,6 +160,14 @@ async function runFolderWithWorkItem(made: { repo: string; root: string; base: s
   return { runDir, workItem };
 }
 
+/** A daemon whose run folder lists one work item, number 1, in which a pane starts. */
+async function daemonWithWorkItem(options: Partial<DaemonOptions> = {}) {
+  const made = temporaryRepository();
+  cleanups.push(made.remove);
+  const { runDir, workItem } = await runFolderWithWorkItem(made, "Pane work");
+  return { ...(await daemon({ runDir, worktreesRoot: made.root, ...options })), workItem };
+}
+
 /** Every file under a folder with its bytes, and the repository's refs and worktrees as git prints them. */
 function onDisk(repo: string, ...folders: string[]): unknown[] {
   const files = (folder: string) =>
@@ -188,9 +196,9 @@ describe("the daemon's local server", () => {
   });
 
   it("refuses a client that sends anything before the token", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const c = await client(url, null);
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     await c.until(() => c.closed());
     expect(c.closed()?.code).toBe(4001);
   });
@@ -205,19 +213,19 @@ describe("the daemon's local server", () => {
 
 describe("sessions", () => {
   it("starts a session and streams its output", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, workItemId: 1 });
     const started = await c.message("started", (m) => m.requestId === 7);
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === started.session.id && m.data.includes("first")) ? true : undefined));
   });
 
   it("keeps a session alive when its client leaves, and replays the output the client missed", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const first = await client(url);
     await first.message("ready");
-    first.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1 });
+    first.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await first.message("started");
     await first.until(() => (first.messages.some((m) => m.type === "output" && m.data.includes("first")) ? true : undefined));
     first.socket.close();
@@ -226,7 +234,7 @@ describe("sessions", () => {
     await new Promise((r) => setTimeout(r, 500));
     const second = await client(url);
     const ready = await second.message("ready");
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE }]);
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE }]);
     second.send({ type: "attach", id: session.id });
     const replay = await second.message("replay");
     expect(replay.data).toContain("first");
@@ -235,12 +243,12 @@ describe("sessions", () => {
 
   it("sends a reconnecting client each line once: what it missed in the replay, the rest live", async () => {
     // Prints a numbered line every 20 ms, so lines are printed between the client's ready and its attach.
-    const { url } = await daemon({
+    const { url } = await daemonWithWorkItem({
       commandFor: () => ({ command: "/bin/sh", args: ["-c", "i=0; while [ $i -lt 40 ]; do echo line-$i; i=$((i+1)); sleep 0.02; done; sleep 30"], env: {} }),
     });
     const first = await client(url);
     await first.message("ready");
-    first.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    first.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await first.message("started");
     first.socket.close();
 
@@ -254,22 +262,22 @@ describe("sessions", () => {
   });
 
   it("sends a session's output only to the clients that opened or attached it", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const opener = await client(url);
     await opener.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     await opener.until(() => (opener.messages.some((m) => m.type === "output" && m.data.includes("first")) ? true : undefined));
     expect(bystander.messages.filter((m) => m.type === "output")).toEqual([]);
   });
 
   it("sends a client that detached no further output of the session while the other client still receives it, and after its next attach a replay of what was printed meanwhile and the output after it", async () => {
     // The pane answers each line it is sent, so the case decides when it prints.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
     const stays = await client(url);
     await stays.message("ready");
-    stays.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    stays.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await stays.message("started");
     const leaves = await client(url);
     await leaves.message("ready");
@@ -295,10 +303,10 @@ describe("sessions", () => {
 
   it("forgets a session's kept output at a forget, so the next replay holds only what the session printed afterwards, and changes nothing for an id it does not list", async () => {
     // The pane answers each line it is sent, so the case decides when it prints.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const printed = (text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
     const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay");
@@ -321,10 +329,10 @@ describe("sessions", () => {
 
   it("keeps the modes a session's program set at a forget that asks for them, first in the next replay, and keeps nothing at a forget that does not ask", async () => {
     // The pane asks for pastes in brackets, and then answers each line it is sent.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'printf "\\033[?2004h"; while read line; do echo "got-$line."; done'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'printf "\\033[?2004h"; while read line; do echo "got-$line."; done'], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const printed = (text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
     const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay");
@@ -346,12 +354,12 @@ describe("sessions", () => {
   });
 
   it("ends a session's output with the exit line, on a line of its own: sent to the clients that receive the session, and last in a later replay", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf last; exit 3"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf last; exit 3"], env: {} }) });
     const opener = await client(url);
     await opener.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await opener.message("started");
     await opener.message("exit");
     const sent = opener.messages.flatMap((m) => (m.type === "output" && m.id === session.id ? [m.data] : [])).join("");
@@ -368,10 +376,10 @@ describe("sessions", () => {
   });
 
   it("takes a size sent for a session whose process exited, changes nothing, and goes on answering", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("exit");
     // A window that shows an exited pane fits its screen and tells the size, as it does for a live one. The pseudo-terminal is closed by then.
@@ -381,20 +389,20 @@ describe("sessions", () => {
   });
 
   it("tells every client when a session ends, and lists it as ended", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const exit = await c.message("exit");
     expect(exit).toEqual({ type: "exit", id: session.id, exitCode: 3 });
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: null, ...NO_STATE }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: 1, ...NO_STATE }]);
   });
 
   it("gives each session's process the pane's id and the hook socket", async () => {
     const seen: number[] = [];
-    const { url } = await daemon({
+    const { url } = await daemonWithWorkItem({
       commandFor: (_kind, id) => {
         seen.push(id);
         return { command: "/bin/sh", args: ["-c", 'echo "pane=$OWLERY_PANE_ID"; sleep 30'], env: { OWLERY_PANE_ID: String(id) } };
@@ -402,7 +410,7 @@ describe("sessions", () => {
     });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     expect(seen).toEqual([session.id]);
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.data.includes(`pane=${session.id}`)) ? true : undefined));
@@ -740,15 +748,25 @@ describe("work items", () => {
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
   });
 
-  it("starts a pane named no work item where it does today, the daemon's folder", async () => {
-    const { base, root } = repository();
-    const { url } = await daemon({ commandFor: printsItsFolder, worktreesRoot: root, cwd: base });
+  it("refuses a start that names no work item with an error, and starts nothing, a start that asks to continue among them", async () => {
+    const asked: unknown[][] = [];
+    const { url } = await daemon({
+      commandFor: (...given) => {
+        asked.push(given);
+        return printsItsFolder();
+      },
+    });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
-    const { session } = await c.message("started");
-    expect(session.workItemId).toBeNull();
-    await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${base}\r`)) ? true : undefined));
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "a pane opens in a work item" });
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, continueLatest: true });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "a pane opens in a work item" });
+    // A work item's id that is no number names none either.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: "1" });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "a pane opens in a work item" });
+    expect(asked).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([]);
   });
 
   it("starts a pane on the latest conversation where the start asks it of a kind that continues: its command is the one asked to continue, in the work item's worktree, and the pane is of the kind asked and takes its agent's state", async () => {
@@ -781,7 +799,7 @@ describe("work items", () => {
 
   it("asks the command of a pane to continue nothing where the start does not ask it", async () => {
     const asked: unknown[][] = [];
-    const { url } = await daemon({
+    const { url } = await daemonWithWorkItem({
       commandFor: (...given) => {
         asked.push(given);
         return printsItsFolder();
@@ -789,14 +807,14 @@ describe("work items", () => {
     });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     expect(asked).toEqual([["claude", session.id, { continueLatest: false }]]);
   });
 
   it("answers a start that asks a kind that does not continue to continue with an error, and starts nothing", async () => {
     const asked: unknown[][] = [];
-    const { url } = await daemon({
+    const { url } = await daemonWithWorkItem({
       commandFor: (...given) => {
         asked.push(given);
         return printsItsFolder();
@@ -804,7 +822,7 @@ describe("work items", () => {
     });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, continueLatest: true });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, continueLatest: true, workItemId: 1 });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 7, message: "a pane of kind shell continues no conversation" });
     expect(asked).toEqual([]);
     expect((await (await client(url)).message("ready")).sessions).toEqual([]);
@@ -1005,10 +1023,10 @@ describe("repositories", () => {
     ]);
     expect(ready.archived.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.archivedAt])).toEqual([[2, 1, "/r/project", "The project", 50]]);
     expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS);
-    // An inbox carries the same lists: a pane's start sends one.
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    // An inbox carries the same lists: a change to a work item sends one.
+    c.send({ type: "setWorkItem", requestId: 1, id: 1, pinned: true });
     const inbox = await c.message("inbox");
-    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([ready.repositories, ready.workItems, ready.archived]);
+    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([ready.repositories, ready.workItems.map((w) => (w.id === 1 ? { ...w, pinned: true } : w)), ready.archived]);
     // The look holds the work items an inbox lists, so none that is archived.
     c.send({ type: "looked" });
     await settled(c);
@@ -2328,10 +2346,10 @@ describe("the inbox", () => {
   });
 
   it("sends an inbox when the state changes, and none for an event that leaves it as it was", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, "UserPromptSubmit", {});
     d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash" });
@@ -2345,12 +2363,12 @@ describe("the inbox", () => {
   });
 
   it("keeps a pane of a kind that reports no state at none, whatever arrives under its id", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const shell = (await c.message("started", (m) => m.requestId === 1)).session;
-    c.send({ ...START, kind: "claude", requestId: 2 });
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
     const agent = (await c.message("started", (m) => m.requestId === 2)).session;
     d.agentEvent(shell.id, "UserPromptSubmit", {});
     d.agentEvent(agent.id, "UserPromptSubmit", {});
@@ -2359,26 +2377,26 @@ describe("the inbox", () => {
   });
 
   it("lists a session that waits as waiting to a client that connects later", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, "Notification", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.socket.close();
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
   });
 
   it("carries with a session's state the time it began, and the tool or the text the event that began it carried, until the state changes", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     /** The session as a client that says hello now is given it. */
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash", tool_input: { command: "ls" } });
@@ -2401,10 +2419,10 @@ describe("the inbox", () => {
   });
 
   it("keeps 2000 characters of a state's text, and cuts inside no character", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const text = async () => (await (await client(url)).message("ready")).sessions[0]?.stateText;
     d.agentEvent(session.id, "Stop", { last_assistant_message: "x".repeat(2000) });
@@ -2423,10 +2441,10 @@ describe("the inbox", () => {
 
   it("keeps what the event that began a state said: a later event that leaves the state as it was changes neither its time, its text nor its tool", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
@@ -2447,14 +2465,14 @@ describe("the inbox", () => {
 
   it("lists a pane that sent no event in the time after its start as waiting, from the clock's value then and with no text and no tool, and tells every client once", async () => {
     let clock = 100;
-    const { url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     // The time is the one the silence was called at, and not the pane's start.
     clock = 700;
     const waiting = { ...session, state: "waiting", stateSince: 700, stateText: null, stateTool: null };
@@ -2466,10 +2484,10 @@ describe("the inbox", () => {
   });
 
   it.each(["SessionStart", "SubagentStop"])("never calls a pane waiting by silence once an event arrived under its id: %s, though it leaves no state", async (hook) => {
-    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 200 });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 200 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, hook, {});
     await pause(450);
@@ -2480,10 +2498,10 @@ describe("the inbox", () => {
 
   it("takes the waiting of a silent pane away at its session's start, and gives a prompt after it working with the prompt's time", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
@@ -2499,10 +2517,10 @@ describe("the inbox", () => {
 
   it("keeps the time of the silence, and neither a text nor a tool, where an event that maps to waiting arrives while the pane waits by silence", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     clock = 200;
@@ -2512,10 +2530,10 @@ describe("the inbox", () => {
   });
 
   it("keeps a silent pane of a kind that reports no state at none, and sends no inbox for its silence", async () => {
-    const { url } = await daemon({ ...SILENT, silentStartMs: 60 });
+    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await pause(300);
     expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, ...NO_STATE }]);
@@ -2523,10 +2541,10 @@ describe("the inbox", () => {
   });
 
   it("never calls a pane waiting whose process exited before the time passed", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), silentStartMs: 300 });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), silentStartMs: 300 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("exit");
     await pause(550);
@@ -2537,10 +2555,10 @@ describe("the inbox", () => {
 
   it("sends nothing for the silence of a pane a client closed before the time passed", async () => {
     // The pane's shell ignores the signal a close sends, so its end does not come before the time passes.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 200 });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 200 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     c.send({ type: "close", id: session.id });
     await c.message("inbox", (m) => m.sessions.length === 0);
@@ -2553,10 +2571,10 @@ describe("the inbox", () => {
   it("calls no pane waiting after the daemon closed, though the pane's process outlives the close", async () => {
     let read = 0;
     // The shell ignores the signal here too.
-    const { daemon: d, url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 150, now: () => ++read });
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 150, now: () => ++read });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     await c.message("started");
     await d.close();
     const before = read;
@@ -2593,7 +2611,7 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Answered first", kind: "shell", cols: 80, rows: 24 });
     await c.message("inbox", (m) => m.workItems.length === 1);
-    c.send({ ...START, kind: "shell", requestId: 2 });
+    c.send({ ...START, kind: "shell", requestId: 2, workItemId: 1 });
     await c.message("inbox", (m) => m.sessions.length === 2);
     const order = c.messages.flatMap((m) => (m.type === "workItemCreated" || m.type === "started" || m.type === "inbox" ? [m.type] : []));
     expect(order).toEqual(["workItemCreated", "inbox", "started", "inbox"]);
@@ -2601,29 +2619,29 @@ describe("the inbox", () => {
 
   it("lists a session that has exited as not alive, with the state it last had, and tells every client", async () => {
     // The pane ends when its input closes or a line arrives, so the case decides when.
-    const { daemon: d, url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }) });
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, "PermissionRequest", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.send({ type: "input", id: session.id, data: "go\n" });
-    const ended = { id: session.id, kind: "claude", alive: false, workItemId: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null };
+    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null };
     for (const each of [c, bystander]) expect((await each.message("inbox", (m) => m.sessions[0]?.alive === false)).sessions).toEqual([ended]);
   });
 
   it("closes a pane: its process ends, and the session is in no later list", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'echo "pid=$$."; sleep 30'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'echo "pid=$$."; sleep 30'], env: {} }) });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const kept = (await c.message("started", (m) => m.requestId === 1)).session;
-    c.send({ ...START, kind: "shell", requestId: 2 });
+    c.send({ ...START, kind: "shell", requestId: 2, workItemId: 1 });
     const closed = (await c.message("started", (m) => m.requestId === 2)).session;
     const pid = await c.until(() => {
       const printed = c.messages.flatMap((m) => (m.type === "output" && m.id === closed.id ? [m.data] : [])).join("");
@@ -2654,10 +2672,10 @@ describe("the inbox", () => {
   });
 
   it("closes a pane whose process has already ended, taking it off the lists", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("exit");
     c.send({ type: "close", id: session.id });
@@ -2877,7 +2895,7 @@ describe("the inbox", () => {
     const watched = watchedGit(made.base, 0.2);
     const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000 });
     const c = await client(url);
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     c.socket.close();
     await c.until(() => c.closed());
     watched.stop();
@@ -2958,18 +2976,18 @@ describe("the last look", () => {
 
   it("replaces the look with the one of a later `looked`, from whichever client", async () => {
     let clock = 100;
-    const { url } = await daemon({ now: () => clock });
+    const { url } = await daemonWithWorkItem({ now: () => clock });
     const one = await client(url);
     await one.message("ready");
     await looked(one);
-    expect(await lookNow(url)).toEqual({ at: 100, sessions: [], workItems: [] });
+    expect(await lookNow(url)).toEqual({ at: 100, sessions: [], workItems: [expect.objectContaining({ id: 1 })] });
     const two = await client(url);
     await two.message("ready");
-    two.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    two.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await two.message("started");
     clock = 200;
     await looked(two);
-    expect(await lookNow(url)).toEqual({ at: 200, sessions: [session], workItems: [] });
+    expect(await lookNow(url)).toEqual({ at: 200, sessions: [session], workItems: [expect.objectContaining({ id: 1 })] });
   });
 
   it("tells a client of the look only in its `ready`: a `looked` is answered with nothing and sent to nobody", async () => {
@@ -3276,10 +3294,10 @@ describe("idle exit", () => {
 
   it("stays while a session is alive, though no client is connected", async () => {
     let idle = 0;
-    const { url } = await daemon({ idleExitMs: 100, onIdle: () => idle++ });
+    const { url } = await daemonWithWorkItem({ idleExitMs: 100, onIdle: () => idle++ });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     await c.message("started");
     c.socket.close();
     await new Promise((r) => setTimeout(r, 400));
@@ -3574,7 +3592,7 @@ describe("keeping the Mac awake", () => {
   /** A daemon given a counting holder, with two clients, and panes whose process ends when a line arrives. */
   async function held(options: Partial<DaemonOptions> = {}) {
     const { holdAwake, seen } = holder();
-    const { daemon: d, url } = await daemon({ holdAwake, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
+    const { daemon: d, url } = await daemonWithWorkItem({ holdAwake, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
     const c = await client(url);
     const ready = await c.message("ready");
     const bystander = await client(url);
@@ -3583,7 +3601,7 @@ describe("keeping the Mac awake", () => {
     /** Opens a pane of a kind that reports state. */
     const pane = async () => {
       const asked = requestId++;
-      c.send({ ...START, kind: "claude", requestId: asked });
+      c.send({ ...START, kind: "claude", requestId: asked, workItemId: 1 });
       return (await c.message("started", (m) => m.requestId === asked)).session;
     };
     /** Opens a pane whose agent then sends a prompt, and waits until the inbox lists it as working. */

@@ -4,7 +4,6 @@
 // from idle sleep while an agent works.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { claudeAdapter } from "./adapters/claude";
 import { HookServer, paneCommands, writeHookSettings } from "./hooks";
@@ -42,8 +41,6 @@ async function main(): Promise<void> {
 
   const daemon = new Daemon({
     token,
-    // A pane opened without a work item runs in the user's home; a work item's pane runs in its worktree.
-    cwd: process.env.OWLERY_CWD || homedir(),
     // The repositories with their work items, the last look and the choice of when to keep the Mac awake sit beside the discovery file, and outlive this process.
     runDir,
     // The hold is a program of macOS, and watches this process so that it ends when the daemon ends, however it ends. On another platform the daemon holds nothing.
