@@ -14,7 +14,7 @@ Individual developers, open-source maintainers and tech leads of teams of 2–10
 
 ## Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call
 
-Owlery opens on the inbox, not on a pane of terminals. Each work item shows its state (waiting for answers, in progress, sealed, broken) on one line. A person who comes back should first see "two sealed, one waiting for an answer." That first screen fits the promise of handing work off and walking away.
+Owlery opens on the inbox, not on a pane of terminals. Each work item shows its state (waiting for answers, in progress, sealed, broken) on one line. A person who comes back should first see "two sealed, one waiting for an answer." Where a work item changed since the person last looked, the app shows a summary before the inbox: it says in one sentence what changed, gives each changed work item a line, holds no terminal, and the inbox is one step from it. Where the daemon gave a work item's count of new commits at the look and not now, or now and not at the look, as just after the daemon starts again, that count is not read as a change. Where nothing changed, or no earlier look is recorded, the summary is skipped and the app opens on the inbox. The summary stays one step away at any time. The daemon records the look when the window loses focus, is hidden or closes. That first screen fits the promise of handing work off and walking away.
 
 The base is three things: the inbox, the AgenticSeal process that runs from design to the seal without a person, and the back of the seal. The AgenticSeal process does not run in a terminal. The daemon runs its stages in the background, and their results appear in the inbox and on the back of the seal.
 
@@ -61,8 +61,10 @@ Today's AgenticSeal shows why this split works. The verdict's result is plain te
 
 Two things hold even when the judging party changes.
 
-- **The party that built it cannot seal its own work.** A party here means a session, not a model. The seal record names both the session that built the work and the session that judged it, and if the two are the same, it is not a seal. The judging session starts fresh and reads only files, so a Claude session can judge what another Claude session built. When the judge is another company's model, the two differ at the model level too, and the seal record shows that as well.
+- **The party that built it cannot seal its own work.** A party here means a session, not a model. The seal record names both the session that built the work and the session that judged it, and if the two are the same, it is not a seal. The judging session starts fresh and reads only files, so a Claude session can judge what another Claude session built. When the judge runs on another model than the builder's, of another company or of the same one, the two differ at the model level too, which lowers the chance that both miss the same defect, and the seal record shows that as well.
 - **The seal shows who judged it.** Once several models can judge, seals carry different weight, so the person looking at one needs to know.
+
+The app has themes, and a theme changes colours, typefaces, texture and how the seal is lit. No theme changes the layout, the words, the seal's drawing or the wax's red, and in every theme red stands on the seal alone: a button, a mark and a failure take another colour. The window has two themes, Night desk, which a first run opens in, and Letter, and a person may also let the system's light or dark appearance choose between them.
 
 ## File explorer and editor
 
@@ -104,7 +106,7 @@ How the speech is recognized is in "Open decisions".
 
 All the differences come from one structure. AgenticSeal hands each stage's result on as files (design, round records, guarantee) and ends that stage's agent. This differs from a structure where one conversation carries one work item to the end.
 
-Everything below is a hypothesis, and none of it has been measured yet.
+Everything below is a hypothesis. Only the second has been measured in the app itself, and `apps/desktop/measurements/memory.md` holds its number, its date and its method. The others have not been measured yet.
 
 | Hypothesis | Why we think so |
 |---|---|
@@ -137,6 +139,8 @@ Each work item launches stages four or five times, so it will likely use more to
 - There is no mode that leaves records uncommitted. The promise holds only if the seal's grounds are bound to a commit. So a repository that cannot keep work records in its tree is out of scope ("Records are committed to the repository" in [architecture.md](architecture.md)).
 - We do not build a review bot that runs after a PR opens. Owlery can be used alongside such tools.
 - We do not use throughput claims ("100x").
+- **Owlery deletes nothing of a person's work without that person's word.** An archive is the way out of the list, and it removes nothing. A delete removes a work item's worktree and its local branch after the person confirms. Where a commit no other branch holds, a change no commit holds or an untracked file would be lost, the delete runs only after the person has read each by name and chosen to force it. The files git ignores, such as `.env`, are named and go with the worktree without the force. Removing a repository from Owlery removes nothing on disk unless the person chooses it there: one choice deletes its work items' worktrees and local branches as a delete does, and another moves the repository's folder to the Trash. Nothing removes a branch on a remote.
+check: apps/desktop/test/daemon.test.ts apps/desktop/test/worktrees.test.ts
 
 ## What the user sees in the first session
 
