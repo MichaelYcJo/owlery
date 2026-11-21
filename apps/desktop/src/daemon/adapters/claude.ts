@@ -8,6 +8,24 @@ import { createInterface } from "node:readline";
 import { terminalEnv } from "../pty";
 import type { RoleAdapter, RoleEvent } from "./adapter";
 
+/** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
+export const ERROR_OUTPUT_CHARS = 2000;
+
+/** How long a stop waits, after it signalled the CLI's process group to end, before it kills the group. */
+export const KILL_AFTER_MS = 2000;
+
+/** How long after the CLI's exit the run's `exit` waits for the CLI's streams to close, which a child the CLI started can hold open. */
+const STREAMS_GRACE_MS = 300;
+
+/** The last `ERROR_OUTPUT_CHARS` characters of a text, less a half of a character the cut would leave at its start. */
+function lastOf(text: string): string {
+  if (text.length <= ERROR_OUTPUT_CHARS) return text;
+  const tail = text.slice(-ERROR_OUTPUT_CHARS);
+  const first = tail.charCodeAt(0);
+  // A character outside the basic plane is two of a string's, and the second of the two alone is no character.
+  return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
+}
+
 /**
  * The arguments of one headless session that works in `cwd`: stream-json in
  * and out, no settings of the user's or the repository's, no hooks, no auto
@@ -155,24 +173,65 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         throw error;
       });
       const { cli, path } = await found;
-      // Pipes, not a terminal: stream-json is one JSON value per line.
-      const child = spawn(cli, claudeArgs(cwd), { cwd, env: claudeEnv(env, path), stdio: ["pipe", "pipe", "pipe"] });
+      // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
+      // signal to the group also reaches what the CLI started in it, such as a tool's shell.
+      const child = spawn(cli, claudeArgs(cwd), { cwd, env: claudeEnv(env, path), stdio: ["pipe", "pipe", "pipe"], detached: true });
       await new Promise<void>((resolve, reject) => {
         child.once("spawn", resolve);
         child.once("error", reject);
       });
       // A process that ended early closes its input; its exit says so.
       child.stdin.on("error", () => {});
-      child.stderr.resume();
+      let errorOutput = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (text: string) => {
+        errorOutput = lastOf(errorOutput + text);
+      });
       const lines = createInterface({ input: child.stdout });
       lines.on("line", (line) => {
         for (const event of eventsForLine(line)) listener(event);
       });
-      // `close` follows the last line of output; a process ended by a signal has no code.
-      child.once("close", (code) => listener({ type: "exit", exitCode: code ?? 1 }));
+      let exited = false;
+      let reported = false;
+      let grace: NodeJS.Timeout | undefined;
+      // A process ended by a signal has no code.
+      const report = (code: number | null): void => {
+        if (reported) return;
+        reported = true;
+        clearTimeout(grace);
+        listener({ type: "exit", exitCode: code ?? 1, errorOutput });
+      };
+      const exit = new Promise<void>((resolve) => {
+        child.once("exit", (code) => {
+          exited = true;
+          resolve();
+          grace = setTimeout(() => report(code), STREAMS_GRACE_MS);
+        });
+      });
+      // `close` follows the last line of output, unless a child the CLI started holds the streams past the grace.
+      child.once("close", (code) => report(code));
       // One message, then the end of input, so the session ends after one turn.
       child.stdin.end(promptLine(prompt));
-      return { stop: () => void child.kill() };
+      const signal = (name: NodeJS.Signals): void => {
+        // Once the CLI has exited its group may be gone, and the group's id may name another's processes.
+        if (exited || child.pid === undefined) return;
+        try {
+          // The negative id names the group the CLI leads.
+          process.kill(-child.pid, name);
+        } catch {
+          // The group is gone already.
+        }
+      };
+      let stopping: Promise<void> | undefined;
+      return {
+        stop: () =>
+          (stopping ??= (async () => {
+            signal("SIGTERM");
+            const kill = setTimeout(() => signal("SIGKILL"), KILL_AFTER_MS);
+            await exit;
+            clearTimeout(kill);
+          })()),
+      };
     },
   };
 }

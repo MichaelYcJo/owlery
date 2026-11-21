@@ -144,7 +144,7 @@ function session(id: number, fields: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo {
-  return { id, workItemId: 1, prompt: "Which file holds the login form?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, ...fields };
+  return { id, workItemId: 1, prompt: "Which file holds the login form?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, ...fields };
 }
 
 describe("tabLabel", () => {
