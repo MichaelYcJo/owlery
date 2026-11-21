@@ -242,14 +242,9 @@ export class BuiltApp {
     const deadline = Date.now() + ms;
     for (;;) {
       if (await this.evaluate<boolean>(`Boolean(${expression})`)) return;
-      if (Date.now() >= deadline) throw new Error(`the window never showed ${what}; TMP-DIAG ${await this.diag()}`);
+      if (Date.now() >= deadline) throw new Error(`the window never showed ${what}`);
       await sleep(100);
     }
-  }
-
-  /** TMP-DIAG: the page's visibility, focus, and whether it draws a frame within a second. */
-  async diag(): Promise<string> {
-    return JSON.stringify(await this.evaluate(`(async () => { const t0 = performance.now(); const frame = await Promise.race([new Promise((r) => requestAnimationFrame(() => r(Math.round(performance.now() - t0)))), new Promise((r) => setTimeout(() => r("none in 1 s"), 1000))]); return { visibility: document.visibilityState, focus: document.hasFocus(), frame, size: [innerWidth, innerHeight] }; })()`));
   }
 
   /** A click of the mouse in the middle of the element a selector finds, as a person's click arrives. */

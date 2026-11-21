@@ -349,7 +349,6 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   });
 
   it("opens the submenu when the pointer comes onto Open in, keeps it while the pointer is on an item of it or reaches one within the pause, closes it after the pause where the pointer rests on another item of the menu, keeps the menu and the submenu at a press of Open in and at a press inside the submenu on no item, and closes both at a press outside them", async () => {
-    await app.evaluate(`void (window.__events = [], ["pointerenter", "pointermove", "focusin"].forEach((type) => document.addEventListener(type, (event) => window.__events.push([Math.round(performance.now()), type, event.clientX, event.clientY, (event.target.textContent ?? "").slice(0, 12), document.querySelector('${SUBMENU}') !== null]), true)))`); // TMP-DIAG
     await app.click(`${repository(1)} .repository-menu`);
     await menuShown();
     expect(await submenuStands()).toBe(false);
@@ -361,11 +360,11 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await itemInFocus()).toBe("Settings");
     await pointerTo(await itemAt("Finder"));
     await new Promise((resolve) => setTimeout(resolve, 500));
-    if (!(await submenuStands())) throw new Error(`TMP-DIAG the submenu closed; ${await app.diag()}; ${JSON.stringify(await app.evaluate("window.__events"))}`);
-    // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it.
-    await pointerTo(await itemAt("Copy path"));
     expect(await submenuStands()).toBe(true);
-    await pointerTo(await itemAt("Finder"));
+    // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it: it still stands after the pointer reached the submenu, where a submenu that closed at the crossing would be gone.
+    // The two moves are sent together, as a hand makes them within the pause. At a first start of the app on GitHub's macOS runner the calls a case made between two moves took longer than the pause's 300 ms, and the submenu closed as it should.
+    const [crossed, reached] = [await itemAt("Copy path"), await itemAt("Finder")];
+    await Promise.all([pointerTo(crossed), pointerTo(reached)]);
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(await submenuStands()).toBe(true);
     await pointerTo(await itemAt("Copy path"));
