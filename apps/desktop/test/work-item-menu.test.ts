@@ -352,6 +352,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   });
 
   it("opens the submenu when the pointer comes onto Open in, keeps it while the pointer is on an item of it or reaches one within the pause, closes it after the pause where the pointer rests on another item of the menu, keeps the menu and the submenu at a press of Open in and at a press inside the submenu on no item, and closes both at a press outside them", async () => {
+    await app.evaluate(`void (window.__removed = [], ((remove) => { Element.prototype.remove = function () { if (this.getAttribute?.("aria-label") === "Open in") window.__removed.push([Date.now(), new Error().stack]); return remove.call(this); }; })(Element.prototype.remove))`); // TMP-DIAG
     await app.evaluate(`void (window.__diag = [], ["pointerover", "pointerenter", "pointerleave", "pointermove", "focusin", "focusout", "focus", "blur", "visibilitychange"].forEach((type) => window.addEventListener(type, (event) => window.__diag.push([Date.now(), type, event.isTrusted, document.hasFocus(), event.clientX, event.clientY, event.target?.textContent?.slice(0, 16) ?? String(event.target), document.querySelector('${SUBMENU}') !== null]), true)))`); // TMP-DIAG
     const diag = async (where: string): Promise<never> => { throw new Error(["TMP-DIAG", where, startDiag, finderAt, JSON.stringify(await app.evaluateMain(`[electron.screen.getCursorScreenPoint(), globalThis.__diag, Date.now()]`)), JSON.stringify(await app.evaluate(`window.__diag`))].join(" ")); }; // TMP-DIAG
     await app.click(`${repository(1)} .repository-menu`);
@@ -367,8 +368,10 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await pointerTo(await itemAt("Finder"));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await new Promise((resolve) => setTimeout(resolve, 600)); // TMP-DIAG
-    if (process.env.OWLERY_DIAG_FILE) appendFileSync(process.env.OWLERY_DIAG_FILE, `${[startDiag, finderAt, JSON.stringify(await app.evaluateMain(`[electron.screen.getCursorScreenPoint(), globalThis.__diag, Date.now()]`)), JSON.stringify(await app.evaluate(`window.__diag`)), await submenuStands()].join(" ")}\n`); // TMP-DIAG
+    if (process.env.OWLERY_DIAG_FILE) appendFileSync(process.env.OWLERY_DIAG_FILE, `${[startDiag, finderAt, JSON.stringify(await app.evaluateMain(`[electron.screen.getCursorScreenPoint(), globalThis.__diag, Date.now()]`)), JSON.stringify(await app.evaluate(`window.__diag`)), JSON.stringify(await app.evaluate(`window.__removed`)), await submenuStands()].join(" ")}\n`); // TMP-DIAG
     if (!(await submenuStands())) await diag("first"); // TMP-DIAG
+    await new Promise((resolve) => setTimeout(resolve, 1500)); // TMP-DIAG
+    if (process.env.OWLERY_DIAG_FILE) appendFileSync(process.env.OWLERY_DIAG_FILE, `later ${JSON.stringify(await app.evaluate(`window.__diag`))} ${JSON.stringify(await app.evaluate(`window.__removed`))} ${await submenuStands()}\n`); // TMP-DIAG
     expect(await submenuStands()).toBe(true);
     // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it.
     await pointerTo(await itemAt("Copy path"));

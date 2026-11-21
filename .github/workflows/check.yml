@@ -41,7 +41,7 @@ jobs:
         continue-on-error: true
         working-directory: apps/desktop
         run: |
-          for n in 1 2 3 4; do OWLERY_DIAG_FILE="$RUNNER_TEMP/diag.txt" NO_COLOR=1 FORCE_COLOR=0 node scripts/test-in-electron.mjs test/work-item-menu.test.ts > "$RUNNER_TEMP/out-$n.txt" 2>&1 && rc=0 || rc=$?; echo "run $n exit $rc"; grep -E "Tests " "$RUNNER_TEMP/out-$n.txt" || true; [ "$rc" = 0 ] || sed -n '/Failed Tests/,/Test Files/p' "$RUNNER_TEMP/out-$n.txt" | cut -c1-8000; done
+          for n in 1 2; do OWLERY_DIAG_FILE="$RUNNER_TEMP/diag.txt" NO_COLOR=1 FORCE_COLOR=0 node scripts/test-in-electron.mjs test/work-item-menu.test.ts > "$RUNNER_TEMP/out-$n.txt" 2>&1 && rc=0 || rc=$?; echo "run $n exit $rc"; grep -E "Tests " "$RUNNER_TEMP/out-$n.txt" || true; [ "$rc" = 0 ] || sed -n '/Failed Tests/,/Test Files/p' "$RUNNER_TEMP/out-$n.txt" | cut -c1-8000; done
           cat "$RUNNER_TEMP/diag.txt" || true
 
       - name: pnpm -r run check
