@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WINDOW_SIZE } from "../src/main/window-size";
 
 const APP_DIR = join(__dirname, "..");
 
@@ -166,7 +167,10 @@ export class BuiltApp {
    * caller's own environment has it. A caller that reads what the main
    * process holds, such as the menu Electron built, passes `inspectMain`,
    * and the app starts with the main process's inspector open on a port of
-   * its own, for `evaluateMain`.
+   * its own, for `evaluateMain`. An app started in the background has its
+   * window at the size the app makes it at (src/main/window-size.ts) on any
+   * screen, and the start fails where its page has another size: the cases
+   * read the screens as they are drawn at that size.
    */
   static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false } = {}): Promise<BuiltApp> {
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
@@ -184,6 +188,10 @@ export class BuiltApp {
       const main = mainPort === undefined ? undefined : await DebugSession.open((await listed(mainPort, () => true, "the main process opened no inspector")).webSocketDebuggerUrl);
       const started = new BuiltApp(child, page, main, port, userData);
       started.focused = await started.evaluate<boolean>("document.hasFocus()");
+      if (!keepBackground) {
+        const size = await started.evaluate<[number, number]>("[window.innerWidth, window.innerHeight]");
+        if (size[0] !== WINDOW_SIZE.width || size[1] !== WINDOW_SIZE.height) throw new Error(`the window's page is ${size.join(" by ")} and not ${WINDOW_SIZE.width} by ${WINDOW_SIZE.height}`);
+      }
       return started;
     } catch (error) {
       child.kill("SIGTERM");
