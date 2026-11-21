@@ -32,3 +32,32 @@ The sample is every claim of `pr.md` and `changelog.md` about what the configura
 target: 78299f4 against e4df264
 Verdict: withheld reason: the claim that the unit files run in parallel beside the app files does not hold; vitest 4.1.12 puts a fileParallelism false project in its own group run after every other group (cli-api.B0Pz1_R7.js:3884, :3914, :3762), so unit runs first and app runs alone; it stands in the build at apps/desktop/vitest.config.ts:10-11, the changelog at changelog.md:5 and the orchestrator's part of the body at pr.md:5; and issue #118 Done-when 3, narrowing #117 to what is left on the runner, is neither done (#117 unchanged since 2026-11-21T16:20:37Z) nor named as owed in gaps.md
 ```
+
+## Re-audit at `d49efc2`
+
+The earlier block above audited `78299f4`. Since then, `4227552` and `7056c39` changed the comment of `apps/desktop/vitest.config.ts` (lines 10-12, comment lines only: a `git diff 78299f4 HEAD -- apps/desktop` filtered to non-comment lines prints nothing), `changelog.md`, `gaps.md` and `pr.md`, and committed the earlier `guarantee.md` as written. `d49efc2` touches `trail/gate.md` alone. Step 1: `trail/gate.md`'s newest run is `7056c39`, an ancestor of HEAD, and only `seal/threads/1795278987-built-apps-one-at-a-time/trail/gate.md` follows it (executed). Step 2: `seal pr-body … --body <scratchpad>/1795278987-built-apps-one-at-a-time/pr-body.md --check` exited 0 (executed). `apps/desktop/test/` is unchanged from `e4df264` (executed, `git diff --quiet`).
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The `unit` files run first in parallel, then the `app` files one at a time with nothing beside them, because Vitest runs a project whose files are not parallel as a group of its own after the others | `apps/desktop/vitest.config.ts:10-12`, `changelog.md:5`, `pr.md:5` | `<scratchpad>/1795278987-built-apps-one-at-a-time/sealer/test_tmp_split.sh` over HEAD's config (executed); the scheduler read as above (`cli-api.B0Pz1_R7.js:3884`, `:3914`, `:3762-3780`) | holds: the three `unit` files ran together and ended (`…850463`) before the first `app` file started (`…850614`), and the `app` files ran in three disjoint intervals |
+| The broad gate at `4227552` failed the link card case at `terminal-basics.test.ts:608`, after the four modifier keys, with no app beside it | `gaps.md:12`, `pr.md:9`, #117 comment of 2026-11-21T17:02:41Z | read `apps/desktop/test/terminal-basics.test.ts:595-608`; the run itself not re-run | line 608 is `expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true)` right after the loop of the four modifier keys (read); the failure is unverified, answered by the orchestrator's gate output. "No app beside it" agrees with the schedule the probe shows |
+| #117 is narrowed in a section of its body | `gaps.md:15`, `pr.md:11` | `gh issue view 117 --json body,updatedAt` (executed) | holds: the section "Narrowed by #118" stands, updated 2026-11-21T17:02:41Z |
+| The full suite passed twice in a row at the code commit, and the gate at `7056c39` passed | `pr.md:7`, `trail/gate.md` | not re-run (rule 2) | unverified, answered by the orchestrator; `trail/gate.md` holds runs at `0673a47` and `7056c39` (read). The code at `57434e4`, `4227552`, `7056c39` and HEAD is one code: the commits between changed comments and records alone |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the build | `vitest.config.ts:10-12`: the rest runs first in parallel, then the app files one at a time with nothing beside them | the probe, vitest 4.1.12's scheduler, `changelog.md:5`, `pr.md:5` | none |
+| the changelog | `changelog.md:5`, as the build; `changelog.md:6`: passed both of two full runs | the build, the probe | none in the tree; it does not name the failure at `4227552`, which `gaps.md` and `pr.md` carry |
+| the orchestrator's part of the pull request body | `pr.md:9`: the link card case's remaining race "goes to #117 too"; `pr.md:11`: "#117 is narrowed to what is left on the runner, its first-start failures", and the owner's-Mac link card case "is this issue's" | `gaps.md:12` and `:15`, #117's comment of 17:02:41Z | its two sentences give #117 two scopes. #117's own section "Narrowed by #118" says the link card case "is #118's" and that #117 "holds what is left on the runner", while #117's comment of the same minute says the Mac race at line 608 "stays with this issue". The race the split leaves is on the owner's Mac, not the runner, so #117 as narrowed does not hold it, and #118 Done-when 3 ("narrowed to what is left on the runner") presumes nothing is left on the Mac |
+| issue #118 against the tree | Done-when 1: holds (the listing and the probe). Done-when 2: two passing runs in a row were made at `57434e4`, whose code is HEAD's; a later gate on that same code, `4227552`, failed the issue's own case on the owner's Mac, and the next, `7056c39`, passed | — | whether Done-when 2 still holds is the reading of "passes ... in two runs in a row" (two consecutive passes occurred, or the suite passes reliably at the head), and the issue's title names the timed cases failing on a many-core Mac, one of which failed again; neither the issue nor the tree decides which reading the owner meant |
+
+The issue and the tree decide every claim above but this one, so the verdict is the owner's question.
+
+```seal
+target: d49efc2 against e4df264
+Verdict: undecided question: Does #118 hold when two full runs passed in a row at 57434e4 but the broad gate at 4227552, on the same code with no app beside it, failed the link card case again at terminal-basics.test.ts:608 on your Mac, and that remaining Mac race is sent to #117, whose section Narrowed by #118 says it holds only the runner's first-start failures? If yes, say where the Mac race lives (#117 with its section and Done-when widened to take it, or a new issue), so pr.md:9-11, gaps.md:12-15 and #117 can name one home for it.
+```
