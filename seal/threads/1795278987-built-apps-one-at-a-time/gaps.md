@@ -9,4 +9,4 @@
 
 ## Not done
 
-#117 stays open for the runner's first-start failures; the retry under `CI` stays with it.
+#117 is narrowed, in a section of its body, to the runner's first-start failures; the link card case on the owner's Mac, which its comment of 2026-11-22 added, is this issue's. The retry under `CI` stays with #117.

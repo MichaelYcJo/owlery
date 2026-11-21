@@ -7,8 +7,9 @@ import { defineConfig } from "vitest/config";
 // `buildApp` from the suite's helper. Vitest runs files in parallel with up to
 // one worker fewer than the machine's cores, so on a 10-core Mac it started
 // every such file at once, and their cases that wait on a timer in the page
-// missed it (issue #118). These files run one at a time, and the rest of the
-// suite keeps running in parallel beside them.
+// missed it (issue #118). The rest of the suite runs first, in parallel, and
+// then these files run one at a time with nothing beside them: Vitest runs a
+// project whose files are not parallel as a group of its own, after the others.
 const testFolder = join(dirname(fileURLToPath(import.meta.url)), "test");
 const startsTheApp = /import \{[^}]*\bbuildApp\b[^}]*\} from "\.\/built-app"/;
 const appFiles = readdirSync(testFolder)
