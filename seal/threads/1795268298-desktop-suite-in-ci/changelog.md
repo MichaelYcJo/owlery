@@ -1,0 +1,8 @@
+# Changelog: the desktop suite in CI
+
+Issue #30. `.github/workflows/` held the record checks alone. The desktop app's typecheck and tests ran only where a session ran the broad gate by hand, so several branches merged into one release branch with nothing but local runs between them.
+
+- **A workflow runs the workspace's checks.** The `check` workflow runs `pnpm -r run check` on GitHub's macOS runner for every pull request into `main` and into a `release/**` branch. It installs with `pnpm install --frozen-lockfile`, which rebuilds `node-pty` for Electron. A pull request whose typecheck or tests fail shows the check as failed. A newer push to the same pull request cancels the run still in progress.
+- **The built-app cases no longer depend on the screen they run on.** The runner's screen is 1024 by 768, so the app's 1440 by 900 window is made 1024 by 674 there. In that window the tab strip clips a second pane's tab, a pane has too few columns for the path a case wraps, and the removal dialog's buttons stand below the page's foot, and 18 cases failed. The suite's helper now lays the page out at 1440 by 900 through the debugging port wherever the window is smaller. The window's size has one home, `src/main/window-size.ts`, which the app and the helper both read. A person's window is made as before.
+- **The daemon's reconnecting-client case prints its forty lines in five bursts.** Each pause in the case's shell starts a `sleep` process, which takes about 45 ms on the runner, so forty pauses took 2.6 s with the runner idle and more than the case's five seconds beside the built app's files. The case still prints lines before and after the client attaches.
+- **The desktop app's version is 0.0.2.**
