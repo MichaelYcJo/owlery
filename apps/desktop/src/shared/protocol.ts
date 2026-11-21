@@ -177,7 +177,7 @@ export interface SessionInfo {
   id: number;
   kind: PaneKind;
   alive: boolean;
-  /** The work item whose worktree the pane runs in, or null for a pane opened without one. */
+  /** The work item whose worktree the pane runs in. Null only for a pane that a daemon of a build before 0.0.2 opened without one. */
   workItemId: number | null;
   /** Null until the agent's first event or until the pane has sent no event for the time after its start the daemon allows, whichever comes first, and always for a kind that reports no state. An exited session keeps its last. */
   state: AgentState | null;
@@ -262,8 +262,8 @@ export interface KeepAwake {
 
 export type ClientMessage =
   | { type: "hello"; token: string }
-  // `continueLatest` starts the pane on the latest conversation of its folder, the work item's worktree where `workItemId` names one. The daemon answers it with an `error` for a kind that does not declare `continues`.
-  | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId?: number; continueLatest?: true }
+  // A pane opens in a work item's worktree, and the daemon answers a start whose `workItemId` is no number with an `error`. `continueLatest` starts the pane on the latest conversation of that folder. The daemon answers it with an `error` for a kind that does not declare `continues`.
+  | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId: number; continueLatest?: true }
   // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. A remote's branch is fetched before the cut, that one branch from that one remote, unless a fetch of it ended in the last minute, and where the fetch fails the work item is cut at the commit the clone holds. A local branch is cut where it stands, and no remote is asked. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other.
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
   // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.
