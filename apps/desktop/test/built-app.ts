@@ -204,11 +204,12 @@ export class BuiltApp {
   /**
    * Lays the page out at the size the app makes its window at
    * (src/main/window-size.ts) where the system's screen holds the window
-   * smaller, as the screen of GitHub's macOS runner does at 1024 by 768.
-   * The cases read the screens as they are drawn at that size, and in a
-   * smaller window the tab strip hides the tab of a second pane under the
-   * buttons beside it, a pane has too few columns for a path to wrap where a
-   * case prints it, and a tall dialog's buttons stand below the page's foot.
+   * smaller, as the 1024 by 768 screen of GitHub's macOS runner holds it at
+   * 1024 by 674. The cases read the screens as they are drawn at that size.
+   * In the smaller window the tab strip clips a second pane's tab, so a
+   * press at its close control lands on the buttons beside the strip, a
+   * pane has too few columns for the path a case wraps, and a tall dialog's
+   * buttons stand below the page's foot.
    * A window of that size keeps its page as it is. A case that sets its own
    * page size calls this to give the page back.
    */

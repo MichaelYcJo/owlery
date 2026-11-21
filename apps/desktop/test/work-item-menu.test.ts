@@ -34,7 +34,6 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   let third: ReturnType<typeof temporaryRepository>;
   /** A fourth repository, whose removal deletes one of its two work items and is refused at the other. */
   let fourth: ReturnType<typeof temporaryRepository>;
-  let startDiag = ""; // TMP-DIAG
 
   const SIDEBAR = "#repositories";
   const INBOX = "#inbox-lines";
@@ -187,9 +186,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     third = temporaryRepository("third");
     fourth = temporaryRepository("fourth");
     // The pane's process is the receiver, so no shell of the person's and no agent starts.
-    app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") }, { inspectMain: true });
-    await app.evaluateMain(`((win) => { globalThis.__diag = []; for (const name of ["focus", "blur", "show", "hide", "move", "resize", "app-command"]) win.on(name, () => globalThis.__diag.push([Date.now(), name, electron.screen.getCursorScreenPoint()])); for (const name of ["browser-window-focus", "browser-window-blur", "did-become-active", "did-resign-active"]) electron.app.on(name, () => globalThis.__diag.push([Date.now(), name])); return 0; })(electron.BrowserWindow.getAllWindows()[0])`); // TMP-DIAG
-    startDiag = [JSON.stringify(await app.evaluateMain(`({ cursor: electron.screen.getCursorScreenPoint(), display: electron.screen.getPrimaryDisplay().bounds, work: electron.screen.getPrimaryDisplay().workArea, scale: electron.screen.getPrimaryDisplay().scaleFactor, win: electron.BrowserWindow.getAllWindows()[0].getBounds(), content: electron.BrowserWindow.getAllWindows()[0].getContentBounds(), visible: electron.BrowserWindow.getAllWindows()[0].isVisible() })`)), JSON.stringify(await app.evaluate(`[window.innerWidth, window.innerHeight, devicePixelRatio]`))].join(" "); // TMP-DIAG
+    app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") });
     // The app starts in the background, and the page of a window without the system's focus reports none.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
@@ -352,9 +349,6 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   });
 
   it("opens the submenu when the pointer comes onto Open in, keeps it while the pointer is on an item of it or reaches one within the pause, closes it after the pause where the pointer rests on another item of the menu, keeps the menu and the submenu at a press of Open in and at a press inside the submenu on no item, and closes both at a press outside them", async () => {
-    await app.evaluate(`void (window.__removed = [], ((remove) => { Element.prototype.remove = function () { if (this.getAttribute?.("aria-label") === "Open in") window.__removed.push([Date.now(), new Error().stack]); return remove.call(this); }; })(Element.prototype.remove))`); // TMP-DIAG
-    await app.evaluate(`void (window.__diag = [], ["pointerover", "pointerenter", "pointerleave", "pointermove", "focusin", "focusout", "focus", "blur", "visibilitychange"].forEach((type) => window.addEventListener(type, (event) => window.__diag.push([Date.now(), type, event.isTrusted, document.hasFocus(), event.clientX, event.clientY, event.target?.textContent?.slice(0, 16) ?? String(event.target), document.querySelector('${SUBMENU}') !== null]), true)))`); // TMP-DIAG
-    const diag = async (where: string): Promise<never> => { throw new Error(["TMP-DIAG", where, startDiag, finderAt, JSON.stringify(await app.evaluateMain(`[electron.screen.getCursorScreenPoint(), globalThis.__diag, Date.now()]`)), JSON.stringify(await app.evaluate(`window.__diag`))].join(" ")); }; // TMP-DIAG
     await app.click(`${repository(1)} .repository-menu`);
     await menuShown();
     expect(await submenuStands()).toBe(false);
@@ -364,14 +358,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await opener()).toEqual(["Open in", "menu", "true", true]);
     // The pointer opened it, and the keyboard stays where it was.
     expect(await itemInFocus()).toBe("Settings");
-    const finderAt = JSON.stringify([await itemAt("Finder"), await itemAt("Open in")]); // TMP-DIAG
     await pointerTo(await itemAt("Finder"));
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await new Promise((resolve) => setTimeout(resolve, 600)); // TMP-DIAG
-    if (process.env.OWLERY_DIAG_FILE) appendFileSync(process.env.OWLERY_DIAG_FILE, `${[startDiag, finderAt, JSON.stringify(await app.evaluateMain(`[electron.screen.getCursorScreenPoint(), globalThis.__diag, Date.now()]`)), JSON.stringify(await app.evaluate(`window.__diag`)), JSON.stringify(await app.evaluate(`window.__removed`)), await submenuStands()].join(" ")}\n`); // TMP-DIAG
-    if (!(await submenuStands())) await diag("first"); // TMP-DIAG
-    await new Promise((resolve) => setTimeout(resolve, 1500)); // TMP-DIAG
-    if (process.env.OWLERY_DIAG_FILE) appendFileSync(process.env.OWLERY_DIAG_FILE, `later ${JSON.stringify(await app.evaluate(`window.__diag`))} ${JSON.stringify(await app.evaluate(`window.__removed`))} ${await submenuStands()}\n`); // TMP-DIAG
     expect(await submenuStands()).toBe(true);
     // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it.
     await pointerTo(await itemAt("Copy path"));
