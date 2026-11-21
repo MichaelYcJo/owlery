@@ -52,3 +52,22 @@ Two commits follow `4c94f5d`: `7b26905`, which adds this file, and `ebdb559`, wh
 target: ebdb559 against 5bd94bf
 Verdict: withheld reason: refused: pr-body.md:24: lacks ``, then `🤖 Generated with [Claude Code](https://claude.com/claude-code)`, which pr.md gives
 ```
+
+## Re-audit at `d1717ef`
+
+One commit follows `ebdb559`: `d1717ef`, which appends the run above to this file and changes nothing else. The orchestrator composed the body file again with `seal pr-body` after `ebdb559`. No claim of the first run has a coordinate a commit since `4c94f5d` touched, so none is re-run.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate's commit is followed only by this work item's records | `trail/gate.md`, `run: d2efdee against 5bd94bf` | `git log --no-merges --name-only d2efdee..HEAD ^5bd94bf` | Holds. `4c94f5d` touches `trail/gate.md`, `7b26905` and `d1717ef` `guarantee.md`, and `ebdb559` `pr.md`, each under `seal/threads/1795263509-open-in-submenu/` |
+| The body file is what the records give at HEAD | the body file the prompt names, `<scratchpad>/1795263509-open-in-submenu/pr-body.md`, last written at 21:59 | `seal pr-body seal/threads/1795263509-open-in-submenu --body <pr-body.md> --check` | Holds. Exit 0: `pr.md` above `## From the records` and the records' text below it. Its first part ends with the attribution line `ebdb559` added |
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design, the build, the last round, the changelog | as in the first run; no commit since `4c94f5d` touched `frame/`, `trail/phases/`, `changelog.md`, `routing.md` or a path outside `seal/threads/1795263509-open-in-submenu/` | each other, the issue and the tree, as the first run reads them | none |
+| the orchestrator's part of the pull request body | `pr.md` at `d1717ef`, as at `ebdb559`: the first run's text with the attribution line appended, and the body file now carries it | the other parties; the line states nothing of the work | none |
+
+```seal
+target: d1717ef against 5bd94bf
+Verdict: sealed
+```
