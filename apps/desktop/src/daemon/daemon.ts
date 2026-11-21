@@ -56,10 +56,10 @@ const SILENT_START_MS = 10_000;
 const END_WAIT_MS = 3000;
 
 /** How long a headless session may work, from its start, before the daemon stops it, where the options name no time. */
-const HEADLESS_LIMIT_MS = 60 * 60_000;
+export const HEADLESS_LIMIT_MS = 60 * 60_000;
 
 /** How many of the headless sessions that ended the daemon keeps, where the options name no number. */
-const HEADLESS_KEPT = 50;
+export const HEADLESS_KEPT = 50;
 
 const isIds = (value: unknown): value is number[] => Array.isArray(value) && value.every((id) => typeof id === "number");
 const isRunning = (value: unknown): value is Running => typeof value === "object" && value !== null && isIds((value as Running).panes) && isIds((value as Running).headless);

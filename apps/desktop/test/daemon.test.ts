@@ -7,7 +7,7 @@ import type { RoleAdapter } from "../src/daemon/adapters/adapter";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
-import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
+import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
@@ -3374,6 +3374,8 @@ describe("headless sessions", () => {
     expect(seen.stopped).toBe(1);
     c.socket.close();
     await c.until(() => (idle === 1 ? true : undefined));
+    // Where the options name no limit, a session works an hour at most.
+    expect(HEADLESS_LIMIT_MS).toBe(60 * 60_000);
   });
 
   it("stops at its limit a session whose adapter is still starting, once it has started, and leaves alone a session that ended before its limit", async () => {
@@ -3468,6 +3470,28 @@ describe("headless sessions", () => {
     for (const c of [one, two]) await c.until(() => (dropped(c).length === 2 ? true : undefined));
     expect([dropped(one), dropped(two)]).toEqual([[2, 3], [2, 3]]);
     expect((await (await client(url)).message("ready")).headless.map((h) => h.id)).toEqual([slow, fourth]);
+    // Where the options name no number, the daemon keeps fifty.
+    expect(HEADLESS_KEPT).toBe(50);
+  });
+
+  it("counts toward the bound no session that left the list with its work item", async () => {
+    const { c, url, workItem } = await withWorkItem({ keptHeadless: 1, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    // The pane ends at once, so the removal names no running session.
+    await c.message("exit");
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    c.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [workItem.id], running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 2);
+    const other = temporaryRepository();
+    cleanups.push(other.remove);
+    c.send({ type: "createWorkItem", requestId: 3, repo: other.repo, title: "Asked next", kind: "shell", cols: 80, rows: 24 });
+    const next = (await c.message("workItemCreated", (m) => m.requestId === 3)).workItem;
+    c.send({ type: "ask", requestId: 4, workItemId: next.id, prompt: "Q" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 4);
+    await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+    await pause(100);
+    expect(c.messages.some((m) => m.type === "headlessDropped")).toBe(false);
+    expect((await (await client(url)).message("ready")).headless.map((h) => h.id)).toEqual([headless.id]);
   });
 
   it("changes nothing at an exit that arrives for a session it no longer lists", async () => {
