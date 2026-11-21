@@ -37,5 +37,10 @@ jobs:
       - name: install
         run: pnpm install --frozen-lockfile
 
+      - name: diagnostic (temporary)
+        run: |
+          system_profiler SPDisplaysDataType
+          echo "SHELL=$SHELL"; locale; sysctl -n hw.ncpu; uptime
+
       - name: pnpm -r run check
         run: pnpm -r run check
