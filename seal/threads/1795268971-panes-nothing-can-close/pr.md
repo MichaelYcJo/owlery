@@ -16,6 +16,6 @@ Since #18 the window opens no pane outside a work item, yet the daemon still sta
 
 Not verified:
 
-- **A daemon of an earlier build** run against the new window still lists a pane with a null work item, which has no tab. The daemon restarts at a build change (#106), so the owner's running daemon is replaced at the next start of a new build.
+- **A daemon of an earlier build** run against the new window still lists a pane with a null work item, which has no tab. Such a daemon and its panes stay until a person chooses "Restart Daemon…" from the app menu, which the status line asks for when the daemon is of another build (#106, `apps/desktop/src/renderer/view.ts:167`).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
