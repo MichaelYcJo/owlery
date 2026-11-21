@@ -34,3 +34,32 @@ Audited at `8a198b3` against the base `release/v0.0.2`, resolved through `releas
 target: 8a198b3ac07357edda3378bb28f120e2b728e463 against dc82f88b40c7f6e719a142cab1d6cc5e63f0569e
 Verdict: withheld reason: pr.md:19 (the orchestrator's part of the pull request body) and gaps.md:9 (the closing memo) say the daemon restarts at a build change, so an earlier build's daemon is replaced at the next start of a new build, while src/main/main.ts:160 only reports otherBuild, src/renderer/view.ts:167 asks the person to choose "Restart Daemon…", and test/daemon-restart.test.ts:102 restarts only at the person's Restart; rewrite both sentences to say the earlier build's daemon and its tabless panes stay until a person chooses "Restart Daemon…", which the status line asks for, then recompose the body with seal pr-body
 ```
+
+## Re-audit at `2f4b1b3`
+
+Since the block above (`target: 8a198b3`), `8a07ebd` touched `guarantee.md` and `pr.md`, and `2f4b1b3` touched `gaps.md`, all of them under `seal/threads/1795268971-panes-nothing-can-close/`. `git diff 8a198b3 HEAD -- apps` is empty. So the only claims whose coordinates moved are the two the withheld reason named. Every other row above stands at this commit unchanged and was not re-run.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at the last code commit, and only the work item's records follow it | `trail/gate.md:4` (`run: a6b0699 against dc82f88`) | `git log --no-merges --name-only a6b0699..HEAD ^dc82f88` | holds, executed: `8a198b3`, `8a07ebd` and `2f4b1b3` follow, and each touches only paths under `seal/threads/1795268971-panes-nothing-can-close/` |
+| The recomposed body file is `pr.md` above the heading and the records' copy below it | the body file | `seal pr-body seal/threads/1795268971-panes-nothing-can-close --body <file> --check` | holds, executed: exit 0, "matches" |
+| An earlier build's daemon and its panes stay until a person chooses "Restart Daemon…" from the app menu, which the status line asks for when the daemon is of another build | `pr.md:19` | read `apps/desktop/src/renderer/view.ts:158`–`167` (`daemonNotice`), `apps/desktop/src/main/main.ts:20`–`23`, `:160`, `apps/desktop/src/main/menu.ts:25` | holds, read: the notice names "Restart Daemon…" from the menu, the entry stands in the app's menu, and the main process stops the daemon only at a person's confirmed choice |
+| The same, with nothing restarting the daemon by itself | `gaps.md:9` | the same reads | holds, read |
+| No other sentence of the records still says the daemon restarts at a build change | `pr.md`, `gaps.md`, `changelog.md`, `trail/phases/phase-1.md` | `git grep -n -i -e 'restarts at a build' -e 'replaced at the next start' -- seal/threads/1795268971-panes-nothing-can-close ':!*guarantee.md'` | holds, executed: exit 1, no match. This is a search on the two wordings and is a sample, not a whole list |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | unchanged since the block above: no `frame/`, and issue #28 is the frame | the issue, the diff | none |
+| the build | unchanged `trail/phases/phase-1.md`; `gaps.md:9` now says an earlier build's daemon stays until a person restarts it | the tree (`view.ts:167`, `main.ts:160`), the changelog, `pr.md` | none |
+| the last round | none: Review is straight to the PR | — | — |
+| the changelog | unchanged since the block above | the diff, the build, the issue | none |
+| the orchestrator's part of the pull request body | `pr.md` as before, its *Not verified* item now saying the earlier daemon and its panes stay until a person chooses "Restart Daemon…" | the tree, the build, `gaps.md:9`, the changelog | none. On form: `docs/forms/the-guarantee.md` has `pr.md` hold the records' quotes with coordinates, and this `pr.md` is the orchestrator's own prose. The orchestrator answers that every earlier work item of this repository uses this form. `seal pr-body --check` passes, and every claim of the prose was checked against the tree above. The form does not block the seal and stays a note for the settle |
+
+```seal
+target: 2f4b1b363ca8dc49a08b5f123031e1ebdcd7a823 against dc82f88b40c7f6e719a142cab1d6cc5e63f0569e
+Verdict: sealed
+```
