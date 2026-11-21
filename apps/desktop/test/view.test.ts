@@ -100,6 +100,7 @@ import {
   viewFacts,
   webTarget,
   withHeadless,
+  withoutHeadless,
   workItemEntries,
   workItemFields,
   workItemMenu,
@@ -1551,18 +1552,46 @@ describe("withHeadless", () => {
   });
 });
 
+describe("withoutHeadless", () => {
+  it("takes the session of the id out of the sessions the window holds, and leaves the others in their order", () => {
+    expect(withoutHeadless([headless(1), headless(2), headless(3)], 2)).toEqual([headless(1), headless(3)]);
+  });
+
+  it("leaves the sessions as they are where the window holds none of the id", () => {
+    expect(withoutHeadless([headless(1), headless(3)], 2)).toEqual([headless(1), headless(3)]);
+  });
+});
+
 describe("headlessLines", () => {
   it("says each session's prompt, its state and its answer with the line breaks kept, the most recent first", () => {
     const sessions = [headless(1, { state: "finished", answer: "src/login/form.ts\nsrc/login/submit.ts" }), headless(2, { prompt: "And the tests?", answer: "test/" })];
     expect(headlessLines(sessions, 1)).toEqual([
-      { id: 2, prompt: "And the tests?", state: "working", text: "test/" },
-      { id: 1, prompt: "Which file holds the login form?", state: "finished", text: "src/login/form.ts\nsrc/login/submit.ts" },
+      { id: 2, prompt: "And the tests?", state: "working", text: "test/", errorOutput: "", stop: true },
+      { id: 1, prompt: "Which file holds the login form?", state: "finished", text: "src/login/form.ts\nsrc/login/submit.ts", errorOutput: "", stop: false },
     ]);
   });
 
   it("shows a failed session's error in place of its answer", () => {
     const failed = headless(3, { state: "failed", answer: "src/lo", error: "the session exited with code 1 and gave no result" });
-    expect(headlessLines([failed], 1)).toEqual([{ id: 3, prompt: "Which file holds the login form?", state: "failed", text: "the session exited with code 1 and gave no result" }]);
+    expect(headlessLines([failed], 1)).toEqual([{ id: 3, prompt: "Which file holds the login form?", state: "failed", text: "the session exited with code 1 and gave no result", errorOutput: "", stop: false }]);
+  });
+
+  it("gives a failed session's error output after its error, with its line breaks kept, and none of a session that did not fail", () => {
+    const failed = headless(3, { state: "failed", error: "the session exited with code 1 and gave no result", errorOutput: "warning: no config\nerror: unknown option '--no-such-option'\n" });
+    const finished = headless(4, { state: "finished", answer: "src/login", errorOutput: "warning: no config\n" });
+    expect(headlessLines([failed, finished], 1).map(({ id, errorOutput }) => ({ id, errorOutput }))).toEqual([
+      { id: 4, errorOutput: "" },
+      { id: 3, errorOutput: "warning: no config\nerror: unknown option '--no-such-option'\n" },
+    ]);
+  });
+
+  it("offers Stop on the line of a session that is working, and on no line of one that ended", () => {
+    const sessions = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed", error: "the session reached its time limit and was stopped", stopped: "limit" })];
+    expect(headlessLines(sessions, 1).map(({ id, stop }) => ({ id, stop }))).toEqual([
+      { id: 3, stop: false },
+      { id: 2, stop: false },
+      { id: 1, stop: true },
+    ]);
   });
 
   it("gives the lines of the one work item alone", () => {

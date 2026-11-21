@@ -1610,12 +1610,21 @@ export function withHeadless(held: readonly HeadlessInfo[], changed: HeadlessInf
   return held.some((info) => info.id === changed.id) ? held.map((info) => (info.id === changed.id ? changed : info)) : [...held, changed];
 }
 
+/** The headless sessions the window holds, without the one the daemon took off its list. */
+export function withoutHeadless(held: readonly HeadlessInfo[], id: number): HeadlessInfo[] {
+  return held.filter((info) => info.id !== id);
+}
+
 export interface HeadlessLine {
   id: number;
   prompt: string;
   state: HeadlessState;
   /** The answer as far as it has arrived, or the error of a session that failed. */
   text: string;
+  /** What the agent's process of a failed session printed on its error stream, shown under the error with its line breaks kept, and empty for a session that did not fail. */
+  errorOutput: string;
+  /** Whether the line offers "Stop": a session that is working can be stopped, and one that ended cannot. */
+  stop: boolean;
 }
 
 /** The lines of one work item's headless sessions, the most recent first, so the one just asked sits under the field. */
@@ -1623,5 +1632,12 @@ export function headlessLines(held: readonly HeadlessInfo[], workItemId: number)
   return held
     .filter((info) => info.workItemId === workItemId)
     .sort((a, b) => b.id - a.id)
-    .map((info) => ({ id: info.id, prompt: info.prompt, state: info.state, text: info.state === "failed" ? (info.error ?? "") : info.answer }));
+    .map((info) => ({
+      id: info.id,
+      prompt: info.prompt,
+      state: info.state,
+      text: info.state === "failed" ? (info.error ?? "") : info.answer,
+      errorOutput: info.state === "failed" ? info.errorOutput : "",
+      stop: info.state === "working",
+    }));
 }
