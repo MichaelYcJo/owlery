@@ -2893,7 +2893,7 @@ describe("the inbox", () => {
     const { runDir } = await runFolderWithWorkItem(made, "Left early");
     // The read takes long enough for the client to ask and leave before it ends, and the wait is longer still.
     const watched = watchedGit(made.base, 0.2);
-    const { url } = await daemonWithWorkItem({ runDir, worktreesRoot: made.root, readyWaitMs: 5000 });
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000 });
     const c = await client(url);
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     c.socket.close();
