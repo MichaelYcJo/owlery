@@ -21,3 +21,5 @@ Not verified, for the owner's hand check:
 - **A real folder opening** in Finder and in each editor and terminal from the submenu. The cases press the items only on a folder that is gone, which `openFolder` answers before it reaches Finder.
 - **Whether 300 ms is long enough** for a hand moving the pointer to the submenu.
 - **What a screen reader reads** for "Open in" and its submenu.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
