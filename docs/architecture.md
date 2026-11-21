@@ -32,6 +32,12 @@
 - **The daemon stays alive while the app restarts or updates.** This keeps work from being cut off when a review round runs long.
 - **Agent state is judged from events, never guessed from what the terminal screen prints.** Role sessions report it through events in the structured output. A user session in a terminal reports it through its CLI's hooks, as Claude Code does. For a CLI whose hooks we have not checked, the inbox shows only whether the branch changed. When the app puts a decision in front of a person, it must never do so by mistake.
 - **Permission requests are handled as first-class events.** The daemon launches framer, crafter, proofer and sealer itself, so when one of them finishes or requests permission, the daemon learns of it first and passes it to the orchestrator agent or to the person. When an agent launches child agents of its own, the parent and child relationship is tracked as well. A user session's permission requests are answered in its terminal, or from the phone through the CLI's permission hook ([The phone: the terminal session as a chat](#the-phone-the-terminal-session-as-a-chat)).
+- **A CLI that reports through hooks and has sent no event 10 seconds after its pane started is shown as waiting for the person.** A CLI asks its first questions before its session starts and sends no event while it asks. Claude Code 2.1.327, run on 2026-11-19, sent none of its hook events while it asked whether to trust the folder, which it asks in the first worktree of a repository the person has not trusted in Claude Code, and it sent its session's start within two seconds wherever it did not ask. The daemon judges this from the missing event and never from what the pane prints, and the session's first event replaces the state.
+check: apps/desktop/test/daemon.test.ts
+- **The daemon keeps the Mac from idle sleep while an agent works.** A sleeping Mac stops every agent, and the notification of an agent that begins to wait does not come until a person wakes the Mac. The daemon holds the block because it knows each session's state and is there while the app is closed. It holds it as one child process, `caffeinate -i -w` with the daemon's own process id, so the block ends when the daemon ends, however it ends. The display may still sleep, and a closed lid still puts the Mac to sleep. A person chooses among "While an agent works", which is the default, "Always" and "Never". "While an agent works" holds while a pane's live process or a headless session is working. "Always" holds while the daemon runs, and does not keep the daemon from exiting once it has nothing left to do. The choice is the daemon's state: it is kept in the daemon's run directory and sent to every client, so the window, and the phone once it comes, show the same one.
+check: apps/desktop/test/keep-awake.test.ts apps/desktop/test/daemon.test.ts
+- **A person stops the daemon from the app's menu, and the app stops no daemon but its own run folder's.** A plain Quit leaves the daemon and its sessions running. "Restart Daemon…" and "Quit Owlery Completely…" name the running sessions first, and on the person's confirmation the app ends the daemon. It sends a signal to the process that `daemon.json` in its run folder names, and only after a daemon answered at that file's address with that file's token. The first entry then starts the daemon of the running build, and the second quits the app and starts none. The app signals because a daemon of any build ends at a signal, and a daemon of an earlier build would not know a message added to the protocol. The daemon writes the SHA-256 of the script it runs into `daemon.json`. Where that value differs from the script the app would start, the status line says the daemon is from another build and names "Restart Daemon…".
+check: apps/desktop/test/daemon-client.test.ts apps/desktop/test/daemon-restart.test.ts
 
 ## Agent adapters
 
@@ -157,6 +163,9 @@ The table means two things.
 | The daemon | Progress, session events and output, the cost ledger, questions and answers, schedule | They change often, and there is no reason to commit them to the repository |
 | What is given to the agent | The rules that role and that stage need, and the previous stage's files | An agent starts fresh every time, and every byte it reads costs tokens |
 
+**The daemon keeps repositories, and every work item belongs to one.** A repository is added and removed on its own, and holds its name, its icon, the base its new work items start from, its groups and its work items. The window makes up no repository from a work item's folder. What a person sets on a repository or a work item, an archive among it, is the daemon's state and is written nowhere in the person's repository.
+check: apps/desktop/test/repositories.test.ts apps/desktop/test/daemon.test.ts
+
 ### Records are committed to the repository
 
 Owlery always commits work records to the user's repository. There is no mode that keeps them only locally without committing.
@@ -201,6 +210,7 @@ These were confirmed from `claude --help` in Claude Code 2.1.326 (2026-11-17).
 | `--json-schema` | Receives the role's output in a fixed format |
 | `--max-budget-usd` | Sets a budget cap per stage |
 | `--resume <session ID>`, `--session-id <uuid>` | Resumes a stopped session, and lets the daemon set the session ID in advance. The time and tokens of resume have not been measured yet |
+| `-c`, `--continue` | A Claude Code pane that the person starts on the latest conversation of the pane's folder, which is the worktree for a work item's pane. It is launched with Owlery's hook settings, as every Claude Code pane is. Read from `claude --help` in Claude Code 2.1.329 (2026-11-20). It is the way back to a conversation until sessions are resumed by their id (milestone 4 of [roadmap.md](roadmap.md#milestones)) |
 
 These options can differ with the version of Claude Code the user installed. At startup, the daemon reads the CLI version and, if it is below the minimum supported version, tells the user to update.
 
@@ -220,6 +230,7 @@ Owlery is released under the Apache License 2.0.
 - **Code from MIT or Apache-2.0 projects may be taken and adapted.** For MIT code, its copyright notice and license text stay with it. For Apache-2.0 code, its LICENSE and NOTICE come along, and each changed file carries a note that it was changed. Files inside such a project that carry a license of their own are checked one by one.
 - **Code from GPL or AGPL projects is not taken.** Only their ideas are used, because taking the code would put the whole app under the same license.
 - **Other products' names and logos are not used.** That is a trademark matter, separate from the license.
+- **The names and the emblem are not under the Apache License.** The Owlery and AgenticSeal names, the owl emblem and its drawings in the tree are reserved, and `TRADEMARKS.md` at the top of the repository states what they are under.
 - **The owner keeps room to change the license.** When outside contributions start, a contributor license agreement (CLA) is added, so the license of later versions can still change. Whether to require it is in "Open decisions".
 
 ## Build order
@@ -263,9 +274,9 @@ The first version has no mobile app, and Android comes first ([Platforms and the
 
 ## The phone: the terminal session as a chat
 
-The phone shows a session that runs in a terminal on the desk as a chat. The terminal stays the original, and the phone is a second way to see the same session. The phone does this for every agent CLI the person runs, and its traffic goes only over the connection above, through no agent company's server. Two rules hold from now on so the phone can attach: the daemon's WebSocket protocol is not fitted only to the desktop UI, and no state lives on the UI side.
+The phone shows a session that runs in a terminal on the desk as a chat. The terminal stays the original, and the phone is a second way to see the same session. The phone does this for every agent CLI the person runs, and its traffic goes only over the connection above, through no agent company's server. Two rules hold from now on so the phone can attach: the daemon's WebSocket protocol is not fitted only to the desktop UI, and no state lives on the UI side. A client's own appearance, such as its theme, is not that state, and the client keeps it.
 
-For Claude Code, each part of the chat comes from the places below. Each hook was run on 2026-11-18, with Claude Code 2.1.327 in an interactive session that Owlery launched with its hook settings passed through `--settings`, which add to the user's and the project's settings and change neither. Every event carries `session_id`, `transcript_path`, `cwd` and `permission_mode`.
+For Claude Code, each part of the chat comes from the places below. Each hook was run on 2026-11-18, with Claude Code 2.1.327 in an interactive session that Owlery launched with its hook settings passed through `--settings`, which add to the user's and the project's settings and change neither. Every event carries `session_id`, `transcript_path` and `cwd`, and every event but `SessionStart` carries `permission_mode`.
 
 | Part of the chat | Where it comes from |
 |---|---|
@@ -278,7 +289,7 @@ For Claude Code, each part of the chat comes from the places below. Each hook wa
 - **The phone never reads the terminal screen.** The same rule as the inbox: state and content come from events and files, never from guessing at what the screen prints.
 - **Input from the phone goes into the terminal only while the CLI waits for input.** A stop goes in as the CLI's interrupt key at any time.
 - **Hooks are added only to the sessions Owlery launches.** The user's own settings files are not changed.
-- **Where Codex CLI's state, permission requests and conversation come from has not been checked.** It is checked before the phone app is built.
+- **Where Codex CLI's state, permission requests and conversation come from has not been checked.** It is checked in milestone 4, which brings a Codex session's line into the inbox ([Milestones](roadmap.md#milestones)), and so before the phone app is built.
 
 Some agent CLIs have a remote feature of their own, such as Claude Code's Remote Control. Owlery does not use or turn on such a feature. When a user turns one on for a session, the same permission request can appear in two places. What to do then is in "Open decisions".
 
@@ -295,6 +306,8 @@ Staying light is a goal of the product. The app itself aims to stay under about 
 
 The GPU terminal limit stays at Chromium's default of 16. This means one screen cannot hold 17 or more panes. The renderer's memory cap is not raised either.
 
+A work item's view shows at most four panes at once, the count the 500 MB target is measured at. The other panes of the work item stay as tabs, and a pane that is not on screen holds no terminal screen in the window. The daemon keeps the last 256K characters of each pane's output, and the window draws a pane from that replay each time the pane comes back on screen. Where it drops older output, what it keeps opens at a line's start where a line break stands within the first 4,096 characters, so a replay does not open inside an escape sequence. Past that, the cut stays where the count of characters puts it, and a program that prints a long stretch without a line break, as a full-screen program may, keeps that stretch.
+
 ## Screen framework: Electron
 
 The UI is built with Electron. Frameworks that use the system webview used somewhat less memory (up to about 10% across the same 8 scenarios, measured 2026-11-17), but the gap was not large enough to decide on. The four points below decided it.
@@ -305,6 +318,12 @@ The UI is built with Electron. Frameworks that use the system webview used somew
 - **Updates:** Delta updates download only the changed parts. In exchange, the app is large (.app 253 MB).
 
 Electron stays on macOS too (decided 2026-11-18). Moving macOS alone to the system webview was weighed on two criteria: Korean input, which works in the Electron pane (above), and how much lighter the app becomes, which the measured gap of up to about 10% does not decide.
+
+**The window shows Owlery's own page and nothing else, and no second window opens.** The main process refuses every navigation of the window but a reload of its own page, and refuses every new window. So nothing a pane prints can replace the window or open a page of the web inside Owlery, and a file a person drops on the window does not replace it either: the window does not navigate on a drop. A link a pane prints opens in the system browser, on a click with the Command key held, and only where its address is an `http` or `https` one. A path a pane prints is a link only where the main process finds a file or a folder at it. A click on it with the Command key held puts the view of another work item in front where the path is that work item's worktree, and shows it in Finder otherwise: a file is shown selected in its folder and is never opened in an app, and a folder is opened unless its name holds a dot after its first character and it is no checkout. An app started with `OWLERY_BACKGROUND=1` opens nothing in the system browser or in Finder, and reads and writes a clipboard of its own in place of the system's.
+check: apps/desktop/test/terminal-basics.test.ts apps/desktop/test/navigation.test.ts apps/desktop/test/links.test.ts apps/desktop/test/paths.test.ts apps/desktop/test/clipboard.test.ts
+
+**On macOS, closing the window hides it, and the app keeps its page.** The window's page raises the notifications, so a session that begins to wait while the window is closed still notifies. A click on the notification or on the Dock icon shows the window again, and Quit ends the app. An app started with `OWLERY_BACKGROUND=1` closes its window as before and quits with it: it has no Dock icon that could bring a hidden window back.
+check: apps/desktop/test/background.test.ts
 
 ## Measure before building
 
@@ -319,6 +338,7 @@ Electron stays on macOS too (decided 2026-11-18). Moving macOS alone to the syst
 - **Usage limit values:** Run a session under a subscription login and confirm the `rate_limits` field in the status line JSON and the fields of `rate_limit_event`. Also check whether Codex has similar values ([Reading usage limits](#reading-usage-limits)).
 - **AgenticSeal's cost per stage:** Measure with `seal payload` and `seal cost`.
 - **Startup tokens saved by the rules moved into structure:** The startup bundle per agent (agent definition, core, agent contract, CLAUDE.md), measured with `seal payload` on 2026-11-17, is about 12,000 tokens for framer and about 10,500 tokens each for crafter, proofer and sealer (estimated at 1 token per 3.2 bytes). In one work item proofer is launched for several rounds, so this bundle is paid for several times. Sort each sentence by "does it need judgment, or can the daemon, permissions or the output format (`--json-schema`) enforce it", remove the enforced sentences, and measure the bundle again. The same bundle is read cheaply from the prompt cache, so the savings will likely be smaller than the byte ratio.
+- **A start of the app that an agent makes on a person's machine sets `OWLERY_BACKGROUND=1`, and what only a person's start shows is measured by a person.** Without it the window takes the system's focus, so the person's keys reach the agent's pane and a Korean composition the person has under way ends. With it the window opens without the focus and without a Dock icon. Such a start lacks the Dock icon, the menu bar and the system's focus, so a reading that rests on one of them, such as a typed Korean line or the memory of a window kept in front, is a run the person makes ([Milestones](roadmap.md#milestones), `apps/desktop/measurements/memory.md`).
 
 ## Open decisions
 
@@ -332,7 +352,7 @@ Electron stays on macOS too (decided 2026-11-18). Moving macOS alone to the syst
 | What the phone reads for the conversation | Hooks only (the last reply of each turn) / also the CLI's session log (the text between tool calls) | How often the session log's format changes across CLI versions, and whether a chat without the text in between is enough on a phone ([The phone: the terminal session as a chat](#the-phone-the-terminal-session-as-a-chat)) |
 | Input from the terminal and the phone at once | Whoever types first, the other waits / the terminal always wins | Whether the daemon can tell reliably that the CLI is waiting for input, and how the person learns that their input from the phone did not go in |
 | Sessions with the CLI's own remote feature on | Owlery leaves that session's permission requests to that feature / both show them, and the first answer counts | Claude Code has no hook that reports Remote Control is on, so the daemon cannot tell when the person turns it on themselves |
-| When branches built by other agents get a seal | After v0.1, as now / pull it into v0.1 | Are the first users people who already run Codex alongside Claude Code? Codex already runs in a terminal from the first milestone, so what is left is how to record its branches. What draws these users in is a branch Codex built getting Claude's seal |
+| When branches built by other agents get a seal | After v0.1, as now / pull it into v0.1 | Are the first users people who already run Codex alongside Claude Code? A Codex session runs in a terminal pane from milestone 4 ([Milestones](roadmap.md#milestones)), so what is left is how to record its branches. What draws these users in is a branch Codex built getting Claude's seal |
 | How to read usage limits | Only the values Claude Code hands over / also read the user's token and call the undocumented endpoint | Are values as of the last call enough for the inbox and for holding back a chain? Also what Anthropic's published documents say about another product reading the user's login token, judged again when they change as the headless question is ([Reading usage limits](#reading-usage-limits)) |
 | Connection library | iroh / WebRTC data channels | Can the React Native phone app use iroh, and which reaches the daemon directly more often on the networks people actually use ([Connecting from outside](#connecting-from-outside-phones-and-other-machines)) |
 | Contributor agreement | Require a CLA / take contributions under the Developer Certificate of Origin (DCO) only | A CLA keeps the license changeable but adds a step that turns some contributors away. A DCO only certifies that the contributor may submit the code, so the license could no longer change without everyone's consent ([License and code from other projects](#license-and-code-from-other-projects)) |
