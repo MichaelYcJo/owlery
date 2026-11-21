@@ -35,3 +35,33 @@ Read, and not a disagreement: `routing.md` *Why this way* names the Implementati
 target: 9bb48d0 against 1db6c1f
 Verdict: withheld reason: two claims the runs and the tree contradict: the crafter's trail/phases/phase-1.md:14 says run 44919934535 at eb59857 brought none of the 18 failures back, and four of those cases failed in it (apps/desktop/test/terminal-basics.test.ts:736, :807, :865, :1013), two with their message of run 44909892650; gaps.md:9 says four cases after the worktree link case failed, and three cases follow it in that file (:807, :865, :1013) and three failed in runs 44915064055 and 44919934535
 ```
+
+## Re-audit at `5ebc8aa`
+
+Since the block above, three commits: `9bb48d0` and `6546b36` touch only `trail/gate.md` and `guarantee.md`, and `5ebc8aa` touches only `trail/phases/phase-1.md` and `gaps.md` (executed: `git log --no-merges --name-only 1459647..HEAD ^1db6c1f`). Nothing under `apps/`, `.github/`, `package.json` or `pnpm-lock.yaml` differs from `9bb48d0` (executed: `git diff --stat 9bb48d0 HEAD -- apps .github package.json pnpm-lock.yaml`, empty). So `trail/gate.md`'s run `1459647` is followed only by paths under `seal/threads/1795268298-desktop-suite-in-ci/`, and the base still resolves to `1db6c1f`. `seal pr-body 1795268298-desktop-suite-in-ci --body <pr-body.md> --check` on the recomposed body exited 0 (executed). This run re-checks only the claims at the coordinates `5ebc8aa` touched. The claims above that it did not touch stand as they were re-run.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| Run 44919934535 at `eb59857` passed the size check at every start; four of the 18 cases failed again, the link case (`:736`) and the three after it (`:807`, `:865`, `:1013`), the link case and `:807` with their messages of run 44909892650; the other fourteen passed | `trail/phases/phase-1.md:14` | `comm` over the `FAIL` lines of runs 44909892650 and 44919934535, their error lines, and the per-file counts of 44919934535 | holds (executed): 18 cases failed at `f51dae9`, 4 of them failed again in 44919934535, and its one other failure is the Open in case, which is not among the 18; `terminal-basics.test.ts (25 tests | 4 failed)` and `work-item-menu.test.ts (29 tests | 1 failed)` skip nothing, and the run's one skipped case is in `korean-input.test.ts`, so the other fourteen passed; both messages stand in both runs; the size check's message stands in neither |
+| At `eb59857` fourteen of the 18 passed, and the four that failed again are the link case and the three after it | `trail/phases/phase-1.md:16` | the same | holds (executed) |
+| The three cases after the link case in the file (`:807`, `:865`, `:1013`) then failed, four failures of the file in each run | `gaps.md:9` | `grep -n -E '^\s+it(\.[a-zA-Z]+\([^)]*\))?\(' apps/desktop/test/terminal-basics.test.ts`; the `FAIL` lines of runs 44915064055 and 44919934535 | holds (executed): those three are the only cases after `:736`, and each run failed those three with it in that file |
+| That the three failed "on the pane it left open" | `trail/phases/phase-1.md:14`, `gaps.md:9` | not re-run | read: the crafter's account of the cause; the order and the messages (`expected 'Shell 3' to be 'Shell 2'`, `the window never showed one tab`) do not contradict it |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | unchanged: no `frame/`; the issue's two *Done when* lines | as above | none |
+| the build | `trail/phases/phase-1.md` now says run 44919934535 failed four of the 18 cases, the link case and the three after it, and passed the other fourteen | the run logs, the tree, and its own paragraph at `:20` and `gaps.md:8-9` on that run | none |
+| the last round | no round record (`routing.md`, *Review, straight to the PR*) | — | none |
+| the changelog | unchanged | the diff, the phase record, `gaps.md`, `pr.md` | none |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged; the records' copy below its line now carries `gaps.md:9`'s three cases | the phase record, `gaps.md`, the changelog, the diff and the runs | none |
+
+Outside the tree, issue #117's body now reads "the three cases after it (lines 807, 865 and 1013 at #30's head)" (executed: `gh issue view 117`).
+
+```seal
+target: 5ebc8aa against 1db6c1f
+Verdict: sealed
+```
