@@ -361,11 +361,10 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await pointerTo(await itemAt("Finder"));
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(await submenuStands()).toBe(true);
-    // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it: it still stands after the pointer reached the submenu, where a submenu that closed at the crossing would be gone.
-    // Both places are read first, and the second move follows the first's answer with no call between them, as a hand makes them within the pause. At a first start of the app on GitHub's macOS runner the two reads and the read of the page a case made between the moves took longer than the pause's 300 ms, and the submenu closed as it should. Moves sent together are joined into one, and the pointer would not cross the item.
-    const [crossed, reached] = [await itemAt("Copy path"), await itemAt("Finder")];
-    await pointerTo(crossed);
-    await pointerTo(reached);
+    // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it.
+    await pointerTo(await itemAt("Copy path"));
+    expect(await submenuStands()).toBe(true);
+    await pointerTo(await itemAt("Finder"));
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(await submenuStands()).toBe(true);
     await pointerTo(await itemAt("Copy path"));
