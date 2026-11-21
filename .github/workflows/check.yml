@@ -38,9 +38,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: diagnostic (temporary)
+        continue-on-error: true
+        working-directory: apps/desktop
         run: |
-          system_profiler SPDisplaysDataType
-          echo "SHELL=$SHELL"; locale; sysctl -n hw.ncpu; uptime
+          for n in 1 2 3; do node scripts/test-in-electron.mjs test/work-item-menu.test.ts 2>&1 | grep -E "TMP-DIAG|×|Tests  " || true; done
 
       - name: pnpm -r run check
         run: pnpm -r run check
