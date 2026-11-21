@@ -438,7 +438,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
       await escape();
       await menuGone();
     } finally {
-      await app.atWindowSize();
+      await app.cdp("Emulation.clearDeviceMetricsOverride");
     }
     await app.until(`window.innerWidth !== ${width}`, "the page at the window's width again");
   });

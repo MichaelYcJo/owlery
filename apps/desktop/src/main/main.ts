@@ -117,6 +117,8 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     // The size the screens are drawn for, on the ground of the theme the window was left in, so it does not flash another colour before its page is drawn.
     ...WINDOW_SIZE,
+    // A start in the background, a test's or an agent's, keeps that size on a smaller screen, such as the 1024 by 768 one of GitHub's macOS runner, so its window shows the screens as they are drawn. A person's window stays inside their screen.
+    enableLargerThanScreen: background,
     title: "Owlery",
     // The title bar is hidden and inset: on macOS the traffic lights stand inside the sidebar, whose top drags the window.
     titleBarStyle: "hiddenInset",

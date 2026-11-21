@@ -167,8 +167,10 @@ export class BuiltApp {
    * caller's own environment has it. A caller that reads what the main
    * process holds, such as the menu Electron built, passes `inspectMain`,
    * and the app starts with the main process's inspector open on a port of
-   * its own, for `evaluateMain`. The page is laid out at the window's own
-   * size (`atWindowSize`) before the start answers.
+   * its own, for `evaluateMain`. An app started in the background has its
+   * window at the size the app makes it at (src/main/window-size.ts) on any
+   * screen, and the start fails where its page has another size: the cases
+   * read the screens as they are drawn at that size.
    */
   static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false } = {}): Promise<BuiltApp> {
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
@@ -186,7 +188,10 @@ export class BuiltApp {
       const main = mainPort === undefined ? undefined : await DebugSession.open((await listed(mainPort, () => true, "the main process opened no inspector")).webSocketDebuggerUrl);
       const started = new BuiltApp(child, page, main, port, userData);
       started.focused = await started.evaluate<boolean>("document.hasFocus()");
-      await started.atWindowSize();
+      if (!keepBackground) {
+        const size = await started.evaluate<[number, number]>("[window.innerWidth, window.innerHeight]");
+        if (size[0] !== WINDOW_SIZE.width || size[1] !== WINDOW_SIZE.height) throw new Error(`the window's page is ${size.join(" by ")} and not ${WINDOW_SIZE.width} by ${WINDOW_SIZE.height}`);
+      }
       return started;
     } catch (error) {
       child.kill("SIGTERM");
@@ -199,25 +204,6 @@ export class BuiltApp {
   /** What `document.hasFocus()` answered when the session opened, before anything emulated the focus. */
   get focusedAtStart(): boolean {
     return this.focused;
-  }
-
-  /**
-   * Lays the page out at the size the app makes its window at
-   * (src/main/window-size.ts) where the system's screen holds the window
-   * smaller, as the 1024 by 768 screen of GitHub's macOS runner holds it at
-   * 1024 by 674. The cases read the screens as they are drawn at that size.
-   * In the smaller window the tab strip clips a second pane's tab, so a
-   * press at its close control lands on the buttons beside the strip, a
-   * pane has too few columns for the path a case wraps, and a tall dialog's
-   * buttons stand below the page's foot.
-   * A window of that size keeps its page as it is. A case that sets its own
-   * page size calls this to give the page back.
-   */
-  async atWindowSize(): Promise<void> {
-    await this.cdp("Emulation.clearDeviceMetricsOverride");
-    const [width, height] = await this.evaluate<[number, number]>("[window.innerWidth, window.innerHeight]");
-    if (width >= WINDOW_SIZE.width && height >= WINDOW_SIZE.height) return;
-    await this.cdp("Emulation.setDeviceMetricsOverride", { ...WINDOW_SIZE, deviceScaleFactor: 0, mobile: false });
   }
 
   /** The app's process id. */
