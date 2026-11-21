@@ -371,6 +371,12 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await submenuGone();
     expect(await menuLabel()).toBe("Menu of project");
     expect(await opener()).toEqual(["Open in", "menu", "false", true]);
+    // The keyboard on another item closes the submenu under a pointer that rests on Open in. The pointer then comes onto nothing, and a press of Open in opens the submenu and closes nothing.
+    await pointerTo(await itemAt("Open in"));
+    await submenuShown();
+    await press("ArrowDown", 40);
+    expect(await itemInFocus()).toBe("Change icon");
+    expect(await submenuStands()).toBe(false);
     await pressItem("Open in");
     await submenuShown();
     expect(await menuLabel()).toBe("Menu of project");
