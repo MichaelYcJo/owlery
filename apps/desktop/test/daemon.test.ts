@@ -242,9 +242,9 @@ describe("sessions", () => {
   });
 
   it("sends a reconnecting client each line once: what it missed in the replay, the rest live", async () => {
-    // Prints a numbered line every 20 ms, so lines are printed between the client's ready and its attach.
+    // Prints forty numbered lines in five bursts of eight, 100 ms apart, so lines are printed between the client's ready and its attach. Each pause starts a `sleep` process, which takes about 45 ms on GitHub's macOS runner, so the lines come in bursts and not one pause each: forty starts there took the case past its five seconds.
     const { url } = await daemonWithWorkItem({
-      commandFor: () => ({ command: "/bin/sh", args: ["-c", "i=0; while [ $i -lt 40 ]; do echo line-$i; i=$((i+1)); sleep 0.02; done; sleep 30"], env: {} }),
+      commandFor: () => ({ command: "/bin/sh", args: ["-c", "i=0; while [ $i -lt 40 ]; do echo line-$i; i=$((i+1)); [ $((i % 8)) -ne 0 ] || sleep 0.1; done; sleep 30"], env: {} }),
     });
     const first = await client(url);
     await first.message("ready");

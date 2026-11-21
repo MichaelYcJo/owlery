@@ -16,6 +16,7 @@ import { copyText, installedApps, openFolder, trashFolder, type Openers } from "
 import { chooseFinder, pathsOf, showInFinder } from "./paths";
 import { comeForward } from "./forward";
 import { pickFolder } from "./pick-folder";
+import { WINDOW_SIZE } from "./window-size";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
 // over WebSocket. The main process finds or starts it, tells the window
@@ -115,8 +116,9 @@ function withClicks(entries: readonly MenuEntry[], clicks: Readonly<Record<strin
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     // The size the screens are drawn for, on the ground of the theme the window was left in, so it does not flash another colour before its page is drawn.
-    width: 1440,
-    height: 900,
+    ...WINDOW_SIZE,
+    // A start in the background, a test's or an agent's, keeps that size on a smaller screen, such as the 1024 by 768 one of GitHub's macOS runner, so its window shows the screens as they are drawn. A person's window stays inside their screen.
+    enableLargerThanScreen: background,
     title: "Owlery",
     // The title bar is hidden and inset: on macOS the traffic lights stand inside the sidebar, whose top drags the window.
     titleBarStyle: "hiddenInset",
