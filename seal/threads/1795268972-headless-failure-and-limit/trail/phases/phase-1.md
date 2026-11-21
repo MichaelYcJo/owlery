@@ -30,7 +30,7 @@
 - "counts toward the bound no session that left the list with its work item": mutant 17, `dropWorkItems` without `endedHeadless.delete`.
 - The two no-login fixture cases: they map recorded lines through `eventsForLine`, which already existed. No mutant of `eventsForLine` was run. They pin the recording and its mapping, not code of this phase.
 
-**Mutation runs**, at `982dd26` for `claude.ts` and `fake.ts` and at `0163238` for `daemon.ts`, one `seal mutate` call per file. Executed.
+**Mutation runs**, at `982dd26` for `claude.ts` and at `0163238` for `fake.ts` and `daemon.ts`, one `seal mutate` call per file. Executed.
 
 - `claude.ts`, 12 mutants, all red, over `test/claude-adapter.test.ts -t "Claude adapter's run"`. They broke the 2,000-character bound, the low-surrogate drop, the tail carried in `exit`, `detached: true`, the negative pid, the guard that signals nothing after the exit, the SIGKILL timer, `KILL_AFTER_MS`, the grace timer, `STREAMS_GRACE_MS`, the `??=` that gives one promise, and the `await exit`.
 - `fake.ts`, 2 mutants, both red, over `test/fake-adapter.test.ts`. They broke the option's `errorOutput` and the one settled promise.
