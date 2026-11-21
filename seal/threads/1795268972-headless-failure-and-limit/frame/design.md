@@ -80,13 +80,13 @@ In `apps/desktop/src/daemon/adapters/claude.ts`: `ERROR_OUTPUT_CHARS = 2000` and
 
 In `apps/desktop/src/daemon/adapters/fake.ts`: `FakeAdapterOptions.errorOutput?: string`, carried by every `exit` the fake adapter sends.
 
-In `apps/desktop/src/daemon/daemon.ts`: `DaemonOptions.headlessLimitMs?: number` (`HEADLESS_LIMIT_MS = 60 * 60_000`) and `DaemonOptions.keptHeadless?: number` (`HEADLESS_KEPT = 50`). The `END_WAIT_MS` docstring's last sentence is rewritten with the probe's measurement (*Removes*).
+In `apps/desktop/src/daemon/daemon.ts`: `DaemonOptions.headlessLimitMs?: number` (`HEADLESS_LIMIT_MS = 60 * 60_000`) and `DaemonOptions.keptHeadless?: number` (`HEADLESS_KEPT = 50`). Both constants are exported, so a case pins each value. The `END_WAIT_MS` docstring's last sentence is rewritten with the probe's measurement (*Removes*).
 
 In `apps/desktop/src/shared/protocol.ts`:
 
 - `HeadlessInfo` gains `errorOutput: string`, the last of what the agent's process printed on its error stream, and `stopped: "limit" | "request" | null`, which says what stopped a `failed` session and is null where the session ended by itself or still works.
 - Client: `{ type: "stopHeadless"; requestId: number; id: number }`, answered with `done` or `error`.
-- Server: `{ type: "headlessDropped"; id: number }`, sent to every client when a session leaves the list.
+- Server: `{ type: "headlessDropped"; id: number }`, sent to every client when the bound of *Scope* item 7 drops a session. A delete or a removal that takes sessions off the list sends none, since the `headless` list it sends already leaves them out.
 
 **What the milestone's next items build on, and do not get here.** #41 starts each stage through `startHeadless` and reads its end from `HeadlessInfo`. A stage that runs too long ends at `headlessLimitMs` with `stopped: "limit"`. A stage the daemon ends on purpose ends through the same stop as `stopHeadless`, with `stopped: "request"`. #41 reads `stopped`, not the error's words. A stage that failed carries `errorOutput` for its inbox line and for the orchestrator. #41 names its stage states, and judges whether one limit fits every stage (Q4). #74 tells a stage the usage limit ended from a failed one by the error `result`'s fields, which no probe recorded (Q1). #38 and #39 change the launch's arguments and add events, and the stop, the tail and the bound hold whatever the arguments are. #42 runs the broad gate as the daemon's own process, not through this adapter.
 

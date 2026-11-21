@@ -53,4 +53,4 @@ No dependency is added and no environment variable. The protocol gains `stopHead
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | Fold phase 1's two statements of *Data & interfaces*: `HEADLESS_LIMIT_MS` and `HEADLESS_KEPT` are exported from `daemon.ts` for the cases, and `headlessDropped` is sent only when the bound drops a session, as *Scope* item 7 already says. The orchestrator folds them and spawns no framer | The phase 1 crafter's hand-back names both, and HEAD (`4b3316e`) holds them; the second makes two sentences of the frame agree | the plugin's `skills/implement/orchestration.md` *A decision made after the frame is committed is folded* |
