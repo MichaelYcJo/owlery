@@ -90,6 +90,7 @@ import {
   stateHeading,
   stateSays,
   stateWithAge,
+  submenuPlace,
   summaryControls,
   summaryCount,
   summaryHead,
@@ -104,6 +105,7 @@ import {
   workItemMenu,
   type FormPlan,
   type InboxLine,
+  type MenuEntry,
   unanswered,
 } from "../src/renderer/view";
 import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
@@ -425,16 +427,26 @@ const GROUPS = [
   { id: 7, name: "Later" },
   { id: 8, name: "Drafts" },
 ];
-/** A menu's entries without their descriptions, which a case of their own holds. */
-const plain = (entries: readonly { label: string; description: string; action: unknown; divides: boolean }[]) => entries.map(({ description: _says, ...entry }) => entry);
+/** A menu's entries without their descriptions, which a case of their own holds: an entry that opens a submenu with its items, read the same way. */
+const plain = (entries: readonly MenuEntry[]): { label: string; [field: string]: unknown }[] => entries.map(({ description: _says, ...entry }) => ("opens" in entry ? { ...entry, opens: plain(entry.opens) } : entry));
+/** The "Open in" entry of a menu, as `plain` reads it, for a folder and the apps of `APPS`. */
+const openIn = (folder: string) => ({
+  label: "Open in",
+  opens: [
+    { label: "Finder", action: { do: "open", folder, app: null }, divides: false },
+    { label: "Zed", action: { do: "open", folder, app: "Zed" }, divides: false },
+    { label: "Warp", action: { do: "open", folder, app: "Warp" }, divides: false },
+  ],
+  divides: true,
+});
+/** The labels of the items an entry's submenu holds, or nothing where the entry opens none. */
+const opened = (entries: readonly MenuEntry[], label: string): string[] | undefined => entries.flatMap((entry) => (entry.label === label && "opens" in entry ? [entry.opens.map((item) => item.label)] : []))[0];
 
 describe("workItemMenu", () => {
-  it("holds, in this order, Rename, Open in Finder and in each installed app, the two copies, Pin, Mute notifications, Archive and Delete, each with what its press does", () => {
+  it("holds, in this order, Rename, Open in, the two copies, Pin, Mute notifications, Archive and Delete, each with what its press does, and Open in with no action of its own and a submenu of Finder and each installed app", () => {
     expect(plain(workItemMenu(LOGIN, APPS, []))).toEqual([
       { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
-      { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
-      { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
-      { label: "Open in Warp", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Warp" }, divides: false },
+      openIn("/w/project/fix-the-login-bug"),
       { label: "Copy path", action: { do: "copy", text: "/w/project/fix-the-login-bug" }, divides: true },
       { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
       { label: "Pin", action: { do: "set", id: 1, pinned: true }, divides: true },
@@ -445,7 +457,10 @@ describe("workItemMenu", () => {
   });
 
   it("offers Finder alone where no app is installed", () => {
-    expect(workItemMenu(LOGIN, [], []).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive", "Delete"]);
+    const menu = workItemMenu(LOGIN, [], []);
+    expect(menu.map((item) => item.label)).toEqual(["Rename", "Open in", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Archive", "Delete"]);
+    expect(opened(menu, "Open in")).toEqual(["Finder"]);
+    expect(opened(workItemMenu({ ...LOGIN, archivedAt: 50 }, [], []), "Open in")).toEqual(["Finder"]);
   });
 
   it("offers Unpin for a pinned work item and Unmute notifications for a muted one", () => {
@@ -471,15 +486,13 @@ describe("workItemMenu", () => {
     // A group the repository does not hold is one it cannot be moved out of by name: it is offered every group.
     expect(moves({ ...LOGIN, groupId: 99 }).map((item) => item.label)).toEqual(["Move to Later", "Move to Drafts"]);
     // The items around them stand as they do without a group.
-    expect(workItemMenu(LOGIN, [], GROUPS).map((item) => item.label)).toEqual(["Rename", "Open in Finder", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Move to Later", "Move to Drafts", "Archive", "Delete"]);
+    expect(workItemMenu(LOGIN, [], GROUPS).map((item) => item.label)).toEqual(["Rename", "Open in", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Move to Later", "Move to Drafts", "Archive", "Delete"]);
   });
 
-  it("holds for an archived work item, in this order, Restore, Open in Finder and in each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
+  it("holds for an archived work item, in this order, Restore, Open in with its submenu of Finder and each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
     expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS, GROUPS))).toEqual([
       { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
-      { label: "Open in Finder", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: null }, divides: true },
-      { label: "Open in Zed", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Zed" }, divides: false },
-      { label: "Open in Warp", action: { do: "open", folder: "/w/project/fix-the-login-bug", app: "Warp" }, divides: false },
+      openIn("/w/project/fix-the-login-bug"),
       { label: "Copy path", action: { do: "copy", text: "/w/project/fix-the-login-bug" }, divides: true },
       { label: "Copy branch name", action: { do: "copy", text: "owlery/fix-the-login-bug" }, divides: false },
       { label: "Delete", action: { do: "delete", id: 1 }, divides: true },
@@ -488,15 +501,13 @@ describe("workItemMenu", () => {
 });
 
 describe("repositoryMenu", () => {
-  it("holds, in this order, Settings, Change icon, Show archived work items, New group, Open in Finder and in each installed app, Copy path, Hide from sidebar and Remove, each with what its press does", () => {
+  it("holds, in this order, Settings, Change icon, Show archived work items, New group, Open in, Copy path, Hide from sidebar and Remove, each with what its press does, and Open in with no action of its own and a submenu of Finder and each installed app on the repository's folder", () => {
     expect(plain(repositoryMenu(PROJECT, APPS))).toEqual([
       { label: "Settings", action: { do: "settings", id: 1 }, divides: false },
       { label: "Change icon", action: { do: "icon", id: 1 }, divides: false },
       { label: "Show archived work items", action: { do: "archived", id: 1 }, divides: true },
       { label: "New group", action: { do: "group", id: 1 }, divides: false },
-      { label: "Open in Finder", action: { do: "open", folder: "/r/project", app: null }, divides: true },
-      { label: "Open in Zed", action: { do: "open", folder: "/r/project", app: "Zed" }, divides: false },
-      { label: "Open in Warp", action: { do: "open", folder: "/r/project", app: "Warp" }, divides: false },
+      openIn("/r/project"),
       { label: "Copy path", action: { do: "copy", text: "/r/project" }, divides: true },
       { label: "Hide from sidebar", action: { do: "hide", id: 1 }, divides: true },
       { label: "Remove", action: { do: "remove", id: 1 }, divides: false },
@@ -504,14 +515,18 @@ describe("repositoryMenu", () => {
   });
 
   it("offers Finder alone where no app is installed", () => {
-    expect(repositoryMenu(PROJECT, []).map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in Finder", "Copy path", "Hide from sidebar", "Remove"]);
+    const menu = repositoryMenu(PROJECT, []);
+    expect(menu.map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"]);
+    expect(opened(menu, "Open in")).toEqual(["Finder"]);
   });
 });
 
 describe("a description on hover", () => {
-  it("gives every entry of a work item's menu and of a repository's menu a description that is not empty and is not its label, and no two entries of one menu the same one", () => {
+  it("gives every entry of a work item's menu and of a repository's menu, and every item of a submenu, a description that is not empty and is not its label, and no two entries of one menu or of one submenu the same one", () => {
     const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS)];
-    for (const menu of menus) {
+    // Each submenu is read as a menu of its own, after the menus.
+    const submenus = menus.flatMap((menu) => menu.flatMap((entry) => ("opens" in entry ? [entry.opens] : [])));
+    for (const menu of [...menus, ...submenus]) {
       for (const { label, description } of menu) {
         expect(description.trim(), label).not.toBe("");
         expect(description, label).not.toBe(label);
@@ -521,7 +536,35 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([10, 10, 10, 7, 12, 12]);
+    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 8, 5, 10, 10]);
+    expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3]);
+  });
+});
+
+describe("submenuPlace", () => {
+  const WINDOW = { width: 800, height: 600 };
+  const SIZE = { width: 200, height: 120 };
+
+  it("puts the submenu's left edge at the menu's right edge and its top edge at the item's, where the window has room at the menu's right, to the last pixel", () => {
+    expect(submenuPlace({ left: 100, right: 300 }, 50, SIZE, WINDOW)).toEqual({ left: 300, top: 50 });
+    expect(submenuPlace({ left: 400, right: 600 }, 0, SIZE, WINDOW)).toEqual({ left: 600, top: 0 });
+  });
+
+  it("puts the submenu's right edge at the menu's left edge where the window has no room at the menu's right and has room at its left", () => {
+    expect(submenuPlace({ left: 401, right: 601 }, 50, SIZE, WINDOW)).toEqual({ left: 201, top: 50 });
+    expect(submenuPlace({ left: 600, right: 800 }, 50, SIZE, WINDOW)).toEqual({ left: 400, top: 50 });
+    expect(submenuPlace({ left: 200, right: 400 }, 50, SIZE, { width: 500, height: 600 })).toEqual({ left: 0, top: 50 });
+  });
+
+  it("moves the submenu inside the window, over part of the menu, where neither side has room, and to the window's left edge where the window is narrower than the submenu", () => {
+    expect(submenuPlace({ left: 150, right: 350 }, 50, SIZE, { width: 500, height: 600 })).toEqual({ left: 300, top: 50 });
+    expect(submenuPlace({ left: 0, right: 150 }, 50, SIZE, { width: 150, height: 600 })).toEqual({ left: 0, top: 50 });
+  });
+
+  it("moves the submenu up where its bottom edge would pass the window's, and never above the window's top", () => {
+    expect(submenuPlace({ left: 100, right: 300 }, 480, SIZE, WINDOW)).toEqual({ left: 300, top: 480 });
+    expect(submenuPlace({ left: 100, right: 300 }, 550, SIZE, WINDOW)).toEqual({ left: 300, top: 480 });
+    expect(submenuPlace({ left: 100, right: 300 }, 550, { width: 200, height: 700 }, WINDOW)).toEqual({ left: 300, top: 0 });
   });
 
   it("says of the button at the sidebar's top, of a repository's two buttons and of the form's choice what each does, and tells registering a repository from creating a work item", () => {

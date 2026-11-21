@@ -8,10 +8,14 @@
 // then a work item's delete; a repository's new group, and a work item's
 // move into it and out of it; and a removal that deletes a repository's work
 // items from disk, and one that is refused after its first delete; and last
-// a repository's removal that leaves everything on disk. No case presses an "Open in" item or a "Copy" item, and none
-// checks the choice that moves a repository's folder to the Trash: each acts
-// on the desktop, the clipboard and the Trash of whoever runs the suite.
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+// a repository's removal that leaves everything on disk. Among the first
+// cases stand the ones of the "Open in" submenu: its keys, the pointer, its
+// place at the window's edge, and a press of its Finder item on a folder the
+// case moved aside. No case presses an item of that submenu on a folder that
+// stands, or a "Copy" item, and none checks the choice that moves a
+// repository's folder to the Trash: each acts on the desktop, the clipboard
+// and the Trash of whoever runs the suite.
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -36,14 +40,20 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   /** The lines of the screen that lists a repository's archived work items. */
   const ARCHIVED = "#archived-lines";
   const line = (within: string, id: number): string => `${within} button[data-work-item="${id}"]`;
+  /** Any menu the window draws, the open submenu among them: a case that reads a menu's items through it reads them while no submenu is open. */
   const MENU = `[role="menu"]`;
-  /** The items a work item's menu holds on this Mac: the apps are the ones the main process finds installed. */
-  const items = (pin = "Pin", mute = "Mute notifications", moves: string[] = []): string[] => ["Rename", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", pin, mute, ...moves, "Archive", "Delete"];
-  /** The items the menu of an archived work item holds on this Mac. */
-  const archivedItems = (): string[] => ["Restore", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Copy branch name", "Delete"];
-
-  /** The items a repository's menu holds on this Mac. */
-  const repositoryItems = (): string[] => ["Settings", "Change icon", "Show archived work items", "New group", "Open in Finder", ...installedApps(existsSync, homedir()).map(({ name }) => `Open in ${name}`), "Copy path", "Hide from sidebar", "Remove"];
+  /** The open "Open in" submenu, which stands in the page only while it is open. */
+  const SUBMENU = `[role="menu"][aria-label="Open in"]`;
+  /** The item of a menu that opens the submenu. */
+  const OPENER = `[role="menuitem"][aria-haspopup="menu"]`;
+  /** The items a work item's menu holds. */
+  const items = (pin = "Pin", mute = "Mute notifications", moves: string[] = []): string[] => ["Rename", "Open in", "Copy path", "Copy branch name", pin, mute, ...moves, "Archive", "Delete"];
+  /** The items the menu of an archived work item holds. */
+  const archivedItems = (): string[] => ["Restore", "Open in", "Copy path", "Copy branch name", "Delete"];
+  /** The items a repository's menu holds. */
+  const repositoryItems = (): string[] => ["Settings", "Change icon", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"];
+  /** The items the "Open in" submenu holds on this Mac: the apps are the ones the main process finds installed. */
+  const openInItems = (): string[] => ["Finder", ...installedApps(existsSync, homedir()).map(({ name }) => name)];
   /** A repository's part of the sidebar, by the repository's id. */
   const repository = (id: number): string => `${SIDEBAR} section[data-repository="${id}"]`;
   /** The words of a repository's row: its icon, its name and how many work items stand under it. */
@@ -56,6 +66,16 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   const menuLabel = (): Promise<string | null> => value(`document.querySelector('${MENU}')?.getAttribute("aria-label") ?? null`);
   const menuShown = (): Promise<void> => app.until(`document.querySelector('${MENU}')`, "a menu");
   const menuGone = (): Promise<void> => app.until(`!document.querySelector('${MENU}')`, "the menu closed");
+  const submenuItems = (): Promise<string[]> => value(`[...document.querySelectorAll('${SUBMENU} [role="menuitem"]')].map((item) => item.textContent)`);
+  const submenuStands = (): Promise<boolean> => value(`document.querySelector('${SUBMENU}') !== null`);
+  const submenuShown = (): Promise<void> => app.until(`document.querySelector('${SUBMENU}')`, "the Open in submenu");
+  const submenuGone = (): Promise<void> => app.until(`!document.querySelector('${SUBMENU}')`, "the Open in submenu closed");
+  /** What the item that opens the submenu says of itself: whether it opens a menu, whether that menu is open, and whether it has a description that is not its label. */
+  const opener = (): Promise<(string | boolean | null)[]> => value(`(() => { const item = document.querySelector('${OPENER}'); return [item.textContent, item.getAttribute("aria-haspopup"), item.getAttribute("aria-expanded"), item.title.trim() !== "" && item.title !== item.textContent]; })()`);
+  /** The pointer brought to a place with no press. */
+  const pointerTo = (at: { x: number; y: number }): Promise<unknown> => app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+  /** The middle of the item that says `label`, of any menu that is open. */
+  const itemAt = (label: string): Promise<{ x: number; y: number }> => middleOf(`[...document.querySelectorAll('${MENU} [role="menuitem"]')].find((item) => item.textContent === ${JSON.stringify(label)})`);
   /** The words of the item of the open menu the keyboard is on. */
   const itemInFocus = (): Promise<string | null> => value(`document.activeElement?.closest('${MENU}') ? document.activeElement.textContent : null`);
   /** The work items of the lines under an element, in the order they are drawn. */
@@ -95,7 +115,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
 
   /** A key pressed and let go, with the Shift key held where `shift` says so. It types nothing. */
   async function press(code: string, virtualKey: number, shift = false): Promise<void> {
-    const key = { code, key: code.startsWith("Key") ? code.slice(3).toLowerCase() : code, windowsVirtualKeyCode: virtualKey, modifiers: shift ? 8 : 0 };
+    const key = { code, key: code.startsWith("Key") ? code.slice(3).toLowerCase() : code === "Space" ? " " : code, windowsVirtualKeyCode: virtualKey, modifiers: shift ? 8 : 0 };
     await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
   }
@@ -189,9 +209,12 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await menuShown();
     expect(await menuLabel()).toBe("Menu of First item");
     expect(await menuItems()).toEqual(items());
+    // One item opens the folder's submenu, which is not in the page until it is opened.
+    expect(await opener()).toEqual(["Open in", "menu", "false", true]);
+    expect(await submenuStands()).toBe(false);
     expect(await itemInFocus()).toBe("Rename");
     await press("ArrowDown", 40);
-    expect(await itemInFocus()).toBe("Open in Finder");
+    expect(await itemInFocus()).toBe("Open in");
     await press("ArrowUp", 38);
     await press("ArrowUp", 38);
     expect(await itemInFocus()).toBe("Rename");
@@ -270,6 +293,154 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await press("F10", 121, true);
     expect(await value<number>(`document.querySelectorAll('${MENU}').length`)).toBe(0);
     await app.evaluate(`document.activeElement?.blur()`);
+  });
+
+  it("opens the Open in submenu at ArrowRight, at Enter and at Space with the keyboard on its item, lists Finder and then each installed app there with the keyboard on Finder, stops the arrows at each end, and at ArrowLeft and at Escape closes the submenu alone and returns the keyboard to its item", async () => {
+    await app.evaluate(`document.querySelector('${line(SIDEBAR, 1)}').focus()`);
+    await press("F10", 121, true);
+    await menuShown();
+    await press("ArrowDown", 40);
+    expect(await itemInFocus()).toBe("Open in");
+    await press("ArrowRight", 39);
+    await submenuShown();
+    expect(await submenuItems()).toEqual(openInItems());
+    expect(await itemInFocus()).toBe("Finder");
+    expect(await opener()).toEqual(["Open in", "menu", "true", true]);
+    // The submenu is a second menu of the page, drawn after the first, and every item of it says on hover what its press does.
+    expect(await value<(string | null)[]>(`[...document.querySelectorAll('${MENU}')].map((menu) => menu.getAttribute("aria-label"))`)).toEqual(["Menu of First item", "Open in"]);
+    expect(await value<boolean>(`[...document.querySelectorAll('${SUBMENU} [role="menuitem"]')].every((item) => item.title.trim() !== "" && item.title !== item.textContent)`)).toBe(true);
+    await press("ArrowUp", 38);
+    expect(await itemInFocus()).toBe("Finder");
+    const last = openInItems().at(-1);
+    for (let at = 0; at < openInItems().length; at++) await press("ArrowDown", 40);
+    expect(await itemInFocus()).toBe(last);
+    await press("ArrowLeft", 37);
+    await submenuGone();
+    expect(await menuLabel()).toBe("Menu of First item");
+    expect(await itemInFocus()).toBe("Open in");
+    expect(await opener()).toEqual(["Open in", "menu", "false", true]);
+    await press("Enter", 13);
+    await submenuShown();
+    expect(await itemInFocus()).toBe("Finder");
+    await escape();
+    await submenuGone();
+    expect(await menuLabel()).toBe("Menu of First item");
+    expect(await itemInFocus()).toBe("Open in");
+    await press("Space", 32);
+    await submenuShown();
+    expect(await itemInFocus()).toBe("Finder");
+    // The Tab key leaves the keyboard where it is.
+    await press("Tab", 9);
+    expect(await itemInFocus()).toBe("Finder");
+    await press("ArrowLeft", 37);
+    await submenuGone();
+    // The keyboard on another item of the menu closes a submenu that is open, at once.
+    await press("ArrowRight", 39);
+    await submenuShown();
+    await app.evaluate(`document.querySelector('${OPENER}').focus()`);
+    expect(await submenuStands()).toBe(true);
+    await press("ArrowDown", 40);
+    expect(await itemInFocus()).toBe("Copy path");
+    expect(await submenuStands()).toBe(false);
+    await escape();
+    await menuGone();
+    expect(await value<boolean>(`document.activeElement === document.querySelector('${line(SIDEBAR, 1)}')`)).toBe(true);
+    await app.evaluate(`document.activeElement?.blur()`);
+  });
+
+  it("opens the submenu when the pointer comes onto Open in, keeps it while the pointer is on an item of it or reaches one within the pause, closes it after the pause where the pointer rests on another item of the menu, keeps the menu and the submenu at a press of Open in and at a press inside the submenu on no item, and closes both at a press outside them", async () => {
+    await app.click(`${repository(1)} .repository-menu`);
+    await menuShown();
+    expect(await submenuStands()).toBe(false);
+    await pointerTo(await itemAt("Open in"));
+    await submenuShown();
+    expect(await submenuItems()).toEqual(openInItems());
+    expect(await opener()).toEqual(["Open in", "menu", "true", true]);
+    // The pointer opened it, and the keyboard stays where it was.
+    expect(await itemInFocus()).toBe("Settings");
+    await pointerTo(await itemAt("Finder"));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await submenuStands()).toBe(true);
+    // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it.
+    await pointerTo(await itemAt("Copy path"));
+    expect(await submenuStands()).toBe(true);
+    await pointerTo(await itemAt("Finder"));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await submenuStands()).toBe(true);
+    await pointerTo(await itemAt("Copy path"));
+    await submenuGone();
+    expect(await menuLabel()).toBe("Menu of project");
+    expect(await opener()).toEqual(["Open in", "menu", "false", true]);
+    // The keyboard on another item closes the submenu under a pointer that rests on Open in. The pointer then comes onto nothing, and a press of Open in opens the submenu and closes nothing.
+    await pointerTo(await itemAt("Open in"));
+    await submenuShown();
+    await press("ArrowDown", 40);
+    expect(await itemInFocus()).toBe("Change icon");
+    expect(await submenuStands()).toBe(false);
+    await pressItem("Open in");
+    await submenuShown();
+    expect(await menuLabel()).toBe("Menu of project");
+    // A press inside the submenu on no item, its edge, leaves both open with the keyboard on the submenu, where the arrows are still read.
+    const edge = await value<{ x: number; y: number }>(`(() => { const box = document.querySelector('${SUBMENU}').getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + 1 }; })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...edge, button: "left", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...edge, button: "left", clickCount: 1 });
+    expect(await value<boolean>(`document.activeElement === document.querySelector('${SUBMENU}')`)).toBe(true);
+    expect(await value<number>(`document.querySelectorAll('${MENU}').length`)).toBe(2);
+    await press("ArrowDown", 40);
+    expect(await itemInFocus()).toBe("Finder");
+    await app.click("#inbox-word");
+    await menuGone();
+  });
+
+  it("closes the submenu and the menu at a press of the submenu's Finder item, and says in the status line that the folder is gone where the work item's folder was moved aside", async () => {
+    const worktree = join(clone.root, "project", "first-item");
+    const aside = `${worktree}.aside`;
+    // Nothing stands at the path, so the main process answers before it reaches Finder, and nothing opens on the desktop.
+    renameSync(worktree, aside);
+    try {
+      await rightPress(line(SIDEBAR, 1));
+      await menuShown();
+      await pointerTo(await itemAt("Open in"));
+      await submenuShown();
+      await pressItem("Finder");
+      await menuGone();
+      await app.until(`document.getElementById("status").textContent === ${JSON.stringify(`${worktree} is gone.`)}`, "the status line saying the folder is gone");
+    } finally {
+      renameSync(aside, worktree);
+    }
+    expect(existsSync(join(worktree, "README.md"))).toBe(true);
+  });
+
+  it("draws the submenu inside the window and to the left of the menu where the menu stands at the window's right edge", async () => {
+    // A line of the inbox ends at the list's edge, far from the window's. The page is made narrower, so that a press near the line's right end is a press near the window's right edge, and the menu's own place is moved to that edge.
+    const at = await value<{ x: number; y: number }>(`(() => { const box = document.querySelector('${line(INBOX, 2)}').getBoundingClientRect(); return { x: Math.round(box.right - 6), y: box.y + box.height / 2 }; })()`);
+    const width = at.x + 100;
+    await app.cdp("Emulation.setDeviceMetricsOverride", { width, height: 0, deviceScaleFactor: 0, mobile: false });
+    try {
+      await app.until(`window.innerWidth === ${width}`, "the narrower page");
+      // The list keeps its width, so the line's right end stands where it stood.
+      expect(await value<number>(`Math.round(document.querySelector('${line(INBOX, 2)}').getBoundingClientRect().right - 6)`)).toBe(at.x);
+      await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+      await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+      await menuShown();
+      await press("ArrowDown", 40);
+      await press("ArrowRight", 39);
+      await submenuShown();
+      const boxes = await value<{ menu: { left: number; right: number }; item: { top: number }; submenu: { left: number; right: number; top: number; bottom: number }; window: { width: number; height: number } }>(
+        `(() => { const box = (selector) => { const { left, right, top, bottom } = document.querySelector(selector).getBoundingClientRect(); return { left, right, top, bottom }; }; return { menu: box('${MENU}'), item: box('${OPENER}'), submenu: box('${SUBMENU}'), window: { width: window.innerWidth, height: window.innerHeight } }; })()`,
+      );
+      // The case's premise: the menu stands at the window's right edge, so the submenu has no room at its right.
+      expect(boxes.menu.right).toBeCloseTo(boxes.window.width, 0);
+      expect(boxes.submenu.right).toBeCloseTo(boxes.menu.left, 0);
+      expect(boxes.submenu.top).toBeCloseTo(boxes.item.top, 0);
+      expect([boxes.submenu.left >= 0, boxes.submenu.right <= boxes.window.width, boxes.submenu.top >= 0, boxes.submenu.bottom <= boxes.window.height]).toEqual([true, true, true, true]);
+      await escape();
+      await escape();
+      await menuGone();
+    } finally {
+      await app.cdp("Emulation.clearDeviceMetricsOverride");
+    }
+    await app.until(`window.innerWidth !== ${width}`, "the page at the window's width again");
   });
 
   it("pins a work item from its menu: its line carries the mark and stands first in the sidebar and in the inbox, and the menu then offers Unpin", async () => {
@@ -356,6 +527,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await menuShown();
     expect(await menuLabel()).toBe("Menu of project");
     expect(await menuItems()).toEqual(repositoryItems());
+    expect(await opener()).toEqual(["Open in", "menu", "false", true]);
+    expect(await submenuStands()).toBe(false);
     expect(await itemInFocus()).toBe("Settings");
     await escape();
     await menuGone();
@@ -546,6 +719,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await menuShown();
     expect(await menuLabel()).toBe("Menu of Third name");
     expect(await menuItems()).toEqual(archivedItems());
+    expect(await opener()).toEqual(["Open in", "menu", "false", true]);
+    expect(await submenuStands()).toBe(false);
     expect(await value<boolean>(`[...document.querySelectorAll('${MENU} [role="menuitem"]')].every((item) => item.title.trim() !== "" && item.title !== item.textContent)`)).toBe(true);
     await escape();
     await menuGone();

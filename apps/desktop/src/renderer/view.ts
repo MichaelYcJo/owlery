@@ -1051,8 +1051,8 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
  * repository's: opens its settings, its
  * icon's dialog or its removal's, hides it, opens the screen of its archived
  * work items, or, for `group`, opens the dialog of a new group. On both:
- * opens a folder in Finder, where `app` is null, or in an installed app, or
- * writes a text to the clipboard.
+ * writes a text to the clipboard, or, from an item of the "Open in" submenu,
+ * opens a folder in Finder, where `app` is null, or in an installed app.
  */
 export type MenuAction =
   | { do: "rename" | "archive" | "restore" | "delete"; id: number }
@@ -1061,8 +1061,8 @@ export type MenuAction =
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
   | { do: "settings" | "icon" | "archived" | "group" | "hide" | "remove"; id: number };
 
-/** One item of a menu: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
-export interface MenuEntry {
+/** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
+export interface MenuItem {
   label: string;
   /** What a press does, in other words than the label's. */
   description: string;
@@ -1070,41 +1070,71 @@ export interface MenuEntry {
   divides: boolean;
 }
 
-/** The items that open a folder in Finder and in each installed app, with `whose` naming the folder in their descriptions. */
-function openEntries(folder: string, whose: string, apps: readonly InstalledApp[]): MenuEntry[] {
-  return [
-    { label: "Open in Finder", description: `Show ${whose} folder in a Finder window.`, action: { do: "open", folder, app: null }, divides: true },
-    ...apps.map(({ name, kind }) => ({ label: `Open in ${name}`, description: `Start ${name}, ${kind === "editor" ? "an editor" : "a terminal"}, on ${whose} folder.`, action: { do: "open" as const, folder, app: name }, divides: false })),
-  ];
+/** An entry of a menu that opens a submenu beside it and does nothing else: its words, the sentence a pointer over it is told, the items of its submenu, and whether a rule stands above it. An item of a submenu opens no submenu, so a menu has one level under it. */
+export interface Submenu {
+  label: string;
+  /** What the submenu lists, in other words than the label's. */
+  description: string;
+  opens: readonly MenuItem[];
+  divides: boolean;
+}
+
+/** One entry of a menu: an item a press acts on, or one that opens a submenu. */
+export type MenuEntry = MenuItem | Submenu;
+
+/**
+ * Where a submenu stands, as the left and top of its box: its left edge at
+ * the right edge of the `menu` that opens it, and its top edge at `top`, the
+ * top edge of the item it opens from. Where its right edge would pass the
+ * window's, `within`, its right edge stands at the menu's left edge. Where
+ * neither side has room for its `size`, it is moved inside the window and
+ * covers part of the menu. Where its bottom edge would pass the window's, it
+ * is moved up, and never above the window's top or left of its left edge.
+ */
+export function submenuPlace(menu: { left: number; right: number }, top: number, size: { width: number; height: number }, within: { width: number; height: number }): { left: number; top: number } {
+  const beside = menu.right + size.width <= within.width ? menu.right : menu.left - size.width >= 0 ? menu.left - size.width : Math.min(menu.right, within.width - size.width);
+  return { left: Math.max(0, beside), top: Math.max(0, Math.min(top, within.height - size.height)) };
+}
+
+/** The "Open in" entry of a menu, with `whose` naming the folder in its descriptions. Its submenu lists Finder, then each of `apps` in the order they arrive, which is the editors before the terminals. Where no app is installed, or the main process has not answered yet, the submenu holds Finder alone. */
+function openEntries(folder: string, whose: string, apps: readonly InstalledApp[]): Submenu {
+  return {
+    label: "Open in",
+    description: `Choose where ${whose} folder opens: Finder, or an editor or a terminal installed on this Mac.`,
+    opens: [
+      { label: "Finder", description: `Show ${whose} folder in a Finder window.`, action: { do: "open", folder, app: null }, divides: false },
+      ...apps.map(({ name, kind }) => ({ label: name, description: `Start ${name}, ${kind === "editor" ? "an editor" : "a terminal"}, on ${whose} folder.`, action: { do: "open" as const, folder, app: name }, divides: false })),
+    ],
+    divides: true,
+  };
 }
 
 /**
- * A work item's menu, in its order: Rename; Open in Finder, then one item
- * for each installed editor and terminal; Copy path and Copy branch name;
- * Pin or Unpin, and Mute notifications or Unmute notifications; "Move to"
- * for each of `groups`, the groups of its repository, but the one it stands
- * in, and "Move out of" that one; Archive and Delete. The menu of an
- * archived work item holds Restore, the items that open its folder, the two
- * copies and Delete. The folder that is opened and copied is the work
- * item's worktree.
+ * A work item's menu, in its order: Rename; "Open in", whose submenu lists
+ * Finder and each installed editor and terminal; Copy path and Copy branch
+ * name; Pin or Unpin, and Mute notifications or Unmute notifications; "Move
+ * to" for each of `groups`, the groups of its repository, but the one it
+ * stands in, and "Move out of" that one; Archive and Delete. The menu of an
+ * archived work item holds Restore, "Open in", the two copies and Delete.
+ * The folder that is opened and copied is the work item's worktree.
  */
 export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[]): MenuEntry[] {
   const { id, worktree: folder } = workItem;
   const open = openEntries(folder, "the work item's", apps);
-  const copies: MenuEntry[] = [
+  const copies: MenuItem[] = [
     { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
     { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
   ];
-  const remove = (divides: boolean): MenuEntry => ({ label: "Delete", description: "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.", action: { do: "delete", id }, divides });
+  const remove = (divides: boolean): MenuItem => ({ label: "Delete", description: "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.", action: { do: "delete", id }, divides });
   const own = groups.find((group) => group.id === workItem.groupId);
-  const moves: MenuEntry[] = [
+  const moves: MenuItem[] = [
     ...groups.filter((group) => group !== own).map((group) => ({ label: `Move to ${group.name}`, description: `List the work item under the heading ${group.name} of its repository in the sidebar.`, action: { do: "set" as const, id, groupId: group.id }, divides: false })),
     ...(own ? [{ label: `Move out of ${own.name}`, description: "List the work item among its repository's ungrouped work items again.", action: { do: "set" as const, id, groupId: null }, divides: false }] : []),
   ].map((entry, at) => ({ ...entry, divides: at === 0 }));
-  if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, ...open, ...copies, remove(true)];
+  if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, open, ...copies, remove(true)];
   return [
     { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
-    ...open,
+    open,
     ...copies,
     workItem.pinned
       ? { label: "Unpin", description: "Let the work item stand among the others of its list again.", action: { do: "set", id, pinned: false }, divides: true }
@@ -1120,9 +1150,9 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
 
 /**
  * A repository's menu, in its order: Settings and Change icon; Show archived
- * work items and New group; Open in Finder, then one item for each installed
- * editor and terminal; Copy path; Hide from sidebar and Remove. The folder
- * that is opened and copied is the repository's.
+ * work items and New group; "Open in", whose submenu lists Finder and each
+ * installed editor and terminal; Copy path; Hide from sidebar and Remove.
+ * The folder that is opened and copied is the repository's.
  */
 export function repositoryMenu(repository: Repository, apps: readonly InstalledApp[]): MenuEntry[] {
   const { id, folder } = repository;
@@ -1131,7 +1161,7 @@ export function repositoryMenu(repository: Repository, apps: readonly InstalledA
     { label: "Change icon", description: "Choose one character to show before the repository's name.", action: { do: "icon", id }, divides: false },
     { label: "Show archived work items", description: "List the work items of this repository that were archived.", action: { do: "archived", id }, divides: true },
     { label: "New group", description: "Make a heading to gather some of this repository's work items under.", action: { do: "group", id }, divides: false },
-    ...openEntries(folder, "the repository's", apps),
+    openEntries(folder, "the repository's", apps),
     { label: "Copy path", description: "Put the repository folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
     { label: "Hide from sidebar", description: "Take the repository out of the sidebar. Its work items stay in the inbox.", action: { do: "hide", id }, divides: true },
     { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed unless you choose it in the dialog.", action: { do: "remove", id }, divides: false },
