@@ -7,6 +7,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WINDOW_SIZE } from "../src/main/window-size";
 
 const APP_DIR = join(__dirname, "..");
 
@@ -166,7 +167,8 @@ export class BuiltApp {
    * caller's own environment has it. A caller that reads what the main
    * process holds, such as the menu Electron built, passes `inspectMain`,
    * and the app starts with the main process's inspector open on a port of
-   * its own, for `evaluateMain`.
+   * its own, for `evaluateMain`. The page is laid out at the window's own
+   * size (`atWindowSize`) before the start answers.
    */
   static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false } = {}): Promise<BuiltApp> {
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
@@ -184,6 +186,7 @@ export class BuiltApp {
       const main = mainPort === undefined ? undefined : await DebugSession.open((await listed(mainPort, () => true, "the main process opened no inspector")).webSocketDebuggerUrl);
       const started = new BuiltApp(child, page, main, port, userData);
       started.focused = await started.evaluate<boolean>("document.hasFocus()");
+      await started.atWindowSize();
       return started;
     } catch (error) {
       child.kill("SIGTERM");
@@ -196,6 +199,24 @@ export class BuiltApp {
   /** What `document.hasFocus()` answered when the session opened, before anything emulated the focus. */
   get focusedAtStart(): boolean {
     return this.focused;
+  }
+
+  /**
+   * Lays the page out at the size the app makes its window at
+   * (src/main/window-size.ts) where the system's screen holds the window
+   * smaller, as the screen of GitHub's macOS runner does at 1024 by 768.
+   * The cases read the screens as they are drawn at that size, and in a
+   * smaller window the tab strip hides the tab of a second pane under the
+   * buttons beside it, a pane has too few columns for a path to wrap where a
+   * case prints it, and a tall dialog's buttons stand below the page's foot.
+   * A window of that size keeps its page as it is. A case that sets its own
+   * page size calls this to give the page back.
+   */
+  async atWindowSize(): Promise<void> {
+    await this.cdp("Emulation.clearDeviceMetricsOverride");
+    const [width, height] = await this.evaluate<[number, number]>("[window.innerWidth, window.innerHeight]");
+    if (width >= WINDOW_SIZE.width && height >= WINDOW_SIZE.height) return;
+    await this.cdp("Emulation.setDeviceMetricsOverride", { ...WINDOW_SIZE, deviceScaleFactor: 0, mobile: false });
   }
 
   /** The app's process id. */
