@@ -6,6 +6,8 @@ Eight test files of the desktop suite start the built Electron app. Vitest ran t
 
 **Checked** by two full runs of `pnpm -r run check` in a row on the owner's Mac at this branch's code: 34 files, 1050 passed and 1 skipped, in 217 and 224 seconds, the second at a load average near 22.
 
+**The link card case still has a race of its own.** The broad gate at `4227552`, with the built apps run one at a time, failed it at `terminal-basics.test.ts:608` (the card gone after four modifier keys), which no other app beside it explains. That goes to #117 too.
+
 #117 is narrowed to what is left on the runner, its first-start failures, which happened with two files at once and not eight. The link card case on the owner's Mac, which its comment of 2026-11-22 added, is this issue's.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

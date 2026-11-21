@@ -9,4 +9,7 @@
 
 ## Not done
 
+The split does not remove every failure of the link card case. The broad gate at `4227552`, with the built apps run one at a time, failed it at `terminal-basics.test.ts:608`: the card was gone after the four modifier keys were pressed and released, a check that waits on no timer of its own while the card's own timers run. That is the case's own race, not eight apps at once, and it goes to #117.
+
+
 #117 is narrowed, in a section of its body, to the runner's first-start failures; the link card case on the owner's Mac, which its comment of 2026-11-22 added, is this issue's. The retry under `CI` stays with #117.
