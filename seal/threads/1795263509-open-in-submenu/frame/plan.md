@@ -31,7 +31,7 @@ The tree as read at `89a2073`.
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1 to 9 of `frame/design.md` | Scenarios 1 to 5 as cases of `apps/desktop/test/view.test.ts`, and scenarios 6 to 10 as cases of `apps/desktop/test/work-item-menu.test.ts`, each new case seen red before its code. From `apps/desktop`: `node scripts/test-in-electron.mjs test/view.test.ts test/work-item-menu.test.ts` exits 0. The full suite, the typecheck and the broad gate are the orchestrator's | |
+| 1 | *Scope* items 1 to 9 of `frame/design.md` | Scenarios 1 to 5 as cases of `apps/desktop/test/view.test.ts`, and scenarios 6 to 10 as cases of `apps/desktop/test/work-item-menu.test.ts`, each new case seen red before its code. From `apps/desktop`: `node scripts/test-in-electron.mjs test/view.test.ts test/work-item-menu.test.ts` exits 0. The full suite, the typecheck and the broad gate are the orchestrator's | `d0e17a8` |
 
 The order inside the phase: the entries and `submenuPlace` in `view.ts` with their cases first, then `menu.ts` and the styles with the cases of the built app.
 
