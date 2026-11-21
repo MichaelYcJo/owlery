@@ -367,6 +367,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await pointerTo(await itemAt("Finder"));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await new Promise((resolve) => setTimeout(resolve, 600)); // TMP-DIAG
+    if (process.env.OWLERY_DIAG_FILE) appendFileSync(process.env.OWLERY_DIAG_FILE, `${[startDiag, finderAt, JSON.stringify(await app.evaluateMain(`[electron.screen.getCursorScreenPoint(), globalThis.__diag, Date.now()]`)), JSON.stringify(await app.evaluate(`window.__diag`)), await submenuStands()].join(" ")}\n`); // TMP-DIAG
     if (!(await submenuStands())) await diag("first"); // TMP-DIAG
     expect(await submenuStands()).toBe(true);
     // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it.
