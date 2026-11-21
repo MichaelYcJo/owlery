@@ -34,7 +34,7 @@ The cases that run against time use short option values and wait on events, neve
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 8, and the protocol and the interfaces of *Data & interfaces* | Scenarios 1 to 8 as cases, each seen red before its code; scenario 10's search, run after the build | `0163238` |
-| 2 | *Scope* item 9 | Scenario 9: a case for each decision of `src/renderer/view.ts` the item adds, each seen red before its code, and one drive of the built app with a script CLI through a script `SHELL`, which stops a working session and shows a failed one's error output | |
+| 2 | *Scope* item 9 | Scenario 9: a case for each decision of `src/renderer/view.ts` the item adds, each seen red before its code, and one drive of the built app with a script CLI through a script `SHELL`, which stops a working session and shows a failed one's error output | `37c369b` |
 
 ## Overlap with the release
 
