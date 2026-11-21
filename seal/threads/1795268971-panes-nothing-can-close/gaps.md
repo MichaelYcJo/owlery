@@ -6,7 +6,7 @@
 |---|---|
 | The window was not driven: that an exited pane of a work item is closed at the "x" of its tab after a reload rests on reading `paneTabs`, `tabElement` and `closeAsks` and on the `paneTabs` cases of `test/view.test.ts` | the orchestrator's broad gate (`terminal-basics.test.ts` closes panes in the built app) |
 | The built-app cases that start the daemon with a pane were not run, to keep the machine's load modest | the orchestrator's broad gate |
-| No daemon of an earlier build was run against the new window: a pane it lists with `workItemId` null still has no tab | nobody until a person runs an old daemon; the daemon restarts at a build change (`daemon-restart.test.ts`) |
+| No daemon of an earlier build was run against the new window: a pane it lists with `workItemId` null still has no tab | a person: such a daemon, and its panes with a null work item, stay until the person chooses "Restart Daemon…", which the window's status line asks for when the daemon is of another build (`daemonNotice` in `src/renderer/view.ts`); nothing restarts it by itself |
 
 ## Not done
 
