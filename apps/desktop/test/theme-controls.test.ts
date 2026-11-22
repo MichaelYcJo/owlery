@@ -180,7 +180,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
   it("draws each state's mark in the shapes and the fill the theme in use gives the state", async () => {
     await app.click("#nav-inbox");
     await app.until(`document.querySelector("#inbox-lines .state-icon.no-agent path.line")`, "the mark of Alpha's line in the inbox");
-    /** A mark's parts as the page draws them, and as the theme's properties give them. The mark of each state is the line's own mark under that state's class. */
+    /** A mark's parts as the page draws them, and as the theme's properties give them. The mark of a state no work item is in is a copy of the line's own mark under that state's class. */
     interface Mark {
       line: string;
       fill: string;
@@ -200,17 +200,21 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
           const colour = (name) => { probe.style.setProperty("fill", theme.getPropertyValue(name).trim()); return getComputedStyle(probe).fill; };
           const found = {};
           for (const state of ["waiting", "working", "finished", "no-agent", "failed"]) {
-            const mark = real.cloneNode(true);
-            mark.className = "state-icon state " + state;
-            mark.querySelector("svg").lastElementChild.remove();
-            document.body.append(mark);
+            // Alpha has no agent, so that state's mark is the line's own, with the classes the page gave it.
+            const own = state === "no-agent";
+            const mark = own ? real : real.cloneNode(true);
+            if (!own) {
+              mark.className = "state-icon state " + state;
+              mark.querySelector("svg").lastElementChild.remove();
+              document.body.append(mark);
+            }
             const part = (name) => getComputedStyle(mark.querySelector("path." + name));
             const works = state === "working";
             found[state] = {
               drawn: { line: part("line").getPropertyValue("d"), fill: part("fill").getPropertyValue("d"), track: part("track").getPropertyValue("d"), turn: part("turn").getPropertyValue("d"), fillColour: part("fill").fill },
               themed: { line: shape("--shape-" + state), fill: shape("--shape-" + state + "-fill"), track: shape(works ? "--shape-working-track" : null), turn: shape(works ? "--shape-working-turn" : null), fillColour: colour(state === "waiting" || state === "failed" ? "--state-" + state + "-fill" : "--state-" + state) },
             };
-            mark.remove();
+            if (!own) mark.remove();
           }
           probe.remove();
           return found;
