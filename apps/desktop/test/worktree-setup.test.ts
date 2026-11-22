@@ -237,13 +237,13 @@ describe("copyIncluded", () => {
     removableAfter(base);
     mkdirSync(join(repo, "node_modules", "pkg", "kept"));
     writeFileSync(join(repo, "node_modules", "pkg", "kept", "index.js"), "kept\n");
-    chmodSync(join(repo, "node_modules", "pkg", "kept"), 0o555);
-    // A link in the copy to a read-only folder outside the worktree, whose mode the removal leaves as it is.
+    // A link in that folder to a read-only folder outside the worktree, which the removal's first pass cannot take, and whose mode the second leaves as it is.
     const outside = join(base, "outside");
     mkdirSync(outside);
     writeFileSync(join(outside, "keep.txt"), "keep\n");
     chmodSync(outside, 0o555);
-    symlinkSync(outside, join(repo, "node_modules", "pkg", "outside"));
+    symlinkSync(outside, join(repo, "node_modules", "pkg", "kept", "outside"));
+    chmodSync(join(repo, "node_modules", "pkg", "kept"), 0o555);
     writeFileSync(join(repo, ".worktreeinclude"), "**/.env.local\nnode_modules/\n");
     const copy = await copyIncluded(repo, worktree);
     expect([copy.copied, copy.failed]).toEqual([[], [{ path: "apps/web/.env.local", why: expect.stringContaining("EACCES") }, { path: "node_modules/", why: expect.stringContaining("EACCES") }]]);
@@ -251,7 +251,8 @@ describe("copyIncluded", () => {
     expect(statSync(outside).mode & 0o777).toBe(0o555);
     for (const file of unreadable) chmodSync(file, 0o600);
     expect(await copyIncluded(repo, worktree)).toEqual({ copied: ["apps/web/.env.local", "node_modules/"], copiedCount: 2, failed: [], failure: null });
-    expect(readdirSync(join(worktree, "node_modules", "pkg")).sort()).toEqual(["a.js", "index.js", "kept", "m.js", "outside", "z.js"]);
+    expect(readdirSync(join(worktree, "node_modules", "pkg")).sort()).toEqual(["a.js", "index.js", "kept", "m.js", "z.js"]);
+    expect(readdirSync(join(worktree, "node_modules", "pkg", "kept")).sort()).toEqual(["index.js", "outside"]);
   });
 
   it("names in a failed path's error the staging folder it could not remove, which stays as git ignores it, and a later setup removes it", async () => {
@@ -356,9 +357,14 @@ describe("copyIncluded", () => {
     expect(readdirSync(worktree).filter((name) => name.startsWith(".owlery-copy-"))).toEqual([]);
   });
 
-  it("leaves a path that came to stand in the worktree during its copy as it is, and lists it as not copied", async () => {
+  it("leaves a path that came to stand in the worktree during its copy as it is, lists it as not copied, and removes the copy, a folder the source keeps read-only in it", async () => {
     const { repo, worktree, base } = repositoryWithIgnoredFiles();
     writeFileSync(join(repo, ".worktreeinclude"), ".env\nnode_modules/\n");
+    // Node's copy, as `cp`, gives the copy of a folder the source's mode once it holds all of it, so the copy that is not moved in is removed only once it is made writable.
+    removableAfter(base);
+    mkdirSync(join(repo, "node_modules", "pkg", "kept"));
+    writeFileSync(join(repo, "node_modules", "pkg", "kept", "index.js"), "kept\n");
+    chmodSync(join(repo, "node_modules", "pkg", "kept"), 0o555);
     // A clone during which the person's command makes the path in the worktree, then fails, so Node's copy runs after it.
     const clone = clonedBy(base, `case "$5" in\n*/.env) echo PERSON=1 > "${join(worktree, ".env")}" ;;\n*/node_modules) mkdir -p "${join(worktree, "node_modules", "made")}" && echo person > "${join(worktree, "node_modules", "made", "file")}" ;;\nesac\nexit 1`);
     const appeared = "it came to stand in the worktree during the copy, and was left as it is";
