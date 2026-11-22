@@ -55,6 +55,8 @@ check: apps/desktop/test/themes.test.ts
 
 토큰은 페이지가 그릴 때 쓰는 사용자 정의 속성입니다. 이 절이 모든 토큰 값의 원본이고, `apps/desktop/src/renderer/themes.css`와 `apps/desktop/src/renderer/index.html`에 있는 페이지의 `:root`가 이 절을 따릅니다. 값을 바꾸는 변경은 이 문서, 영어판, 스타일시트를 한 커밋에서 함께 바꿉니다.
 
+check: apps/desktop/test/themes.test.ts
+
 이름이 말하는 것은 아래와 같습니다.
 
 - `--scheme`: 스크롤 막대와 선택 목록처럼 시스템이 직접 그리는 부분을 어둡게 그릴지 밝게 그릴지입니다.

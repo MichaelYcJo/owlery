@@ -55,6 +55,8 @@ The window has three themes: Night watch, Register and Desk. A first run opens i
 
 A token is a custom property the page draws with. This section is the source of every token's value, and `apps/desktop/src/renderer/themes.css` and the page's `:root` in `apps/desktop/src/renderer/index.html` follow it. A change of a value changes this document, its Korean edition and the style sheet in one commit.
 
+check: apps/desktop/test/themes.test.ts
+
 What the names say.
 
 - `--scheme`: whether the system draws its own parts, a scroll bar and a list of choices among them, dark or light.
