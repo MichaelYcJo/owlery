@@ -35,6 +35,11 @@ A restart of the daemon, a crash or a restart of the Mac ends each process that 
 frame/plan.md:148 and :197 take the same two sentences as the docs.
 ```
 
+```seal
+verdict: fixed a49e3b3
+answer: Both editions now name the hangup condition and the open Q1, and changelog.md:5 says it for the release notes. The plan's blocks stay the framer's, and trail/phases/fix-1.md lists the departure.
+```
+
 ### 2. The daemon is said to write its counts into its log at each end, a crash included, which a crashed daemon cannot do, and the open decision is weighed on that count
 
 ```seal
@@ -63,6 +68,11 @@ changelog.md:7: "the log line at each end" becomes "the log lines at each stop a
 frame/plan.md:157, :181, :206 and :230 take the same text as the docs.
 ```
 
+```seal
+verdict: fixed a49e3b3
+answer: Both editions say the log line is written at a stop and that a crash writes nothing, the open-decision cell separates restart from crash, the Korean particle is now 이슈 #133이, and changelog.md:7 is changed as given. The plan's blocks stay the framer's, and trail/phases/fix-1.md lists the departure.
+```
+
 ### 3. The handover row says a stand-in pane "lived through such a handover", but the probe passed the descriptor to a child the holder started, not to a next daemon
 
 ```seal
@@ -81,6 +91,11 @@ docs/architecture.ko.md:62, the same sentence:
 대신 세운 칸은 그것을 쥐던 프로세스가 끝난 뒤에도 살았고, 그 프로세스에게서 디스크립터를 물려받은 프로세스가 칸을 읽고 크기 바꾸기를 보냈습니다(2026-11-22 실험). 멈추는 데몬이 띄우지 않은 데몬에 넘기는 것은 돌려 보지 않았습니다
 
 frame/plan.md:166 and :215 take the same text.
+```
+
+```seal
+verdict: fixed a49e3b3
+answer: Both editions now state what the probe showed and that a handover to a daemon the stopping one did not start was not run. trail/phases/fix-1.md lists the departure from the plan's blocks.
 ```
 
 ### 4. The background-sessions row gives `claude --bg` a session "through any end of the daemon, as `claude --help` reads", which takes in a reboot and quotes the help for more than it says
@@ -103,6 +118,11 @@ docs/architecture.ko.md:65, the second cell:
 frame/plan.md:169 and :218 take the same cells.
 ```
 
+```seal
+verdict: fixed a49e3b3
+answer: Both editions now say the study expects survival from the help text and did not run it, and limit it to a restart or a crash of the daemon. trail/phases/fix-1.md lists the departure from the plan's blocks.
+```
+
 ### 5. The update row says a role session's run goes on in the kept daemon unconditionally, dropping the study's condition that the kept daemon reads files of its own build, and leaving the role-bundle rows of the same document unreconciled
 
 ```seal
@@ -121,6 +141,11 @@ docs/architecture.ko.md:53, after "창은 데몬이 보내지 않는 필드를 �
 그대로 둔 데몬은 자기 빌드의 스크립트와 node-pty의 네이티브 파일, 역할 묶음을 계속 읽으므로, 패키지된 앱은 업데이트가 바꾸지 않는 파일에서 데몬을 돌리고, 이것은 이슈 #78이 만들고 확인합니다.
 
 frame/plan.md:157 and :206 take the same sentence. Lines 86 and 244 of each edition need no change once this sentence names the condition.
+```
+
+```seal
+verdict: fixed a49e3b3
+answer: Both editions carry the sentence after the sentence on the window reading a field the daemon does not send. Lines 86 and 244 were read and stand. trail/phases/fix-1.md lists the departure from the plan's blocks.
 ```
 
 ### 6. The work item has no `gaps.md`, so what went out unproved stands only in `pr.md`'s prose, where `seal pr-body` and the settle do not read it as rows
@@ -152,6 +177,11 @@ seal/threads/1795339000-sessions-outlive-the-daemon/gaps.md (new):
 nothing
 
 pr.md: delete lines 13 to 16 (the "Not verified:" heading and its two bullets), since `seal pr-body` copies the memo's section below the orchestrator's part.
+```
+
+```seal
+verdict: fixed a49e3b3
+answer: gaps.md is written as given, and the Not verified heading and its two bullets are removed from pr.md. The remaining lines of pr.md were read against the records and still hold.
 ```
 
 ## Confirmations
