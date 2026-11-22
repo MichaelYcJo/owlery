@@ -32,6 +32,12 @@ The case at `theme-controls.test.ts:165` puts an empty term and an empty value i
 
 The fix pass owes a case as well, since the snippet alone pins nothing. In the fourth case of `apps/desktop/test/theme-controls.test.ts`, with a work item's view open in Register, a check reads every term of `#view-fact-list` and the value after it. It holds that the two `getBoundingClientRect().bottom` values are equal, for a fact whose value runs past one line. It is seen red with `align-items: start` put back. The comment at `index.html:338` then holds as written. The Register views are made again for `pr.md`, since the fact's rule changes on them.
 
+```seal
+verdict: fixed 91b89f6
+location: `seal/threads/1795340000-design-system/screenshots/register-dark-view.png`, `seal/threads/1795340000-design-system/screenshots/register-light-view.png`
+answer: The paste-ready rule was applied as written, `align-items: stretch` on `#view-fact-list`, after reading it against the page: a term and a value are block boxes whose text starts at their top, and no rule of the page sets `align-self` on either. The comment over the rule now says each box is as high as the row. The fourth case of `apps/desktop/test/theme-controls.test.ts` opens Alpha's view in Register, holds that the value of "Worktree" runs to more than one line, and compares the bottom of each term with the bottom of its value. It was seen red before the rule, on "Worktree" with the term ending at 193.73 and the value at 225.40, and `seal mutate` put `align-items: start` back, red on the same line. Register's two screenshots of a work item were made again at `91b89f6` and are in `b6201b295b5d76b478063c3378bd3db66e4096a3`, paths this finding's location does not name; an enlarged crop of each shows one rule from the term to the value's end under the three lines of the worktree's folder. The other fourteen files stand as `e974e84` holds them, so `pr.md` links those two at the new commit, which is the orchestrator's edit.
+```
+
 ### 2. The ninth principle's last sentence has more than one reading, and none of them is the exemption the case and the closing memo keep
 
 ```seal
@@ -60,6 +66,12 @@ A ground drawn only while a part is pressed, `--pressed`, `--control-pressed` an
 ```
 
 No case reads the principle's words, so this sentence is pinned by nothing. The cases hold what the principle says, and the comment over `WORDS` already matches the new sentence.
+
+```seal
+verdict: fixed 98b594c
+location: `seal/threads/1795340000-design-system/gaps.md`
+answer: The last sentence of principle 9 is rewritten in both editions as `frame/plan.md` *Judgments of the run*, the row on round 2, decides: a ground drawn only while a part is pressed is outside the floors, since it lasts as long as the press and the part's words were read before it. The words are the fix pass's own in two places. The paste-ready sentence named `--pressed` as outside the floor, and `index.html:296` also draws `--pressed` under a button of the stage that stays turned on (`#side-by-side[aria-pressed="true"]`), a ground that lasts, so the sentence names the ground by when it is drawn and names no token. The disabled part has a sentence of its own, "A disabled part, drawn at 45% of its strength, is outside them too": the judgment row does not name it, and without it the principle would hold a disabled button's words, which `button:disabled` draws at 45%, to a floor the build does not keep. The row of `gaps.md` *Not done* on the press, a path this finding's location does not name, now cites the principle and the judgment row, names `--main-pressed` with the other two, and gives round 2's measure of 4.18 to 1. No case reads the principle's words. `frame/design.md:93`, *Contrast*, states the floors without either exemption, and its fold is the orchestrator's.
+```
 
 ### 3. The pull request text and the changelog say every word and every theme meets the floor, and the closing memo lists where it does not
 
@@ -91,6 +103,11 @@ Every word now stands at 4.5 to 1 or more against the ground it is drawn on, whe
 ```
 
 Whichever reading finding 2's fix gives principle 9, these two sentences name the same exemptions it names.
+
+```seal
+verdict: fixed 7282b7c
+answer: `changelog.md:7` now says where every word stands at 4.5 to 1, at rest, under the pointer and on a selected line, in the paste-ready words, and its heading says "where it rests". The item goes further than the paste-ready sentence, as the finding's own grounds ask: it says the muted and the faint ink of every theme were raised and the colours of the states with them (a finished and a sleeping work item's in every appearance, and in a light appearance a waiting, a working or a failed one's, read from `git diff f41bd67..HEAD` of `themes.css`), and it names the three things `gaps.md` *Not done* leaves: the ground drawn only while a part is pressed, outside the floor by principle 9, a menu's item under the keyboard, and the edges of a field and of a button. `changelog.md:6` said Desk's "two quieter inks" were made stronger and now names the colours of some states too. `pr.md:16` is not changed by this commit: it follows from the orchestrator.
+```
 
 ### 4. The fold of round 1 lists fewer of Desk's and Register's changed values than the style sheet changed, and names the wrong finding for the raise
 
