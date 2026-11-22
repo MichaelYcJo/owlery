@@ -1,7 +1,8 @@
 // A work item's record of the decisions made for it without asking and of the
 // questions it was parked with: `decisions.md` of its directory. The cases
-// read a record, write each change of one, and find a work item's directory
-// by its branch, in temporary repositories and never in Owlery's own.
+// read a record, write each change of one, find a work item's directory by
+// its branch, and name a renamed branch in its `routing.md`, in temporary
+// repositories and never in Owlery's own.
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -544,6 +545,7 @@ describe("a work item's directory", () => {
     expect(() => withBranch(`${F}\n${declares("feature")}${F}\n`, "second")).toThrow("the routing declares no branch");
     expect(() => withBranch(routing([["Review", "straight to the PR"], ["Destination", "open the pull request"], ["Branch", "feature"], ["Branch", "other"]]), "second")).toThrow("the routing declares no branch");
     expect(() => withBranch(declares("feature"), "a|b")).toThrow("the routing's `Branch` row cannot name the branch a|b");
+    expect(() => withBranch(declares("feature"), "second ")).toThrow("the routing's `Branch` row cannot name the branch second ");
     expect(() => withBranch(declares("feature"), "")).toThrow("the routing's `Branch` row cannot name the branch ");
   });
 });
