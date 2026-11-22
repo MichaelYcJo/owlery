@@ -10,9 +10,4 @@ Issue #36 asked what a session survives: whether an agent ends with the daemon, 
 
 **Q5** (whether part of #61 moves before milestone 4) stands at its default: #61 stays whole in `release: 0.0.4`, as `docs/roadmap.md` orders it.
 
-Not verified:
-
-- **Whether a Claude Code pane's process ends when its daemon stops, whether a subagent's hook events carry the pane's `session_id`, and whether Owlery's hooks reach a `claude --bg` session**: the study started no real `claude`. The first real session of #61's work answers them.
-- **Whether a daemon started from inside the app's folder keeps working after the updater replaced that folder**: no package exists. #78's work answers it.
-
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
