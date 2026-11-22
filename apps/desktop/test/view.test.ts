@@ -77,6 +77,10 @@ import {
   removalOf,
   renameChoice,
   replayStep,
+  lacksRecords,
+  recordsDialog,
+  recordsOf,
+  registered,
   repositoryMenu,
   rowButtons,
   runningSessions,
@@ -110,7 +114,7 @@ import {
   type MenuEntry,
   unanswered,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -132,7 +136,7 @@ const LOGIN: WorkItem = {
   groupId: null,
   archivedAt: null,
 };
-const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null } };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -503,10 +507,11 @@ describe("workItemMenu", () => {
 });
 
 describe("repositoryMenu", () => {
-  it("holds, in this order, Settings, Change icon, Show archived work items, New group, Open in, Copy path, Hide from sidebar and Remove, each with what its press does, and Open in with no action of its own and a submenu of Finder and each installed app on the repository's folder", () => {
+  it("holds, in this order, Settings, Change icon, Records and check…, Show archived work items, New group, Open in, Copy path, Hide from sidebar and Remove, each with what its press does, and Open in with no action of its own and a submenu of Finder and each installed app on the repository's folder", () => {
     expect(plain(repositoryMenu(PROJECT, APPS))).toEqual([
       { label: "Settings", action: { do: "settings", id: 1 }, divides: false },
       { label: "Change icon", action: { do: "icon", id: 1 }, divides: false },
+      { label: "Records and check…", action: { do: "records", id: 1 }, divides: false },
       { label: "Show archived work items", action: { do: "archived", id: 1 }, divides: true },
       { label: "New group", action: { do: "group", id: 1 }, divides: false },
       openIn("/r/project"),
@@ -518,8 +523,13 @@ describe("repositoryMenu", () => {
 
   it("offers Finder alone where no app is installed", () => {
     const menu = repositoryMenu(PROJECT, []);
-    expect(menu.map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"]);
+    expect(menu.map((item) => item.label)).toEqual(["Settings", "Change icon", "Records and check…", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"]);
     expect(opened(menu, "Open in")).toEqual(["Finder"]);
+  });
+
+  it("offers no Records and check… for a repository of a daemon of an earlier build, which sends no records", () => {
+    const { records: _, ...earlier } = PROJECT;
+    expect(repositoryMenu(earlier as Repository, []).map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"]);
   });
 });
 
@@ -538,7 +548,7 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 8, 5, 10, 10]);
+    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10]);
     expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3]);
   });
 });
@@ -2653,5 +2663,109 @@ describe("keyHints", () => {
 
   it("names the Control key where the keyboard has no Command key", () => {
     expect(keyHints("inbox", false)[2]).toBe("Ctrl N opens a new work item");
+  });
+});
+
+describe("the dialog of the records place", () => {
+  const OUT_OF_SCOPE = "Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.";
+  const PLAN: RecordsPlan = {
+    branch: "main",
+    subject: "chore: add the place for work records and the pull request check",
+    files: [
+      { path: "seal/README.md", text: "# What AgenticSeal maintains in seal/\n" },
+      { path: "seal/config.json", text: '{\n  "Broad gate": "pnpm test"\n}\n' },
+      { path: ".github/workflows/owlery-seal.yml", text: "name: seal\n" },
+    ],
+    blocked: null,
+    proposedBroadGate: null,
+    stamp: "s",
+  };
+  const kept = (plan: RecordsPlan, ...paths: string[]): RecordsPlan => ({ ...plan, files: plan.files.map((file) => (paths.includes(file.path) ? { path: file.path, text: null } : file)) });
+
+  it("says what is out of scope before anything is written, and shows the plan: the branch and the subject of the one commit, each file's path over its text, the field of the broad gate command with where it is kept, and the two buttons", () => {
+    const words = recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test");
+    expect(words.head).toBe("Records and check: project");
+    expect(words.scope).toBe(OUT_OF_SCOPE);
+    expect(words.commit).toBe("This makes one commit on `main`: `chore: add the place for work records and the pull request check`. Nothing is pushed.");
+    expect(words.blocked).toBe("");
+    expect(words.files).toEqual(PLAN.files.map((file) => ({ path: file.path, text: file.text, says: "" })));
+    expect(words.holds).toEqual([]);
+    expect(words.gate).toEqual({ shown: true, enabled: true, label: "Broad gate command", value: "pnpm test", says: "Kept in `seal/config.json`, under `Broad gate`." });
+    expect(words.submit).toEqual({ shown: true, enabled: true, label: "Set up and commit" });
+    expect(words.cancel).toBe("Not now");
+  });
+
+  it("says the scope and offers no commit until the daemon has answered, while the plan is of another command than the field holds, and while the command of a new config.json is empty", () => {
+    const waiting = recordsDialog(PROJECT, null, "", null);
+    expect([waiting.scope, waiting.commit, waiting.files, waiting.submit]).toEqual([OUT_OF_SCOPE, "", [], { shown: true, enabled: false, label: "Set up and commit" }]);
+    expect(recordsDialog(PROJECT, PLAN, "pnpm tes", "pnpm test").submit.enabled).toBe(false);
+    expect(recordsDialog(PROJECT, PLAN, "  ", "  ").submit.enabled).toBe(false);
+    // A setup that writes no config.json needs no command.
+    expect(recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: null } }, kept(PLAN, "seal/README.md", "seal/config.json"), "", "").submit.enabled).toBe(true);
+  });
+
+  it("says of a file that stands that it is kept, and turns the field off where config.json stands: it shows the key's value, or says that the file holds no such key", () => {
+    const plan = kept(PLAN, "seal/README.md", "seal/config.json");
+    const valued = recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: "make check" } }, plan, "", "");
+    expect(valued.files).toEqual([
+      { path: "seal/README.md", text: null, says: "`seal/README.md` stands and is kept." },
+      { path: "seal/config.json", text: null, says: "`seal/config.json` stands and is kept." },
+      { path: ".github/workflows/owlery-seal.yml", text: "name: seal\n", says: "" },
+    ]);
+    expect(valued.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "make check", says: "Kept in `seal/config.json`, under `Broad gate`." });
+    expect(valued.submit.enabled).toBe(true);
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: null } }, plan, "", "");
+    expect(keyless.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "", says: "No `Broad gate` key in `seal/config.json`." });
+  });
+
+  it("shows, for a repository that holds every part, the root, the workflow and the command with the file that holds it, and offers no commit", () => {
+    const plan = { ...kept(PLAN, "agentic-seal/README.md", "agentic-seal/config.json", ".github/workflows/hygiene.yml"), files: [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }] };
+    const whole = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, plan, "", "");
+    expect(whole.scope).toBe(OUT_OF_SCOPE);
+    expect(whole.holds).toEqual(["Records: `agentic-seal/`", "Check: `.github/workflows/hygiene.yml`", "Broad gate: `make check`, kept in `agentic-seal/config.json` under `Broad gate`"]);
+    expect([whole.commit, whole.files, whole.gate.shown, whole.submit.shown, whole.cancel]).toEqual(["", [], false, false, "Close"]);
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: null } }, plan, "", "");
+    expect(keyless.holds[2]).toBe("No `Broad gate` key in `agentic-seal/config.json`.");
+    expect(keyless.submit.shown).toBe(false);
+  });
+
+  it("shows why a plan is blocked, or the daemon's refusal of the plan, names no commit and turns the button off", () => {
+    const blocked = recordsDialog(PROJECT, { ...PLAN, branch: null, blocked: "No branch is checked out in this repository." }, "pnpm test", "pnpm test");
+    expect([blocked.blocked, blocked.commit, blocked.submit]).toEqual(["No branch is checked out in this repository.", "", { shown: true, enabled: false, label: "Set up and commit" }]);
+    // The files are still shown, so the person reads what the setup would have written.
+    expect(blocked.files.map((file) => file.path)).toEqual(PLAN.files.map((file) => file.path));
+    const refused = recordsDialog(PROJECT, { error: "no repository 1" }, "pnpm test", "pnpm test");
+    expect([refused.blocked, refused.files, refused.submit.enabled]).toEqual(["no repository 1", [], false]);
+  });
+
+  it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
+    const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
+    expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
+    expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`.");
+  });
+});
+
+describe("lacksRecords", () => {
+  it("is true of a repository with no root or no workflow, false of one that holds both, and false of a repository of a daemon that sends no records, for which no setup is offered", () => {
+    const holding = (root: string | null, check: string | null): Repository => ({ ...PROJECT, records: { root, check, broadGate: null } });
+    expect([lacksRecords(holding(null, null)), lacksRecords(holding("seal", null)), lacksRecords(holding(null, ".github/workflows/hygiene.yml")), lacksRecords(holding("seal", ".github/workflows/owlery-seal.yml"))]).toEqual([true, true, true, false]);
+    const { records: _, ...earlier } = PROJECT;
+    expect([recordsOf(earlier as Repository), lacksRecords(earlier as Repository)]).toEqual([null, false]);
+    expect(recordsOf(PROJECT)).toEqual({ root: null, check: null, broadGate: null });
+  });
+});
+
+describe("registered", () => {
+  const docs: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs" };
+
+  it("gives the repository a registration added: the one the lists hold now and did not hold before", () => {
+    expect(registered("/somewhere/else", [PROJECT], [PROJECT, docs])).toBe(docs);
+  });
+
+  it("gives, where the lists gained none, the repository whose folder is the one typed, and none for a folder inside one: the daemon may read another repository there", () => {
+    expect(registered("/r/project", [PROJECT, docs], [PROJECT, docs])).toBe(PROJECT);
+    expect(registered("/r/docs/", [PROJECT, docs], [PROJECT, docs])).toBe(docs);
+    expect(registered("/r/docs/vendor/inner", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
+    expect(registered("/r/docs-old", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
   });
 });

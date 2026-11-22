@@ -1,7 +1,8 @@
 // The one way the app writes a file a reader must never find half-written:
-// the daemon's discovery file, its repositories, its last look and its
-// choice of when to keep the Mac awake, and the main process's theme file. It
-// is kept beside the daemon's files, whose four writers use it, and the app's
+// the daemon's discovery file, its repositories, its last look, its choice of
+// when to keep the Mac awake and a work item's record of decisions and
+// questions, and the main process's theme file. It is kept beside the
+// daemon's files, whose writers use it, and the app's
 // main process imports it as it imports the discovery file's reader. It reads
 // `node:fs`, so nothing the page loads imports it.
 import { renameSync, rmSync, writeFileSync } from "node:fs";

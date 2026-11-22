@@ -148,6 +148,9 @@ Four rules keep the design portable.
 
 AgenticSeal is the original that Owlery refers to, and Owlery is a product that extends it. Owlery does not load the AgenticSeal plugin or depend on its version to run. It takes each part of AgenticSeal as its own and puts it where it fits in the product. AgenticSeal is under the MIT license, so files taken from it keep its copyright notice.
 
+**What Owlery took from AgenticSeal is Owlery's own from the day it was taken, and Owlery follows no release of AgenticSeal.** AgenticSeal is where Owlery started. Owlery changes its copies, the role bundle and the PR check's scripts among them, for its own daemon, and no case holds a copy to AgenticSeal's bytes. A later idea of AgenticSeal's comes in as any other idea does, as an issue of Owlery's. Each folder of taken files keeps AgenticSeal's licence text and a notice of where its files started.
+check: apps/desktop/test/role-bundle.test.ts apps/desktop/test/pr-check.test.ts
+
 | What AgenticSeal has | Where it sits in Owlery |
 |---|---|
 | Values and principles: spend judgment only where judgment is needed and let scripts answer the rest; each agent judges its own subject independently; ask the person everything at once, before the first edit | Taken as the product's principles as they are |
@@ -155,7 +158,7 @@ AgenticSeal is the original that Owlery refers to, and Owlery is a product that 
 | Roles: framer, crafter, proofer, sealer | The product owns each role's definition (what it reads, what it judges, what it leaves behind). Role implementations live per runtime. In the first version, the Claude runtime ships the Owlery role bundle, which starts from AgenticSeal's agent definitions and skills, inside the app and uses it as the default. For other runtimes, the same role definitions are carried over into that runtime's format |
 | Record formats: design files, round records, the `seal` block in `guarantee.md`, `routing.md` | These are the product's record formats. The first version matches the AgenticSeal format, and adds the fields it needs as it takes in more agents (the party that built it, the model and rule version that judged it) |
 | The documents that write down the order (orchestration) | The daemon's code runs the order. Only judgment is left to the orchestrator |
-| Scripts behind the `seal` commands: `chain_check`, `seal pr-body`, `seal pr-wait`, `seal stamp`, `seal cost` | The Owlery daemon and the PR check do the same work. Whether to take the code and adapt it or to rewrite it is not decided |
+| Scripts behind the `seal` commands: `chain_check`, `seal pr-body`, `seal pr-wait`, `seal stamp`, `seal cost` | The Owlery daemon and the PR check do the same work. The PR check takes AgenticSeal's code, and Owlery adapts it from there: the scripts `chain_check` loads stand in `pr-check/`, started from AgenticSeal 0.38.4, and the workflow of a connected repository fetches them from Owlery's repository. A check rewritten now would have to give a verdict on every record of the chain before the daemon writes one. The daemon runs no Python, since a person's Mac promises none: it reads and writes the records in its own code, and the issue that builds each of the other commands' work decides how |
 | Mechanisms that exist only in Claude Code: the session-start hook that prints core, the Stop hook that draws the seal, the permission and worktree hooks | Not taken. The app and the daemon do the same work directly ([What each session loads](#what-each-session-loads)) |
 | The question batch (`frame/questions.md`) | Becomes the app's question screen |
 
@@ -172,7 +175,7 @@ AgenticSeal is a Claude Code plugin, so the means it can use are fixed: markdown
 | Measuring cost | After the work ends, `seal cost` reads the transcript files, computes the cost and leaves it as a comment on the issue | The daemon records the result events of headless mode (`total_cost_usd` and per-model tokens) at each stage as they arrive. The daemon owns the ledger and can also set a budget cap (`--max-budget-usd`). Under a subscription login, this cost is not the actual charge but a value converted at API prices, and the ledger labels it that way |
 | Asking the person | Written in `frame/questions.md`, and the session asks | The app's question screen. It is an input form with choices and defaults, so it can also be shown on a phone once a mobile UI is attached |
 | Showing the seal | A hook draws it in the terminal when the session stops | The inbox, the back of the seal, the PR and notifications read the same records and draw it |
-| Moving records to another machine | Exchange a zip with `seal export` and `seal import`, and choose with `seal mode` whether to commit records to the repository (shared) or keep them local only (local) | Records are committed to the repository, so they move with git ([Records are committed to the repository](#records-are-committed-to-the-repository)). There is no command for moving records. The only thing to move between machines is the daemon's state (progress, the cost ledger, questions and answers), and it will later move through sync between machines |
+| Moving records to another machine | Exchange a zip with `seal export` and `seal import`, and choose with `seal mode` whether to commit records to the repository (shared) or keep them local only (local) | Records are committed to the repository, so they move with git ([Records are committed to the repository](#records-are-committed-to-the-repository)). There is no command for moving records. The only thing to move between machines is the daemon's state (progress, the cost ledger, what the person has seen), and it will later move through sync between machines |
 | Running several work items together | One session runs work items one after another, or a person opens several sessions | The daemon sets the order of several work items and how many run at once, and hands the overlaps between work items in the same release to framer |
 
 The table means two things.
@@ -184,8 +187,8 @@ The table means two things.
 
 | Where | What | Why |
 |---|---|---|
-| The user's repository | All work records, including seal records and their grounds (design, round records, broad gate results) | The PR check and people who do not use the app must read them, and they must be bound to a commit |
-| The daemon | Progress, session events and output, each pane's record with the id of its conversation, the cost ledger, questions and answers, schedule | They change often, and there is no reason to commit them to the repository |
+| The user's repository | All work records, including seal records and their grounds (design, round records, broad gate results), and the decisions made without asking and the questions that park a work item | The PR check and people who do not use the app must read them, and they must be bound to a commit |
+| The daemon | Progress, session events and output, each pane's record with the id of its conversation, the cost ledger, what the person has seen, schedule | They change often, and there is no reason to commit them to the repository |
 | What is given to the agent | The rules that role and that stage need, and the previous stage's files | An agent starts fresh every time, and every byte it reads costs tokens |
 
 **The daemon keeps repositories, and every work item belongs to one.** A repository is added and removed on its own, and holds its name, its icon, the base its new work items start from, its groups and its work items. The window makes up no repository from a work item's folder. What a person sets on a repository or a work item, an archive among it, is the daemon's state and is written nowhere in the person's repository.
@@ -197,13 +200,24 @@ Owlery always commits work records to the user's repository. There is no mode th
 
 - **Uncommitted records cannot support a seal.** The PR check has no records to read, and on another machine or a fresh clone the records are empty. The promise that "the grounds for a verdict travel bound to the commit" cannot be kept.
 - **Records have one place, so there is no mechanism to move them.** Records travel with git, so there is no command to export or import records or to change where they live. The only thing to move between machines is the daemon's state.
-- **When a repository is first connected, the place for records and the PR check are created together.** The person is not asked where the records go.
+- **When a repository is first connected, the place for records and the PR check are created together, in one commit the person reads first.** The person is not asked where the records go. The app shows each file it would write, the commit's subject and the branch it lands on, and writes nothing until the person confirms. It writes the records' root `seal/`, with a `README.md` and a `config.json`, and the workflow `.github/workflows/owlery-seal.yml`. Where the repository keeps a `seal/` of its own, the root is `agentic-seal/`. A file that is committed is kept as it is, so a repository that holds an AgenticSeal root and AgenticSeal's `hygiene.yml`, told by the check it runs and not by its name, gets no file. The app reads the place from the commit the checkout stands at, as a clone and the check on GitHub get it, and refuses the setup while the checkout does not hold a file of the place as that commit does. The commit holds those files alone, runs the repository's hooks, and is not pushed. The broad gate command is the `Broad gate` key of the root's `config.json`, set in the same step, and the app shows its value and its file on the repository.
+check: apps/desktop/test/records-place.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
 
-So repositories that cannot hold work records in the tree (repositories where company rules forbid it, repositories for contributing to someone else's project) are not what Owlery is for.
+So repositories that cannot hold work records in the tree (repositories where company rules forbid it, repositories for contributing to someone else's project) are not what Owlery is for. The app says so before it writes anything. It refuses the setup where git ignores a file the setup would write, or the root's folder `threads/` or a record below it, where each work item's records go.
+
+**The PR check runs on GitHub without the app, and judges only a pull request that declares a work item.** The workflow checks out the pull request, fetches `pr-check/` from Owlery's repository at the tag of the release that wrote the workflow, and runs `chain_check.py` against the base branch on Python 3.12 or newer. Until that tag exists it fetches the release's branch. A pull request whose branch no `routing.md` of the records names declares nothing: the check examines nothing and passes it.
+check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts
+
+**A work item's records are the one source of the decisions made for it without asking and of the questions that park it.** They stand in `decisions.md` of the work item's directory, each as a `seal` block. A decision holds an id, its kind (a route, a default taken, a scope chosen, or a question the tree answered), what was decided, the grounds, and its state. A question holds an id, what is asked, the grounds, its options, its default, and its state. The daemon reads the file in the work item's worktree, whether or not it is committed, and names a block it cannot read without deciding anything on it. What the person has seen is the daemon's state and stands in no record.
+check: apps/desktop/test/record-blocks.test.ts apps/desktop/test/decision-record.test.ts
+
+**A decision is `decided`, `reversed`, `applied` or `carried`, and a question is `open` or `answered`.** A person reverses a decision with a message, and the record keeps the message. The stage that takes the reversal in before the work item merges writes `applied` with its commit. A reversal that comes after the merge is written `carried`, with the issue or the work item it went to. A `reversed` decision and an `open` question are open rows of the record: a settle keeps the work item's directory while `git grep -n -E '^state: (reversed|open)[[:space:]]*$' -- '*/threads/*/decisions.md'` prints a line of it. A release's pull request lists the decisions made without asking in that release, read from the same blocks.
+check: apps/desktop/test/decision-record.test.ts
 
 ### Compatibility with AgenticSeal
 
-Users of the AgenticSeal plugin keep using it in Claude Code as they do now. The Owlery record format starts from the AgenticSeal format, so at first each product can read the other's records. Whether to keep this compatibility is not decided (see "Open decisions" below).
+Users of the AgenticSeal plugin keep using it in Claude Code as they do now. The Owlery record format started from the AgenticSeal format and is Owlery's own. Compatibility is kept only where it serves Owlery: the plugin's check and Owlery's both read this repository's own records until Owlery seals its own pull requests ([Milestones](roadmap.md#milestones) row 2). `decisions.md` is a file AgenticSeal does not read, and its check answers the same with the file and without it (probed 2026-11-22 on 0.38.2 and 0.38.4).
+check: apps/desktop/test/pr-check.test.ts
 
 ## Code runs the order, the orchestrator judges
 
@@ -241,11 +255,7 @@ These options can differ with the version of Claude Code the user installed. At 
 
 ### Taking in AgenticSeal's changes
 
-The Owlery role bundle is released with the app, so the order the app runs and the bundle do not drift apart. When AgenticSeal ships a new release, Owlery does not change by itself. We pick what to take and carry it over.
-
-1. Read the `### Process changes` table in the AgenticSeal release notes. That table says what the way of working changed to.
-2. Carry the changes we take into the Owlery role bundle and the daemon, and write down the reason for each change we do not take.
-3. Run the integration tests every time something is carried over.
+Owlery takes in no release of AgenticSeal ([What we take from AgenticSeal](#what-we-take-from-agenticseal)). The role bundle is released with the app, so the order the app runs and the bundle do not drift apart. A change to the bundle or to the PR check's scripts is a work item of Owlery's, and the suite runs with it.
 
 ## License and code from other projects
 
@@ -379,7 +389,6 @@ check: apps/desktop/test/background.test.ts
 |---|---|---|
 | May the user's Claude Code be launched headless | Run role sessions in headless mode / launch them only in a terminal and read state through hooks | What Anthropic's published documents say, judged again when they change ([Authentication of the Claude adapter](#authentication-of-the-claude-adapter)). If they come to forbid it under a subscription login, role sessions also run in a terminal and are read through hooks, and the inbox and the AgenticSeal process stay as they are |
 | Scope of the records kept in the repository | Keep every record of the work in the repository, as AgenticSeal does / keep only the seal and its grounds, and the rest in the daemon | The first version takes the former: it commits all records, starting from the AgenticSeal format. Whether to cut down to the latter depends on whether the repository only needs to hold what the PR check and people outside the app must read, and on what AgenticSeal's settle (folding records into the policy documents after a release) reads |
-| Compatibility with the AgenticSeal record format | Keep compatibility, and also propose the fields Owlery needs to AgenticSeal as issues / diverge, and make the Owlery format independent | If compatibility is kept, Owlery reads records built up with the AgenticSeal plugin as they are, and the two products' PR checks give the same verdict. The formats diverge once the fields Owlery needs, as it takes in other runtimes and branches built elsewhere, start not to fit the AgenticSeal format |
 | Splitting the orchestration documents | Whether to split AgenticSeal's orchestration documents into "the order the daemon runs" and "the orchestrator's judgment" and use them as input to the app's design | When daemon implementation starts |
 | Editor component | CodeMirror 6 / Monaco | The memory added and the time taken to open one file, and Korean input on macOS. Not measured yet. No language servers or extensions are included, so most of Monaco's advantages go unused |
 | What the phone reads for the conversation | Hooks only (the last reply of each turn) / also the CLI's session log (the text between tool calls) | How often the session log's format changes across CLI versions, and whether a chat without the text in between is enough on a phone ([The phone: the terminal session as a chat](#the-phone-the-terminal-session-as-a-chat)) |
