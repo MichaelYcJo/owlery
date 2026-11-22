@@ -305,12 +305,15 @@ function shows(folder: string, path: string): boolean {
  * something of the project's own at both names of the root; git ignores a
  * file of the plan; git ignores the folder `threads/` of the root or one of
  * the sample of record paths below it; something other than a folder is at
- * a folder above a path the plan writes, in the checkout, the index or the
- * commit; the disk finds a path the setup needs under the same name in
- * other letters; the commit holds a link, a submodule or a folder at a
- * path the plan writes; the checkout differs from the commit as above, and
- * each such path is named; the plan writes a file and no branch is checked
- * out.
+ * `threads` of the root, where each work item's records go, in the
+ * checkout, the index or the commit; something other than a folder is at a
+ * folder above a path the plan writes, in the same three; the disk finds a
+ * path the setup needs under the same name in other letters; the commit
+ * holds a link, a submodule or a folder at a path the plan writes; the
+ * checkout differs from the commit as above, and each such path is named;
+ * the plan writes a file and no branch is checked out. Where none of them
+ * holds and git could not say whether it ignores a record path, no plan is
+ * made: this throws with git's words.
  * The stamp is made of the commit the checkout stands at, the branch and
  * the files, so it is another once a commit lands, the branch changes or
  * the command is another.
@@ -390,8 +393,16 @@ export async function planRecords(folder: string, broadGate: string, version: st
   // Where git cannot say whether it ignores a path, behind a link for one, the path is among those that differ or below a folder that is none.
   const ignored = await ignoredAmong(folder, planned).catch(() => []);
   // Where a work item's records go is asked too: a rule over it leaves a root that cannot keep a record, though git ignores none of the root's own files. The paths asked are the folder and RECORDS below a work item's directory, a sample, since the patterns of a `.gitignore` have no end: a rule that names a work item's id or another record is not found.
-  const records = root === null ? [] : [`${root}/threads/`, ...RECORDS.map((name) => `${root}/threads/0-work-item/${name}`)];
-  const ignoredRecords = await ignoredAmong(folder, records).catch(() => []);
+  const threads = root === null ? null : `${root}/threads`;
+  // Where a work item's records go has to be a folder git keeps. A file, a link or a submodule there leaves no work item a directory, a record written through a link lands outside the place, and git cannot say whether it ignores a path behind one. `listed` holds an entry at the path only for one of those three, and the checkout's own is read without following a link.
+  const threadsNoFolder = threads !== null && (standsAsNoFolder(folder, threads) || inCommit.has(threads) || inIndex.has(threads));
+  const records = threads === null ? [] : [`${threads}/`, ...RECORDS.map((name) => `${threads}/0-work-item/${name}`)];
+  // Where git cannot answer for a record path, behind a link for one, nothing is read as ignoring none: an arm below refuses the plan, as where `threads` or the root itself is a link, or the plan fails below with git's words.
+  const asked: { ignored: string[]; unanswered: unknown } = await ignoredAmong(folder, records).then(
+    (paths) => ({ ignored: paths, unanswered: null }),
+    (failure: unknown) => ({ ignored: [], unanswered: failure }),
+  );
+  const ignoredRecords = asked.ignored;
   let blocked: string | null = null;
   if (root === null) {
     blocked = "Both seal/ and agentic-seal/ hold something of this repository's own, so Owlery has no folder to keep work records in.";
@@ -399,6 +410,8 @@ export async function planRecords(folder: string, broadGate: string, version: st
     blocked = `Git ignores ${named(ignored)} in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.`;
   } else if (ignoredRecords.length > 0) {
     blocked = `Git ignores ${ignoredRecords.length} of the ${records.length} paths Owlery asked about where a work item's records go in this repository, ${ignoredRecords[0] ?? ""} among them, so it cannot keep work records in its tree. The paths asked are ${root}/threads/ and a sample of the names a work item's records bear, so a rule that ignores another record is not found here. A repository that cannot keep work records in its tree is out of scope for Owlery.`;
+  } else if (threads !== null && threadsNoFolder) {
+    blocked = `Each work item's records go in a folder at ${threads}/, and something other than a folder stands there in this repository. Rename or remove it, commit that where git holds it, and open this again.`;
   } else if (notFolders.length > 0) {
     blocked = `The setup needs a folder at ${named(notFolders)}, and something else stands there in this repository. Rename or remove it, and open this again.`;
   } else if (otherLetters.length > 0) {
@@ -410,6 +423,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   } else if (written.length > 0 && branch === null) {
     blocked = "No branch is checked out in this repository, so the commit has no branch to land on. Check a branch out and open this again.";
   }
+  if (blocked === null && asked.unanswered !== null) throw asked.unanswered;
   const writesConfig = files.some((file) => file.path.endsWith("/config.json") && file.text !== null);
   return { branch, subject: SUBJECT, files, blocked, proposedBroadGate: writesConfig ? proposedBroadGate(folder) : null, stamp: createHash("sha256").update(JSON.stringify([head, branch, files])).digest("hex") };
 }

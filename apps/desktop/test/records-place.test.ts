@@ -282,6 +282,71 @@ describe("the records place", () => {
     expect((await planRecords(one, "pnpm test", VERSION)).blocked).toBe(says("seal", 1, "seal/threads/0-work-item/guarantee.md"));
   });
 
+  it("blocks a plan where something other than a folder stands where a kept root's records go: a link, the link beside a rule that ignores a record, and a file, in the commit, in the index alone or in the checkout alone; and the plan fails with git's words where git cannot say whether it ignores a record", async () => {
+    const says = "Each work item's records go in a folder at seal/threads/, and something other than a folder stands there in this repository. Rename or remove it, commit that where git holds it, and open this again.";
+    /** A repository whose commit holds every part of the place at `seal/`, so a plan of it writes nothing. */
+    const whole = async (): Promise<string> => {
+      const repo = repository();
+      write(repo, "seal/README.md", `${MARKER}\n`);
+      write(repo, "seal/config.json", '{ "Broad gate": "make check" }\n');
+      write(repo, WORKFLOW, "name: seal\n");
+      commitAll(repo, "chore: the place");
+      expect((await planRecords(repo, "pnpm test", VERSION)).blocked).toBeNull();
+      return repo;
+    };
+
+    // The commit holds `seal/threads` as a link to a folder of the project's own: a record written there lands outside the place, and git refuses to say whether it ignores a path behind the link.
+    const linked = await whole();
+    write(linked, "notes/keep.txt", "notes\n");
+    symlinkSync("../notes", join(linked, "seal/threads"));
+    commitAll(linked, "chore: a link where the records go");
+    const before = [head(linked), tree(linked), status(linked)];
+    let plan = await planRecords(linked, "pnpm test", VERSION);
+    expect(plan.files.map((file) => file.text)).toEqual([null, null, null]);
+    expect(plan.blocked).toBe(says);
+    await expect(setUpRecords(linked, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(says);
+    expect([head(linked), tree(linked), status(linked)]).toEqual(before);
+    // Beside a rule that ignores a record by its name: the link does not hide the plan's refusal.
+    write(linked, ".gitignore", "guarantee.md\n");
+    commitAll(linked, "chore: ignore a name");
+    expect((await planRecords(linked, "pnpm test", VERSION)).blocked).toBe(says);
+
+    // The commit holds `seal/threads` as a file, where no work item's directory can be made.
+    const filed = await whole();
+    write(filed, "seal/threads", "not a folder\n");
+    commitAll(filed, "chore: a file where the records go");
+    expect((await planRecords(filed, "pnpm test", VERSION)).blocked).toBe(says);
+    // Removed from the checkout and the index, the file is still the commit's, which is what a clone gets.
+    git(filed, "rm", "--quiet", "seal/threads");
+    expect(status(filed)).toBe("D  seal/threads\n");
+    expect((await planRecords(filed, "pnpm test", VERSION)).blocked).toBe(says);
+
+    // The file stands in the checkout alone, where git's status is not asked below a kept root.
+    const untracked = await whole();
+    write(untracked, "seal/threads", "not a folder\n");
+    expect((await planRecords(untracked, "pnpm test", VERSION)).blocked).toBe(says);
+    // Staged and then removed from the checkout, it is the index's alone, and the person's next commit takes it.
+    git(untracked, "add", "seal/threads");
+    rmSync(join(untracked, "seal/threads"));
+    expect(status(untracked)).toBe("AD seal/threads\n");
+    expect((await planRecords(untracked, "pnpm test", VERSION)).blocked).toBe(says);
+
+    // A folder stands at `seal/threads`, and a link below it at the path of the sample's work item: no arm refuses that, git cannot answer for a record behind the link, and the plan fails with git's words rather than as one that ignores nothing.
+    const behind = await whole();
+    write(behind, "notes/keep.txt", "notes\n");
+    mkdirSync(join(behind, "seal/threads"));
+    symlinkSync("../../notes", join(behind, "seal/threads/0-work-item"));
+    commitAll(behind, "chore: a link below where the records go");
+    await expect(planRecords(behind, "pnpm test", VERSION)).rejects.toThrow("beyond a symbolic link");
+
+    // A new root whose name is a link in the checkout alone: git cannot answer for a record behind it either, and the plan is refused by the arm that says what stands there, not with git's words.
+    const rootLinked = repository();
+    write(rootLinked, "notes/keep.txt", "notes\n");
+    commitAll(rootLinked, "chore: notes");
+    symlinkSync("notes", join(rootLinked, "seal"));
+    expect((await planRecords(rootLinked, "pnpm test", VERSION)).blocked).toBe("The setup needs a folder at seal, and something else stands there in this repository. Rename or remove it, and open this again.");
+  });
+
   it("blocks a plan where the checkout holds a file of the place the commit does not: a root left untracked, the files of a setup whose commit never landed, and a root behind a link; a setup of each writes nothing, and the plan is free once the files are committed", async () => {
     const untracked = repository();
     write(untracked, "seal/README.md", `${MARKER}\n`);

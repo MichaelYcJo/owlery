@@ -1247,8 +1247,8 @@ export interface RecordsWords {
  * shows what it holds, and no button to commit. One that writes none and is
  * blocked is shown as a plan that writes a file is, with the refusal: the
  * repository has no folder for a root, git ignores where a work item's
- * records go below its root, or its checkout does not hold a file of the
- * place as its commit does.
+ * records go below its root, something other than a folder stands there,
+ * or its checkout does not hold a file of the place as its commit does.
  */
 export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
   const head = `Records and check: ${repository.name}`;
