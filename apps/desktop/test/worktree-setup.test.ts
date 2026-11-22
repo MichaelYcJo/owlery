@@ -1,8 +1,15 @@
-import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { link } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { beginSetup, copyIncluded, endedSetup, readSetup } from "../src/daemon/worktree-setup";
 import { git, temporaryRepository } from "./repositories";
+
+// No volume the suite runs on refuses a hard link, so a case swaps in the refusal; every other case links as the system does.
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, link: vi.fn(actual.link) };
+});
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -144,13 +151,26 @@ describe("copyIncluded", () => {
     writeFileSync(join(worktree, ".env"), "KEY=worktree\n");
     const clone = clonedBy(base, 'exec /bin/cp "$@"');
     expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: ["apps/web/.env.local", "node_modules/"], copiedCount: 2, failed: [], failure: null });
-    // Each path is cloned into a folder of its own beside its place, then moved into it.
-    const beside = (path: string) => expect.stringMatching(new RegExp(`^-c -R -P ${join(repo, path)} ${join(worktree, dirname(path), ".owlery-copy-[^/]+", basename(path))}$`));
+    // Each path is cloned into a folder of its own beside its place, one folder down, then moved into it.
+    const beside = (path: string) => expect.stringMatching(new RegExp(`^-c -R -P ${join(repo, path)} ${join(worktree, dirname(path), ".owlery-copy-[^/]+", "copy", basename(path))}$`));
     expect(clone.calls()).toEqual([beside("apps/web/.env.local"), beside("node_modules")]);
     expect(readdirSync(worktree).filter((name) => name.startsWith(".owlery-copy-"))).toEqual([]);
     for (const path of ["apps/web/.env.local", "node_modules/pkg/index.js"]) expect(readFileSync(join(worktree, path), "utf8")).toBe(readFileSync(join(repo, path), "utf8"));
     expect(readlinkSync(join(worktree, "node_modules", ".bin", "tool"))).toBe("../pkg/index.js");
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=worktree\n");
+  });
+
+  it("shows git nothing of a copy before it stands in its place, where the repository's patterns are anchored at its top", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    for (const checkout of [repo, worktree]) writeFileSync(join(checkout, ".gitignore"), "/.env\n/node_modules/\n");
+    git(worktree, "commit", "--quiet", "-am", "anchored");
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\nnode_modules/\n");
+    // What git, and so a command in the person's pane, lists in the worktree once each clone has written its copy.
+    const listed = join(base, "status.log");
+    const clone = clonedBy(base, `/bin/cp "$@" && git -C "${worktree}" status --porcelain --untracked-files=all >> "${listed}"`);
+    expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: [".env", "node_modules/"], copiedCount: 2, failed: [], failure: null });
+    expect(clone.calls()).toHaveLength(2);
+    expect(readFileSync(listed, "utf8")).toBe("");
   });
 
   it("clones a path whose folders the worktree lacks, once it made them", async () => {
@@ -214,6 +234,28 @@ describe("copyIncluded", () => {
     expect(readdirSync(join(worktree, "node_modules", "pkg")).sort()).toEqual(["a.js", "index.js", "m.js", "z.js"]);
   });
 
+  it("removes the staging folders a stopped copy left beside a path, whether the path is copied or stands, and no folder it did not write", async () => {
+    const { repo, worktree } = repositoryWithIgnoredFiles();
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\n**/.env.local\n");
+    // `.env` stands in the worktree and is not copied again; the folder its stopped copy left goes all the same.
+    writeFileSync(join(worktree, ".env"), "KEY=worktree\n");
+    for (const left of [join(worktree, ".owlery-copy-Ab12Cd"), join(worktree, "apps", "web", ".owlery-copy-Ef34Gh")]) {
+      mkdirSync(join(left, "copy"), { recursive: true });
+      writeFileSync(join(left, ".gitignore"), "*\n");
+      writeFileSync(join(left, "copy", ".env"), "KEY=par");
+    }
+    // A copy stopped before it wrote the folder's `.gitignore` left it empty.
+    mkdirSync(join(worktree, ".owlery-copy-Ij56Kl"));
+    // The person's: a folder of that name that holds no such `.gitignore`, and an empty folder.
+    mkdirSync(join(worktree, ".owlery-copy-person"));
+    writeFileSync(join(worktree, ".owlery-copy-person", "notes.txt"), "mine\n");
+    mkdirSync(join(worktree, "logs"));
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: ["apps/web/.env.local"], copiedCount: 1, failed: [], failure: null });
+    expect(readdirSync(worktree).sort()).toEqual([".env", ".env.example", ".git", ".gitignore", ".owlery-copy-person", "README.md", "apps", "logs"]);
+    expect(readdirSync(join(worktree, "apps", "web"))).toEqual([".env.local"]);
+    expect(readFileSync(join(worktree, ".owlery-copy-person", "notes.txt"), "utf8")).toBe("mine\n");
+  });
+
   it("leaves a path that came to stand in the worktree during its copy as it is, and lists it as not copied", async () => {
     const { repo, worktree, base } = repositoryWithIgnoredFiles();
     writeFileSync(join(repo, ".worktreeinclude"), ".env\nnode_modules/\n");
@@ -225,6 +267,39 @@ describe("copyIncluded", () => {
     expect(readdirSync(join(worktree, "node_modules"))).toEqual(["made"]);
     expect(readFileSync(join(worktree, "node_modules", "made", "file"), "utf8")).toBe("person\n");
     expect(readdirSync(worktree).sort()).toEqual([".env", ".env.example", ".git", ".gitignore", "README.md", "node_modules"]);
+  });
+
+  it("copies a file where the worktree's volume makes no hard link, with its mode, over nothing that came to stand meanwhile, and fails a path whose link is refused for another reason", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    const { link: linked } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    cleanups.push(() => vi.mocked(link).mockImplementation(linked));
+    const refused = (code: string) => Object.assign(new Error(`${code}: refused, link`), { code });
+    chmodSync(join(repo, ".env"), 0o600);
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\n");
+    const worktreeFor = (name: string) => {
+      const other = join(base, name);
+      git(repo, "worktree", "add", "--quiet", "-b", `owlery/${name}`, other);
+      return other;
+    };
+    // An exFAT volume refuses a hard link with ENOTSUP, and other systems with EXDEV or EPERM.
+    for (const code of ["ENOTSUP", "EXDEV", "EPERM"]) {
+      const other = worktreeFor(code);
+      vi.mocked(link).mockImplementation(() => Promise.reject(refused(code)));
+      expect(await copyIncluded(repo, other)).toEqual({ copied: [".env"], copiedCount: 1, failed: [], failure: null });
+      expect(readFileSync(join(other, ".env"), "utf8")).toBe("KEY=main\n");
+      expect(statSync(join(other, ".env")).mode & 0o777).toBe(0o600);
+    }
+    // The person's command writes the path as its link is refused.
+    vi.mocked(link).mockImplementation((_, target) => {
+      writeFileSync(target, "PERSON=1\n");
+      return Promise.reject(refused("ENOTSUP"));
+    });
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: [], copiedCount: 0, failed: [{ path: ".env", why: "it came to stand in the worktree during the copy, and was left as it is" }], failure: null });
+    expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("PERSON=1\n");
+    const other = worktreeFor("EIO");
+    vi.mocked(link).mockImplementation(() => Promise.reject(refused("EIO")));
+    expect(await copyIncluded(repo, other)).toEqual({ copied: [], copiedCount: 0, failed: [{ path: ".env", why: "EIO: refused, link" }], failure: null });
+    expect(existsSync(join(other, ".env"))).toBe(false);
   });
 
   it("gives the failure of git's command as the copy's, and copies nothing", async () => {

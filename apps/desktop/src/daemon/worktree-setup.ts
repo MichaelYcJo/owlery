@@ -6,7 +6,8 @@
 // patterns match, never Owlery's own reading of them, and git runs with
 // arguments, never through a shell.
 import { spawn } from "node:child_process";
-import { cp, link, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rename, rm, rmdir, stat, symlink } from "node:fs/promises";
+import { constants as files } from "node:fs";
+import { copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises";
 import { constants } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { WorktreeSetup } from "../shared/protocol";
@@ -108,12 +109,17 @@ export const APPEARED = "it came to stand in the worktree during the copy, and w
 /** The errors with which a move refuses a target that stands. */
 const STANDS = new Set(["EEXIST", "ENOTEMPTY", "ENOTDIR", "EISDIR"]);
 
+/** The errors with which a volume refuses to make any hard link, as exFAT refuses one with `ENOTSUP`. */
+const NO_HARD_LINK = new Set(["ENOTSUP", "EXDEV", "EPERM"]);
+
 /**
  * Moves the copy at `stage` to `target`, and throws `APPEARED` where
  * anything stands at `target`, with no write over it: a folder by `rename`,
  * which refuses a file and a folder that is not empty, a link by making it
- * again, and anything else by a hard link, each of which refuses whatever
- * stands. An empty folder is the one thing a move takes the place of.
+ * again, and anything else by a hard link, or, where the volume makes no
+ * hard link, by a copy that refuses a target that stands. Each of these
+ * refuses whatever stands, except that `rename` takes the place of an empty
+ * folder.
  */
 async function place(stage: string, target: string): Promise<void> {
   const kind = await lstat(stage);
@@ -121,9 +127,39 @@ async function place(stage: string, target: string): Promise<void> {
     if (kind.isDirectory()) await rename(stage, target);
     // A hard link of a link is, on macOS, a hard link of the file it names.
     else if (kind.isSymbolicLink()) await symlink(await readlink(stage), target);
-    else await link(stage, target);
+    else
+      await link(stage, target).catch((error: NodeJS.ErrnoException) => {
+        if (!NO_HARD_LINK.has(error.code ?? "")) throw error;
+        return copyFile(stage, target, files.COPYFILE_EXCL);
+      });
   } catch (error) {
     throw STANDS.has((error as NodeJS.ErrnoException).code ?? "") ? new Error(APPEARED) : error;
+  }
+}
+
+/** The start of the name of the folder `copyPath` writes a copy in, and the whole name, which `mkdtemp` ends with six letters or digits. */
+const STAGING = ".owlery-copy-";
+const STAGING_NAME = /^\.owlery-copy-[A-Za-z0-9]{6}$/;
+
+/** What the `.gitignore` of a staging folder holds, so git sees nothing in the folder. */
+const UNSEEN = "*\n";
+
+/**
+ * Removes from `folder` each staging folder a copy left, as where the daemon
+ * stopped during the copy and `copyPath` never removed its own: a folder of
+ * the staging folder's name that is empty or holds the `.gitignore`
+ * `copyPath` writes. Nothing else in `folder` is touched, and a `folder`
+ * that does not stand holds none.
+ */
+async function removeLeftCopies(folder: string): Promise<void> {
+  const names = await readdir(folder).catch(() => [] as string[]);
+  for (const name of names) {
+    if (!STAGING_NAME.test(name)) continue;
+    const left = join(folder, name);
+    if (!(await lstat(left).then((entry) => entry.isDirectory(), () => false))) continue;
+    // A copy stopped before it wrote the `.gitignore` left the folder empty.
+    if (await rmdir(left).then(() => true, () => false)) continue;
+    if ((await readFile(join(left, ".gitignore"), "utf8").catch(() => null)) === UNSEEN) await rm(left, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -131,13 +167,20 @@ async function place(stage: string, target: string): Promise<void> {
  * Copies `source` to `target` through a folder of its own beside the
  * target, so nothing stands at the target until the copy is whole: clones it
  * with `clone` run as `cp -c -R -P`, copies it with Node's copy in place of
- * what a failed clone left, then `place`s it. The folder goes in every case,
- * with whatever a failed copy left in it.
+ * what a failed clone left, then `place`s it. Git sees nothing in that
+ * folder, which holds a `.gitignore` of `*` and the copy one folder further
+ * down, so a command in the person's pane neither lists nor adds the copy
+ * before it stands in its place, nor a folder a stopped daemon left. The
+ * folder goes in every case, with whatever a failed copy left in it.
  */
 async function copyPath(clone: string, source: string, target: string): Promise<void> {
-  const staging = await mkdtemp(join(dirname(target), ".owlery-copy-"));
+  const staging = await mkdtemp(join(dirname(target), STAGING));
   try {
-    const stage = join(staging, basename(target));
+    // The repository's patterns may be anchored at its top, which this folder may stand below, so the folder says itself what git ignores in it.
+    await writeFile(join(staging, ".gitignore"), UNSEEN);
+    // One folder further down, so an included path named `.gitignore` is not that file.
+    const stage = join(staging, "copy", basename(target));
+    await mkdir(dirname(stage));
     if (!(await cloned(clone, source, stage))) {
       await rm(stage, { recursive: true, force: true });
       await cp(source, stage, { recursive: true, verbatimSymlinks: true, force: false, errorOnExist: false });
@@ -157,11 +200,15 @@ async function copyPath(clone: string, source: string, target: string): Promise<
  * copied. A folder is copied whole, a link as a link with its target as it
  * reads, and a path that already stands in the worktree is neither written
  * over nor listed. A path whose folder a link of the worktree leads out of
- * it is listed as not copied, and nothing is written there. The folders the
- * worktree lacks above a path are made, then the path is cloned beside its
- * place with `clone` run as `cp -c -R -P`, and where that fails, as on a
- * volume that is not APFS, Node's copy writes it there instead; the copy
- * then moves into its place whole. A path that came to stand in the
+ * it is listed as not copied, and nothing is written there. In each other
+ * path's folder, whether the path stands or not, a staging folder a stopped
+ * copy left is removed (`removeLeftCopies`). The folders the worktree lacks
+ * above a path are made, then the path is cloned beside its place with
+ * `clone` run as `cp -c -R -P`, which copies the bytes itself where no clone
+ * can be made, as on a volume that is not APFS or across volumes. Where that
+ * process fails, as on a file it cannot read, or cannot start, Node's copy
+ * writes the path there instead. The copy then moves into its place whole.
+ * A path that came to stand in the
  * worktree meanwhile is left as it is and listed as not copied. A path that
  * fails to copy is listed with its error, nothing of it is left in the
  * worktree, the folders made for it among them, and the others go on. Where
@@ -185,6 +232,7 @@ export async function copyIncluded(repo: string, worktree: string, clone = CLONE
   }
   const copied: string[] = [];
   const failed: { path: string; why: string }[] = [];
+  const swept = new Set<string>();
   for (const path of ignored.stdout.split("\0").filter((entry) => entry !== "")) {
     // A folder is listed with a slash at its end, and stands in the worktree without it. `cp` given a folder with the slash would copy what it holds.
     const source = join(repo, path.replace(/\/$/, ""));
@@ -193,6 +241,11 @@ export async function copyIncluded(repo: string, worktree: string, clone = CLONE
     if (!(await staysInside(root, target))) {
       failed.push({ path, why: LEADS_OUT });
       continue;
+    }
+    // A copy into this folder that a stopped daemon left goes, whatever has come to stand at the path since.
+    if (!swept.has(dirname(target))) {
+      swept.add(dirname(target));
+      await removeLeftCopies(dirname(target));
     }
     try {
       await lstat(target);
