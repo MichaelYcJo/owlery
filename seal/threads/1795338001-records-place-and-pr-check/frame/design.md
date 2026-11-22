@@ -412,6 +412,14 @@ What the build added or narrowed beside the text above, folded by the orchestrat
 - The dialog opens right after registration only where the `inbox` that follows within a second holds the added repository or one at exactly the typed folder; otherwise the person opens it from the repository's menu.
 - `records-place.ts` runs git with its own helper, since it needs `check-ignore`'s exit code and a hook's output.
 
+From phase 3, folded the same day:
+
+- A block's id is read up to 15 digits, the integers JavaScript holds exactly.
+- `writeRecord` returns the `DecisionRecord` it wrote, and the module exports `RECORD_FILE`. A refusal of `read` carries `block`, the opening line of the refused block, or null outside one. A new block's id is greater than any id a refused block's first line names.
+- `assemble` refuses a value holding a line break; `withDecision` and `withQuestion` throw where the new block would not read back; `withApplied` and `withCarried` apply to a `reversed` decision only.
+- `pr-check/lib/fields.py`'s docstring still calls itself the one statement of the grammar; the TS reader now states it too, and the docstring is left as taken (*Scope* 1), named in `gaps.md`.
+- The running daemon does not read `decisions.md` until #119 connects it.
+
 ## Rule changes
 
 - nothing
