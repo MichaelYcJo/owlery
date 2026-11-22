@@ -184,9 +184,14 @@ export function eventsForLine(line: string): RoleEvent[] {
  * role's agent. Claude Code starts a plain session, with no error, for an
  * agent's name it does not hold and for a plugin folder that is not there
  * (2.1.330, probed 2026-11-22), and only its `init` line shows it: the
- * session's agents, and the plugins that did not load. `seen` is true once
- * the line settles it, the `init` line or a `result` that arrived with none
- * before it, and `failure` is then why the launch failed, or null.
+ * session's agents, and the plugins that did not load. The agent's name
+ * decides: a session that lists it goes on whatever plugin did not load,
+ * because a session holds Claude Code's built-in plugins beside the bundle
+ * and an error of one of them is not the bundle's. Where the agent is
+ * missing, the first plugin that did not load is named as the reason, and
+ * the agent's name where no plugin is listed. `seen` is true once the line
+ * settles it, the `init` line or a `result` that arrived with none before
+ * it, and `failure` is then why the launch failed, or null.
  */
 export function roleCheck(line: string, agent: string): { seen: boolean; failure: string | null } {
   let parsed: unknown;
@@ -199,14 +204,15 @@ export function roleCheck(line: string, agent: string): { seen: boolean; failure
   const record = parsed as Record<string, unknown>;
   if (record.type === "result") return { seen: true, failure: "the session did not say which agents it holds" };
   if (record.type !== "system" || record.subtype !== "init") return { seen: false, failure: null };
+  if (Array.isArray(record.agents) && record.agents.includes(agent)) return { seen: true, failure: null };
+  // The agent is missing. A plugin that did not load is the likelier cause, and its message says more than the name does.
   const errors: unknown = record.plugin_errors;
   if (Array.isArray(errors) && errors.length > 0) {
     const first: unknown = errors[0];
     const message = typeof first === "object" && first !== null ? (first as { message?: unknown }).message : undefined;
     return { seen: true, failure: `the role bundle did not load: ${typeof message === "string" ? message : JSON.stringify(first)}` };
   }
-  if (!Array.isArray(record.agents) || !record.agents.includes(agent)) return { seen: true, failure: `the session does not hold the agent ${agent}` };
-  return { seen: true, failure: null };
+  return { seen: true, failure: `the session does not hold the agent ${agent}` };
 }
 
 /**

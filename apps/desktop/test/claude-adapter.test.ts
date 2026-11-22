@@ -555,10 +555,20 @@ describe("the first line of a role launch", () => {
     expect(roleCheck(init({ agents: undefined }), "owlery:proofer")).toEqual({ seen: true, failure });
   });
 
-  it("fails with the first plugin error's message where a plugin did not load, though the agent is listed", () => {
+  it("passes where the session lists the role's agent though a plugin did not load: the session holds other plugins beside the bundle, and the agent's name decides", () => {
+    const errors = [{ plugin: "cc-plugin-telemetry@builtin", type: "path-not-found", message: "Path not found: /elsewhere" }];
+    expect(roleCheck(init({ plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: null });
+    expect(roleCheck(init({ plugin_errors: [{ type: "unknown" }] }), "owlery:sealer")).toEqual({ seen: true, failure: null });
+  });
+
+  it("fails with the first plugin error's message where the session does not list the role's agent and a plugin did not load", () => {
     const errors = [{ type: "path-not-found", message: "Path not found: /app/dist/bundle" }, { type: "other", message: "second" }];
-    expect(roleCheck(init({ plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: "the role bundle did not load: Path not found: /app/dist/bundle" });
-    expect(roleCheck(init({ plugin_errors: [{ type: "unknown" }] }), "owlery:proofer")).toEqual({ seen: true, failure: 'the role bundle did not load: {"type":"unknown"}' });
+    const agents = ["claude", "Explore"];
+    expect(roleCheck(init({ agents, plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: "the role bundle did not load: Path not found: /app/dist/bundle" });
+    expect(roleCheck(init({ agents, plugin_errors: [{ type: "unknown" }] }), "owlery:proofer")).toEqual({ seen: true, failure: 'the role bundle did not load: {"type":"unknown"}' });
+    expect(roleCheck(init({ agents: undefined, plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: "the role bundle did not load: Path not found: /app/dist/bundle" });
+    // An empty list names no plugin, so the agent's name is the reason.
+    expect(roleCheck(init({ agents, plugin_errors: [] }), "owlery:proofer")).toEqual({ seen: true, failure: "the session does not hold the agent owlery:proofer" });
   });
 
   it("fails where a result arrives and no init line did", () => {
