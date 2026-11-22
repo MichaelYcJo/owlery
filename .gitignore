@@ -159,4 +159,6 @@ vite.config.ts.timestamp-*
 
 # Custom
 etcs/
+# What `pnpm run screenshots` writes where it is given no folder
+apps/desktop/screenshots/
 .DS_Store
