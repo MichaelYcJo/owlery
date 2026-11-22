@@ -199,12 +199,12 @@ park(workItemId: number, asking: { by: string; questions: { asks: string; option
 - add
   file: docs/product.md
   section: What we promise
-  to: **Under the routing answer `agentic`, no question holds the run.** `agentic` is the answer by which a person leaves each work item's route to the orchestrator and walks away. What needs the person is asked once, in one batch, before the first edit of the request, for every work item the request hands over. A question that arises after the batch parks the one work item it belongs to, with the question on that work item's line in the inbox, and every other work item goes on. What the orchestrator decides in place of asking shows on the work item's line with its grounds, and the person can reverse it when they come back. A late question would otherwise stop the whole run until the person is back, and that wait is what the promise removes.
+  to: **Under the routing answer `agentic`, no question holds the run.** `agentic` is the answer by which a person leaves each work item's route to the orchestrator and walks away. What needs the person is asked once, in one batch, before the first edit of the request, for every work item the request hands over. A question that arises after the batch parks the one work item it belongs to, with the question on that work item's line in the inbox, and every other work item goes on. What the orchestrator decides in place of asking is counted on the work item's line and listed with its grounds in the work item's preview and view, where the person can reverse it when they come back. A late question would otherwise stop the whole run until the person is back, and that wait is what the promise removes.
     check: apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
 - add
   file: docs/product.ko.md
   section: 무엇을 약속하는가
-  to: **경로를 묻는 질문에 `agentic`이라고 답했다면, 어떤 질문도 실행 전체를 세우지 않습니다.** `agentic`은 작업마다 어느 경로로 갈지를 orchestrator에게 맡기고 자리를 비우겠다는 답입니다. 사람에게 물을 것은 요청의 첫 편집 전에, 그 요청이 맡긴 모든 작업의 것을 한 묶음으로 한 번만 묻습니다. 그 뒤에 생긴 질문은 그 질문이 속한 작업 하나만 세웁니다. 질문은 작업함에서 그 작업의 줄에 보이고, 다른 작업은 모두 계속 진행됩니다. orchestrator가 묻지 않고 내린 결정은 근거와 함께 그 작업의 줄에 보이고, 돌아온 사람이 뒤집을 수 있습니다. 이렇게 하지 않으면 늦게 생긴 질문 하나 때문에 사람이 돌아올 때까지 실행 전체가 멈춥니다. 약속이 없애려는 것이 바로 그 기다림입니다.
+  to: **경로를 묻는 질문에 `agentic`이라고 답했다면, 어떤 질문도 실행 전체를 멈추지 않습니다.** `agentic`은 작업마다 어느 경로로 갈지를 orchestrator에게 맡기고 자리를 비우겠다는 답입니다. 사람에게 물을 것은 요청의 첫 편집 전에, 그 요청이 맡긴 모든 작업의 것을 한 묶음으로 한 번만 묻습니다. 그 뒤에 생긴 질문은 그 질문이 속한 작업 하나만 멈춰 둡니다. 질문은 작업함에서 그 작업의 줄에 보이고, 다른 작업은 모두 계속 진행됩니다. orchestrator가 묻지 않고 내린 결정은 그 작업의 줄에 개수로 보이고, 미리보기와 작업 화면에는 근거와 함께 하나씩 나옵니다. 돌아온 사람은 작업 화면에서 결정을 뒤집을 수 있습니다. 이렇게 하지 않으면 늦게 생긴 질문 하나 때문에 사람이 돌아올 때까지 실행 전체가 멈춥니다. 약속이 없애려는 것이 바로 그 기다림입니다.
     check: apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
 - add
   file: docs/product.md
@@ -214,7 +214,7 @@ park(workItemId: number, asking: { by: string; questions: { asks: string; option
 - add
   file: docs/product.ko.md
   section: 바탕: 작업함, AgenticSeal 프로세스, 인장의 뒷면, 그리고 불러 쓰는 터미널
-  to: **작업의 줄에는 묻지 않고 내린 결정이 보이고, 세워 둔 작업의 줄에는 그 질문이 보입니다.** 세워 둔 작업은 사람을 기다리는 작업들과 함께 놓이고, 그 줄은 기다리는 첫 질문을 말합니다. 결정은 아무것도 세우지 않습니다. 줄에는 뒤집히지 않은 결정이 몇 개인지가 보이고, 작업 화면에는 결정마다 근거가 함께 나옵니다. 사람은 거기서 메시지를 적어 결정을 뒤집고, 데몬은 그 메시지를 그 작업의 것으로 간직합니다. 요약 화면은 마지막으로 본 뒤에 내려진 결정을 사람을 기다리는 작업과 따로 셉니다.
+  to: **작업의 줄에는 묻지 않고 내린 결정이 보이고, 멈춰 둔 작업의 줄에는 그 질문이 보입니다.** 멈춰 둔 작업은 사람을 기다리는 작업들과 함께 놓이고, 그 줄은 기다리는 첫 질문을 말합니다. 결정은 아무것도 멈추지 않습니다. 줄에는 뒤집히지 않은 결정이 몇 개인지가 보이고, 작업 화면에는 결정마다 근거가 함께 나옵니다. 사람은 거기서 메시지를 적어 결정을 뒤집고, 데몬은 그 메시지를 그 작업의 것으로 간직합니다. 요약 화면은 마지막으로 본 뒤에 내려진 결정을 사람을 기다리는 작업과 따로 셉니다.
     check: apps/desktop/test/view.test.ts apps/desktop/test/daemon.test.ts
 - add
   file: docs/architecture.md
@@ -224,7 +224,7 @@ park(workItemId: number, asking: { by: string; questions: { asks: string; option
 - add
   file: docs/architecture.ko.md
   section: 순서는 코드가, 판단은 orchestrator가
-  to: **경로를 묻는 질문의 답이 `agentic`이면 orchestrator는 요청 전체에 대해 한 번만 묻고, 그 뒤에는 스스로 결정하거나 작업 하나만 세웁니다.** orchestrator는 요청의 첫 편집 전에, 그 요청이 맡긴 모든 작업에서 사람에게 물을 것을 모아 한 묶음으로 만듭니다. 이슈의 글이 사람에게 남긴 질문은 묶음에 넣기 전에 정책 문서, 설정, 코드, 앞선 작업의 기록과 대조합니다. 거기에 답이 있으면 묻지 않고, 그 답을 근거가 있는 자리와 함께 기록합니다. 묶음 뒤에 생긴 질문은 실행 도중에 사람에게 묻지 않습니다. 기록에 기본값이 있으면 orchestrator가 기본값을 택하고 그 결정을 기록합니다. 기본값이 없으면 데몬이 그 작업 하나를 질문과 함께 세워 둡니다. 세워 둔 작업이 다른 작업에 번지지 않게 하는 것은 데몬의 코드입니다. 작업 하나를 세워도 다른 작업에서는 아무것도 시작되지 않고, 멈추지 않고, 거절되지 않습니다. 사람이 앱에서 답하면 세워 둔 것이 풀립니다. 데몬은 묻지 않고 내린 결정을 근거와 함께 간직하고, 그 작업과 함께 보냅니다.
+  to: **경로를 묻는 질문의 답이 `agentic`이면 orchestrator는 요청 전체에 대해 한 번만 묻고, 그 뒤에는 스스로 결정하거나 작업 하나만 멈춰 둡니다.** orchestrator는 요청의 첫 편집 전에, 그 요청이 맡긴 모든 작업에서 사람에게 물을 것을 모아 한 묶음으로 만듭니다. 이슈의 글이 사람에게 남긴 질문은 묶음에 넣기 전에 정책 문서, 설정, 코드, 앞선 작업의 기록과 대조합니다. 거기에 답이 있으면 묻지 않고, 그 답을 근거가 있는 자리와 함께 기록합니다. 묶음 뒤에 생긴 질문은 실행 도중에 사람에게 묻지 않습니다. 기록에 기본값이 있으면 orchestrator가 기본값을 택하고 그 결정을 기록합니다. 기본값이 없으면 데몬이 그 작업 하나를 질문과 함께 멈춰 둡니다. 작업 하나를 멈춘 것이 다른 작업으로 번지지 않게 하는 것은 데몬의 코드입니다. 작업 하나를 멈춰 두어도 다른 작업에서는 아무것도 시작되지 않고, 멈추지 않고, 거절되지 않습니다. 사람이 앱에서 답하면 멈춰 둔 것이 풀립니다. 데몬은 묻지 않고 내린 결정을 근거와 함께 간직하고, 그 작업과 함께 보냅니다.
     check: apps/desktop/test/daemon.test.ts
 - change
   file: docs/architecture.md
@@ -251,17 +251,17 @@ park(workItemId: number, asking: { by: string; questions: { asks: string; option
 - add
   file: docs/architecture.ko.md
   section: 순서는 코드가, 판단은 orchestrator가
-  to: | | `agentic`에서 묻지 않고 무엇을 결정할지, 그리고 늦게 생긴 질문에 기본값을 택할지 그 작업을 세울지 |
+  to: | | `agentic`에서 묻지 않고 무엇을 결정할지, 그리고 늦게 생긴 질문에 기본값을 택할지 그 작업을 멈춰 둘지 |
 - change
   file: docs/architecture.md
   section: What changes because Owlery is not a plugin
   from: The app's question screen. It is an input form with choices and defaults, so it can also be shown on a phone once a mobile UI is attached
-  to: The app's question screen. It is an input form with choices and defaults, so it can also be shown on a phone once a mobile UI is attached. A question that arises after the batch parks its one work item, with the question on that work item's inbox line, while the daemon goes on with the others. A decision made in place of asking shows on its work item's line with its grounds
+  to: The app's question screen. It is an input form with choices and defaults, so it can also be shown on a phone once a mobile UI is attached. A question that arises after the batch parks its one work item, with the question on that work item's inbox line, while the daemon goes on with the others. A decision made in place of asking is counted on its work item's line, and the work item's preview and view list it with its grounds
 - change
   file: docs/architecture.ko.md
   section: 플러그인이 아니라서 달라지는 것
   from: 앱의 질문 화면. 선택지와 기본값이 있는 입력 양식이라, 모바일 화면을 붙이면 휴대폰에도 띄울 수 있습니다
-  to: 앱의 질문 화면. 선택지와 기본값이 있는 입력 양식이라, 모바일 화면을 붙이면 휴대폰에도 띄울 수 있습니다. 묶음 뒤에 생긴 질문은 그 작업 하나만 세우고 작업함의 그 줄에 보이며, 데몬은 다른 작업을 계속 진행합니다. 묻지 않고 내린 결정은 근거와 함께 그 작업의 줄에 보입니다
+  to: 앱의 질문 화면. 선택지와 기본값이 있는 입력 양식이라, 모바일 화면을 붙이면 휴대폰에도 띄울 수 있습니다. 묶음 뒤에 생긴 질문은 그 작업 하나만 멈춰 두고 작업함의 그 줄에 보이며, 데몬은 다른 작업을 계속 진행합니다. 묻지 않고 내린 결정은 그 작업의 줄에 개수로 보이고, 미리보기와 작업 화면에 근거와 함께 나옵니다
 - change
   file: docs/architecture.md
   section: State lives in three places
