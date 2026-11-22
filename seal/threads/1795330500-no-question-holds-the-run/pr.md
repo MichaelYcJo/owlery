@@ -16,7 +16,7 @@ Under the routing answer `agentic`, no question holds the run: this is Owlery's 
 
 ### Screenshots
 
-A work item held by questions, and one with decisions made without asking, in Night watch:
+A work item held by questions, and one with decisions made without asking, in Night watch's two appearances, and in Register and Desk, which draw the changed parts differently:
 
 ![Night watch dark, a work item held by questions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/night-watch-dark-parked.png?raw=true)
 ![Night watch light, a work item held by questions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/night-watch-light-parked.png?raw=true)
@@ -24,5 +24,10 @@ A work item held by questions, and one with decisions made without asking, in Ni
 ![Night watch dark, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/night-watch-dark-view.png?raw=true)
 ![Register light, a work item held by questions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-light-parked.png?raw=true)
 ![Desk dark, a work item held by questions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/desk-dark-parked.png?raw=true)
+![Night watch light, inbox](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/night-watch-light-inbox.png?raw=true)
+![Night watch light, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/night-watch-light-view.png?raw=true)
+![Register dark, inbox](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-dark-inbox.png?raw=true)
+![Register light, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-light-view.png?raw=true)
+![Desk light, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/desk-light-view.png?raw=true)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
