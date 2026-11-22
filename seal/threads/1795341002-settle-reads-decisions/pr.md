@@ -10,7 +10,7 @@ A work item's `decisions.md` holds the decisions made for it without asking you,
 
 **`--apply` refuses before anything runs where a put-back could lose something**: a kept directory that differs from `HEAD` (untracked files counted whatever `status.showUntrackedFiles` says), or no `seal` on the path. It prints each directory it keeps before AgenticSeal's settle runs, holds Ctrl-C, `SIGTERM` and `SIGHUP` until its put-back ends, and puts nothing back where `HEAD` moved meanwhile. A later run reads from `HEAD` a record the working tree lacks, so a run killed outright still keeps what it kept.
 
-**Run `--list` before `--apply`**, as the release's procedure now says: `--list` names a block the reader cannot read on the error stream and exits 1, and writes every record value as text, not Markdown. A link inside the records stops the reading, named, with exit 2.
+**Run `--list` before `--apply`**, as the release's procedure now says: `--list` reads the directories that stand in the working tree, and `--apply` removes every directory it does not keep. `--list` names a block the reader cannot read on the error stream and exits 1. It escapes what Markdown reads as markup in each record value and keeps the record's code spans, so the list shows each value as the record holds it. The reading stops with exit 2 and names the link where a work item's directory is a link, where a `threads/` or a `decisions.md` links to nothing, and where `HEAD` holds a directory or a `decisions.md` as a link that the working tree lacks.
 
 **A file that git ignores inside a kept directory is not put back**: AgenticSeal's settle removes it with the directory, and `HEAD` does not hold it.
 
