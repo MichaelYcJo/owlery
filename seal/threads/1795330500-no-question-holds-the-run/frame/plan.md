@@ -44,7 +44,7 @@ The cases are `test/daemon.test.ts`, which builds a `Daemon` with the fake adapt
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* item 21, with its part of *Data & interfaces* and of *Removes* | Scenario 19 | `fcd727f` |
-| 2 | *Scope* items 1 to 5, and items 12, 13 and 15 for `decisions`, with their parts of *Data & interfaces* and of *Removes* | Scenarios 1 to 4, 10 and 18 as cases, each seen red before its code, and the parts of scenarios 9, 12, 14 and 16 that read `decisions` | |
+| 2 | *Scope* items 1 to 5, and items 12, 13 and 15 for `decisions`, with their parts of *Data & interfaces* and of *Removes* | Scenarios 1 to 4, 10 and 18 as cases, each seen red before its code, and the parts of scenarios 9, 12, 14 and 16 that read `decisions` | `ecc27d8` |
 | 3 | *Scope* items 6 to 11, and items 12, 13 and 15 for `asked`, with their parts of *Data & interfaces* and of *Removes* | Scenarios 5 to 8, 11 and 13 as cases, each seen red before its code, and the parts of scenarios 9, 12, 14, 16 and 18 that read `asked` | |
 | 4 | *Scope* item 14, and the case of scenario 17 | Scenario 15 as cases, each seen red before its code, and scenario 17 by its one case in the built app | |
 
