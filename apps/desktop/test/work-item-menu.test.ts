@@ -410,6 +410,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await pointerTo(await itemAt("Copy path"));
     await submenuGone();
     expect(await value<number>(`window.__close.closed - window.__close.came`)).toBeGreaterThanOrEqual(SUBMENU_LEAVE_MS - 1);
+    // The pause's own length, so a pause shortened where it is named fails here as well as one shortened where its timer starts.
+    expect(SUBMENU_LEAVE_MS).toBe(300);
     expect(await menuLabel()).toBe("Menu of project");
     expect(await opener()).toEqual(["Open in", "menu", "false", true]);
     // The keyboard on another item closes the submenu under a pointer that rests on Open in. The pointer then comes onto nothing, and a press of Open in opens the submenu and closes nothing.

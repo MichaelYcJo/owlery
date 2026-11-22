@@ -613,6 +613,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(CARD_SHOWN, "the card of the address");
     // The card waits until the pointer has rested on the link, as the page's own clock times it, which rounds to a part of a millisecond.
     expect(await cardChangedAfter()).toBeGreaterThanOrEqual(CARD_SHOW_MS - 1);
+    // The pause's own length, so a pause shortened where it is named fails here as well as one shortened where its timer starts.
+    expect(CARD_SHOW_MS).toBe(300);
     expect(await card()).toEqual({
       title: PRINTED,
       rows: [
@@ -660,6 +662,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await timeTheCard();
     await pointAway();
     expect(await cardChangedAfter()).toBeGreaterThanOrEqual(CARD_LEAVE_MS - 1);
+    expect(CARD_LEAVE_MS).toBe(200);
 
     // A modifier key pressed by itself leaves the card as it is: a person who reads "⌘ Click" on a row holds the key and then clicks.
     await restOn(9, 0);
@@ -1062,9 +1065,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
 
     // The daemon forgot what the pane printed and kept the modes, so once the pane left the stage and came back it is still empty, and a paste still arrives in brackets.
     await leavesAndReturns();
+    expect(await pasteOnceBack()).toBe(inBrackets);
+    // The paste arrived, so the terminal has drawn the replay (`pasteOnceBack`), and the two rows are read from it and not from a screen the replay has yet to reach. The pane's process echoes nothing, so the paste draws nothing there.
     expect(await linkAt(9, 0)).toBe(false);
     expect(await linkAt(3, 1)).toBe(false);
-    expect(await pasteOnceBack()).toBe(inBrackets);
 
     // "Reset Terminal" ends those modes: the same paste arrives as typed text.
     await pressMenuItem("Reset Terminal");
