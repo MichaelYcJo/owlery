@@ -45,6 +45,11 @@ trail/phases/phase-3.md:22, its parenthesis replaced whole:
 (`frame/plan.md` *Judgments of the run*, the row that opens "Scenario 23 (each inbox shot shows" and the row after it)
 ```
 
+```seal
+verdict: fixed 4a963c0
+answer: The finding holds, and each of its three citations now names its row by the opening words of the row's judgment. `43e15be` rewrites the two frame citations, `frame/design.md:363` and `frame/plan.md:80`, as the row whose judgment opens "Giving the request's work item neither mark". `4a963c0` rewrites the parenthesis of `trail/phases/phase-3.md:22`. The fix is in this pass's own words. The round's text names the second row as "the row after it", which is a position again. So the parenthesis names both rows the decision stands in by their opening words: the row whose judgment opens "Scenario 23 (each inbox shot shows" (`frame/plan.md:108`), and the row whose judgment opens "Giving the request's work item neither mark" (`frame/plan.md:109`). Executed: each opening appears once in `frame/plan.md`, and a `git grep` for "its last row" over the work item's records outside `trail/rounds/` prints nothing. No other command ran in this pass.
+```
+
 ## Confirmations
 
 ```seal
