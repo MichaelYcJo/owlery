@@ -285,8 +285,22 @@ export interface WorkItem {
   questions: Question[];
   /** What the reader did not read of the work item's record. A daemon of an earlier build sends no such field, and a client reads its absence as nothing unread. */
   unread: Unread[];
+  /** What the work item's records say of its chain, as the daemon last read them in its worktree. A daemon of an earlier build sends no such field, and a client reads its absence as a work item it draws no approval line for. The look keeps none, so a work item the look holds has none either. */
+  recorded?: Recorded;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
+}
+
+/** What a work item's records say of its chain, as the daemon last read them in its worktree, committed or not. */
+export interface Recorded {
+  /** Whether `frame/design.md` stands in the work item's directory, as a plain file. */
+  framed: boolean;
+  /** How many round records the directory holds. */
+  rounds: number;
+  /** The commit the last run block of the gate's record names, or null. */
+  gate: string | null;
+  /** The last verdict block of the guarantee: the verdict's word, the commit it names, and the reason or the question, 2,000 characters of it at most, or null. */
+  verdict: { is: "sealed" | "withheld" | "undecided"; commit: string; says: string | null } | null;
 }
 
 /** One call a headless session waits for the person to allow or refuse. */

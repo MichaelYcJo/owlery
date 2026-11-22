@@ -5,11 +5,12 @@ import { basename, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
+import { NOTHING_RECORDED, readChainRecords } from "./chain-records";
 import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withDecision, withQuestion, withReversal, workItemDirectory, writeRecord } from "./decision-record";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
@@ -90,15 +91,22 @@ function characters(text: string): number {
 /** The kinds of a decision. */
 const DECISION_KINDS: readonly DecisionKind[] = ["route", "default", "scope", "answered"];
 
-/** What the daemon holds of one read of a work item's record, as a client is sent it. */
+/** What the daemon holds of one read of a work item's record and of its records of the chain, as a client is sent it. */
 interface RecordRead {
   decisions: Decision[];
   questions: Question[];
   unread: Unread[];
+  recorded: Recorded;
 }
 
-/** What a work item holds of its record where its worktree holds none. */
-const NO_RECORD: RecordRead = { decisions: [], questions: [], unread: [] };
+/** What the records say of the chain as a client is sent it: a verdict's reason or question cut at `STATE_TEXT_CHARS`. */
+function recordedOf(recorded: Recorded): Recorded {
+  const { verdict } = recorded;
+  return verdict === null ? recorded : { ...recorded, verdict: { ...verdict, says: cutText(verdict.says) } };
+}
+
+/** What a work item holds of its records where its worktree holds none. */
+const NO_RECORD: RecordRead = { decisions: [], questions: [], unread: [], recorded: NOTHING_RECORDED };
 
 export interface PaneCommand {
   command: string;
@@ -412,7 +420,11 @@ export class Daemon {
    * unread line that says why: a record that is a link, one that is no plain
    * file and one over `REPOSITORY_FILE_BYTES` among them, as
    * `repositoryFileText` refuses each. Each block's time is the daemon's own,
-   * from the store of the times.
+   * from the store of the times. Beside the record it reads, in the same
+   * directory, what the work item's records say of its chain
+   * (`chain-records.ts`), with a verdict's reason or question cut at
+   * `STATE_TEXT_CHARS`; a work item with no directory of its own says
+   * nothing of it.
    */
   private readRecord({ item }: Held): boolean {
     const directory = workItemDirectory(item.worktree, item.branch);
@@ -440,6 +452,7 @@ export class Daemon {
       })),
       questions: record.questions.map(({ id, asks, grounds, by, options, default: taken, state }) => ({ id, asks, grounds, by, options: options.map(({ label, implies }) => ({ label, implies })), default: taken, answer: state.is === "answered" ? state.answer : null, since: since.get(id) ?? null })),
       unread: [...record.refusals, ...record.notices].map(({ line, why }) => ({ line, why })).sort((a, b) => a.line - b.line),
+      recorded: recordedOf(readChainRecords(directory)),
     };
     const before = this.recordsRead.get(item.id);
     this.recordsRead.set(item.id, read);
