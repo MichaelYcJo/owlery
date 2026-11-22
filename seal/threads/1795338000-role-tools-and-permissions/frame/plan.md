@@ -52,7 +52,7 @@ The cases are `test/claude-adapter.test.ts`, which puts a script in the CLI's pl
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1, 3 and 15, and item 2 for a role launch, with their parts of *Data & interfaces* | Scenarios 1, 3 and 16 as cases, each seen red before its code | `cc30449` |
-| 2 | *Scope* items 4 to 14 and 17, and item 2 for a launch with no role, with their parts of *Data & interfaces*, and every row of *Removes* | Scenarios 2, 4 to 15 and 21 as cases, each seen red before its code. Scenario 20 by the one real run, made once at the close of this phase | |
+| 2 | *Scope* items 4 to 14 and 17, and item 2 for a launch with no role, with their parts of *Data & interfaces*, and every row of *Removes* | Scenarios 2, 4 to 15 and 21 as cases, each seen red before its code. Scenario 20 by the one real run, made once at the close of this phase | `a41484a` |
 | 3 | *Scope* item 16, with its part of *Data & interfaces* | Scenarios 17, 18, 19 and 22 as cases, each seen red before its code, and the two built-app cases scenarios 18 and 19 name | |
 
 After phase 1 a role session holds its role's tools and nothing else changes: a call that asks is still denied inside the CLI, as today. Phase 2 lands the adapter's side and the daemon's side in one phase, because a launch that passes `--permission-prompt-tool stdio` with nothing to answer would wait at its first request. The two features are declared in phase 2 for the same reason: an adapter declares `permission-requests` in the commit that makes it true. Phase 3 is the window alone and is built after `release/v0.0.2` holds #119 (*Overlap with the release*).
