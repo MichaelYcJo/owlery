@@ -4,7 +4,7 @@
 // rule below (docs/architecture.md, "What changes because Owlery is not a
 // plugin", the row "Each party judges only its own subject").
 import { lstatSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { RoleStage } from "../shared/protocol";
 import type { PermissionAction } from "./adapters/adapter";
 
@@ -45,15 +45,17 @@ export type Verdict = { answer: "allow" } | { answer: "refuse"; reason: string }
 /**
  * Where a path really is: the links on the part of it that exists followed,
  * and the rest, which a write would make, appended as it is written. Null
- * where that cannot be read: a link whose target is not there, or a link
- * that leads back to itself.
+ * where that cannot be read: a link whose target is not there, a link that
+ * leads back to itself, or a `..` in the part that is not there.
  */
 function realLocation(path: string): string | null {
   const rest: string[] = [];
   for (let existing = path; ; ) {
     try {
       // The system's own read: Node's other one settles each `..` before it follows a link.
-      return join(realpathSync.native(existing), ...rest);
+      const real = realpathSync.native(existing);
+      // A `..` in the part that is not there climbs back over names no link was followed on, so where it lands is not known.
+      return rest.includes("..") ? null : join(real, ...rest);
     } catch {
       try {
         // It is there and has no real location, so a write through it lands where nothing here read.
@@ -71,22 +73,36 @@ function realLocation(path: string): string | null {
 }
 
 /**
- * Whether a path is inside the worktree, by where both really are. A
- * relative path is read from the worktree. Nothing of the path is settled
- * before its links are followed, so a `..` after a link is taken from where
- * the link points, as the write itself takes it.
+ * Whether a path is inside the worktree, by where both really are. The rule
+ * does not know how the agent that asks reads a path's text before it
+ * writes, so the path is inside only where every reading of it is. A
+ * relative path is read from the worktree. The text is read as it is
+ * written, and again without the white space around it, which an agent may
+ * drop. Each of the two is read as the system reads it, so a `..` after a
+ * link is taken from where the link points, and again with each `..`
+ * settled in the text first, as an agent that resolves the path before it
+ * writes takes it. A path that opens with `~` names the home folder to such
+ * an agent, and a path that holds a null character names what nothing here
+ * can read: both are outside.
  */
 function insideWorktree(path: string, worktree: string): boolean {
+  if (path.includes("\0")) return false;
+  const trimmed = path.trim();
+  if (trimmed === "~" || trimmed.startsWith("~/")) return false;
   let root: string;
   try {
     root = realpathSync.native(worktree);
   } catch {
     return false;
   }
-  const real = realLocation(isAbsolute(path) ? path : `${worktree}${sep}${path}`);
-  if (real === null) return false;
-  const from = relative(root, real);
-  return from !== ".." && !from.startsWith(`..${sep}`) && !isAbsolute(from);
+  return [path, trimmed].every((text) =>
+    [isAbsolute(text) ? text : `${worktree}${sep}${text}`, resolve(worktree, text)].every((reading) => {
+      const real = realLocation(reading);
+      if (real === null) return false;
+      const from = relative(root, real);
+      return from !== ".." && !from.startsWith(`..${sep}`) && !isAbsolute(from);
+    }),
+  );
 }
 
 /**
