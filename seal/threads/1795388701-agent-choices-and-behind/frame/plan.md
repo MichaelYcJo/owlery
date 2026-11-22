@@ -1,0 +1,72 @@
+# Implementation Plan: 1795388701-agent-choices-and-behind
+
+## Technical context
+
+The tree as read at `9fe0c0c`.
+
+The work adds two read values and shows them. Each has a reader in the daemon, a field in the protocol and a place in the window that exists today for a neighbouring value.
+
+- **What an agent says.** A pane's hook sends each event to the daemon's socket (`apps/desktop/src/daemon/hooks.ts`, `HOOK_EVENTS` and `RELAY`). `apps/desktop/src/daemon/agent-events.ts` maps the event's name to a neutral one and reads what a person reads of it (`agentSaid`, lines 20 to 40). `apps/desktop/src/daemon/agent-state.ts` gives the state after the neutral event. `apps/desktop/src/daemon/daemon.ts#agentEvent` (line 283) keeps the state, its time, its text and its tool on the session, and changes none of them where the state stays (line 292). The window reads them in `apps/desktop/src/renderer/view.ts`: `saidBy` (line 964), `stateSays` (line 977) and `lineText` (line 996). `apps/desktop/src/renderer/shared.ts#detail` (line 286) draws the card in the preview and in a view's right column, and `apps/desktop/src/renderer/list.ts` (line 141) draws the line's second row.
+- **How far a branch is from its base.** `apps/desktop/src/daemon/worktrees.ts#aheadOf` (line 620) counts against the ref `baseRef` gives. `daemon.ts#readBranch` (line 1779) calls it at every read and keeps the count in `aheadCounts` (line 219). `view.ts#ahead` (line 1038) makes the preview's sentence and the view's fact, shown by `list.ts` (line 114) and by `view.ts#viewFacts` (line 1100).
+- **The look.** `apps/desktop/src/daemon/last-look.ts` checks and copies every field of a session and of a work item, and names in `CameLater` the fields an earlier look may lack.
+
+Constraints the build holds.
+
+- The daemon runs on one thread and reads git through `worktrees.ts#git`, which gives a command's output or throws. `baseDistance` gives `null` where git throws, as `aheadOf` does.
+- A daemon of an earlier build may serve a window of this build (`docs/architecture.md` *What a session survives*: "the window reads a field the daemon does not send as a feature that is off"). The window reads an absent `stateQuestions` and an absent `behindBase` as `null`.
+- A case of the window's drawn parts starts the built app through `apps/desktop/test/built-app.ts#BuiltApp.start`, which sets `OWLERY_BACKGROUND=1` (line 199). The owner's rules for this run allow no real `claude`, so a case feeds a hook's payload to the socket, as `apps/desktop/test/notification-click.test.ts` (line 42) and `apps/desktop/test/screenshots.test.ts` (line 210) do, and adds no start of the app where an existing file's start serves.
+
+The failure scenario of the chosen approach, in six months. The reader stands on the name of Claude Code's question tool and on the shape of its input, which the CLI can change in any release. Where it does, `agentSaid` gives no question, the session is `working` while its agent asks until a `PermissionRequest` or a `Notification` arrives, and the line says "Asks to use" and the tool's name, as it does today. Nothing breaks and nothing says that the choices are gone. The cases pin the shape the frame read, not the shape the CLI sends, so only a person at a real session notices (`frame/questions.md` Q1). The second scenario is a question a hook of the person's own answers, or one the CLI answers by itself in a mode that asks nobody: the session is `waiting` between the tool's start and its end, for an instant, and the window raises a notification for a wait nobody sees.
+
+## Alternatives considered
+
+| Approach | Failure scenario | Verdict |
+|---|---|---|
+| Read the questions from the question tool's `PreToolUse` and from its `PermissionRequest`, and let an event that asks begin the wait | The two scenarios of *Technical context* | Chosen. `PreToolUse` is the one event the reference says is sent for the tool before the person answers (`frame/design.md` *Grounding*), and reading both events gives one line whichever of them a real session sends |
+| Read the questions from `PermissionRequest` alone, and leave the states as they are | Whether that event is sent for the question tool is not established. Where it is not, the session says "Working" while its agent asks, and the choices never show | Rejected: the result would rest on a fact nobody measured |
+| Read the choices from the `Notification`'s text | The notification says `Claude needs your permission to use <tool>` and carries no choice (`frame/design.md` *Grounding*) | Rejected |
+| Read the question from the pane's output or from the CLI's session log | `docs/architecture.md` *Overall layout* forbids the first. The log's format is not public, and the same document reads it only as a supplement for the phone | Rejected by policy |
+| Send the tool's name and its input as they arrive, and let the window find the questions | The window then knows one vendor's tool and one vendor's field names, which `docs/architecture.md` *Rules that keep it portable* rule 1 forbids, and the phone would repeat the parsing | Rejected by policy |
+| A new neutral event, `question`, in place of `tool-start` for the call that asks | The `agent` message would carry no start for that tool call, and its end would arrive alone, in the stream the phone is to read tool calls from | Rejected. The call stays a `tool-start`, and the state is what differs |
+| Replace the neutral state map: each agent's reader gives the state itself | Every agent's reader then states again that a prompt means working and a turn's end means finished, and two readers drift apart | Rejected. The map is kept with one input, whether the event asks. The premise that keeps it, checked in `agent-state.ts`: the neutral event still decides the state of every event that asks nothing |
+| Use the record's `Question` for an agent's question | `Question` holds `id`, `grounds`, `by`, `default`, `answer` and `since`, none of which an agent's event gives, and `view.ts#parkedWith` reads a `Question` with no answer as a park | Rejected. `AskedQuestion` shares the shape of `options` and nothing else |
+| Keep the questions on the work item | A work item may hold several panes, and the state they belong to is one session's. `view.ts#lineSession` already picks the pane a line reads | Rejected: they stand on `SessionInfo`, with the state |
+| Replace `aheadOf` with one function that gives both counts from one git command | A later caller that wants one count pays for both, which is one number in one line of output | Chosen. `executed`: the command gives both counts (`frame/design.md` *Grounding*). `aheadOf` has one caller, `daemon.ts` line 1792, so nothing else stands on it |
+| Keep `aheadOf` and add `behindOf` beside it | Two git processes for each work item at every read, where the daemon reads every work item on a timer. The two counts are read at two moments, so a fetch between them gives an "ahead" of one base and a "behind" of another | Rejected, weighed as an equal of the row above. The premise for keeping would be a caller that needs ahead alone, and there is none |
+| Fetch the base before each count | The daemon would ask a remote on a timer for every work item: network use the person did not ask for, and a credential prompt in the background where the remote needs one | Rejected. The count is of the clone's ref, as "ahead" is, and moves at the person's fetch |
+| Leave "behind" out where it is 0 | A person cannot tell a branch that is level with its base from one whose count the daemon did not read, since both then say nothing | Rejected. "ahead" is said at 0 today (`view.ts#ahead`), and "behind" follows it |
+| Give each choice a button that answers the CLI | The window would type into a pane, which is the phone's way of answering in v0.2, and `docs/design.md` *Principles* 2 refuses a window that converses | Rejected by policy |
+| List the choices without numbers | The choices lose the order a person refers to when they answer in the pane | Rejected. The mockup the owner chose numbers them (`frame/design.md` *Grounding*). Whether the CLI's own dialog numbers them alike is part of `frame/questions.md` Q1 |
+| Write the rules into `docs/` in this pull request | This work's subject is the code, and #46 changes the window in the same release. Two pull requests would each rewrite `docs/design.md` *Components and their states* and `docs/product.md` *Foundation* | Rejected. The rules stand in `frame/design.md` *Rule changes* for the settle, and the review reads the screenshots against that section until then |
+
+## Phases
+
+| Phase | Delivers | Verified by | Status |
+|---|---|---|---|
+| 1 | *Scope* items 1, 2, 3, 7 and 8, and item 6 for `stateQuestions` | `apps/desktop/test/agent-events.test.ts` (scenarios 1 and 2), `apps/desktop/test/daemon.test.ts` (scenarios 3 and 4), `apps/desktop/test/last-look.test.ts` (scenario 7, the session's field), `apps/desktop/test/view.test.ts` (scenarios 8 and 9), the built-app case of scenario 11, and the search of scenario 12, each run narrow by the crafter | |
+| 2 | *Scope* items 4, 5 and 9, and item 6 for `behindBase` | `apps/desktop/test/worktrees.test.ts` (scenario 5), `apps/desktop/test/daemon.test.ts` (scenario 6), `apps/desktop/test/last-look.test.ts` (scenario 7, the work item's field), `apps/desktop/test/view.test.ts` (scenario 10), each run narrow by the crafter. `git grep -n -w 'aheadOf' -- apps/desktop` prints nothing: each line it prints at `9fe0c0c` is named by a row of `frame/design.md` *Removes* | |
+| 3 | *Scope* items 10 and 11 | Scenario 13: one run of `pnpm run screenshots` in `apps/desktop`, which starts the built app once, in the background, and the PNG files of the inbox and of the view in Night watch's two appearances committed under this work item's `screenshots/`. `apps/desktop/test/screenshots.test.ts`, the cases without the app, run narrow by the crafter | |
+
+*Scope* item 12 is the frame's own and has no phase: the settle writes it.
+
+## Overlap with the release
+
+The spawn names three open work items of release 0.0.2 that run beside this one: #46, #41 and #45. Each one's issue was read with `gh issue view`. When the rows below were judged, on 2026-11-23, each one's `frame/design.md` in its worktree was the template's skeleton, so each row is judged from the issue's text. Before this frame was committed the three frames stood written, #41's at `624874c` and #45's at `1a028b3` on their branches and #46's uncommitted in its worktree, and the row each `frame/plan.md` holds for #27 was read: each names #27 as the one that merges first. The spawn also names #130 and #119, which are merged into `release/v0.0.2` and stand in this branch's base: this work builds on their card of what an agent says and on their order of a line's second row, and meets neither as an open item.
+
+| Work item | Where both change | Merges first | Grounds |
+|---|---|---|---|
+| #46, progress through roles | `apps/desktop/src/renderer/view.ts`, where #46's "the inbox line shows the running stage in short" changes `inboxLine` or `lineText` and this work adds the agent's question to `lineText`. `apps/desktop/src/renderer/list.ts`, the line's second row and the preview's head. `apps/desktop/src/renderer/shared.ts#detail` and the view's right column in `work-item-view.ts`, where #46 draws the approval line and this work changes the card above it. `apps/desktop/src/shared/protocol.ts`, where both add fields to `WorkItem` or `SessionInfo`. `apps/desktop/src/daemon/last-look.ts#CameLater` and `lookOf`. `apps/desktop/test/daemon.test.ts#WORK_ITEM_FIELDS`, which lists every field of a work item. `apps/desktop/test/screenshots.test.ts#WORK_ITEMS`, the run's invented work items, which #46's frame says it rewrites with the paragraph of `docs/design.md` that describes the run. `docs/design.md` *Components and their states* and `docs/product.md` *Foundation*, by each design's *Rule changes* | #27 | This work is the smaller diff and goes straight to the pull request, so it is sealed first. #46 runs through review rounds and draws #41's stages, so it takes the release branch in during rounds it spends anyway. The order of a line's second row that this work fixes is the one #46 adds its stage to, and #46 makes its screenshots again after the merge, as its own frame says |
+| #41, review rounds | `apps/desktop/src/daemon/daemon.ts` and `apps/desktop/src/shared/protocol.ts`, in different parts: #41 adds the chain's order and its messages, and this work changes `agentEvent`, `readBranch` and two fields. `apps/desktop/test/daemon.test.ts#WORK_ITEM_FIELDS` and `SESSION_FIELDS`, where a work item's or a session's new field is listed | #27 | The smaller diff, sealed first. #41's rounds take the release branch in, and the meeting is two lists of field names |
+| #45, cost per stage | `apps/desktop/src/daemon/daemon.ts` and `apps/desktop/src/shared/protocol.ts`, in different parts: #45 adds the ledger and a message that asks for it. Its issue says it depends on #41 | #27 | #45 starts after #41's stages exist, so it is cut from or takes in a release branch that already holds this work |
+
+## Operational impact
+
+No migration, no environment variable and no dependency. The protocol gains two fields and no message, and a client reads each as `null` where a daemon of an earlier build sends none. `last-look.json` written by an earlier build is read as before, with both fields at `null`. The count needs a git that knows `rev-list --left-right --count`. The probe ran git 2.50.1 and no older git was run, and the repository names no floor for git.
+
+This pull request moves no version: the first pull request of `release/v0.0.2` moved it. Phase 3's commit adds `changelog.md`.
+
+## Judgments of the run
+
+| Date | Judgment | Grounds | Judged against |
+|---|---|---|---|
+| | | | |
