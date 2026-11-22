@@ -3139,6 +3139,17 @@ function recordIn(directory: string): DecisionRecord | null {
 /** The file of a work item's record as bytes, or null where none stands. */
 const bytesIn = (directory: string): string | null => (existsSync(join(directory, RECORD_FILE)) ? readFileSync(join(directory, RECORD_FILE), "base64") : null);
 
+/** What the daemon writes to its log from here until the case ends, a line for each call. */
+function logged(): string[] {
+  const said: string[] = [];
+  const error = console.error;
+  console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
+  cleanups.push(() => {
+    console.error = error;
+  });
+  return said;
+}
+
 type Lists = { workItems: WorkItem[]; archived: WorkItem[] };
 const itemOf = (lists: Lists, id: number): WorkItem | undefined => [...lists.workItems, ...lists.archived].find((w) => w.id === id);
 describe("the decisions made without asking", () => {
@@ -3180,7 +3191,7 @@ describe("the decisions made without asking", () => {
     const { d, workItems } = await withWorkItems(["Decided for"], { now: () => 5 });
     const id = workItems[0]!.id;
     withDirectory(workItems[0]!);
-    expect(d.decided(id, { kind: "scope", says: `  ${"가".repeat(2001)}\n`, grounds: `\t${"g".repeat(1999)}😀 `, by: " the\norchestrator " })).toEqual({ ...made(1, { kind: "scope", says: "가".repeat(2000), grounds: "g".repeat(1999) }, 5), by: "the orchestrator" });
+    expect(d.decided(id, { kind: "scope", says: `  ${"가".repeat(2001)}\n`, grounds: `\t${"g".repeat(1999)}😀 `, by: ` ${"b".repeat(2001)}\n` })).toEqual({ ...made(1, { kind: "scope", says: "가".repeat(2000), grounds: "g".repeat(1999) }, 5), by: "b".repeat(2000) });
     expect(d.decided(id, { ...DEFAULT, says: "Start\r\nfrom main." })?.says).toBe("Start from main.");
     expect((["route", "default", "answered"] as const).map((kind) => d.decided(id, { ...DEFAULT, kind })?.kind)).toEqual(["route", "default", "answered"]);
   });
@@ -3191,6 +3202,7 @@ describe("the decisions made without asking", () => {
     const directory = withDirectory(a);
     const twice = [withDirectory(two, "1-first"), withDirectory(two, "2-second")];
     const loose = d.decided.bind(d) as (workItemId: unknown, decision: unknown) => unknown;
+    const said = logged();
     expect(loose(99, DEFAULT)).toBeUndefined();
     expect(loose(String(a.id), DEFAULT)).toBeUndefined();
     expect(loose(none.id, DEFAULT)).toBeUndefined();
@@ -3202,6 +3214,8 @@ describe("the decisions made without asking", () => {
     await settled(c);
     expect(c.messages.map((m) => m.type)).toEqual(["error"]);
     expect([directory, ...twice].map(bytesIn)).toEqual([null, null, null]);
+    // Each was refused before the record's writer was asked, so the log holds no line of a write that failed.
+    expect(said).toEqual([]);
     expect(readdirSync(join(none.worktree)).includes("seal")).toBe(false);
     expect(["decisions.json", "asked.json"].map((file) => existsSync(join(runDir, file)))).toEqual([false, false]);
     expect((await (await client(url)).message("ready")).workItems.map(({ decisions, questions, unread }) => ({ decisions, questions, unread }))).toEqual([NO_RECORD, NO_RECORD, NO_RECORD]);
@@ -3246,6 +3260,11 @@ describe("the decisions made without asking", () => {
     expect(itemOf(after, a.id)?.unread).toEqual([{ line: opener + 2, why: "a blank line inside a `seal` block: its lines are fields, one after another, and the block is not read past it" }]);
     expect(itemOf(after, a.id)?.decisions.map(({ id, kind }) => [id, kind])).toEqual([[1, "route"], [2, "default"], [4, "scope"], [6, "answered"]]);
     expect(itemOf(after, a.id)?.questions).toEqual([question]);
+    // A pass that reads the record as it read it last sends nothing.
+    await settled(lc);
+    lc.messages.length = 0;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lc.messages).toEqual([]);
   });
 
   it("sends a fence that opens like a `seal` block and is not one as unread, at its line, beside the refusals in the order of the file", async () => {
@@ -3309,8 +3328,10 @@ describe("the decisions made without asking", () => {
     const ready = await (await client(url)).message("ready");
     expect([itemOf(ready, a.id)?.decisions, itemOf(ready, b.id)?.decisions]).toEqual([[reversed], [second]]);
     // The message as the refusals above would have it taken, so the case is the one under test.
-    c.send({ type: "reverseDecision", requestId: 20, workItemId: b.id, decisionId: second.id, message: "Frame it." });
+    c.send({ type: "reverseDecision", requestId: 20, workItemId: b.id, decisionId: second.id, message: "가".repeat(2001) });
     expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
+    // A message is cut as every text the daemon writes is.
+    expect(recordIn(directories[1])?.decisions[0]?.state).toEqual({ is: "reversed", message: "가".repeat(2000) });
   });
 
   it("sends each decision as its block stands: an applied one with its commit and a carried one with its home, each with the person's message", async () => {
@@ -3441,12 +3462,7 @@ describe("the decisions made without asking", () => {
     const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
     const directory = withDirectory(a);
     withDirectory(b);
-    const said: string[] = [];
-    const error = console.error;
-    console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
-    cleanups.push(() => {
-      console.error = error;
-    });
+    const said = logged();
     // A folder stands where the record goes, so it is neither read nor replaced.
     mkdirSync(join(directory, RECORD_FILE));
     const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
@@ -3525,13 +3541,13 @@ describe("the questions a work item is parked with", () => {
     const questions = d.park(workItems[0]!.id, {
       by: `  ${long}\n`,
       questions: [
-        { asks: `\t${"q".repeat(1999)}😀 `, grounds: ` ${long} `, options: [{ label: ` ${long} `, implies: `\n${long}` }, { label: "second", implies: "" }], default: " second " },
+        { asks: `\t${"q".repeat(1999)}😀 `, grounds: ` ${long} `, options: [{ label: ` ${long} `, implies: `\n${long}` }, { label: "second", implies: "" }], default: ` ${long}\n` },
         { asks: " One more? ", grounds: " It needs\nan approval. ", options: [{ label: "yes", implies: " Then it goes on. " }], default: null },
         { asks: "Free?", grounds: "A credential." },
       ],
     });
     expect(questions).toEqual([
-      { id: 1, asks: "q".repeat(1999), grounds: cut, by: cut, options: [{ label: cut, implies: cut }, { label: "second", implies: "" }], default: "second", answer: null, since: 5 },
+      { id: 1, asks: "q".repeat(1999), grounds: cut, by: cut, options: [{ label: cut, implies: cut }, { label: "second", implies: "" }], default: cut, answer: null, since: 5 },
       { id: 2, asks: "One more?", grounds: "It needs an approval.", by: cut, options: [{ label: "yes", implies: "Then it goes on." }], default: null, answer: null, since: 5 },
       { id: 3, asks: "Free?", grounds: "A credential.", by: cut, options: [], default: null, answer: null, since: 5 },
     ]);
@@ -3545,6 +3561,7 @@ describe("the questions a work item is parked with", () => {
     await c.message("inbox", (m) => m.archived.length === 1);
     c.messages.length = 0;
     const loose = d.park.bind(d) as (workItemId: unknown, asking: unknown) => unknown;
+    const said = logged();
     expect(loose(99, ASKING)).toBeUndefined();
     expect(loose(String(a.id), ASKING)).toBeUndefined();
     expect(loose(archived.id, ASKING)).toBeUndefined();
@@ -3578,6 +3595,8 @@ describe("the questions a work item is parked with", () => {
     await settled(c);
     expect(c.messages.map((m) => m.type)).toEqual(["error"]);
     expect(directories.map(bytesIn)).toEqual([null, null]);
+    // Each was refused before the record's writer was asked, so the log holds no line of a write that failed.
+    expect(said).toEqual([]);
     const ready = await (await client(url)).message("ready");
     expect([itemOf(ready, a.id)?.questions, ready.archived[0]?.questions]).toEqual([[], []]);
     // The call as the refusals above would have it taken, so the method is the one under test.
@@ -3589,12 +3608,7 @@ describe("the questions a work item is parked with", () => {
     const directory = withDirectory(workItems[0]!);
     d.decided(workItems[0]!.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
     const bytes = bytesIn(directory);
-    const said: string[] = [];
-    const error = console.error;
-    console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
-    cleanups.push(() => {
-      console.error = error;
-    });
+    const said = logged();
     // A label that holds a backtick is no label the record's grammar takes.
     expect(d.park(workItems[0]!.id, { questions: [FREE, { ...FREE, options: [{ label: "a`b", implies: "" }] }] })).toBeUndefined();
     expect(bytesIn(directory)).toBe(bytes);

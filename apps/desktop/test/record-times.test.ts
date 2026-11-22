@@ -45,6 +45,8 @@ describe("RecordTimes", () => {
     const times = new RecordTimes(runDir);
     times.since(7, [DECIDED, OPEN], 1000);
     times.since(8, [DECIDED], 1500);
+    // Written before the block leaves, so the write below is the one the leaving asks for.
+    times.flush();
     expect([...times.since(7, [OPEN], 2000)]).toEqual([[2, 1000]]);
     times.flush();
     expect(stored(runDir)).toEqual({ workItems: { 7: { 2: { state: "open", since: 1000 } }, 8: { 1: { state: "decided", since: 1500 } } } });
