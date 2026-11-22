@@ -17,6 +17,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CARD_LEAVE_MS, CARD_SHOW_MS } from "../src/renderer/view";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
@@ -339,11 +340,34 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`!(${OVER_LINK}) && !(${CARD_SHOWN})`, "no link under the pointer, and no card");
   }
 
+  /**
+   * Brings the pointer onto a cell of the pane in front, from a row with no
+   * link, until `expression` holds there, and answers where the pointer is.
+   * The terminal looks for the links of a row as the pointer comes onto it,
+   * and not again while the pointer stays on it, so a row drawn after the
+   * pointer came holds no link under it. The output of a pane that has just
+   * started, and the replay of a pane whose view has just come in front,
+   * can arrive after the case's pointer (#117). So the pointer comes again
+   * each two seconds, from the row with no link, until `what` shows, fifteen
+   * seconds at most.
+   */
+  async function comeOnto(column: number, row: number, expression: string, what: string, modifiers = 0): Promise<{ x: number; y: number }> {
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      await pointAway();
+      const at = await pointAt(column, row, modifiers);
+      const again = Date.now() + 2_000;
+      do {
+        if (await app.evaluate<boolean>(expression)) return at;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      } while (Date.now() < again);
+      if (Date.now() >= deadline) throw new Error(`the window never showed ${what}`);
+    }
+  }
+
   /** A click on the link of a row of the pane in front, with the modifier keys held, as a person's click arrives: the pointer comes over the link first. Afterwards the pointer is over no link. */
   async function clickLink(row: number, modifiers: number, column = 9): Promise<void> {
-    await pointAway();
-    const at = await pointAt(column, row, modifiers);
-    await app.until(OVER_LINK, `a link under the pointer on row ${row + 1}`);
+    const at = await comeOnto(column, row, OVER_LINK, `a link under the pointer on row ${row + 1}`, modifiers);
     await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1, modifiers });
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1, modifiers });
     await pointAway();
@@ -362,11 +386,53 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   }
 
   /** Rests the pointer on a cell of the pane in front until the link's card shows, and answers where the pointer is. The pointer comes from a row with no link, so the link is one the pointer newly came over. */
-  async function restOn(column: number, row: number): Promise<{ x: number; y: number }> {
-    await pointAway();
-    const at = await pointAt(column, row);
-    await app.until(CARD_SHOWN, `the card of the link on row ${row + 1}`);
-    return at;
+  function restOn(column: number, row: number): Promise<{ x: number; y: number }> {
+    return comeOnto(column, row, CARD_SHOWN, `the card of the link on row ${row + 1}`);
+  }
+
+  /** Notes, by the page's clock, in `window.__card`: when the pointer next moves, read before the terminal reads the move, and when the card next shows or leaves. */
+  function timeTheCard(): Promise<unknown> {
+    return app.evaluate(`void (() => {
+      const times = (window.__card = {});
+      const moved = () => {
+        times.moved = performance.now();
+        document.removeEventListener("mousemove", moved, true);
+      };
+      document.addEventListener("mousemove", moved, true);
+      const card = document.getElementById("link-card");
+      const was = card.hidden;
+      const changed = new MutationObserver(() => {
+        if (card.hidden === was) return;
+        times.changed = performance.now();
+        changed.disconnect();
+      });
+      changed.observe(card, { attributes: true, attributeFilter: ["hidden"] });
+    })()`);
+  }
+
+  /** How long, by the page's clock, the card took to show or to leave after the move `timeTheCard` noted. */
+  const cardChangedAfter = (): Promise<number> => app.evaluate<number>("window.__card.changed - window.__card.moved");
+
+  /**
+   * Has the pointer move to each cell in turn, in one task of the page, as
+   * the moves of a person's pointer arrive there, and answers where it is at
+   * the last. No timer of the page runs between the moves, however long the
+   * page takes to answer the debugging port: each move through that port
+   * waits on an answer, and moves sent at once reach the page as one. The
+   * debugging port's own pointer stays where it was, so the case brings it
+   * to the last cell afterwards.
+   */
+  function movesInOneTask(cells: readonly (readonly [number, number])[]): Promise<{ x: number; y: number }> {
+    return app.evaluate(`(() => {
+      const box = document.querySelector("#stage .pane:not([hidden]) .xterm-screen").getBoundingClientRect();
+      const [columns, rows] = document.getElementById("strip-size").textContent.split("×").map(Number);
+      let at;
+      for (const [column, row] of ${JSON.stringify(cells)}) {
+        at = { x: box.x + (box.width / columns) * (column + 0.5), y: box.y + (box.height / rows) * (row + 0.5) };
+        document.elementFromPoint(at.x, at.y).dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, composed: true, view: window, clientX: at.x, clientY: at.y }));
+      }
+      return at;
+    })()`);
   }
 
   /** What the card says: its first line, and each row's words with the keys at its end. */
@@ -541,11 +607,14 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     // The clipboard of an app started in the background is its own, and starts empty.
     expect(await clipboard()).toBe("");
     await pointAway();
+    await timeTheCard();
     const at = await pointAt(9, 0);
     await app.until(OVER_LINK, "a link under the pointer");
-    // The card waits until the pointer has rested on the link.
-    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
     await app.until(CARD_SHOWN, "the card of the address");
+    // The card waits until the pointer has rested on the link, as the page's own clock times it, which rounds to a part of a millisecond.
+    expect(await cardChangedAfter()).toBeGreaterThanOrEqual(CARD_SHOW_MS - 1);
+    // The pause's own length, so a pause shortened where it is named fails here as well as one shortened where its timer starts.
+    expect(CARD_SHOW_MS).toBe(300);
     expect(await card()).toEqual({
       title: PRINTED,
       rows: [
@@ -558,12 +627,15 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const box = await app.evaluate<{ left: number; top: number }>(`(() => { const box = document.getElementById("link-card").getBoundingClientRect(); return { left: box.left, top: box.top }; })()`);
     expect(Math.abs(box.left - at.x)).toBeLessThan(1);
     expect(Math.abs(box.top - (at.y + rowHeight / 2))).toBeLessThan(1.5);
-    // The pointer may move along the link while it rests there, and the card shows where the pointer then is.
+    // The pointer may move along the link while it rests there, and the card shows where the pointer then is. The two moves reach the page in one of its tasks, so the pause does not run out between them.
     await pointAway();
-    await pointAt(9, 0);
-    const moved = await pointAt(14, 0);
+    const moved = await movesInOneTask([
+      [9, 0],
+      [14, 0],
+    ]);
     await app.until(CARD_SHOWN, "the card of the address, again");
     expect(Math.abs((await app.evaluate<number>(`document.getElementById("link-card").getBoundingClientRect().left`)) - moved.x)).toBeLessThan(1);
+    await pointAt(14, 0);
 
     // The card of a link behind a name says the address, not the name.
     await restOn(3, 1);
@@ -586,10 +658,11 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
     expect(await app.evaluate<number>(`document.getElementById("link-card").getBoundingClientRect().left`)).toBe(shownAt);
-    // It leaves once the pointer is on neither, and not at once: the pointer has a moment to reach the card across what lies between.
-    await pointAt(9, EMPTY_ROW);
-    expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(true);
+    // It leaves once the pointer is on neither, and not at once: the pointer has a moment to reach the card across what lies between, as the page's own clock times it.
+    await timeTheCard();
     await pointAway();
+    expect(await cardChangedAfter()).toBeGreaterThanOrEqual(CARD_LEAVE_MS - 1);
+    expect(CARD_LEAVE_MS).toBe(200);
 
     // A modifier key pressed by itself leaves the card as it is: a person who reads "⌘ Click" on a row holds the key and then clicks.
     await restOn(9, 0);
@@ -645,6 +718,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const pane = await openPane("Shell");
     await pidOf(pane);
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    // The window draws what the pane printed in the order it was printed, so once the last line's link is found every row a cell is read on below is drawn.
+    await comeOnto(9, 7, OVER_LINK, "the link of the pane's last line");
 
     const last = PRINTED_PATH.length - 1;
     expect(await linkAt(0, 2)).toBe(true);
@@ -990,9 +1065,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
 
     // The daemon forgot what the pane printed and kept the modes, so once the pane left the stage and came back it is still empty, and a paste still arrives in brackets.
     await leavesAndReturns();
+    expect(await pasteOnceBack()).toBe(inBrackets);
+    // The paste arrived, so the terminal has drawn the replay (`pasteOnceBack`), and the two rows are read from it and not from a screen the replay has yet to reach. The pane's process echoes nothing, so the paste draws nothing there.
     expect(await linkAt(9, 0)).toBe(false);
     expect(await linkAt(3, 1)).toBe(false);
-    expect(await pasteOnceBack()).toBe(inBrackets);
 
     // "Reset Terminal" ends those modes: the same paste arrives as typed text.
     await pressMenuItem("Reset Terminal");

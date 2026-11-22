@@ -14,6 +14,8 @@ import {
   answersFor,
   askButton,
   askedSection,
+  CARD_LEAVE_MS,
+  CARD_SHOW_MS,
   cardStaysAt,
   closeAsks,
   droppedText,
@@ -89,9 +91,6 @@ let mac = false;
 let openWorkItem: (workItemId: number) => void = () => {};
 // What a press of "Reverse" on a decision of the view's work item does: it opens the dialog that takes the message.
 let reverseDecision: (workItemId: number, decisionId: number) => void = () => {};
-// How long the pointer rests on a link before its card shows, and how long the card stays once the pointer is on neither the link nor the card, which is the time the pointer has to go from one to the other.
-const CARD_SHOW_MS = 300;
-const CARD_LEAVE_MS = 200;
 // The target of the link the pointer is on, for the card that shows once the pointer has rested there.
 let cardFor: LinkTarget | undefined;
 // Where the pointer is in the window, as its last move said. The card shows at it.

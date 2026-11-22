@@ -1174,6 +1174,10 @@ export interface LinkCard {
   rows: { text: string; keys: string; act: LinkAct }[];
 }
 
+/** How long, in milliseconds, the pointer rests on a link before its card shows, and how long the card stays once the pointer is on neither the link nor the card, which is the time the pointer has to go from one to the other. */
+export const CARD_SHOW_MS = 300;
+export const CARD_LEAVE_MS = 200;
+
 /** The card of a link: its target whole, the address or the path, and its rows, each with the click that does what it names, as `linkClick` answers that click on a keyboard that is a Mac's or is not. A row that copies names no click. */
 export function linkCard(target: LinkTarget, mac: boolean): LinkCard {
   const keys = { key: mac ? "\u2318 Click" : "Ctrl Click", shiftKey: mac ? "\u21e7 \u2318 Click" : "Shift Ctrl Click" };

@@ -162,7 +162,8 @@ export class BuiltApp {
    * one under the system's temporary folder, so nothing is read from or
    * written to the person's own. The app starts in the background, with
    * `OWLERY_BACKGROUND` set to `1`, so its window takes neither the system's
-   * focus nor the person's keyboard. A caller that opens the app for a person
+   * focus nor the person's keyboard, and lets the person's pointer through:
+   * the cases' pointer is the debugging port's alone. A caller that opens the app for a person
    * to type in passes `keepBackground`, and the variable stays as the
    * caller's own environment has it. A caller that reads what the main
    * process holds, such as the menu Electron built, passes `inspectMain`,
