@@ -1,4 +1,4 @@
-// The entry `scripts/settle.mjs` bundles and runs: the release's settle, read
+// The entry `scripts/settle.mjs` bundles and runs: the release's settle, run
 // in the folder pnpm starts it in, with the flags after the script's name.
 import { command } from "./settle";
 

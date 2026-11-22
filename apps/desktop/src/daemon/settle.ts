@@ -231,8 +231,10 @@ function exitOf(ran: SpawnSyncReturns<string>, print: Printer): number {
  * top and puts back from `HEAD` each directory the reading kept. It refuses
  * before anything runs where a kept directory differs from `HEAD`, which the
  * put-back would lose, and where no `seal` on the path can be run. It puts
- * nothing back where `HEAD` moved while the settle ran. It exits with the
- * worse of its own reading and the settle's exit: 2, then 1, then 0.
+ * nothing back where `HEAD` moved while the settle ran, and names each kept
+ * directory it could not put back and goes on. It exits 2 where it refused or
+ * did not put one back, and otherwise with the worse of its own reading and
+ * the settle's exit: 2, then 1, then 0.
  */
 function apply(top: string, reading: SettleReading, releasedAt: string | undefined, print: Printer): number {
   const refusals = reading.kept.filter((kept) => differs(top, kept.directory)).map((kept) => `${kept.directory}/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first`);
@@ -262,14 +264,21 @@ function apply(top: string, reading: SettleReading, releasedAt: string | undefin
     return 2;
   }
   let put = 0;
+  let unput = 0;
   for (const kept of reading.kept) {
-    if (!differs(top, kept.directory)) continue;
-    git(top, "checkout", "HEAD", "--", `${kept.directory}/`);
+    try {
+      if (!differs(top, kept.directory)) continue;
+      git(top, "checkout", "HEAD", "--", `${kept.directory}/`);
+    } catch (error) {
+      unput += 1;
+      print.err(keptLines(`settle: not put back ${kept.directory}/: ${(error as Error).message}`, kept));
+      continue;
+    }
     put += 1;
     print.out(keptLines(`put back ${kept.directory}/`, kept));
   }
   print.out(`Put back ${put === 0 ? "no directory" : `${put} ${put === 1 ? "directory" : "directories"}`}.\n`);
-  return Math.max(theirs, reading.kept.length === 0 ? 0 : 1);
+  return unput > 0 ? 2 : Math.max(theirs, reading.kept.length === 0 ? 0 : 1);
 }
 
 /**

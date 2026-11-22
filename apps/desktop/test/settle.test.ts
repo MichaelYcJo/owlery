@@ -3,7 +3,7 @@
 // made without asking. The cases read temporary repositories and never
 // Owlery's own.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -396,6 +396,23 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
       expect(got.err, move).toContain("\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; ");
       expect(existsSync(join(repo, "seal/threads/1-a")), move).toBe(false);
       expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
+    }
+  });
+
+  it("names each kept directory it could not put back, and goes on to the next", () => {
+    const repo = settled();
+    write(repo, "seal/threads/3-c/decisions.md", record(OPEN));
+    commit(repo, "chore: a third work item");
+    // The settle leaves `threads/` a folder nothing can be written in, so no checkout can make a directory there.
+    standIn(REMOVE_ALL, "chmod 555 seal/threads");
+    try {
+      const got = run(repo, "--apply");
+      expect(got.code).toBe(2);
+      for (const id of ["1-a", "3-c"]) expect(got.err, id).toContain(`settle: not put back seal/threads/${id}/: git checkout HEAD -- seal/threads/${id}/ failed`);
+      expect(got.err).toContain("\n  seal/threads/3-c/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
+      expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
+    } finally {
+      chmodSync(join(repo, "seal/threads"), 0o755);
     }
   });
 
