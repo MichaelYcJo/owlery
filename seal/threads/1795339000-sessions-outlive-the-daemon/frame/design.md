@@ -105,7 +105,7 @@ What each way keeps alive, for a pane's process unless the cell says otherwise:
 | Way | Window closed, or app quit | Daemon restarted | App updated | Reboot |
 |---|---|---|---|---|
 | Today: the daemon holds the pseudo-terminals, and one daemon serves the run folder | lives | ends, at a restart a person chose and at a crash alike | lives until a person restarts the daemon: the newer window attaches to the older daemon and names "Restart Daemon…" | ends |
-| A. A terminal worker apart from the daemon, as Paseo does | lives | lives, at a restart and at a crash of the daemon. A role session is no terminal and still ends | lives | ends |
+| A. A terminal worker apart from the daemon, as Paseo does | lives | lives, at a restart and at a crash of the daemon. A role session is no terminal: a stop of the daemon still ends it, and its end at a crash was not run | lives | ends |
 | B. A daemon for each protocol version, as Orca does | lives | ends | lives, in the daemon of the older version | ends |
 | C. Resuming the conversation by its session id | no change | the process ends and the conversation comes back in a new one. A turn under way is cut | the same, where the update restarts the daemon | the same. It is the only way past a reboot |
 | D. tmux or zellij under each pane | lives | lives, while the tmux server lives | lives | ends |
