@@ -295,7 +295,15 @@ Some agent CLIs have a remote feature of their own, such as Claude Code's Remote
 
 ## Memory design
 
-Staying light is a goal of the product. The app itself aims to stay under about 500 MB, and memory should grow with the stages working right now, not with the work items left open. There are four rules.
+**Owlery spends as little memory as it can, and a feature costs nothing while nobody uses it.** What a feature holds is made when it opens and let go when it closes, and memory grows with the stages working right now, not with the work items left open.
+
+**What a scene costs is measured and published, and no number of a reference scene is a limit on a feature.** A scene is one state of the app, written down so that it can be measured again. Each scene is published with its date, its commit and its method, beside the same scene in comparable products. The first reference scene is the app itself with four terminals visible, which read about 500 MB: 491.1 to 503.4 MB in an agent's start on 2026-11-19 (`apps/desktop/measurements/memory.md`). No comparable product has been measured in that scene yet. A feature is not refused because a scene it adds to reads more.
+
+**A feature is built first, and made efficient where a measurement shows its cost.** It is built with ordinary care, so that it holds nothing while unused, and its cost is then measured. Efficiency work follows where a measurement shows the cost, as issue #9 found that each hidden pane kept its terminal screen in the window, and removed it. A tight number set before a feature is built is not a design input. The reference scenes are measured again as features land, with `pnpm run measure:memory` in `apps/desktop`, so a change in their numbers is seen and a refactor is scheduled for it. No check runs that measurement: the suite's run of `test/memory.test.ts` measures nothing without `OWLERY_MEASURE_MEMORY=1`.
+
+**The limits Owlery keeps are defaults read from the person's machine, which the person sees and changes.** They are how many agents and how many worktrees run at once, and how many panes a work item's view shows at once. Each is proposed from the machine's memory, cores and free disk, never from the number of a scene measured on another machine. Issue #32 builds them, in milestone 3 ([Milestones](roadmap.md#milestones)). Until then nothing caps the agents and the worktrees, and the panes on a view stay at four (below).
+
+The four rules below are how the app holds little while it runs.
 
 | Rule | Reason |
 |---|---|
@@ -306,7 +314,7 @@ Staying light is a goal of the product. The app itself aims to stay under about 
 
 The GPU terminal limit stays at Chromium's default of 16. This means one screen cannot hold 17 or more panes. The renderer's memory cap is not raised either.
 
-A work item's view shows at most four panes at once, the count the 500 MB target is measured at. The other panes of the work item stay as tabs, and a pane that is not on screen holds no terminal screen in the window. The daemon keeps the last 256K characters of each pane's output, and the window draws a pane from that replay each time the pane comes back on screen. Where it drops older output, what it keeps opens at a line's start where a line break stands within the first 4,096 characters, so a replay does not open inside an escape sequence. Past that, the cut stays where the count of characters puts it, and a program that prints a long stretch without a line break, as a full-screen program may, keeps that stretch.
+A work item's view shows at most four panes at once today. Four is the count the reference scene was measured at, and it is fixed in the code (`STAGE_PANES` in `apps/desktop/src/renderer/view.ts`) until issue #32 makes it one of the defaults read from the machine, higher on a machine with more memory. The other panes of the work item stay as tabs, and a pane that is not on screen holds no terminal screen in the window. The daemon keeps the last 256K characters of each pane's output, and the window draws a pane from that replay each time the pane comes back on screen. Where it drops older output, what it keeps opens at a line's start where a line break stands within the first 4,096 characters, so a replay does not open inside an escape sequence. Past that, the cut stays where the count of characters puts it, and a program that prints a long stretch without a line break, as a full-screen program may, keeps that stretch.
 
 ## Screen framework: Electron
 

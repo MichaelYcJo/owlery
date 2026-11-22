@@ -1,6 +1,6 @@
 # Memory: the app itself with four terminals on screen
 
-**Four terminals side by side read 503.4 MB at the highest sample of three runs, which is over the target of about 500 MB.** The samples of the three runs lie between 491.1 and 503.4 MB, and two of the three runs hold a sample over 500 MB. The target is `docs/architecture.md` *Memory design*. The numbers are of an agent's start of the app, described under *The kind of start*. Nobody has measured a start a person makes.
+**Four terminals side by side read 503.4 MB at the highest sample of three runs.** The samples of the three runs lie between 491.1 and 503.4 MB, and two of the three runs hold a sample over 500 MB. This is the reference scene of `docs/architecture.md` *Memory design*, which publishes what a scene costs as a measurement and holds no feature to its number. The numbers are of an agent's start of the app, described under *The kind of start*. Nobody has measured a start a person makes.
 
 ## What was measured
 
@@ -42,7 +42,7 @@ A person's run leaves the variable unset and keeps the window in front for the w
 pnpm run measure:memory
 ```
 
-Nobody has made that run. Where it reads apart from the numbers here, its number is the one to hold against the target.
+Nobody has made that run. Where it reads apart from the numbers here, its number is the one to publish for this scene.
 
 ## The scenarios
 

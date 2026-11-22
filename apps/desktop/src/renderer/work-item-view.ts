@@ -42,6 +42,7 @@ import {
   viewFacts,
   webTarget,
   withHeadless,
+  withoutHeadless,
 } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
@@ -619,7 +620,12 @@ function showAsk(workItem: WorkItem): void {
   askSubmit.title = button.title;
 }
 
-/** Draws the "Ask" section of the view on screen: the button as the field stands, and the work item's headless sessions. */
+/**
+ * Draws the "Ask" section of the view on screen: the button as the field
+ * stands, and the work item's headless sessions. The line of a working
+ * session offers "Stop", which asks the daemon to stop it; the daemon answers
+ * `done`, and the `headless` that follows carries the session as failed.
+ */
 function showAskSection(): void {
   const workItem = viewed();
   if (!workItem) return;
@@ -627,8 +633,18 @@ function showAskSection(): void {
   headlessList.replaceChildren(
     ...headlessLines(held.headless, workItem.id).map((line) => {
       const item = document.createElement("li");
-      // The answer is plain text, never markup, and its line breaks are kept by the style.
-      item.append(row(headlessIcon(line.state), part("prompt", line.prompt), part(`state ${line.state}`, line.state)), part("answer", line.text));
+      const head = row(headlessIcon(line.state), part("prompt", line.prompt), part(`state ${line.state}`, line.state));
+      if (line.stop) {
+        const stop = document.createElement("button");
+        stop.className = "quiet";
+        stop.textContent = "Stop";
+        stop.title = "Stop this session";
+        stop.addEventListener("click", () => send({ type: "stopHeadless", requestId: request(), id: line.id }));
+        head.append(stop);
+      }
+      // The answer and the error output are plain text, never markup, and their line breaks are kept by the style.
+      item.append(head, part("answer", line.text));
+      if (line.errorOutput) item.append(part("error-output", line.errorOutput));
       return item;
     }),
   );
@@ -782,6 +798,12 @@ export function takeHeadless(headless: HeadlessInfo, requestId?: number): void {
     if (askingIn === headless.workItemId) askField.value = "";
   }
   held.headless = withHeadless(held.headless, headless);
+  showAskSection();
+}
+
+/** Takes a headless session the daemon took off its list, as its bound keeps the sessions that ended last, out of the window's sessions and the "Ask" section. */
+export function dropHeadless(id: number): void {
+  held.headless = withoutHeadless(held.headless, id);
   showAskSection();
 }
 
