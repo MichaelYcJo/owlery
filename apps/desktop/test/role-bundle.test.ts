@@ -1,6 +1,6 @@
 // The role bundle: the plugin folder the app ships, which a role session
-// loads for itself alone. Its files are taken from AgenticSeal, and the
-// bundle's README.md says at which release and with which changes.
+// loads for itself alone. Its files started from AgenticSeal and are Owlery's
+// own, and the bundle's README.md says where they started.
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -53,31 +53,6 @@ describe("the role bundle", () => {
       expect(documents.length, pair.role).toBeGreaterThanOrEqual(2);
       for (const document of documents) expect(existsSync(join(BUNDLE, document)), `${pair.role}: ${document}`).toBe(true);
     }
-  });
-
-  it("holds the 15 documents taken from AgenticSeal, its licence, the notice and the manifest, and no other file", () => {
-    expect(filesOf(BUNDLE)).toEqual(
-      [
-        ".claude-plugin/plugin.json",
-        "LICENSE",
-        "README.md",
-        "agents/crafter.md",
-        "agents/proofer.md",
-        "agents/sealer.md",
-        "docs/forms/the-guarantee.md",
-        "docs/forms/the-round-record.md",
-        "skills/agent-contract/SKILL.md",
-        "skills/code-review/SKILL.md",
-        "skills/core/SKILL.md",
-        "skills/implement/SKILL.md",
-        "skills/implement/fix-pass.md",
-        "skills/verify/SKILL.md",
-        "skills/writing-style/SKILL.md",
-        "templates/records/sdd-gaps.md",
-        "templates/records/sdd-guarantee.md",
-        "templates/records/sdd-round.md",
-      ].sort(),
-    );
   });
 
   it("keeps AgenticSeal's licence text beside the files, and its notice names the source, the release and the licence", () => {

@@ -123,6 +123,9 @@ Claude Code가 이 값을 직접 넘겨주는 길은 둘입니다. 둘 다 Claud
 
 AgenticSeal은 Owlery가 참고하는 원본이고, Owlery는 그것을 넓힌 제품입니다. Owlery는 AgenticSeal 플러그인을 싣거나 그 버전에 기대어 돌지 않습니다. AgenticSeal의 각 부분을 Owlery의 것으로 가져와 제품에 맞는 자리에 둡니다. AgenticSeal은 MIT 라이선스이므로, 가져온 파일에는 그 저작권 고지를 남깁니다.
 
+**Owlery가 AgenticSeal에서 가져온 것은 가져온 날부터 Owlery의 것이고, Owlery는 AgenticSeal의 릴리스를 따라가지 않습니다.** AgenticSeal은 Owlery가 출발한 자리입니다. Owlery는 역할 묶음과 PR 검사의 스크립트를 비롯한 사본을 자기 데몬에 맞게 고치고, 어떤 테스트도 사본을 AgenticSeal의 바이트에 묶지 않습니다. AgenticSeal에서 뒤에 나온 생각은 다른 생각과 똑같이 Owlery의 이슈로 들어옵니다. 가져온 파일을 둔 폴더마다 AgenticSeal의 라이선스 전문과, 그 파일이 어디서 출발했는지 밝히는 고지를 둡니다.
+check: apps/desktop/test/role-bundle.test.ts apps/desktop/test/pr-check.test.ts
+
 | AgenticSeal에 있는 것 | Owlery에서 맡는 자리 |
 |---|---|
 | 가치와 원칙: 판단이 필요한 곳에만 판단을 쓰고 나머지는 스크립트가 답한다, 각 에이전트는 자기 대상을 독립적으로 판정한다, 사람에게 물을 것은 첫 편집 전에 한 번에 묻는다 | 제품의 원칙으로 그대로 가져옵니다 |
@@ -130,7 +133,7 @@ AgenticSeal은 Owlery가 참고하는 원본이고, Owlery는 그것을 넓힌 �
 | 역할: framer, crafter, proofer, sealer | 역할의 정의(무엇을 읽고, 무엇을 판정하고, 무엇을 남기는가)는 제품이 갖습니다. 실행본은 런타임마다 둡니다. 첫 버전의 Claude 런타임은 AgenticSeal의 에이전트 정의와 스킬에서 시작한 Owlery 역할 묶음을 앱에 함께 넣어 기본값으로 쓰고, 다른 런타임에는 같은 역할 정의를 그 런타임의 형식으로 옮깁니다 |
 | 기록 형식: 설계 파일, 회차 기록, `guarantee.md`의 `seal` 블록, `routing.md` | 제품의 기록 형식입니다. 첫 버전은 AgenticSeal 형식과 같고, 여러 에이전트를 받으면서 필요한 칸(만든 쪽, 판정한 모델과 규칙 버전)을 더합니다 |
 | 순서를 적은 문서(orchestration) | 데몬의 코드가 실행합니다. 판단만 orchestrator에게 남깁니다 |
-| `seal` 명령의 스크립트: `chain_check`, `seal pr-body`, `seal pr-wait`, `seal stamp`, `seal cost` | 같은 일을 Owlery의 데몬과 PR의 검사가 합니다. 코드를 가져와 고칠지 다시 짤지는 정하지 않았습니다 |
+| `seal` 명령의 스크립트: `chain_check`, `seal pr-body`, `seal pr-wait`, `seal stamp`, `seal cost` | 같은 일을 Owlery의 데몬과 PR의 검사가 합니다. PR의 검사는 AgenticSeal의 코드를 가져오고, 거기서부터 Owlery가 고칩니다. `chain_check`가 싣는 스크립트는 AgenticSeal 0.38.4에서 출발해 `pr-check/`에 있고, 연결한 저장소의 워크플로가 Owlery의 저장소에서 그것을 받아 옵니다. 지금 다시 짠 검사는 데몬이 기록을 하나도 쓰기 전에 사슬의 모든 기록을 판정해야 합니다. 데몬은 Python을 실행하지 않습니다. 사람의 Mac에 Python이 있다고 기대할 수 없기 때문입니다. 데몬은 자기 코드로 기록을 읽고 쓰며, 나머지 명령이 하던 일은 그 일을 만드는 이슈가 방법을 정합니다 |
 | Claude Code에만 있는 장치: 세션 시작 훅이 core를 출력하는 일, Stop 훅이 인장을 그리는 일, 권한과 worktree 훅 | 가져오지 않습니다. 앱과 데몬이 같은 일을 직접 합니다([세션마다 싣는 것](#세션마다-싣는-것)) |
 | 질문 묶음(`frame/questions.md`) | 앱의 질문 화면이 됩니다 |
 
@@ -178,7 +181,8 @@ Owlery의 작업 기록은 언제나 사용자의 저장소에 커밋합니다. 
 
 ### AgenticSeal과의 호환
 
-AgenticSeal 플러그인 사용자는 지금처럼 Claude Code에서 그대로 씁니다. Owlery의 기록 형식은 AgenticSeal의 형식에서 시작하므로, 처음에는 두 제품의 기록을 서로 읽을 수 있습니다. 이 호환을 계속 지킬지는 정하지 않았습니다(아래 결정을 남겨 둔 것).
+AgenticSeal 플러그인 사용자는 지금처럼 Claude Code에서 그대로 씁니다. Owlery의 기록 형식은 AgenticSeal의 형식에서 출발했고, Owlery의 것입니다. 호환은 Owlery에 쓸모가 있는 곳에서만 지킵니다. Owlery가 자기 PR에 인장을 찍기 전까지는([마일스톤](roadmap.ko.md#마일스톤) 2행) 이 저장소의 기록을 플러그인의 검사와 Owlery의 검사가 함께 읽습니다. `decisions.md`는 AgenticSeal이 읽지 않는 파일이고, AgenticSeal의 검사는 이 파일이 있을 때와 없을 때 같은 답을 냅니다(2026-11-22 실험, 0.38.2와 0.38.4).
+check: apps/desktop/test/pr-check.test.ts
 
 ## 순서는 코드가, 판단은 orchestrator가
 
@@ -216,11 +220,7 @@ Claude Code 2.1.326의 `claude --help`에서 확인한 것입니다(2026-11-17).
 
 ### AgenticSeal의 변경을 가져오는 법
 
-Owlery 역할 묶음은 앱과 함께 릴리스되므로, 앱이 실행하는 순서와 묶음이 어긋나지 않습니다. AgenticSeal이 새 릴리스를 내도 Owlery는 저절로 바뀌지 않고, 가져올 것을 골라 옮깁니다.
-
-1. AgenticSeal 릴리스 노트의 `### Process changes` 표를 읽습니다. 일하는 방식이 무엇으로 바뀌었는지가 그 표에 있습니다.
-2. 가져올 변경을 Owlery 역할 묶음과 데몬에 옮기고, 가져오지 않는 변경은 그 까닭을 남깁니다.
-3. 옮길 때마다 통합 테스트를 돌립니다.
+Owlery는 AgenticSeal의 릴리스를 가져오지 않습니다([AgenticSeal에서 가져오는 것](#agenticseal에서-가져오는-것)). Owlery 역할 묶음은 앱과 함께 릴리스되므로, 앱이 실행하는 순서와 묶음이 어긋나지 않습니다. 묶음이나 PR 검사의 스크립트를 고치는 일은 Owlery의 작업이고, 그때 테스트를 함께 돌립니다.
 
 ## 라이선스와 다른 프로젝트의 코드
 
@@ -354,7 +354,6 @@ check: apps/desktop/test/background.test.ts
 |---|---|---|
 | 사용자의 Claude Code를 헤드리스로 띄워도 되는가 | 역할 세션을 헤드리스 모드로 돌림 / 터미널로만 띄우고 상태는 훅으로 읽음 | Anthropic이 공개한 문서가 무엇이라고 적는가. 그 문서가 바뀌면 다시 판단합니다([Claude 어댑터의 인증](#claude-어댑터의-인증)). 그 문서가 구독 로그인에서 이를 금지하게 되면 역할 세션도 터미널로 띄워 훅으로 읽고, 작업함과 AgenticSeal 프로세스는 그대로 둡니다 |
 | 저장소에 남길 기록의 범위 | AgenticSeal처럼 작업의 모든 기록을 저장소에 둠 / 인장과 그 근거만 두고 나머지는 데몬에 둠 | 첫 버전은 앞의 것입니다. AgenticSeal 형식에서 시작한 기록 전체를 커밋합니다. 뒤의 것으로 줄일지는 PR의 검사와 앱 밖의 사람이 읽어야 하는 것만 저장소에 있으면 되는가, AgenticSeal의 settle(릴리스 뒤 기록을 정책 문서로 접어 넣는 일)이 무엇을 읽는가로 정합니다 |
-| AgenticSeal 기록 형식과의 호환 | 호환을 지킴. Owlery에 필요한 칸은 AgenticSeal에도 이슈로 제안함 / 갈라짐. Owlery 형식으로 독립함 | 호환을 지키면 AgenticSeal 플러그인으로 쌓은 기록을 Owlery가 그대로 읽고, 두 제품의 PR 검사가 같은 판정을 냅니다. 다른 런타임과 바깥에서 만든 브랜치를 받으면서 Owlery에 필요한 칸이 AgenticSeal 형식에 맞지 않기 시작하면 갈라집니다 |
 | orchestration 문서 나누기 | AgenticSeal의 orchestration 문서를 "데몬이 실행할 순서"와 "orchestrator의 판단"으로 갈라 앱 설계의 입력으로 삼을지 | 데몬 구현을 시작하는 시점 |
 | 편집기 부품 | CodeMirror 6 / Monaco | 파일 하나를 열 때 늘어나는 메모리와 여는 시간, macOS 한글 입력. 아직 재지 않았습니다. 언어 서버와 확장을 넣지 않으므로 Monaco의 장점 대부분을 쓰지 않습니다 |
 | 휴대폰이 대화를 무엇으로 읽는가 | 훅만(턴마다 마지막 답) / CLI의 세션 기록도(도구 호출 사이의 글) | 세션 기록의 형식이 CLI 버전마다 얼마나 자주 바뀌는가, 그리고 사이의 글 없는 채팅으로도 휴대폰에서 충분한가([휴대폰: 터미널 세션을 채팅 모양으로](#휴대폰-터미널-세션을-채팅-모양으로)) |

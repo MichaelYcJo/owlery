@@ -123,6 +123,9 @@ Four rules keep the design portable.
 
 AgenticSeal is the original that Owlery refers to, and Owlery is a product that extends it. Owlery does not load the AgenticSeal plugin or depend on its version to run. It takes each part of AgenticSeal as its own and puts it where it fits in the product. AgenticSeal is under the MIT license, so files taken from it keep its copyright notice.
 
+**What Owlery took from AgenticSeal is Owlery's own from the day it was taken, and Owlery follows no release of AgenticSeal.** AgenticSeal is where Owlery started. Owlery changes its copies, the role bundle and the PR check's scripts among them, for its own daemon, and no case holds a copy to AgenticSeal's bytes. A later idea of AgenticSeal's comes in as any other idea does, as an issue of Owlery's. Each folder of taken files keeps AgenticSeal's licence text and a notice of where its files started.
+check: apps/desktop/test/role-bundle.test.ts apps/desktop/test/pr-check.test.ts
+
 | What AgenticSeal has | Where it sits in Owlery |
 |---|---|
 | Values and principles: spend judgment only where judgment is needed and let scripts answer the rest; each agent judges its own subject independently; ask the person everything at once, before the first edit | Taken as the product's principles as they are |
@@ -130,7 +133,7 @@ AgenticSeal is the original that Owlery refers to, and Owlery is a product that 
 | Roles: framer, crafter, proofer, sealer | The product owns each role's definition (what it reads, what it judges, what it leaves behind). Role implementations live per runtime. In the first version, the Claude runtime ships the Owlery role bundle, which starts from AgenticSeal's agent definitions and skills, inside the app and uses it as the default. For other runtimes, the same role definitions are carried over into that runtime's format |
 | Record formats: design files, round records, the `seal` block in `guarantee.md`, `routing.md` | These are the product's record formats. The first version matches the AgenticSeal format, and adds the fields it needs as it takes in more agents (the party that built it, the model and rule version that judged it) |
 | The documents that write down the order (orchestration) | The daemon's code runs the order. Only judgment is left to the orchestrator |
-| Scripts behind the `seal` commands: `chain_check`, `seal pr-body`, `seal pr-wait`, `seal stamp`, `seal cost` | The Owlery daemon and the PR check do the same work. Whether to take the code and adapt it or to rewrite it is not decided |
+| Scripts behind the `seal` commands: `chain_check`, `seal pr-body`, `seal pr-wait`, `seal stamp`, `seal cost` | The Owlery daemon and the PR check do the same work. The PR check takes AgenticSeal's code, and Owlery adapts it from there: the scripts `chain_check` loads stand in `pr-check/`, started from AgenticSeal 0.38.4, and the workflow of a connected repository fetches them from Owlery's repository. A check rewritten now would have to give a verdict on every record of the chain before the daemon writes one. The daemon runs no Python, since a person's Mac promises none: it reads and writes the records in its own code, and the issue that builds each of the other commands' work decides how |
 | Mechanisms that exist only in Claude Code: the session-start hook that prints core, the Stop hook that draws the seal, the permission and worktree hooks | Not taken. The app and the daemon do the same work directly ([What each session loads](#what-each-session-loads)) |
 | The question batch (`frame/questions.md`) | Becomes the app's question screen |
 
@@ -178,7 +181,8 @@ So repositories that cannot hold work records in the tree (repositories where co
 
 ### Compatibility with AgenticSeal
 
-Users of the AgenticSeal plugin keep using it in Claude Code as they do now. The Owlery record format starts from the AgenticSeal format, so at first each product can read the other's records. Whether to keep this compatibility is not decided (see "Open decisions" below).
+Users of the AgenticSeal plugin keep using it in Claude Code as they do now. The Owlery record format started from the AgenticSeal format and is Owlery's own. Compatibility is kept only where it serves Owlery: the plugin's check and Owlery's both read this repository's own records until Owlery seals its own pull requests ([Milestones](roadmap.md#milestones) row 2). `decisions.md` is a file AgenticSeal does not read, and its check answers the same with the file and without it (probed 2026-11-22 on 0.38.2 and 0.38.4).
+check: apps/desktop/test/pr-check.test.ts
 
 ## Code runs the order, the orchestrator judges
 
@@ -216,11 +220,7 @@ These options can differ with the version of Claude Code the user installed. At 
 
 ### Taking in AgenticSeal's changes
 
-The Owlery role bundle is released with the app, so the order the app runs and the bundle do not drift apart. When AgenticSeal ships a new release, Owlery does not change by itself. We pick what to take and carry it over.
-
-1. Read the `### Process changes` table in the AgenticSeal release notes. That table says what the way of working changed to.
-2. Carry the changes we take into the Owlery role bundle and the daemon, and write down the reason for each change we do not take.
-3. Run the integration tests every time something is carried over.
+Owlery takes in no release of AgenticSeal ([What we take from AgenticSeal](#what-we-take-from-agenticseal)). The role bundle is released with the app, so the order the app runs and the bundle do not drift apart. A change to the bundle or to the PR check's scripts is a work item of Owlery's, and the suite runs with it.
 
 ## License and code from other projects
 
@@ -354,7 +354,6 @@ check: apps/desktop/test/background.test.ts
 |---|---|---|
 | May the user's Claude Code be launched headless | Run role sessions in headless mode / launch them only in a terminal and read state through hooks | What Anthropic's published documents say, judged again when they change ([Authentication of the Claude adapter](#authentication-of-the-claude-adapter)). If they come to forbid it under a subscription login, role sessions also run in a terminal and are read through hooks, and the inbox and the AgenticSeal process stay as they are |
 | Scope of the records kept in the repository | Keep every record of the work in the repository, as AgenticSeal does / keep only the seal and its grounds, and the rest in the daemon | The first version takes the former: it commits all records, starting from the AgenticSeal format. Whether to cut down to the latter depends on whether the repository only needs to hold what the PR check and people outside the app must read, and on what AgenticSeal's settle (folding records into the policy documents after a release) reads |
-| Compatibility with the AgenticSeal record format | Keep compatibility, and also propose the fields Owlery needs to AgenticSeal as issues / diverge, and make the Owlery format independent | If compatibility is kept, Owlery reads records built up with the AgenticSeal plugin as they are, and the two products' PR checks give the same verdict. The formats diverge once the fields Owlery needs, as it takes in other runtimes and branches built elsewhere, start not to fit the AgenticSeal format |
 | Splitting the orchestration documents | Whether to split AgenticSeal's orchestration documents into "the order the daemon runs" and "the orchestrator's judgment" and use them as input to the app's design | When daemon implementation starts |
 | Editor component | CodeMirror 6 / Monaco | The memory added and the time taken to open one file, and Korean input on macOS. Not measured yet. No language servers or extensions are included, so most of Monaco's advantages go unused |
 | What the phone reads for the conversation | Hooks only (the last reply of each turn) / also the CLI's session log (the text between tool calls) | How often the session log's format changes across CLI versions, and whether a chat without the text in between is enough on a phone ([The phone: the terminal session as a chat](#the-phone-the-terminal-session-as-a-chat)) |
