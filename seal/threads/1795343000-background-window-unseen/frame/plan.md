@@ -38,7 +38,7 @@ The command that read *Rule changes* (executed, read-only, from the framer's scr
 | 1 | `frame/design.md` *Scope* item 1 | `background.test.ts` *showInBackground* seen red against the old function. `seal mutate` on `src/main/background.ts`, with no mutant surviving. The window server's watcher across six starts. The built-app files `trail/phases/phase-1.md` names, `pnpm run screenshots` and `measure:memory`, one at a time. All executed by the crafter | `dd022bb` |
 | 2 | `frame/design.md` *Scope* items 2, 4 and 5, the fix pass of round 1 | `pick-folder.test.ts` *chooseFolderDialog* seen red with the background branch of `chooseFolderDialog` removed. `node scripts/test-in-electron.mjs test/pick-folder.test.ts test/background.test.ts` in `apps/desktop` | `6efb9e9` |
 
-*Scope* item 3 is this frame's own `## Rule changes`, which the settle writes, so no phase builds it.
+*Scope* item 3 is this frame's own `## Rule changes`, which the settle writes, so no phase builds it. The built-app case of *Scope* item 2, `work-item-form.test.ts` *answers Browse with no folder in the background, and opens no dialog*, is no phase's either: the fix pass of round 2 built it at `7ef8dfb`, after phase 2 closed at `6efb9e9`, and its close stands in `trail/rounds/round-2.md` finding 2.
 
 ## Overlap with the release
 
@@ -57,3 +57,4 @@ None. No migration, environment variable or dependency is added, and nothing bre
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
+| 2026-11-23 | Round 3's two findings, both in the work item's records, applied as the round's paste-ready text by the orchestrator, with no framer spawn and no round 4: each snippet is literal, decides nothing new, and only the records follow the last round, which the sealer reads | `trail/rounds/round-3.md` findings 1 and 2 | the plugin's `skills/core/SKILL.md` *No fix that no round reads* |
