@@ -4,7 +4,7 @@
 
 | Item | Who must answer |
 |---|---|
-| The whole suite, the typecheck and the whole `Broad gate` command. Phase 1 ran the command's two document loops and its word search alone. Phase 2 ran 17 of the 38 test files of `apps/desktop/test`, which `trail/phases/phase-2.md` *Runs* names, and the compiler over the package before each commit. | the orchestrator, at the broad gate |
+| The whole suite, the typecheck and the whole `Broad gate` command. Phase 1 ran the command's two document loops and its word search alone. Phase 2 ran 17 of the 38 test files of `apps/desktop/test`, which `trail/phases/phase-2.md` *Runs* names, and the compiler over the package before each commit. Phase 3 ran one test file, `themes.test.ts`, which `trail/phases/phase-3.md` *Runs* names. | the orchestrator, at the broad gate |
 | The values `docs/design.md` gives Night watch and Register for properties `frame/images/mock.html` does not hold, which `trail/phases/phase-1.md` *Decisions* lists. No screen was drawn with them. | phase 5's screenshots, read by the proofer |
 | Whether Night watch's focus ring shows on its main button. `--focus` and `--main` are the same colour in each appearance, and the ring is drawn inside the button's edge. | phase 5's screenshots, read by the proofer |
 | The twelve shapes of each theme as paths. Phase 1 wrote each circle and box of the mock-up as a path by hand and drew none. | phase 5, whose case reads the shapes and whose screenshots show them |
@@ -17,7 +17,7 @@
 
 ## Not done
 
-- `docs/design.md` *Tokens* has no `check:` line for the case that holds a block against the tables. The case is phase 3's, and a line that names it before it exists would state a check nobody runs.
+- The token case compares a value as text and does not hold the order of a table's rows or the words of its header. `trail/phases/phase-3.md` *Decisions* gives the grounds of each.
 - `docs/design.md` *A pull request that changes the window carries its screenshots* names no command. The command is phase 4's.
 - The notice "The theme could not be saved." stands as it is, and is also what the window says where the choice of an appearance was not saved. `frame/design.md` *The words* changes two texts and keeps every other sentence of the window.
 - The two comments that name a speech mark stand, over `STATE_SHAPES` in `apps/desktop/src/renderer/shared.ts` and over `.state-icon` in the page's style. They are phase 5's, with the mark they describe.
