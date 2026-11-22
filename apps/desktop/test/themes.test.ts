@@ -224,8 +224,8 @@ const WORDS: Record<string, string[][]> = {
   "--state-working": [[WINDOW], [COLUMN]],
   "--state-finished": [[WINDOW], [COLUMN]],
   "--state-no-agent": [[WINDOW], [COLUMN]],
-  // A failure's colour also sets the sidebar's notice and what a dialog refuses.
-  "--state-failed": [[WINDOW], [COLUMN], [SIDE], [CARD]],
+  // A failure's colour also sets the sidebar's notice, what a dialog refuses, and a line's "Setup failed", on a line at rest, under the pointer and selected.
+  "--state-failed": [[WINDOW], [COLUMN], [SIDE], [CARD], [WINDOW, "--hover"], [WINDOW, "--selected"]],
   "--added": [[WINDOW], [COLUMN]],
   "--removed": [[WINDOW], [COLUMN]],
   "--on-main": [

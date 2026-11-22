@@ -182,7 +182,7 @@ No theme changes these. They stand in the page's `:root`.
 | `--state-working` | `#dcd9d1` | `#26262a` |
 | `--state-finished` | `#908e87` | `#62605c` |
 | `--state-no-agent` | `#908e87` | `#62605c` |
-| `--state-failed` | `#f2c033` | `#846000` |
+| `--state-failed` | `#f2c033` | `#7f5b00` |
 | `--state-failed-fill` | `var(--state-failed)` | `#e9b61a` |
 | `--added` | `#a9b88a` | `#4f6b2a` |
 | `--removed` | `#a3a097` | `#53514d` |
@@ -372,7 +372,7 @@ No theme changes these. They stand in the page's `:root`.
 | `--state-working` | `#bdb5a5` | `#564d43` |
 | `--state-finished` | `#a39b8c` | `#655c51` |
 | `--state-no-agent` | `#9b9385` | `#655c51` |
-| `--state-failed` | `#dba545` | `#8f550b` |
+| `--state-failed` | `#dba545` | `#8b5107` |
 | `--state-failed-fill` | `var(--state-failed)` | `var(--state-failed)` |
 | `--added` | `#a3b47c` | `#4f6b2a` |
 | `--removed` | `#aea697` | `#564d43` |
