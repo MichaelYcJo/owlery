@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RoleEvent, RoleRun } from "../src/daemon/adapters/adapter";
-import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, INITIALIZE_LINE, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, PERMISSION_TEXT_CHARS, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
+import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, INITIALIZE_LINE, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, PERMISSION_CUT_MARK, PERMISSION_TEXT_CHARS, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
 import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText, toolsOf } from "../src/daemon/adapters/claude-roles";
 import { ROLE_STAGES, type RoleStage } from "../src/shared/protocol";
 
@@ -671,6 +671,20 @@ describe("the Claude adapter's role launch", () => {
     ]);
   });
 
+  it("reports a role session's request for a tool its launch did not give it as a call of another kind that names no path, whatever the tool does, and a request for a tool of the launch as before", async () => {
+    const CRAFTER: RoleStage = { role: "crafter", stage: "fix-pass" };
+    const init = JSON.stringify({ type: "system", subtype: "init", agents: [agentOf(CRAFTER)] });
+    const asks = (id: string, tool: string, input: unknown): string => JSON.stringify({ type: "control_request", request_id: id, request: { subtype: "can_use_tool", tool_name: tool, input } });
+    const { folder, env, bundleDir, rulesDir } = launch([init, asks("r1", "NotebookEdit", { notebook_path: "FOLDER/a.ipynb" }), asks("r2", "Write", { file_path: "FOLDER/a.ts" }), RESULT]);
+    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, CRAFTER);
+    expect(events).toEqual([
+      { type: "permission", id: "r1", tool: "NotebookEdit", action: "other", path: null, text: '{"notebook_path":"FOLDER/a.ipynb"}' },
+      { type: "permission", id: "r2", tool: "Write", action: "write", path: "FOLDER/a.ts", text: "FOLDER/a.ts" },
+      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+  });
+
   it("writes the rules file again before each role launch, so a launch carries the bundle as it stands", async () => {
     const { folder, env, bundleDir, rulesDir } = launch([INIT, RESULT]);
     const adapter = claudeAdapter(env, { bundleDir, rulesDir });
@@ -775,16 +789,39 @@ describe("a permission request on the Claude adapter's streams", () => {
     expect(eventsForLine(asks("r6", "Task", { command: "ls" }))).toMatchObject([{ action: "other", path: null, text: '{"command":"ls"}' }]);
   });
 
-  it("cuts what a person reads at PERMISSION_TEXT_CHARS characters, and leaves no half of a character at the cut", () => {
+  it("takes the tools of a launch as the only ones whose calls it names: a request for any other is a call of another kind with no path, and a request for one of them, or of a launch that named no tools, is read by what the tool does", () => {
+    const PROOFER = ["Read", "Glob", "Grep", "Bash"];
+    const CRAFTER = [...PROOFER, "Edit", "Write"];
+    expect(eventsForLine(asks("r1", "NotebookEdit", { notebook_path: "/w/a.ipynb" }), CRAFTER)).toEqual([{ type: "permission", id: "r1", tool: "NotebookEdit", action: "other", path: null, text: '{"notebook_path":"/w/a.ipynb"}' }]);
+    expect(eventsForLine(asks("r2", "Edit", { file_path: "/w/a.ts" }), PROOFER)).toEqual([{ type: "permission", id: "r2", tool: "Edit", action: "other", path: null, text: '{"file_path":"/w/a.ts"}' }]);
+    // A command of a tool the launch did not give is not read as the call's text either.
+    expect(eventsForLine(asks("r3", "Bash", { command: "ls" }), [])).toEqual([{ type: "permission", id: "r3", tool: "Bash", action: "other", path: null, text: '{"command":"ls"}' }]);
+    expect(eventsForLine(asks("r4", "Edit", { file_path: "/w/a.ts" }), CRAFTER)).toMatchObject([{ action: "write", path: "/w/a.ts" }]);
+    expect(eventsForLine(asks("r5", "Bash", { command: "ls" }), PROOFER)).toMatchObject([{ action: "run", text: "ls" }]);
+    expect(eventsForLine(asks("r6", "NotebookEdit", { notebook_path: "/w/a.ipynb" }))).toMatchObject([{ action: "write", path: "/w/a.ipynb" }]);
+  });
+
+  it("gives a person at most PERMISSION_TEXT_CHARS characters of a call, ends a text it cut with the mark that says so, and leaves no half of a character at the cut", () => {
     expect(PERMISSION_TEXT_CHARS).toBe(2000);
-    const [long] = eventsForLine(asks("r1", "Bash", { command: `${"c".repeat(2500)}` }));
-    expect(long).toMatchObject({ text: "c".repeat(2000) });
-    // 1,999 letters and an owl are 2,001 of a string's characters, so the first 2,000 would end with the first half of the owl.
-    const [owl] = eventsForLine(asks("r2", "Bash", { command: `${"c".repeat(1999)}\u{1F989}` }));
-    expect(owl).toMatchObject({ text: "c".repeat(1999) });
+    expect(PERMISSION_CUT_MARK).toBe(" [cut: the call holds more than is shown]");
+    const kept = PERMISSION_TEXT_CHARS - PERMISSION_CUT_MARK.length;
+    const [long] = eventsForLine(asks("r1", "Bash", { command: "c".repeat(2500) }));
+    expect(long).toMatchObject({ text: `${"c".repeat(kept)}${PERMISSION_CUT_MARK}` });
+    expect((long as { text: string }).text).toHaveLength(2000);
+    // A text of exactly the bound is whole, and carries no mark. One character more is cut.
+    const [whole] = eventsForLine(asks("r2", "Bash", { command: "c".repeat(2000) }));
+    expect(whole).toMatchObject({ text: "c".repeat(2000) });
+    const [over] = eventsForLine(asks("r3", "Bash", { command: "c".repeat(2001) }));
+    expect(over).toMatchObject({ text: `${"c".repeat(kept)}${PERMISSION_CUT_MARK}` });
+    // An owl is two of a string's characters, so a cut after its first would leave half of it before the mark.
+    const [owl] = eventsForLine(asks("r4", "Bash", { command: `${"c".repeat(kept - 1)}\u{1F989}${"c".repeat(100)}` }));
+    expect(owl).toMatchObject({ text: `${"c".repeat(kept - 1)}${PERMISSION_CUT_MARK}` });
+    // An owl that ends where the cut falls is kept whole.
+    const [fits] = eventsForLine(asks("r5", "Bash", { command: `${"c".repeat(kept - 2)}\u{1F989}${"c".repeat(100)}` }));
+    expect(fits).toMatchObject({ text: `${"c".repeat(kept - 2)}\u{1F989}${PERMISSION_CUT_MARK}` });
     // The path a rule reads is not cut.
-    const [path] = eventsForLine(asks("r3", "Write", { file_path: `/w/${"d".repeat(2500)}` }));
-    expect(path).toMatchObject({ path: `/w/${"d".repeat(2500)}`, text: `/w/${"d".repeat(1997)}` });
+    const [path] = eventsForLine(asks("r6", "Write", { file_path: `/w/${"d".repeat(2500)}` }));
+    expect(path).toMatchObject({ path: `/w/${"d".repeat(2500)}`, text: `/w/${"d".repeat(kept - 3)}${PERMISSION_CUT_MARK}` });
   });
 
   it("maps a withdrawn request to an event with its id, and reports nothing for a control line of another kind", () => {
@@ -923,7 +960,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
   });
 
   it("gives the answer, which states a fact of the definition, one of the appended rules and the first line of a bundle file the session read", () => {
-    const events = lines.flatMap(eventsForLine);
+    const events = lines.flatMap((line) => eventsForLine(line));
     const last = events.at(-1);
     expect(last).toMatchObject({ type: "result", isError: false, costUsd: expect.any(Number) });
     const answer = last?.type === "result" ? last.text : "";
@@ -946,7 +983,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
         })
         .catch(reject);
     });
-    expect(events).toEqual([...lines.flatMap(eventsForLine), { type: "exit", exitCode: 0, errorOutput: "" }]);
+    expect(events).toEqual([...lines.flatMap((line) => eventsForLine(line)), { type: "exit", exitCode: 0, errorOutput: "" }]);
     expect(events.at(-2)).toMatchObject({ type: "result", isError: false });
   });
 });
@@ -959,7 +996,7 @@ describe("the output stream of a run with no login, as Claude Code 2.1.330 print
   });
 
   it("gives the message's text, then a result that is an error with the same text and no cost", () => {
-    expect(lines.flatMap(eventsForLine)).toEqual([
+    expect(lines.flatMap((line) => eventsForLine(line))).toEqual([
       { type: "text", text: "Not logged in · Please run /login" },
       { type: "result", text: "Not logged in · Please run /login", isError: true, costUsd: 0 },
     ]);
@@ -979,7 +1016,7 @@ describe("the output stream, as one real run printed it", () => {
   });
 
   it("gives the answer's text, then the result with the whole answer and the cost", () => {
-    const events = lines.flatMap(eventsForLine);
+    const events = lines.flatMap((line) => eventsForLine(line));
     const texts = events.flatMap((event) => (event.type === "text" ? [event.text] : []));
     expect(texts.join("")).toMatch(/^owl\.?$/i);
     const last = events.at(-1);

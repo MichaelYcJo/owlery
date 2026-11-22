@@ -15,7 +15,7 @@ export type RoleEvent =
   | { type: "result"; text: string; isError: boolean; costUsd: number | null }
   // The agent's process ended. `errorOutput` is the last of what it printed on its error stream, and empty where it printed nothing there. Nothing follows it.
   | { type: "exit"; exitCode: number; errorOutput: string }
-  // The agent asks to make one call, and makes none of it before `RoleRun.answer` is called with this `id`. `path` is the file a read or a write names, and null otherwise. `text` is what a person reads of the call: the path, the command, or the call's input, 2,000 characters at most.
+  // The agent asks to make one call, and makes none of it before `RoleRun.answer` is called with this `id`. `path` is the file a read or a write names, and null otherwise. `text` is what a person reads of the call: the path, the command, or the call's input, 2,000 characters at most, and a cut text ends with a mark that says so.
   | { type: "permission"; id: string; tool: string; action: PermissionAction; path: string | null; text: string }
   // The agent no longer waits for an answer to the request `id`.
   | { type: "permission-withdrawn"; id: string };

@@ -185,7 +185,7 @@ export interface PermissionAsk {
   tool: string;
   /** What the call does: it reads or writes a file, runs a command, or does something else. */
   action: "read" | "write" | "run" | "other";
-  /** What a person reads of the call: the path, the command, or the call's input, 2,000 characters at most. */
+  /** What a person reads of the call: the path, the command, or the call's input, 2,000 characters at most, and a cut text ends with a mark that says so. */
   text: string;
   /** The daemon's clock when the request arrived. */
   at: number;

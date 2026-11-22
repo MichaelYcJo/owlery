@@ -30,6 +30,9 @@ export const MIN_CLAUDE_VERSION = "2.1.326";
 /** How much of a call a permission request tells a person, in a string's characters. */
 export const PERMISSION_TEXT_CHARS = 2000;
 
+/** What a cut text ends with, so a person knows the call holds more than they read. */
+export const PERMISSION_CUT_MARK = " [cut: the call holds more than is shown]";
+
 /** How long after the CLI's exit the run's `exit` waits for the CLI's streams to close, which a child the CLI started can hold open. */
 const STREAMS_GRACE_MS = 300;
 
@@ -42,13 +45,18 @@ function lastOf(text: string): string {
   return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
 }
 
-/** The first `PERMISSION_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
+/**
+ * The text a person reads of a call, `PERMISSION_TEXT_CHARS` characters at
+ * most: the whole text where it fits, and otherwise its first characters
+ * followed by `PERMISSION_CUT_MARK`, less a half of a character the cut
+ * would leave before the mark.
+ */
 function firstOf(text: string): string {
   if (text.length <= PERMISSION_TEXT_CHARS) return text;
-  const head = text.slice(0, PERMISSION_TEXT_CHARS);
+  const head = text.slice(0, PERMISSION_TEXT_CHARS - PERMISSION_CUT_MARK.length);
   const last = head.charCodeAt(head.length - 1);
   // A character outside the basic plane is two of a string's, and the first of the two alone is no character.
-  return last >= 0xd800 && last <= 0xdbff ? head.slice(0, -1) : head;
+  return (last >= 0xd800 && last <= 0xdbff ? head.slice(0, -1) : head) + PERMISSION_CUT_MARK;
 }
 
 /**
@@ -201,11 +209,19 @@ const CALLS: Record<string, { action: PermissionAction; path?: string }> = {
   Bash: { action: "run" },
 };
 
-/** The neutral event of a request to use a tool: what the call does, the file it names, and what a person reads of it, which is the path, the command, or the input as JSON. */
-function permissionEvent(id: string, request: Record<string, unknown>): RoleEvent {
+/**
+ * The neutral event of a request to use a tool: what the call does, the file
+ * it names, and what a person reads of it, which is the path, the command,
+ * or the input as JSON. `held` is the tools the session's launch named. A
+ * request for a tool that is not among them is a call of another kind,
+ * whatever the tool does, so no role's rule allows it: the CLI keeps such a
+ * tool from a session, and this holds where it does not.
+ */
+function permissionEvent(id: string, request: Record<string, unknown>, held: readonly string[] | undefined): RoleEvent {
   const tool = typeof request.tool_name === "string" ? request.tool_name : "";
   const input = typeof request.input === "object" && request.input !== null ? (request.input as Record<string, unknown>) : {};
-  const call = Object.hasOwn(CALLS, tool) ? CALLS[tool]! : { action: "other" as const };
+  const given = held === undefined || held.includes(tool);
+  const call = given && Object.hasOwn(CALLS, tool) ? CALLS[tool]! : { action: "other" as const };
   const named = call.path === undefined ? undefined : input[call.path];
   const path = typeof named === "string" ? named : null;
   const read = path ?? (call.action === "run" && typeof input.command === "string" ? input.command : JSON.stringify(request.input ?? {}));
@@ -216,14 +232,17 @@ function permissionEvent(id: string, request: Record<string, unknown>): RoleEven
  * Maps one line of the output stream to neutral events: the text blocks of an
  * `assistant` message, the `result` line, a request to use a tool, and the
  * withdrawal of one. Every other line is dropped, a control line of another
- * kind among them, and so is a line that is not JSON.
+ * kind among them, and so is a line that is not JSON. `held` is the tools a
+ * role launch named, and nothing for a launch that named none: a request
+ * for a tool outside them is reported as a call of another kind, with no
+ * path.
  */
-export function eventsForLine(line: string): RoleEvent[] {
+export function eventsForLine(line: string, held?: readonly string[]): RoleEvent[] {
   const record = recordOf(line);
   if (!record) return [];
   if (record.type === "control_request") {
     const control = controlRequestOf(line);
-    return control?.subtype === "can_use_tool" ? [permissionEvent(control.id, control.request)] : [];
+    return control?.subtype === "can_use_tool" ? [permissionEvent(control.id, control.request, held)] : [];
   }
   if (record.type === "control_cancel_request") return typeof record.request_id === "string" ? [{ type: "permission-withdrawn", id: record.request_id }] : [];
   if (record.type === "assistant") {
@@ -420,7 +439,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         if (control?.subtype === "can_use_tool") waiting.set(control.id, control.request.input);
         // The CLI waits for an answer to every request it makes, so one the adapter does not take is answered as an error.
         else if (control) respond({ subtype: "error", request_id: control.id, error: `Owlery answers no control request of the subtype ${String(control.subtype)}` });
-        for (const event of eventsForLine(line)) {
+        for (const event of eventsForLine(line, launch?.tools)) {
           if (event.type === "permission-withdrawn") waiting.delete(event.id);
           // The turn is over, and the end of the input ends the session. An answer given after it is written nowhere: the ended stream takes none.
           if (event.type === "result") child.stdin.end();
