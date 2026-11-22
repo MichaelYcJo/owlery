@@ -148,6 +148,8 @@ export interface WorktreeSetup {
 - `tabLabel` takes the work item's setup pane id and returns "Setup" for that pane.
 - `planLine` gains the setup's sentence: "Copies the ignored files .worktreeinclude names from the main checkout." where `includes` is true, and "Then runs: <command>" where `setupCommand` is not null.
 
+What the build added beside the text above, folded by the orchestrator on 2026-11-22 from phase 1: `copyIncluded` returns a `failure: string | null` too; `setupPaneCommand(env, command, id): PaneCommand` takes the pane's id, and its default call is in `daemon.ts#startSetup`; `worktree-setup.ts` also holds `beginSetup`, `endedSetup`, `isWorktreeSetup`, `setupOf`, `PANE_ENDED` and `DAEMON_STOPPED`. From phase 2 the copy clones on APFS (`cp -c`) where it can, falling back to Node's copy, since Q4 measured a 1 GB tree at 5.2 s and 12 MB of disk cloned against 14.3 s and 918 MB copied.
+
 ## Rule changes
 
 - add
