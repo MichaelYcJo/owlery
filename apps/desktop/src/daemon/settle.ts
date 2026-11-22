@@ -6,9 +6,11 @@
 // A directory is kept while its record holds a `reversed` decision, an `open`
 // question or a block the reader refuses: a record that cannot be read is not
 // a record with nothing open, and a `decisions.md` that stands and cannot be
-// opened stops the reading. A notice of the reader is named and keeps
-// nothing. The release's work items are the directories the working tree
-// holds and the previous release's tag does not.
+// opened stops the reading. So does a link where a work item's directory
+// stands, and a `decisions.md` or a `threads/` that links to nothing: a record
+// may stand behind each, so none is read as nothing. A notice of the reader is
+// named and keeps nothing. The release's work items are the directories the
+// working tree holds and the previous release's tag does not.
 //
 // `readSettle` reads the working tree and asks git three things alone: the
 // newest release tag, the directories that tag holds, and the subject of the
@@ -16,7 +18,7 @@
 // `--apply` changes the working tree: AgenticSeal's settle removes, and the
 // put-back writes each kept directory from `HEAD`.
 import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { accessSync, constants, readFileSync, readdirSync, statSync } from "node:fs";
+import { accessSync, constants, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { RECORD_FILE, readDecisionRecord, type DecisionBlock, type DecisionKind } from "./decision-record";
 import { rootOf } from "./records-place";
@@ -67,26 +69,49 @@ function git(folder: string, ...args: string[]): string {
   }
 }
 
-/** The names of the directories under the folder, in order, or none where it does not stand. */
-function directoriesIn(folder: string): string[] {
+/** Throws, naming the path, where what stands there is a link that leads to nothing; returns where nothing stands there at all. */
+function nothingStands(folder: string, path: string): void {
   try {
-    return readdirSync(folder, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
+    lstatSync(join(folder, path));
+  } catch {
+    return;
   }
+  throw new Error(`${path} cannot be read: it is a link to nothing`);
 }
 
-/** The record's text, or null where no file stands at its path. A record that stands and cannot be read throws, naming it. */
+/**
+ * The names of the directories under `threads` in the folder, in order, or
+ * none where nothing stands there. A link there, or a `threads` that links to
+ * nothing, stops the reading, naming it: a work item's record may stand behind
+ * it, so it is not read as nothing.
+ */
+function directoriesIn(folder: string, threads: string): string[] {
+  let entries;
+  try {
+    entries = readdirSync(join(folder, threads), { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    nothingStands(folder, threads);
+    return [];
+  }
+  const link = entries.find((entry) => entry.isSymbolicLink());
+  if (link !== undefined) throw new Error(`${threads}/${link.name} is a link, and the settle reads a work item's directory only where one stands`);
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/** The record's text, or null where nothing stands at its path. A record that stands and cannot be read throws, naming it, and so does a link to nothing. */
 function recordText(folder: string, path: string): string | null {
   try {
     return readFileSync(join(folder, path), "utf8");
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return null;
+    if (code === "ENOENT") {
+      nothingStands(folder, path);
+      return null;
+    }
     throw new Error(`${path} cannot be read: ${code ?? String(error)}`);
   }
 }
@@ -124,7 +149,7 @@ export function readSettle(folder: string, since?: string): SettleReading {
   const kept: KeptDirectory[] = [];
   const notices: SettleReading["notices"] = [];
   const release: ListedWorkItem[] = [];
-  for (const id of directoriesIn(join(folder, threads))) {
+  for (const id of directoriesIn(folder, threads)) {
     const directory = `${threads}/${id}`;
     const text = recordText(folder, `${directory}/${RECORD_FILE}`);
     const got = readDecisionRecord(text ?? "");

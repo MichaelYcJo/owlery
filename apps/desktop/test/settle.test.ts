@@ -3,7 +3,7 @@
 // made without asking. The cases read temporary repositories and never
 // Owlery's own.
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -144,6 +144,28 @@ describe("the directories a settle keeps", () => {
     const got = run(repo);
     expect([got.code, got.out]).toEqual([2, ""]);
     expect(got.err).toContain("seal/threads/1-a/decisions.md cannot be read");
+  });
+
+  it("stops with exit 2 and names the link where a `decisions.md` links to nothing, `threads/` links to nothing, or a work item's directory is a link, and reads none of them as nothing", () => {
+    for (const [made, said] of [
+      [(repo: string) => symlinkSync("nowhere.md", join(repo, "seal/threads/1-a/decisions.md")), "seal/threads/1-a/decisions.md cannot be read: it is a link to nothing"],
+      [(repo: string) => symlinkSync("nowhere", join(repo, "seal/threads")), "seal/threads cannot be read: it is a link to nothing"],
+      [
+        (repo: string) => {
+          // The directory behind the link holds a reversal, which a settle that passed the link over would neither keep nor name.
+          write(repo, "elsewhere/decisions.md", record(REVERSED));
+          symlinkSync("../../elsewhere", join(repo, "seal/threads/2-b"));
+        },
+        "seal/threads/2-b is a link, and the settle reads a work item's directory only where one stands",
+      ],
+    ] as const) {
+      const repo = repository();
+      if (said.startsWith("seal/threads/")) write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
+      made(repo);
+      expect(() => readSettle(repo), said).toThrow(said);
+      const got = run(repo);
+      expect([got.code, got.out, got.err], said).toEqual([2, "", `settle: ${said}\n`]);
+    }
   });
 
   it("names a notice of the reader at its line and keeps nothing for it", () => {
