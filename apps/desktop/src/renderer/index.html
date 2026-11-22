@@ -97,8 +97,8 @@
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
-      /* On a line, how many decisions made without asking the person has not seen, and how many reversals wait for a stage: a count, in the form of a line's age. */
-      .line .decided { flex: none; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
+      /* On a line, how many decisions made without asking the person has not seen, and how many reversals wait for a stage. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
+      .line .decided { flex: none; font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
       .line .decided:empty { display: none; }
       /* On a selected line the count is in the muted ink, as the line's age is: the faint ink does not stand apart from a selected ground. */
       .line.selected .decided { color: var(--ink-muted); }
@@ -380,7 +380,8 @@
       #questions .option .mark:empty { display: none; }
       #questions .option .implies { grid-column: 2 / -1; color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
       #questions .option .implies:empty { display: none; }
-      #questions input[type="radio"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      /* The chosen option is marked in the strong ink, and never in the system's own accent: a theme has one signal, and a choice is not it. */
+      #questions input[type="radio"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; accent-color: var(--ink-strong); }
       #questions .answer { color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       #questions .refusal { color: var(--state-failed); overflow-wrap: anywhere; }
       #questions .refusal:empty { display: none; }

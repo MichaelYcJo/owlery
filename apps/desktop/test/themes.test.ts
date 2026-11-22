@@ -330,6 +330,8 @@ describe("what a theme draws can be seen", () => {
     expect(ruled(".line.selected .age, .side-item[aria-current] .age, .side-item[aria-current] .count")).toEqual([["color", "var(--ink-muted)"]]);
     // So is a line's count of the decisions made without asking.
     expect(ruled(".line.selected .decided")).toEqual([["color", "var(--ink-muted)"]]);
+    // The option chosen among a question's is marked in the strong ink, and not in the system's accent, which is a blue in every theme.
+    expect(ruled('#questions input[type="radio"]')).toContainEqual(["accent-color", "var(--ink-strong)"]);
     expect(ruled("mark")).toContainEqual(["color", "var(--ink-strong)"]);
     // The close mark of a tab on the terminal's ground is in the terminal's inks, and never in an ink of the window's.
     expect(ruled("#tabs .tab.shown .close")).toEqual([["color", "var(--terminal-ink)"]]);
