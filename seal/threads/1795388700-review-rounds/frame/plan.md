@@ -1,0 +1,94 @@
+# Implementation Plan: 1795388700-review-rounds
+
+## Technical context
+
+The tree as read at `617a7c4`.
+
+**What the work builds on.**
+
+- `apps/desktop/src/daemon/daemon.ts:1315` `startHeadless` runs one headless session through `RoleAdapter.start`: it answers each permission request with `role-grants.ts:123` `verdictOn`, ends the session at its limit (`HEADLESS_LIMIT_MS`, line 71), and keeps the result. The `ask` case at line 1048 builds the session inline. A stage of the chain is such a session, so the limit, the stop, the bound of `HEADLESS_KEPT` and the answers by the role's grant are the stage's without new code.
+- `daemon.ts:317` `decided` and `daemon.ts:351` `park` write a decision and a question into `decisions.md` and commit nothing: their doc comments leave the commit to the stage that calls them. `daemon.ts:811`, the `answerQuestions` case, writes the person's answers and commits them through `daemon.ts:1657` `commitWord`, which commits nothing while a session of the work item is working.
+- `decision-record.ts:143` `workItemDirectory` finds a work item's directory by the `Branch` row of a `routing.md`, and `decision-record.ts:388` `writeRecord` writes `decisions.md` whole. `decision-record.ts:344` `withApplied` writes a `reversed` decision `applied <commit>`.
+- `worktrees.ts:861` `whyNoCommit` says why a worktree cannot take a commit, and `worktrees.ts:888` `commitAlone` commits one path with the person's identity and the repository's hooks.
+- `record-blocks.ts:470` `read` reads the `seal` blocks of a text by a list of kinds, and line 337 onward holds the kinds the daemon reads today, each spelt as `pr-check/lib/fields.py` spells it.
+- `role-grants.ts:31` `GRANTS`, `protocol.ts:342` `ROLE_STAGES` and `adapters/claude-roles.ts:24` `AT_THE_STAGE` each hold one row for each pair. A new pair is one row of each, as the comment at `protocol.ts:336-341` says.
+- `adapters/fake.ts:17` `FakeAdapterOptions` gives a case the answer and the requests of a fake session, by the prompt and the role.
+- `daemon.ts:1838` `checkIdle` and `daemon.ts:1694` `settleHold` read the working headless sessions. Between two stages none is working, so both read a running chain too (`frame/design.md` *Scope* item 3).
+- `renderer/view.ts:147` `inboxLine` gives a work item's line its state, and `renderer/work-item-view.ts:656-709` lists its headless sessions with a stop control.
+
+**Constraints.**
+
+- The daemon runs no Python (`docs/architecture.md` *What we take from AgenticSeal*). It reads a round record with its own reader, and the check's Python reads the same file on GitHub. The two spellings can drift.
+- A proofer holds `Read`, `Glob`, `Grep` and `Bash`, and a command of it that asks for permission is refused. Whether `git diff` asks in the mode `default` was not run (`seal/threads/1795338000-role-tools-and-permissions/frame/questions.md` Q4). So the round's prompt carries the diff.
+- One worktree does not hold two agents (`docs/architecture.md` *What a session survives*). The chain refuses its start while an agent works in the worktree, and reads at each round's end whether the worktree moved.
+- No case and no probe starts a real `claude`, by the owner's rule of this run. A start of the built app goes through `apps/desktop/test/built-app.ts` `BuiltApp.start` with `OWLERY_BACKGROUND=1`.
+
+**The failure scenario of the chosen approach.** In six months a real proofer answers with a record the daemon's reader refuses: a preface the first-heading rule does not skip, a field the model spelt its own way, or a verifying round that names no line for a closed finding. The round's usage is spent, no record is written, and the chain stops until the person starts it again. The cost falls on the person as a stopped work item and a repeated round. The daemon cannot repair the record, because it writes none of a round record's text. The second failure: `pr-check/lib/fields.py` gains a field or changes a shape and `record-blocks.ts` does not, so the daemon commits a record the check refuses. Scenario 2 runs the check's Python over the chain's records in every run of the suite, which catches the drift for the shapes the case writes and for no other. The third: a diff longer than `PROMPT_DIFF_CHARS` is left out of the prompt, and a proofer whose `git diff` is refused reviews the changed files without their earlier state.
+
+## Alternatives considered
+
+| Approach | Failure scenario | Verdict |
+|---|---|---|
+| A proofer's answer is its round record, and the daemon reads, writes and commits it (chosen) | The first failure scenario above | Chosen. `RoleEvent`'s `result` already carries the answer for every adapter, a proofer keeps no tool that writes, and the daemon writes the proofer's text unchanged, so no part of a record is generated |
+| A proofer holds `Write`, and the daemon allows only the path of the record | The role holds a tool that edits source, kept from it by a rule about paths, and a proofer's write lands before the daemon has read it | Rejected by `seal/threads/1795338000-role-tools-and-permissions/frame/plan.md` *Alternatives considered*, the row on `Write` for a proofer. That row's one open premise, that no stage had fixed the record's path, no longer holds, and the other still does |
+| The proofer answers in a fixed JSON shape (`--json-schema`), and the daemon renders the record | The daemon generates the record's text, so a rendering defect is a defect in every record. The option is Claude Code's, and the fake adapter and a later vendor's adapter have nothing to set | Rejected |
+| The step owed is read from the records and git at each start and after each stage (chosen) | A record a person edits by hand moves the chain | Chosen. A chain that failed, was stopped or was cut starts again with no stored position to repair, which the issue's sixth line asks for, and the check on GitHub reads the same records to the same two states (`frame/design.md` *Grounding*, the first probe) |
+| The daemon stores a state machine's position for each chain, and the records are its output | The stored position and the committed records disagree after a crash between a commit and the store's write, and a second machine's clone has records and no position | Rejected. The plugin's `skills/core/SKILL.md` *The rule a mechanism is kept against* keeps nothing beside the tree to stay in step with it |
+| A stage is a headless session, started by the method the `ask` case uses (keeps the structure) | A stage inherits a bound, `HEADLESS_KEPT`, that drops an ended session from the list while its `ChainStage` still names its id | Kept. The premise is that the limit, the stop, the bound and the answers by the role's grant are the same for a stage as for any role session: checked in `daemon.ts:1315-1380`, where none of them reads who started the session. A `ChainStage` keeps what the chain needs of the stage, so a dropped session loses nothing of the chain |
+| A stage runner of its own, apart from the headless sessions (replaces the structure) | The limit, the stop, the permission answers and the keep-awake rule are written twice, and the window lists two kinds of session | Rejected, as the equal of the row above. It would give a stage a record that outlives the bound, which `ChainStage` gives at less cost |
+| A round works in the work item's worktree, and the prompt carries the diff (chosen) | A person or a pane changes the worktree during a round, and the proofer reads a tree that is not the target | Chosen. The daemon refuses the start while an agent works there, and at the round's end it writes no record where the head moved or a change stands (`frame/design.md` *Scope* item 6). No clone is made and no folder is added to the adapter's interface |
+| A round works in a clone the daemon makes for it | Each round pays a clone's time and disk, the daemon gains a folder to make, name and remove, and a fix pass still works in the worktree | Rejected for now. It is what would let a proofer run a command without touching the person's tree, and it comes back with the issue that gives a role a sandbox (`seal/threads/1795338000-role-tools-and-permissions/frame/design.md` *Scope* item 19) |
+| The daemon writes the diff to a folder of the stage, and the adapter adds that folder to the session | `RoleAdapter.start` gains a list of folders that every adapter has to honour, for a file the prompt can carry | Rejected |
+| The convergence judgment is asked before the second fix pass and each later one (chosen) | A chain whose first fix pass was already hopeless spends one fix pass and one round before anybody asks | Chosen. Before round 2 no record shows whether a fix held, so the question has nothing to read. `docs/architecture.md` *Code runs the order, the orchestrator judges* gives the judgment to the orchestrator agent, and the plugin's `skills/core/SKILL.md` *Judgment is spent where meaning is the question* keeps it from being asked where the order answers |
+| The judgment is asked after every round | Each chain that ends in two rounds pays one session for an answer the records already give: nothing is open | Rejected |
+| The daemon counts rounds and stops at a number, with no agent asked | Whether rounds converge is a judgment of meaning, which the policy leaves to the orchestrator agent | Rejected as the judgment. Kept as the ceiling of *Scope* item 10, which stops a chain whose orchestrator answers `yes` every time |
+| The orchestrator is a fourth pair of `ROLE_STAGES`, with a definition in the bundle (keeps the structure) | The bundle gains a role AgenticSeal ships no definition of, so its text has no earlier release behind it | Kept. The premise is that a pair is what gives a session its tools, its rules file and its answers by a grant: checked at `role-grants.ts:123-134`, where a session with no role sends every request to the person |
+| The judgment runs in a session with no role | Each call that asks waits for the person, so the chain stops at the first one, and the session holds Claude Code's default tools | Rejected |
+| A stage's question and the orchestrator's answers are `seal` blocks of the answer, read by `record-blocks.ts#read` (chosen) | A model writes a question in prose, and the daemon reads no question | Chosen. A block is a form the daemon reads exactly, and a question in prose stays in the answer, which the work item's view shows. The alternative is a list of the ways a question is worded, which the plugin's `skills/core/SKILL.md` *The rule a mechanism is kept against* refuses |
+| The refused calls are rows of a committed file, `trail/refusals.md` (chosen) | The file grows by one row for each refusal of a role that keeps reaching past its tools | Chosen. The issue's third comment asks that the work item's records can say how often a role reached past its tools, for the settle to read, and the settle reads committed files. A row holds no text of the call |
+| The refused calls are kept in the daemon's state alone | The settle and a person without the app read nothing | Rejected |
+| The refused calls are written into the round record | The record's text is the proofer's, and a fix pass's and a judgment's refusals have no round record to stand in | Rejected |
+| A rename of the branch rewrites the `Branch` row (chosen) | The rename now writes a file of the worktree and makes a commit | Chosen. The check on GitHub finds the work item by that row (`pr-check/lib/routing.py`), so a lookup of the daemon's own that did not rest on the row would leave the check judging nothing |
+| `ask` keeps its `role` (keeps the structure) | A client launches a crafter on a work item beside its chain | Kept. The premise is that the runs of `pnpm run role:run` and `pnpm run role:refusal` enter through it: read at `apps/desktop/test/role-session.test.ts:1-42`. The chain refuses its start while a headless session of the work item works |
+| `ask` loses its `role`, and only the chain launches a role | Those runs lose their entry, and each has to drive a whole chain | Rejected, as the equal of the row above |
+| `commitAlone` becomes `commitPaths` (chosen) | A caller passes a path outside the work item's directory | Chosen over a second function beside it, which would hold the same add, commit and reset twice. The chain passes paths of the work item's directory alone (`frame/design.md` *Scope* item 17) |
+
+## Phases
+
+Each phase is one crafter's. The cases of a phase are seen red before they are planted, and each phase names its narrow run in its record.
+
+| Phase | Delivers | Verified by | Status |
+|---|---|---|---|
+| 1. The records | `frame/design.md` *Scope* items 16, 17, 18 and 21, the refusal of a rename while a chain runs left to phase 2 | Scenario 16's cases of `test/record-writer.test.ts`; the reader's cases of scenario 12 in `test/round-record.test.ts`, with one case that reads `apps/desktop/role-bundle/templates/records/sdd-round.md` filled in; the cases of `commitPaths` in `test/worktrees.test.ts`; the cases of `test/decision-record.test.ts` and of `test/daemon.test.ts` that write a record, which hold through the new writer; the first half of scenario 17 | |
+| 2. Two rounds and one fix pass | *Scope* items 1 to 8, 13, 14, 15, 19, 23, 24 and 25, and the second half of item 21 | Scenarios 1, 2, 3, 5, 8, 9, 10, 11, 12 and 13, and the second half of 17 | |
+| 3. The orchestrator's judgments | *Scope* items 9, 10, 11, 12, 20 and 22 | Scenarios 4, 6, 7, 14, 15 and 18 | |
+| 4. The window | *Scope* items 26, 27 and 28, and the work item's `changelog.md` | Scenarios 19 and 20, and the cases of `test/view.test.ts` for the line's state and its second row | |
+
+The new test files `frame/design.md` *Rule changes* names in its `check:` lines are made by phases 1 and 2 under those names: `test/round-record.test.ts` and `test/record-writer.test.ts` in phase 1, and `test/chain.test.ts` in phase 2. The check at the pull request refuses a `check:` line that names no file.
+
+## Overlap with the release
+
+The spawn names #45, #46 and #27, which run beside this work, and #42, #43 and #44, which are not started. The frames of #45, #46 and #27 hold the template alone at their branches' heads (executed: each `frame/design.md` is 33 lines, the template's length, at `e262835`, `b6cd259` and `9fe0c0c`), so each is read as its issue, with `gh issue view`.
+
+| Work item | Where both change | Merges first | Grounds |
+|---|---|---|---|
+| #45, `1795341001-cost-per-stage` | `src/daemon/daemon.ts` at the result of a headless session, `src/daemon/adapters/adapter.ts` and `fake.ts`, and `src/shared/protocol.ts`. Its ledger holds one entry for each stage, and a stage is this work's `ChainStage`: its kind, its round, its start, its end and its headless session's id | #41 | #45's issue depends on #41, and its entry names a thing this work defines. Where #45 is sealed first, it keys an entry by the headless session, and this work's phase 2 takes the merge and gives the entry its stage in commits it makes anyway |
+| #46, `1795342001-progress-through-roles` | `src/shared/protocol.ts` (`WorkItem.chain`, which it reads), `src/renderer/work-item-view.ts`, `view.ts`, `list.ts` and `index.html`, and the screenshots. It draws the approval line and the running stage's age where this work draws one sentence | #41 | #46's issue depends on #42, which depends on this work. It reads the field this work adds, so it reads it merged |
+| #27, `1795388701-agent-choices-and-behind` | `src/shared/protocol.ts` (other fields of `WorkItem` and `SessionInfo`), `src/renderer/view.ts`, `list.ts` (the line's second row) and `work-item-view.ts`, `test/view.test.ts`, and the screenshots | #27 | It is the smaller diff and reads nothing this work adds. This work's window is its last phase, so it takes #27's merge there, in commits it makes anyway, and its screenshot run draws both changes |
+| #42, the broad gate and the sealer, not started | `src/daemon/chain.ts`: it adds its kinds to `CHAIN_STAGE_KINDS` and its rows to the order below the verifying round, and replaces the resting state `reviewed` with its next stage (`frame/design.md` *Out of scope*). `apps/desktop/role-bundle/agents/sealer.md` is its own | #41 | #42's issue depends on #41 |
+| #43 and #44, not started | #43 rewords the taken check's refusals and writes `pr.md`, which the check's body arm asks for (`frame/design.md` *Grounding*, the first probe). #44 reads the seal's state | #41 | Each depends on #42 |
+
+## Operational impact
+
+- **No migration.** `repositories.json` of an earlier build holds no `chain`, and the store reads its absence as null.
+- **No new dependency and no new environment variable.**
+- **The protocol gains one message and one field.** A window of an earlier build that attaches to this daemon sends no `getSeal`. A daemon of an earlier build sends no `chain` field, and a window of this build then draws no "Get a seal" button (`frame/design.md` *Scope* item 26), as `docs/architecture.md` *What a session survives* has a window read a field the daemon does not send as a feature that is off.
+- **The daemon makes commits in a person's worktree at each stage.** Each holds files of the work item's directory alone, runs the repository's hooks and is not pushed.
+- **A chain spends the person's usage without a question between its stages.** `ROUNDS_CEILING` bounds it (`frame/questions.md` Q1).
+- **The version does not move.** The first pull request of `release/v0.0.2` moved it.
+
+## Judgments of the run
+
+| Date | Judgment | Grounds | Judged against |
+|---|---|---|---|
+| | | | |
