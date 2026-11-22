@@ -153,7 +153,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(JSON.parse(readFileSync(file(), "utf8"))).toEqual({ theme: "desk", appearance: "system" });
   });
 
-  it("draws a line of the inbox, a group's head and a count in the form the theme in use gives them", async () => {
+  it("draws a line of the inbox, a row of a list of records, a group's head and a count in the form the theme in use gives them", async () => {
     await app.click("#nav-inbox");
     await app.until(`document.querySelector("#inbox-screen .line.selected") && document.querySelector("#inbox-screen .lines h2 .count")`, "the inbox with its selected line and a group's head");
     /** The forms a theme changes, as the page's style resolves them. */
@@ -161,9 +161,15 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       app.evaluate(
         `(() => { const of = (selector) => getComputedStyle(document.querySelector(selector)); return { line: of("#inbox-screen .line.selected").boxShadow, corner: of("#inbox-screen .line.selected").borderRadius, head: of("#inbox-screen .lines h2").backgroundColor, headEdge: of("#inbox-screen .lines h2").boxShadow, side: of("#sidebar").backgroundColor, fact: of("#inbox-screen .lines h2 .count").fontFamily, words: of("#inbox-screen .lines h2 .word").fontFamily }; })()`,
       );
-    // Desk: a line is a tile with no edge, a group's head stands on no ground, and a count is set as the words are.
+    /** The edge under a row of each list of records, as the page's style resolves it: a commit and a changed file of a work item, and the term and the value of a fact of a view. Alpha has no commit of its own, so each row is one this reading puts where the page puts its own, and takes away. */
+    const rows = (): Promise<{ commit: string; file: string; term: string; value: string }> =>
+      app.evaluate(
+        `(() => { const made = []; const edge = (within, tag, name) => { const row = document.createElement(tag); row.className = name; document.querySelector(within).append(row); made.push(row); return getComputedStyle(row).boxShadow; }; const found = { commit: edge("#view-detail", "div", "commit"), file: edge("#view-detail", "div", "file"), term: edge("#view-fact-list", "dt", ""), value: edge("#view-fact-list", "dd", "") }; for (const row of made) row.remove(); return found; })()`,
+      );
+    // Desk: a line is a tile with no edge, a row of a list of records has none either, a group's head stands on no ground, and a count is set as the words are.
     const desk = await forms();
     expect(desk).toEqual({ line: "none", corner: "5px", head: "rgba(0, 0, 0, 0)", headEdge: "none", side: desk.side, fact: desk.words, words: desk.words });
+    expect(await rows()).toEqual({ commit: "none", file: "none", term: "none", value: "none" });
 
     // Register: the selected line has the strong rule at its left and the rule under it, a group's head is a ruled band on the sidebar's ground, and a count is in the fixed-width face.
     await choose("theme", "register");
@@ -175,6 +181,14 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(register.headEdge.match(/inset/g)).toHaveLength(2);
     expect(register.fact).toMatch(/^ui-monospace/);
     expect(register.words).toBe(desk.words);
+    // Register rules each row of a list of records as it rules a line at rest: one rule under the row, and no rule at its left.
+    const ruled = await rows();
+    for (const edge of [ruled.commit, ruled.file, ruled.term, ruled.value]) {
+      expect(edge).toMatch(/0px 1px 0px 0px$/);
+      expect(edge).not.toContain("inset");
+    }
+    // The sidebar's items are navigation, and an item at rest carries no rule in Register.
+    expect(await app.evaluate<string>(`getComputedStyle(document.querySelector("#sidebar-nav .side-item:not([aria-current])")).boxShadow`)).toBe("none");
   });
 
   it("draws each state's mark in the shapes and the fill the theme in use gives the state", async () => {
