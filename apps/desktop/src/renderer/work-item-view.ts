@@ -673,8 +673,8 @@ function showAskSection(): void {
  * chosen. A question that names no option has the field alone. After the
  * answer the section lists each question with its answer, and it is hidden
  * for a work item that never was parked. Who asked and the age are said
- * anew at each call. The questions are drawn again only where the record is
- * another, so a choice and a typed answer stay, with the keyboard and a
+ * anew at each call. The questions are drawn again only where the section's
+ * key is another, so a choice and a typed answer stay, with the keyboard and a
  * composition under way, through every `inbox` that arrives meanwhile.
  */
 function showQuestions(workItem: WorkItem): void {
@@ -741,9 +741,9 @@ function showQuestions(workItem: WorkItem): void {
 /**
  * Sends the answers of the section as "Send answers" asks: for each
  * question the option chosen or the words typed as another answer. The
- * daemon stores them and ends the park, and the `inbox` after its `done`
- * carries the record as answered. It refuses an empty answer, and the
- * section shows its refusal.
+ * daemon writes them into the work item's record, which ends the park, and
+ * the `inbox` after its `done` carries the questions as answered. It refuses
+ * an empty answer, and the section shows its refusal.
  */
 function sendAnswers(): void {
   const workItem = viewed();
