@@ -39,3 +39,23 @@ Not re-run: the whole suite, the typecheck and the documents' checks (the broad 
 target: cf73018 against c3cf61c
 Verdict: withheld reason: the orchestrator's pr.md:9 says the real role session "answered with three facts only the definition and the appended rules state, and read the bundle's files", but the third fact stands only in templates/records/sdd-round.md, which no appended document holds, and the session read that one file (apps/desktop/test/role-session.test.ts, apps/desktop/test/fixtures/claude-role-stream.jsonl); a sentence such as "answered with one fact only the definition states, one only the appended rules state, and the first line of the one bundle file it read, with no permission request" says what the run shows
 ```
+
+## Re-audit at a9564b2
+
+The one commit after `cf73018` is `a9564b2`, touching `seal/threads/1795329620-role-bundle/guarantee.md` and `pr.md` alone. Executed: `git show --stat a9564b2`. So the re-audit re-runs the claims at the coordinates it touched, `pr.md:9`, and steps 1 and 2. The claims of the run above stand on code and records `a9564b2` does not touch.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run still covers HEAD | `trail/gate.md`, `run: bf8db23 against c3cf61c` | `git log --no-merges --name-only bf8db23..HEAD ^c3cf61c`, with the base resolved again through `release/v0.0.2@{upstream}` to `c3cf61c` | Holds. Executed: `cf73018` touches `trail/gate.md`, and `a9564b2` touches `guarantee.md` and `pr.md`, all under `seal/threads/1795329620-role-bundle/` |
+| The pull request body is `pr.md` and the records at HEAD | `<scratchpad>/1795329620-role-bundle/pr-body.md` | `seal pr-body seal/threads/1795329620-role-bundle --body <that file> --check` | Holds. Executed: exit 0, and the body holds the new sentence of `pr.md:9` |
+| `pr.md:9` now says what the real run shows | `pr.md:9` at `a9564b2` | `git diff cf73018 a9564b2 -- pr.md`, read against `claude-role-stream.jsonl` and the bundle's `grep -rlF` of the three facts in the run above | Holds. Executed for the diff, read for the rest: one fact stands only in `agents/proofer.md`, one only in `skills/agent-contract/SKILL.md`, and the third is the first line of `templates/records/sdd-round.md`, the one file the session's one `tool_use` read, with `permission_denials: []`. The diff changes that sentence alone |
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the orchestrator's part of the pull request body | `pr.md` at `a9564b2`, row 3 rewritten | the fixture, `role-session.test.ts` and the bundle, as above; its other rows are the run above's, unchanged | none |
+| the design, the build, the last round, the changelog | unchanged since `cf73018` | the run above's rows | none |
+
+```seal
+target: a9564b2 against c3cf61c
+Verdict: sealed
+```
