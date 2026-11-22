@@ -200,6 +200,11 @@ export class Daemon {
     this.keepAwake = new KeepAwakeStore(options.runDir);
     this.decisions = new DecisionStore(options.runDir);
     this.asked = new AskedStore(options.runDir);
+    // The two stores are keyed by a work item's id, which `repositories.json` gives. An entry of a work item that file does not hold is dropped here, since the id is given again to a new work item where the file was lost or read as no repository.
+    const kept = new Set(this.store.workItems().map(({ item }) => item.id));
+    const gone = (ids: readonly number[]): number[] => ids.filter((id) => !kept.has(id));
+    this.keptChange("decisions", () => this.decisions.drop(gone(this.decisions.workItemIds())));
+    this.keptChange("questions", () => this.asked.drop(gone(this.asked.workItemIds())));
   }
 
   listen(port: number): Promise<number> {
@@ -939,7 +944,7 @@ export class Daemon {
     return `An archive of work item ${String(id)} is ending its sessions. Try again.`;
   }
 
-  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch, the decisions made for each, which leave `decisions.json` with them, and the questions each is parked with, which leave `asked.json`. The store of the repositories is not touched. */
+  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch, the decisions made for each, which leave `decisions.json` with them, and the questions each is parked with, which leave `asked.json`. A delete and a repository's removal call it. The decisions and the questions of a work item the repositories do not hold at the daemon's start are dropped in the constructor. The store of the repositories is not touched. */
   private dropWorkItems(ids: ReadonlySet<number>): void {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;

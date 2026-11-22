@@ -3438,6 +3438,46 @@ describe("the questions a work item is parked with", () => {
     expect(askedOf(await (await client(url)).message("ready"), next.id)).toBeNull();
   });
 
+  it("drops at its start the decisions and the record of a work item its repositories do not hold, keeps those of the ones they hold, an archived one among them, and gives a work item made after `repositories.json` was lost none of what stood under its id", async () => {
+    const { d, c, made, runDir, workItems, sessions } = await withWorkItems(["Archived", "Open"], { now: () => 9 });
+    const [archived, open] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const decisions = [d.decided(archived.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." })!, d.decided(open.id, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file." })!];
+    for (const { id } of workItems) d.park(id, ASKING);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
+    await c.message("inbox", (m) => m.archived.length === 1);
+    await d.close();
+    // An entry under an id the repositories never gave stands in each file, as one left by a list of repositories that was lost.
+    const heldDecisions = { [archived.id]: [decisions[0]], [open.id]: [decisions[1]] };
+    const heldAsked = { [archived.id]: parkedAt(9), [open.id]: parkedAt(9) };
+    const stray = { id: 3, kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md.", at: 5, reversed: null };
+    writeFileSync(join(runDir, "decisions.json"), JSON.stringify({ nextId: 4, workItems: { ...heldDecisions, 99: [stray] } }));
+    writeFileSync(join(runDir, "asked.json"), JSON.stringify({ workItems: { ...heldAsked, 99: parkedAt(5) } }));
+
+    const later = await daemon({ runDir, worktreesRoot: made.root, now: () => 10 });
+    // The start itself wrote the files without the stray entries.
+    expect(JSON.parse(readFileSync(join(runDir, "decisions.json"), "utf8"))).toEqual({ nextId: 4, workItems: heldDecisions });
+    expect(stored(runDir)).toEqual({ workItems: heldAsked });
+    const ready = await (await client(later.url)).message("ready");
+    expect(ready.archived.map((w) => [w.id, w.decisions, w.asked])).toEqual([[archived.id, [decisions[0]], parkedAt(9)]]);
+    expect(ready.workItems.map((w) => [w.id, w.decisions, w.asked])).toEqual([[open.id, [decisions[1]], parkedAt(9)]]);
+    await later.daemon.close();
+
+    // The list of repositories is lost, so its ids begin again, and the first work item made takes the id the archived one had.
+    rmSync(join(runDir, "repositories.json"));
+    const anew = await daemon({ runDir, worktreesRoot: join(made.base, "worktrees-anew"), commandFor: silent, now: () => 11 });
+    expect(JSON.parse(readFileSync(join(runDir, "decisions.json"), "utf8"))).toEqual({ nextId: 4, workItems: {} });
+    expect(stored(runDir)).toEqual({ workItems: {} });
+    const ac = await client(anew.url);
+    await ac.message("ready");
+    ac.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Made anew", kind: "shell", cols: 80, rows: 24 });
+    const next = (await ac.message("workItemCreated", (m) => m.requestId === 2)).workItem;
+    expect([next.id, next.decisions, next.asked]).toEqual([archived.id, [], null]);
+    const again = (await (await client(anew.url)).message("ready")).workItems.find((w) => w.id === next.id);
+    expect([again?.decisions, again?.asked]).toEqual([[], null]);
+    // A decision's id is given once over the whole store, the dropped ones never again.
+    expect(anew.daemon.decided(next.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." })).toMatchObject({ id: 4 });
+  });
+
   it("stays up and holds a park and its answer where its run folder cannot be written, and says so in its log", async () => {
     const { d, c, url, runDir, workItems } = await withWorkItems(["Held in memory"], { now: () => 7 });
     const id = workItems[0]!.id;
