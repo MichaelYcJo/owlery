@@ -50,6 +50,11 @@ The daemon reads each file of a checkout whose text it acts on through `reposito
 
 The `frame/design.md` sentence is the framer's or the orchestrator's to fold, as round 5's closes say of the frame. `frame/design.md:215` names the callers of `repositoryFileText` and makes no claim of reach, so it stands.
 
+```seal
+verdict: fixed 55b955b
+answer: `repository-file.ts`'s head comment names the setup's command as the exception and ends with the round's paragraph on `readSetup`, and `frame/design.md:65` holds the round's sentence.
+```
+
 ### 2. The frame says each of the two messages is answered once git has said where the worktree stands, but three refusals answer before git is asked
 
 ```seal
@@ -67,6 +72,11 @@ Each is answered with `done` before the `inbox` that carries the change, or with
 ```
 
 This is a frame sentence, so the fold is the framer's or the orchestrator's.
+
+```seal
+verdict: fixed 55b955b
+answer: `frame/design.md:209` holds the round's sentences: the three refusals before git, then every other answer once git has said where the worktree stands.
+```
 
 ### 3. The deferral of a stage's write during a git operation to #150 stands in no record of the work item
 
@@ -93,6 +103,11 @@ In `frame/plan.md` *Judgments of the run*, a row after the last:
 ```
 
 The *Judgments* row is the orchestrator's. The `gaps.md` bullet is the fix pass's or the orchestrator's.
+
+```seal
+verdict: fixed 55b955b
+answer: `gaps.md` *Not done* holds the round's bullet under "Review round 5 left one thing", and `frame/plan.md` *Judgments of the run* holds the round's row.
+```
 
 ## Confirmations
 
@@ -150,3 +165,4 @@ A gap with no finding: the docstring of `shared.ts#detail` says "A view gives bo
 |---|---|
 | `OWLERY_BACKGROUND=1 node scripts/test-in-electron.mjs test/daemon.test.ts test/worktrees.test.ts test/last-look.test.ts test/view.test.ts test/decision-record.test.ts test/repository-file.test.ts test/records-place.test.ts test/worktree-setup.test.ts test/screenshots.test.ts` in `apps/desktop` of the clone at `4d74567` | Exit 0, 9 files, 912 cases passed, 1 skipped (the screenshot run, which only `OWLERY_SCREENSHOTS` starts) |
 | The same runner on `test/daemon.test.ts -t "takes the words of one worktree in the order they came"` with `TMP_PROBE=nochain`, and on `-t "waits at its close for a word whose worktree is still being read"` with `TMP_PROBE=nowait`. Before the two runs, the clone's `daemon.ts` was edited so that the variable skips the chain in `personWrote` or the close's wait for it. The file was restored after | `nochain`: exit 1, the `done` answers came in the order 5, 3, 1, 10, 2 and on. `nowait`: exit 1, "expected { is: 'decided' } to deeply equal { is: 'reversed', message: 'No.' }" |
+
