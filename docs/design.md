@@ -446,7 +446,7 @@ No theme changes a word. The window speaks as a clerk's note does: it says what 
 - **What will be lost is said before it is lost, and so is what will not be.** "Nothing on a remote is removed."
 - **A fact of the seal is said as a fact.** "A seal binds to one commit and breaks if another lands after it."
 - **A key is named in a sentence.** "J K move through the inbox."
-- **A state is two words at most.** The four states are "Needs you", "Working", "Finished" and "Asleep". The sidebar's status line reports the daemon: "Daemon running, 2 agents".
+- **A state is two words at most.** The four states are "Needs you", "Working", "Finished" and "Asleep", and the window names a state by those words wherever it names one. Where a sentence counts the work items in a state, the words follow the count: "1 needs you, 2 working". The sidebar's status line reports the daemon: "Daemon running, 2 agents".
 - **Sentence case.** A heading, a label and a button begin with one capital. No label is set in capitals with its letters spaced apart.
 - **No first person, and no greeting.** The window is not the agent and does not speak as one. What an agent says is shown as the agent's, in its own card.
 - **No word that sells.** No "magic", no "supercharge", no claim of speed, no exclamation mark and no emoji.

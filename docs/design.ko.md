@@ -446,7 +446,7 @@ check: apps/desktop/test/themes.test.ts
 - **잃을 것은 잃기 전에 말하고, 잃지 않을 것도 말합니다.** "Nothing on a remote is removed."
 - **인장의 사실은 사실로 말합니다.** "A seal binds to one commit and breaks if another lands after it."
 - **키는 문장 안에서 부릅니다.** "J K move through the inbox."
-- **상태는 많아야 두 낱말입니다.** 네 상태는 "Needs you", "Working", "Finished", "Asleep"입니다. 사이드바의 상태 줄은 데몬을 알립니다. "Daemon running, 2 agents".
+- **상태는 많아야 두 낱말입니다.** 네 상태는 "Needs you", "Working", "Finished", "Asleep"이고, 창은 상태를 부르는 모든 곳에서 이 낱말로 부릅니다. 상태마다 작업 수를 세는 문장에서는 낱말이 수에 맞춰 바뀝니다. "1 needs you, 2 working". 사이드바의 상태 줄은 데몬을 알립니다. "Daemon running, 2 agents".
 - **첫 글자만 대문자로 씁니다.** 머리, 이름표, 단추는 대문자 하나로 시작합니다. 글자 사이를 벌린 대문자로 쓴 이름표는 없습니다.
 - **일인칭이 없고, 인사가 없습니다.** 창은 에이전트가 아니고 에이전트처럼 말하지 않습니다. 에이전트가 한 말은 에이전트의 것으로, 따로 둔 카드에 보입니다.
 - **파는 말이 없습니다.** "magic", "supercharge", 속도를 내세우는 말, 느낌표, 이모지를 쓰지 않습니다.

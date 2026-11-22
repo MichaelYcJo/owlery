@@ -142,4 +142,15 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     expect(await app.evaluate<string>(`document.getElementById("work-item-title").value`)).toBe("Gamma");
     expect(await app.evaluate<string>(`document.getElementById("work-item-repo").value`)).toBe(made.repo);
   });
+
+  it("says on the bell how many work items need the person, to a pointer and to a screen reader alike", async () => {
+    /** What the bell says to a pointer, to a screen reader, and as its count. */
+    const bell = (): Promise<{ title: string; name: string | null; count: string | null }> =>
+      app.evaluate(`(() => { const bell = document.getElementById("bell"); return { title: bell.title, name: bell.getAttribute("aria-label"), count: document.getElementById("bell-count").textContent }; })()`);
+    // Alpha's agent has finished, so no work item needs the person.
+    expect(await bell()).toEqual({ title: "Show the work items that need you alone.", name: "Show the work items that need you alone.", count: "" });
+    feed("PermissionRequest");
+    await app.until(`document.getElementById("bell").classList.contains("ringing")`, "the bell ringing");
+    expect(await bell()).toEqual({ title: "1 needs you. Show them alone.", name: "1 needs you. Show them alone.", count: "1" });
+  });
 });

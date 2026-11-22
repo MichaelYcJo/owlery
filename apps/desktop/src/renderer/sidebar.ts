@@ -4,7 +4,7 @@
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
 import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, daemonStatus, filterChoices, hiddenRepositories, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
+import { ageOf, bellSays, daemonStatus, filterChoices, hiddenRepositories, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -141,7 +141,7 @@ export function showSidebar(inFront: Front = front): void {
   const waiting = all.filter(({ line }) => line.state === "waiting").length;
   bellCount.textContent = waiting > 0 ? String(waiting) : "";
   bell.classList.toggle("ringing", waiting > 0);
-  bell.title = waiting > 0 ? `${waiting} waiting for you. Show them alone.` : "Show the work items that wait for you alone.";
+  bell.title = bellSays(waiting);
   bell.setAttribute("aria-label", bell.title);
   filter.value = held.filter;
   const chosen = filterChoices().find((choice) => choice.value === held.filter);

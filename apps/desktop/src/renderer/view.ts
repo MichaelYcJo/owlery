@@ -96,18 +96,23 @@ export function workItemEntries(workItems: readonly WorkItem[], sessions: readon
 /** The agent states in the order a person must act on them, which is the order of the inbox's sentence and of its groups. */
 const STATES_BY_URGENCY: readonly AgentState[] = ["waiting", "working", "finished"];
 
-/** Each agent state as the inbox's sentence says it, after its count. */
-const STATE_IN_SENTENCE: Record<AgentState, string> = { waiting: "waiting for you", working: "working", finished: "finished" };
+/** The waiting state's own words, "Needs you", as they follow a count: one work item needs the person, and two need the person. */
+function needsYou(count: number): string {
+  return count === 1 ? "needs you" : "need you";
+}
+
+/** Each agent state as the inbox's sentence says it, after its count: the state's own words, which agree with the count where the state's words are a verb. */
+const STATE_IN_SENTENCE: Record<AgentState, (count: number) => string> = { waiting: needsYou, working: () => "working", finished: () => "finished" };
 
 /**
  * The inbox's sentence: how many work items are in each agent state, as in
- * "1 waiting for you, 2 working". A state no line is in is left out, and the
+ * "1 needs you, 2 working". A state no line is in is left out, and the
  * sentence is empty where no line has a state.
  */
 export function inboxSummary(lines: readonly InboxLine[]): string {
   return STATES_BY_URGENCY.map((state) => ({ state, count: lines.filter((line) => line.state === state).length }))
     .filter(({ count }) => count > 0)
-    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state]}`)
+    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state](count)}`)
     .join(", ");
 }
 
@@ -517,7 +522,7 @@ export interface Change {
 }
 
 /** Each agent state as a change's sentence opens with it. */
-const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Waits for you.", working: "Is working.", finished: "Finished." };
+const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Needs you.", working: "Is working.", finished: "Finished." };
 
 /**
  * The work items that changed since the person last looked, in the order of
@@ -563,6 +568,11 @@ export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLin
   return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
 }
 
+/** What the sidebar's bell says to a pointer and to a screen reader: how many work items need the person, in the waiting state's own words, and that a press shows them alone. */
+export function bellSays(waiting: number): string {
+  return waiting > 0 ? `${waiting} ${needsYou(waiting)}. Show them alone.` : "Show the work items that need you alone.";
+}
+
 /** How many work items changed, as the sidebar says it beside "Summary": nothing where none did. */
 export function summaryCount(changed: number): string {
   return changed > 0 ? `${changed} new` : "";
@@ -584,7 +594,7 @@ export function summaryControls(changes: readonly { workItem: WorkItem; line: In
   const inbox = { label: "Open the inbox", opens: "inbox" as const };
   const waits = changes.find((change) => change.line.state === "waiting");
   if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
-  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that waits." };
+  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
 }
 
 /** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */

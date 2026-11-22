@@ -12,6 +12,7 @@ import {
   baseKey,
   baseMenu,
   baseSays,
+  bellSays,
   cardStaysAt,
   changesSince,
   closeAsks,
@@ -246,12 +247,12 @@ describe("inboxSummary", () => {
     return { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" };
   }
 
-  it("counts the work items in each state in a sentence, and leaves out the lines with no state", () => {
-    expect(inboxSummary([line("working"), line("waiting"), line("waiting"), line(null)])).toBe("2 waiting for you, 1 working");
+  it("counts the work items in each state in a sentence, in the state's own words as they agree with the count, and leaves out the lines with no state", () => {
+    expect(inboxSummary([line("working"), line("waiting"), line("waiting"), line(null)])).toBe("2 need you, 1 working");
   });
 
   it("says the state a person must act on first: waiting, then working, then finished", () => {
-    expect(inboxSummary([line("finished"), line("working"), line("finished"), line("waiting")])).toBe("1 waiting for you, 1 working, 2 finished");
+    expect(inboxSummary([line("finished"), line("working"), line("finished"), line("waiting")])).toBe("1 needs you, 1 working, 2 finished");
   });
 
   it("leaves out a state no work item is in", () => {
@@ -878,10 +879,10 @@ describe("changesSince", () => {
         workItem: now,
         line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "3 new commits" },
         session: waits,
-        sentence: "Waits for you. 2 new commits since you were last here.",
+        sentence: "Needs you. 2 new commits since you were last here.",
       },
     ]);
-    expect(summarySentence(changes)).toBe("1 waiting for you");
+    expect(summarySentence(changes)).toBe("1 needs you");
   });
 
   it("gives no change where the lists are as the look holds them", () => {
@@ -898,7 +899,7 @@ describe("changesSince", () => {
   it("opens the sentence with the present state, in the words of each state and of none", () => {
     const before = look([LOGIN]);
     const sentence = (state: SessionInfo["state"]) => changesSince(before, [LOGIN], [session(3, { state })], KINDS)[0]?.sentence;
-    expect(sentence("waiting")).toBe("Waits for you.");
+    expect(sentence("waiting")).toBe("Needs you.");
     expect(sentence("working")).toBe("Is working.");
     expect(sentence("finished")).toBe("Finished.");
     // The agent's pane went away since the look.
@@ -922,14 +923,14 @@ describe("changesSince", () => {
     expect(changesSince(look([{ ...LOGIN, newCommits: null }], sessions), [{ ...LOGIN, newCommits: 3 }], sessions, KINDS)).toEqual([]);
     // The state still counts, and no rise is named beside it.
     const waits = changesSince(look([{ ...LOGIN, newCommits: null }], sessions), [{ ...LOGIN, newCommits: 3 }], [session(3, { state: "waiting" })], KINDS);
-    expect(waits.map((change) => change.sentence)).toEqual(["Waits for you."]);
+    expect(waits.map((change) => change.sentence)).toEqual(["Needs you."]);
   });
 
   it("matches no session of the look to a present session: the same id is another pane after the daemon started again", () => {
     const before = look([LOGIN, SEARCH], [session(1, { workItemId: 1, state: "working" })]);
     const changes = changesSince(before, [LOGIN, SEARCH], [session(1, { workItemId: 2, state: "waiting" })], KINDS);
     expect(changes.map((change) => [change.workItem.id, change.sentence])).toEqual([
-      [2, "Waits for you."],
+      [2, "Needs you."],
       [1, "No agent is running."],
     ]);
   });
@@ -958,7 +959,7 @@ describe("summarySentence", () => {
   }
 
   it("counts the changed work items by their present state, in the inbox's order and words, and leaves out the ones with no state", () => {
-    expect(summarySentence([change("finished"), change("waiting"), change(null)])).toBe("1 waiting for you, 1 finished");
+    expect(summarySentence([change("finished"), change("waiting"), change(null)])).toBe("1 needs you, 1 finished");
     expect(summarySentence([change("working"), change("working")])).toBe("2 working");
   });
 
@@ -1953,7 +1954,7 @@ describe("summaryControls", () => {
     expect(summaryControls([change(4, "finished"), change(7, "waiting"), change(9, "waiting")])).toEqual({
       main: { label: "Answer the first question", opens: 7 },
       second: { label: "Open the inbox", opens: "inbox" },
-      hint: "Enter opens the first that waits.",
+      hint: "Enter opens the first that needs you.",
     });
   });
 
@@ -1968,7 +1969,7 @@ describe("summaryHead", () => {
   const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine }];
 
   it("is the summary's sentence where a work item changed", () => {
-    expect(summaryHead(true, waits)).toBe("1 waiting for you");
+    expect(summaryHead(true, waits)).toBe("1 needs you");
   });
 
   it("says that nothing changed where a look is recorded and no work item changed", () => {
@@ -1977,6 +1978,17 @@ describe("summaryHead", () => {
 
   it("says that no look is recorded where none is", () => {
     expect(summaryHead(false, [])).toBe("No earlier look is recorded.");
+  });
+});
+
+describe("bellSays", () => {
+  it("says how many work items need the person, in the state's own words as they agree with the count, and what a press does", () => {
+    expect(bellSays(1)).toBe("1 needs you. Show them alone.");
+    expect(bellSays(2)).toBe("2 need you. Show them alone.");
+  });
+
+  it("says what a press does where no work item needs the person", () => {
+    expect(bellSays(0)).toBe("Show the work items that need you alone.");
   });
 });
 
