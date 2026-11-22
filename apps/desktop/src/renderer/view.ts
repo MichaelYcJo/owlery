@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -149,6 +149,54 @@ export function pinnedFirst<E extends { workItem: WorkItem }>(entries: readonly 
 /** The marks a work item's line carries after its title, each with the words a pointer and a screen reader are told: one where it is pinned, and one where its notifications are muted. */
 export function lineMarks(workItem: WorkItem): { mark: "pinned" | "muted"; words: string }[] {
   return [...(workItem.pinned ? [{ mark: "pinned" as const, words: "Pinned" }] : []), ...(workItem.muted ? [{ mark: "muted" as const, words: "Notifications muted" }] : [])];
+}
+
+/** The decisions made for a work item in place of asking, in the order they were recorded: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
+function decisionsOf(workItem: WorkItem): readonly Decision[] {
+  return (workItem.decisions as Decision[] | undefined) ?? [];
+}
+
+/**
+ * The mark a work item's line carries for the decisions made for it in place
+ * of asking: how many stand, as in "2 decisions without asking", a standing
+ * one being one no person reversed, or nothing where none stands. No decision
+ * changes the line's state or its group.
+ */
+export function decisionMark(workItem: WorkItem): string {
+  const standing = decisionsOf(workItem).filter((decision) => decision.reversed === null).length;
+  return standing === 0 ? "" : `${standing} ${standing === 1 ? "decision" : "decisions"} without asking`;
+}
+
+/** The head the preview and a work item's view list the decisions under. */
+export const DECISIONS_HEAD = "Decided without asking";
+
+/** Each kind of decision as its line says it. */
+const DECISION_KIND: Record<DecisionKind, string> = { route: "Route", default: "Default taken", scope: "Scope chosen", answered: "Answered from the tree" };
+
+export interface DecisionLine {
+  id: number;
+  /** The decision's kind in words. */
+  kind: string;
+  /** What was decided. */
+  says: string;
+  /** Why, after "Grounds: ". */
+  grounds: string;
+  /** How long ago it was recorded, in the words of an age. */
+  age: string;
+  /** That a person reversed it, with how long ago, and the message they gave, or null while it stands. A work item's view offers "Reverse" on a line that stands. */
+  reversed: { head: string; message: string } | null;
+}
+
+/** The lines of the decisions made for a work item in place of asking, every one of them, the reversed among them, the newest first. */
+export function decisionLines(workItem: WorkItem, now: number): DecisionLine[] {
+  return [...decisionsOf(workItem)].reverse().map(({ id, kind, says, grounds, at, reversed }) => ({
+    id,
+    kind: DECISION_KIND[kind] ?? kind,
+    says,
+    grounds: `Grounds: ${grounds}`,
+    age: ageOf(at, now),
+    reversed: reversed && { head: `Reversed, ${ageOf(reversed.at, now)}`, message: reversed.message },
+  }));
 }
 
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */

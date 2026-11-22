@@ -128,6 +128,24 @@ export function losesWork(loss: Pick<WorkItemLoss, "commitCount" | "uncommittedC
   return loss.commitCount > 0 || loss.uncommittedCount > 0 || loss.untrackedCount > 0;
 }
 
+/** Why the orchestrator decided without asking: it chose a route, took a default, chose a scope, or found the question answered in the tree. */
+export type DecisionKind = "route" | "default" | "scope" | "answered";
+
+/** One decision made for a work item in place of asking the person. */
+export interface Decision {
+  /** Given once over the daemon's whole store, and never again. */
+  id: number;
+  kind: DecisionKind;
+  /** What was decided, 2000 characters of it at most. */
+  says: string;
+  /** Why, with the coordinate the decision stands on, 2000 characters at most. */
+  grounds: string;
+  /** The daemon's clock when it was recorded. */
+  at: number;
+  /** When a person reversed it and the message they gave, 2000 characters of it at most, or null while it stands. */
+  reversed: { at: number; message: string } | null;
+}
+
 /**
  * One piece of work, in a worktree of its own, of one repository: `repoId` is
  * that repository's id and `repo` its main checkout's top-level folder, `branch` the branch
@@ -171,6 +189,8 @@ export interface WorkItem {
   groupId: number | null;
   /** When it was archived, or null while it is not. */
   archivedAt: number | null;
+  /** The decisions made for it in place of asking the person, in the order they were recorded, the reversed among them. A daemon of an earlier build sends no such field, and a client reads its absence as no decision. */
+  decisions: Decision[];
 }
 
 export interface SessionInfo {
@@ -280,6 +300,8 @@ export type ClientMessage =
   | { type: "addGroup"; requestId: number; repoId: number; name: string }
   // Sets a work item's pin, its mute, its group, or several of them: a field that is absent is left as it is. `groupId` is the id of a group of the work item's repository, or null, which takes the work item out of its group. A group of another repository, or one no repository holds, is refused, and nothing of the message is then set. The daemon answers with `done`.
   | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
+  // Reverses a decision made for a work item in place of asking, with the person's message, which is stored without the white space at its ends. The decision stays listed, with the time and the message. An empty message is refused, and so are a decision the work item does not hold and one already reversed: nothing is then changed. The daemon answers with `done`.
+  | { type: "reverseDecision"; requestId: number; workItemId: number; decisionId: number; message: string }
   // Asks what renaming the work item's branch after the name `title` would give. The daemon renames nothing, and answers with a `renamePlan`.
   | { type: "planRename"; requestId: number; id: number; title: string }
   // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so is a rename of the branch that a plan would answer with `blocked`: nothing is then changed, the name neither. The worktree's folder keeps its name. The daemon answers with `done`.

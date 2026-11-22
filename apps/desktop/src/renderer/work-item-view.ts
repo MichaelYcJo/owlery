@@ -1,7 +1,7 @@
 // A work item's view: its header, its tabs with the terminals of the panes
 // on the stage and the strip under them, and its right column, which says what the
-// daemon sends of the work item above the "Ask" section and the seal's
-// place. The pool of terminal screens the window holds lives here, and so
+// daemon sends of the work item, the decisions made for it without asking
+// among it, above the "Ask" section and the seal's place. The pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -79,6 +79,8 @@ let asking: number | undefined;
 let mac = false;
 // What puts a work item's view in front, for a click on a link that is another work item's worktree.
 let openWorkItem: (workItemId: number) => void = () => {};
+// What a press of "Reverse" on a decision of the view's work item does: it opens the dialog that takes the message.
+let reverseDecision: (workItemId: number, decisionId: number) => void = () => {};
 // How long the pointer rests on a link before its card shows, and how long the card stays once the pointer is on neither the link nor the card, which is the time the pointer has to go from one to the other.
 const CARD_SHOW_MS = 300;
 const CARD_LEAVE_MS = 200;
@@ -729,7 +731,7 @@ export function showView(): void {
       return [term, said];
     }),
   );
-  viewDetail.replaceChildren(...detail(entry, 0));
+  viewDetail.replaceChildren(...detail(entry, 0, (decisionId) => reverseDecision(workItem.id, decisionId)));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
   stripState.className = `state ${stateClass(line.state)}`;
@@ -836,10 +838,11 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void): void {
+export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void): void {
   leave = onLeave;
   mac = isMac;
   openWorkItem = openView;
+  reverseDecision = reverse;
   // The card stays while the pointer is on it, and leaves a moment after the pointer left it for somewhere that is not its link.
   linkCardElement.addEventListener("mouseenter", () => clearTimeout(cardLeaveTimer));
   linkCardElement.addEventListener("mouseleave", cardLeaves);

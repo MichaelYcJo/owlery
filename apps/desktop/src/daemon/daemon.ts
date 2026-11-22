@@ -5,21 +5,22 @@ import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
+import { DecisionStore, isDecisionKind } from "./decisions";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
-/** How much of a state's text the daemon keeps. */
+/** How much of a state's text the daemon keeps, and of each text of a decision. */
 const STATE_TEXT_CHARS = 2000;
 
 /** The first `STATE_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
-function cutText(text: string | null): string | null {
+function cutText<T extends string | null>(text: T): T | string {
   if (text === null || text.length <= STATE_TEXT_CHARS) return text;
   const last = text.charCodeAt(STATE_TEXT_CHARS - 1);
   // A character outside the basic plane is two of a string's, and the first of the two alone is no character.
@@ -89,7 +90,7 @@ export interface DaemonOptions {
   commandFor: (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, and the choice of when to keep the Mac awake, in `keep-awake.json`; without them all three are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, and the decisions made without asking, in `decisions.json`; without it all four are in memory alone. */
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
@@ -165,6 +166,7 @@ export class Daemon {
   private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
   private readonly keepAwake: KeepAwakeStore;
+  private readonly decisions: DecisionStore;
   // The hold that stands now, where one does. The daemon holds one at most.
   private hold: { release(): void } | undefined;
   // The fetches of the bases work items start from: a form's and a creation's of one branch are one fetch.
@@ -194,6 +196,7 @@ export class Daemon {
     this.lastLook = new LastLook(options.runDir);
     this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
     this.keepAwake = new KeepAwakeStore(options.runDir);
+    this.decisions = new DecisionStore(options.runDir);
   }
 
   listen(port: number): Promise<number> {
@@ -238,6 +241,42 @@ export class Daemon {
     session.info.stateText = cutText(said.text);
     session.info.stateTool = said.tool;
     this.broadcastInbox();
+  }
+
+  /**
+   * Records a decision made for a work item in place of asking the person,
+   * and sends every client the lists, in which the work item holds it. The
+   * daemon's own code calls it, as it calls `agentEvent`: no client's message
+   * records a decision. It returns the decision at once, with its id and the
+   * daemon's time. It holds nothing: it changes no session and no other work
+   * item, and starts and stops nothing. What was decided and its grounds are
+   * kept without the white space at their ends, 2000 characters of each at
+   * most. It returns nothing, records nothing and sends nothing for a work
+   * item the daemon does not keep, a kind that is none of `DecisionKind`,
+   * and what was decided or grounds that are empty or no text.
+   */
+  decided(workItemId: number, decision: { kind: DecisionKind; says: string; grounds: string }): Decision | undefined {
+    const { kind, says, grounds } = (typeof decision === "object" && decision !== null ? decision : {}) as { kind?: unknown; says?: unknown; grounds?: unknown };
+    if (!this.store.workItem(workItemId) || !isDecisionKind(kind) || typeof says !== "string" || typeof grounds !== "string") return undefined;
+    const kept = { kind, says: cutText(says.trim()), grounds: cutText(grounds.trim()) };
+    if (kept.says === "" || kept.grounds === "") return undefined;
+    this.decisionsChange(() => this.decisions.record(workItemId, kept, (this.options.now ?? Date.now)()));
+    this.broadcastInbox();
+    // The one just recorded is the work item's last, whether or not its write threw.
+    return this.decisions.of(workItemId).at(-1);
+  }
+
+  /**
+   * Runs a change of the decisions. The store holds a change in memory
+   * before it writes it, so where the write throws the log says so, and the
+   * daemon goes on with the decisions it holds.
+   */
+  private decisionsChange(change: () => void): void {
+    try {
+      change();
+    } catch (error) {
+      console.error(`the decisions were not written: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async close(): Promise<void> {
@@ -515,6 +554,25 @@ export class Daemon {
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
           this.send(socket, { type: "done", requestId: message.requestId });
           if (changed) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "reverseDecision": {
+        try {
+          const { workItemId, decisionId, message: typed } = message as { workItemId: unknown; decisionId: unknown; message: unknown };
+          if (typeof workItemId !== "number" || typeof decisionId !== "number" || typeof typed !== "string") throw new Error("a reversal names a work item, a decision of it and a message");
+          const said = cutText(typed.trim());
+          if (said === "") throw new Error("Say why the decision is reversed.");
+          if (!this.store.workItem(workItemId)) throw new Error(`no work item ${String(workItemId)}`);
+          const decision = this.decisions.of(workItemId).find((held) => held.id === decisionId);
+          if (!decision) throw new Error(`work item ${String(workItemId)} holds no decision ${String(decisionId)}`);
+          if (decision.reversed !== null) throw new Error("The decision is already reversed.");
+          this.decisionsChange(() => this.decisions.reverse(workItemId, decisionId, said, (this.options.now ?? Date.now)()));
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the reversal.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          this.broadcastInbox();
         } catch (error) {
           this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
         }
@@ -804,7 +862,7 @@ export class Daemon {
     return `An archive of work item ${String(id)} is ending its sessions. Try again.`;
   }
 
-  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, and what was read of each branch. The store is not touched. */
+  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch, and the decisions made for each, which leave `decisions.json` with them. The store of the repositories is not touched. */
   private dropWorkItems(ids: ReadonlySet<number>): void {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
@@ -821,6 +879,7 @@ export class Daemon {
       this.aheadCounts.delete(id);
       this.branches.delete(id);
     }
+    this.decisionsChange(() => this.decisions.drop(ids));
   }
 
   /**
@@ -1089,7 +1148,7 @@ export class Daemon {
     return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })) };
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, and with what was last read of its branch. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with the decisions made for it. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -1101,6 +1160,7 @@ export class Daemon {
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
+      decisions: this.decisions.of(item.id),
     };
   }
 

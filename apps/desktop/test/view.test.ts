@@ -24,6 +24,9 @@ import {
   deleteSays,
   deletionOf,
   daemonStatus,
+  decisionLines,
+  decisionMark,
+  DECISIONS_HEAD,
   droppedText,
   emptyList,
   fileLines,
@@ -109,7 +112,7 @@ import {
   type MenuEntry,
   unanswered,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -130,6 +133,7 @@ const LOGIN: WorkItem = {
   muted: false,
   groupId: null,
   archivedAt: null,
+  decisions: [],
 };
 const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
@@ -843,6 +847,58 @@ describe("lineMarks", () => {
     expect(lineMarks({ ...LOGIN, pinned: true })).toEqual([{ mark: "pinned", words: "Pinned" }]);
     expect(lineMarks({ ...LOGIN, muted: true })).toEqual([{ mark: "muted", words: "Notifications muted" }]);
     expect(lineMarks({ ...LOGIN, pinned: true, muted: true }).map(({ mark }) => mark)).toEqual(["pinned", "muted"]);
+  });
+});
+
+describe("the decisions made without asking", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  function decision(id: number, fields: Partial<Decision> = {}): Decision {
+    return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", at: NOW - 12 * MINUTE, reversed: null, ...fields };
+  }
+  const REVERSAL = { at: NOW - 3 * MINUTE, message: "기본값 말고 main에서 시작해 주세요" };
+  /** A work item as a daemon of a build before the decisions sends it. */
+  const { decisions: _decisions, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("marks a line with how many decisions stand, a reversed one not among them, and with nothing where none stands", () => {
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(2, { reversed: REVERSAL }), decision(3)] })).toBe("2 decisions without asking");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(2, { reversed: REVERSAL })] })).toBe("1 decision without asking");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(2, { reversed: REVERSAL })] })).toBe("");
+    expect(decisionMark(LOGIN)).toBe("");
+  });
+
+  it("leaves a line's state and its group as its panes give them, whatever was decided for the work item", () => {
+    const decided = { ...LOGIN, decisions: [decision(1), decision(2, { reversed: REVERSAL })] };
+    for (const sessions of [[], [session(2, { state: "working" })], [session(2, { state: "waiting" })], [session(2, { state: "finished" })]]) {
+      expect(inboxLine(decided, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+      expect(inboxGroups(workItemEntries([decided], sessions, KINDS)).map((group) => group.heading)).toEqual(inboxGroups(workItemEntries([LOGIN], sessions, KINDS)).map((group) => group.heading));
+      expect(inboxSummary([inboxLine(decided, sessions, KINDS)])).toBe(inboxSummary([inboxLine(LOGIN, sessions, KINDS)]));
+    }
+  });
+
+  it("lists every decision under its head, the newest first: the kind in words, what was decided, the grounds, the age, and for a reversed one that it was, how long ago, and the message", () => {
+    expect(DECISIONS_HEAD).toBe("Decided without asking");
+    const decisions = [
+      decision(1, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", at: NOW - 3 * 60 * MINUTE }),
+      decision(2, { reversed: REVERSAL }),
+      decision(3, { kind: "scope", says: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3.", at: NOW - 5 * MINUTE }),
+      decision(4, { kind: "answered", says: "The base is main.", grounds: "seal/config.json names no other.", at: NOW }),
+    ];
+    expect(decisionLines({ ...LOGIN, decisions }, NOW)).toEqual([
+      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: seal/config.json names no other.", age: "less than a minute", reversed: null },
+      { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", age: "5 min", reversed: null },
+      { id: 2, kind: "Default taken", says: "Start from main.", grounds: "Grounds: frame/questions.md Q1 states main as its default.", age: "12 min", reversed: { head: "Reversed, 3 min", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", age: "3 h", reversed: null },
+    ]);
+    expect(decisionLines(LOGIN, NOW)).toEqual([]);
+  });
+
+  it("reads a work item of a daemon of an earlier build, which sends no decisions, as one with none, and throws at none", () => {
+    expect(decisionMark(EARLIER)).toBe("");
+    expect(decisionLines(EARLIER, NOW)).toEqual([]);
+    expect(inboxLine(EARLIER, [session(2, { state: "working" })], KINDS)).toEqual(inboxLine(LOGIN, [session(2, { state: "working" })], KINDS));
+    expect(lineText(EARLIER, undefined, false)).toEqual(lineText(LOGIN, undefined, false));
   });
 });
 

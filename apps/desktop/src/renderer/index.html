@@ -95,6 +95,9 @@
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
+      /* On a line, how many decisions made without asking stand for the work item. */
+      .line .decided { flex: none; font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
+      .line .decided:empty { display: none; }
       .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); }
       .icon-button:hover { background: var(--hover); color: var(--ink); transition: background-color var(--motion), color var(--motion); }
       .icon-button:active { background: var(--pressed); }
@@ -145,6 +148,16 @@
       .detail .says { padding: 14px var(--space-6) var(--space-5); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
       .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-serif); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* A decision made in place of asking: its kind and its age on a row, with "Reverse" in a view, then what was decided, its grounds, and under a reversed one that it was reversed and the person's message. Each text is plain, with its line breaks kept. */
+      .decision { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); font-size: var(--size-second); }
+      .decision:last-child { border-bottom: 0; }
+      .decision .row { display: flex; align-items: center; gap: var(--space-4); min-height: var(--detail-line); }
+      .decision .kind { font-weight: 500; color: var(--ink-strong); }
+      .decision .age { flex: 1; font-size: var(--size-caption); color: var(--ink-faint); }
+      .decision .what, .decision .grounds, .decision .message { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .decision .grounds, .decision .reversal { color: var(--ink-muted); }
+      .decision .reversal { margin-top: var(--space-2); font-size: var(--size-caption); }
+      .decision.reversed .what { text-decoration: line-through; color: var(--ink-muted); }
       .commit { display: grid; grid-template-columns: var(--dot) auto minmax(0, 1fr) auto auto; grid-template-areas: "gained hash subject counts age"; column-gap: var(--space-4); align-items: center; min-height: var(--detail-line); font-size: var(--size-second); }
       .commit .gained { grid-area: gained; }
       /* The dot before a commit the branch gained since the person last looked. */
@@ -265,7 +278,7 @@
       .preview-facts .branch { color: var(--ink); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
-      .preview .detail .says { grid-column: 1 / -1; }
+      .preview .detail .says, .preview .detail .decisions { grid-column: 1 / -1; }
       .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
       .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
 
@@ -744,6 +757,21 @@
         <div class="row end">
           <button type="button" id="remove-cancel" class="quiet">Cancel</button>
           <button type="submit" id="remove-submit" class="primary">Remove</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="reverse-dialog">
+      <form id="reverse-form">
+        <h2 class="head">Reverse the decision</h2>
+        <p id="reverse-decision" class="says"></p>
+        <label>
+          Why you reverse it. The message is kept with the decision.
+          <span class="row"><input id="reverse-message" autocomplete="off" /></span>
+        </label>
+        <p id="reverse-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="reverse-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="reverse-submit" class="primary">Reverse</button>
         </div>
       </form>
     </dialog>

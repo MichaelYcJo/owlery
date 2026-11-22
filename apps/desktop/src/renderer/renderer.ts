@@ -38,6 +38,7 @@ import {
   daemonEnding,
   daemonLists,
   daemonNotice,
+  decisionLines,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -151,6 +152,8 @@ const iconDialog = byId<HTMLDialogElement>("icon-dialog");
 const iconField = byId<HTMLInputElement>("icon-field");
 const groupDialog = byId<HTMLDialogElement>("group-dialog");
 const groupName = byId<HTMLInputElement>("group-name");
+const reverseDialog = byId<HTMLDialogElement>("reverse-dialog");
+const reverseMessage = byId<HTMLInputElement>("reverse-message");
 const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
 const removeDialog = byId<HTMLDialogElement>("remove-dialog");
 const sessionsDialog = byId<HTMLDialogElement>("sessions-dialog");
@@ -171,6 +174,7 @@ const FORM: Asking = { dialog: workItemDialog, error: formError, button: createB
 const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
 const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button: byId<HTMLButtonElement>("group-submit") };
+const REVERSE: Asking = { dialog: reverseDialog, error: byId("reverse-error"), button: byId<HTMLButtonElement>("reverse-submit") };
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
@@ -182,6 +186,8 @@ const asking = new Map<number, Asking>();
 let settingsOf: number | undefined;
 let iconOf: number | undefined;
 let groupOf: number | undefined;
+// The decision the dialog that reverses one was opened on, with its work item.
+let reversing: { workItemId: number; decisionId: number } | undefined;
 let removing: number | undefined;
 // What the removal's dialog names, which is what its request tells the daemon the person was told of.
 let removal: Removal | undefined;
@@ -693,6 +699,22 @@ function openGroup(repositoryId: number): void {
   byId("group-head").textContent = `New group in ${repository.name}`;
   groupName.value = "";
   groupName.focus();
+}
+
+/**
+ * Opens the dialog that takes the message a person reverses a decision
+ * with, as a press of "Reverse" on the decision's line in its work item's
+ * view asks. The dialog names the decision, and its field is empty. Nothing
+ * opens for a decision the window no longer lists as standing.
+ */
+function openReverse(workItemId: number, decisionId: number): void {
+  const workItem = held.workItems.find((item) => item.id === workItemId);
+  const line = workItem && decisionLines(workItem, Date.now()).find((listed) => listed.id === decisionId);
+  if (!line || line.reversed !== null || !opened(REVERSE)) return;
+  reversing = { workItemId, decisionId };
+  byId("reverse-decision").textContent = `${line.kind}: ${line.says}`;
+  reverseMessage.value = "";
+  reverseMessage.focus();
 }
 
 function openHidden(): void {
@@ -1420,7 +1442,7 @@ initSidebar(
   MAC,
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
-initView(() => openList("inbox"), MAC, openView);
+initView(() => openList("inbox"), MAC, openView, openReverse);
 initKeepAwake();
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
@@ -1513,6 +1535,13 @@ byId<HTMLFormElement>("group-form").addEventListener("submit", (event) => {
   // The daemon stores the name without the white space at its ends, and refuses an empty one.
   const repoId = groupOf;
   if (repoId !== undefined) ask(GROUP, (requestId) => ({ type: "addGroup", requestId, repoId, name: groupName.value }));
+});
+byId("reverse-cancel").addEventListener("click", () => reverseDialog.close());
+byId<HTMLFormElement>("reverse-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  // The daemon stores the message without the white space at its ends, and refuses an empty one. Its `done` closes the dialog, and the `inbox` after it carries the decision as reversed.
+  const of = reversing;
+  if (of !== undefined) ask(REVERSE, (requestId) => ({ type: "reverseDecision", requestId, ...of, message: reverseMessage.value }));
 });
 byId("hidden-close").addEventListener("click", () => hiddenDialog.close());
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());

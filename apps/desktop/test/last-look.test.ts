@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { Look, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { Decision, Look, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -19,6 +19,8 @@ function runDir(): string {
 const SESSION: SessionInfo = { id: 4, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: 1200, stateText: "May I run the tests?", stateTool: "Bash" };
 const COMMIT = { hash: "abc1234", subject: "add the form", at: 1100, added: 3, removed: 1 };
 const FILE = { path: "src/form.ts", added: 3, removed: 1 };
+const DECISION: Decision = { id: 3, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", at: 1150, reversed: null };
+const REVERSED: Decision = { id: 5, kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", at: 1160, reversed: { at: 1180, message: "Frame it first." } };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -38,6 +40,7 @@ const WORK_ITEM: WorkItem = {
   muted: true,
   groupId: 2,
   archivedAt: null,
+  decisions: [DECISION, REVERSED],
 };
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
@@ -70,6 +73,9 @@ describe("LastLook", () => {
     workItem.changes!.files = 9;
     workItem.changes!.list[0]!.added = 9;
     workItem.changes!.list.pop();
+    workItem.decisions[0]!.says = "changed";
+    workItem.decisions[1]!.reversed!.message = "changed";
+    workItem.decisions.pop();
     sessions.push({ ...SESSION, id: 5 });
     expect(look.get()).toEqual(LOOK);
   });
@@ -107,6 +113,7 @@ describe("LastLook", () => {
       note: "x",
       commits: WORK_ITEM.commits!.map((commit) => ({ ...commit, author: "someone" })),
       changes: { ...WORK_ITEM.changes!, binary: 1, list: WORK_ITEM.changes!.list.map((file) => ({ ...file, mode: "100644" })) },
+      decisions: [{ ...DECISION, model: "x" }, { ...REVERSED, reversed: { ...REVERSED.reversed!, by: "someone" } }],
     };
     writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, by: "a window", sessions: [{ ...SESSION, pid: 7 }], workItems: [workItem] }));
     expect(new LastLook(dir).get()).toEqual(LOOK);
@@ -153,6 +160,9 @@ describe("LastLook", () => {
     for (const changes of [{ files: "2" }, { added: null }, { removed: null }, { list: {} }, { list: [null] }, { list: [{ ...FILE, path: 3 }] }, { list: [{ ...FILE, added: "3" }] }, { list: [{ ...FILE, removed: "1" }] }]) {
       expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, changes: { ...WORK_ITEM.changes, ...changes } }] }))).toBeNull();
     }
+    for (const decisions of [null, "none", {}, [null], [{ ...DECISION, id: "3" }], [{ ...DECISION, kind: "guess" }], [{ ...DECISION, says: 3 }], [{ ...DECISION, grounds: null }], [{ ...DECISION, at: "1150" }], [{ ...DECISION, reversed: undefined }], [{ ...DECISION, reversed: { at: 1 } }], [{ ...DECISION, reversed: { at: "1", message: "x" } }]]) {
+      expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, decisions }] }))).toBeNull();
+    }
     // The file as the first line of this case would have it read, so the reader is the one under test.
     expect(read(JSON.stringify(LOOK))).toEqual(LOOK);
   });
@@ -189,6 +199,18 @@ describe("LastLook", () => {
       writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, archivedAt: 9, [field]: undefined }] }));
       expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, archivedAt: 9, [field]: empty[field] }] });
     }
+  });
+
+  it("reads a look a build before the decisions wrote, whose work items hold none, with no decision on each, and holds in a look recorded now the decisions of each work item", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { decisions: _decisions, ...before } = WORK_ITEM;
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before, { ...before, id: 2 }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, decisions: [] }, { ...before, id: 2, decisions: [] }] });
+    const look = new LastLook(dir);
+    look.record(1234, [SESSION], [WORK_ITEM, { ...WORK_ITEM, id: 2, decisions: [] }]);
+    expect(JSON.parse(readFileSync(file, "utf8")).workItems.map((item: WorkItem) => item.decisions)).toEqual([[DECISION, REVERSED], []]);
+    expect(new LastLook(dir).get()?.workItems.map((item) => item.decisions)).toEqual([[DECISION, REVERSED], []]);
   });
 
   it("holds the look it was given though the file cannot be written, and says that it was not", () => {

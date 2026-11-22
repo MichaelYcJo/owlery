@@ -4,7 +4,7 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, fileLines, lineMarks, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import { commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -266,15 +266,37 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 
 /**
  * What the preview and a view's right column say of a work item alike: what
- * its agent says, its commits and its changed files, each left out where the
- * daemon sent none. The first `gained` commits carry the dot of a commit the
- * branch gained since the person last looked.
+ * its agent says, the decisions made for it in place of asking, its commits
+ * and its changed files, each left out where the daemon sent none. The first
+ * `gained` commits carry the dot of a commit the branch gained since the
+ * person last looked. Where `reverse` is given, as a view gives it, each
+ * decision that stands offers "Reverse", whose press hands `reverse` the
+ * decision's id.
  */
-export function detail(entry: Entry, gained: number): HTMLElement[] {
+export function detail(entry: Entry, gained: number, reverse?: (decisionId: number) => void): HTMLElement[] {
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
   // The agent's words are plain text, never markup.
   if (says) parts.push(section("says", heading(says.head), part("said", says.text)));
+  const decisions = decisionLines(entry.workItem, Date.now());
+  if (decisions.length > 0) {
+    const lines = decisions.map((line) => {
+      const head = row(part("kind", line.kind), part("age", line.age));
+      if (reverse && line.reversed === null) {
+        const button = document.createElement("button");
+        button.className = "quiet";
+        button.textContent = "Reverse";
+        button.title = "Reverse this decision, with a message";
+        button.addEventListener("click", () => reverse(line.id));
+        head.append(button);
+      }
+      // What was decided, its grounds and a person's message are plain text, never markup.
+      const element = item(line.reversed ? "decision reversed" : "decision", head, part("what", line.says), part("grounds", line.grounds));
+      if (line.reversed) element.append(part("reversal", line.reversed.head), part("message", line.reversed.message));
+      return element;
+    });
+    parts.push(section("decisions", heading(DECISIONS_HEAD), listOf(lines)));
+  }
   const commits = commitLines(entry.workItem, gained, Date.now());
   if (commits) {
     const lines = commits.lines.map((line) => {
