@@ -187,7 +187,7 @@ Out of scope, each with its reason.
 - `apps/desktop/src/renderer/shared.ts`: a state's icon is drawn as paths whose shapes the theme gives.
 - `apps/desktop/src/renderer/view.ts`: the two texts.
 - `apps/desktop/package.json`: one script that runs the screenshot case, beside `korean:typed`, `measure:memory` and `role:run`.
-- `images/mock.html` of this work item: the mock-ups' source, which holds each theme's values as custom properties under `:root[data-d="…"]`. The build reads the values there.
+- `images/mock.html` of this work item: the mock-ups' source, which holds each theme's values as custom properties under `:root[data-d="…"]`. Phase 1 took its values into `docs/design.md`, naming the properties that carry the form and filling what the mock-ups lack (`trail/phases/phase-1.md` *Decisions*); from then on `docs/design.md`'s tables are the source the build reads, and the mock-ups are a picture of the study.
 
 Two probes stand under these interfaces. Each ran in the built app at `9efbc74`, whose tree outside this work item's directory is `0d65470`'s, through a probe `test_tmp_cost.test.ts` in the framer's scratch clone. Its first run failed on the probe's own reading of the style sheet and measured nothing, and its second exited 0.
 
