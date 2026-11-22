@@ -281,7 +281,7 @@ describe("copyIncluded", () => {
       git(repo, "worktree", "add", "--quiet", "-b", `owlery/${name}`, other);
       return other;
     };
-    // An exFAT volume refuses a hard link with ENOTSUP, and other systems with EXDEV or EPERM.
+    // A volume that makes no hard link refuses one with ENOTSUP, as exFAT does on macOS, or with EPERM; a link across volumes is refused with EXDEV.
     for (const code of ["ENOTSUP", "EXDEV", "EPERM"]) {
       const other = worktreeFor(code);
       vi.mocked(link).mockImplementation(() => Promise.reject(refused(code)));

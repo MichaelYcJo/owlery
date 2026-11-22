@@ -109,7 +109,7 @@ export const APPEARED = "it came to stand in the worktree during the copy, and w
 /** The errors with which a move refuses a target that stands. */
 const STANDS = new Set(["EEXIST", "ENOTEMPTY", "ENOTDIR", "EISDIR"]);
 
-/** The errors with which a volume refuses to make any hard link, as exFAT refuses one with `ENOTSUP`. */
+/** The errors with which a hard link is refused where the volume makes none, as exFAT refuses one with `ENOTSUP`, or where it would cross volumes. */
 const NO_HARD_LINK = new Set(["ENOTSUP", "EXDEV", "EPERM"]);
 
 /**
@@ -137,8 +137,9 @@ async function place(stage: string, target: string): Promise<void> {
   }
 }
 
-/** The start of the name of the folder `copyPath` writes a copy in, and the whole name, which `mkdtemp` ends with six letters or digits. */
+/** The start of the name of the folder `copyPath` writes a copy in. */
 const STAGING = ".owlery-copy-";
+/** The whole name of that folder, which `mkdtemp` ends with six letters or digits. */
 const STAGING_NAME = /^\.owlery-copy-[A-Za-z0-9]{6}$/;
 
 /** What the `.gitignore` of a staging folder holds, so git sees nothing in the folder. */
@@ -207,8 +208,8 @@ async function copyPath(clone: string, source: string, target: string): Promise<
  * can be made, as on a volume that is not APFS or across volumes. Where that
  * process fails, as on a file it cannot read, or cannot start, Node's copy
  * writes the path there instead. The copy then moves into its place whole.
- * A path that came to stand in the
- * worktree meanwhile is left as it is and listed as not copied. A path that
+ * A path that came to stand in the worktree meanwhile is left as it is and
+ * listed as not copied. A path that
  * fails to copy is listed with its error, nothing of it is left in the
  * worktree, the folders made for it among them, and the others go on. Where
  * either git command fails, nothing is copied and `failure` says why;
