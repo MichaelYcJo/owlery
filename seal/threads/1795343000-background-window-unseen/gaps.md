@@ -12,4 +12,4 @@
 
 ## Not done
 
-The statements in `docs/architecture.md`, `docs/roadmap.md`, `docs/design.md`, their Korean twins and `apps/desktop/measurements/memory.md` that list what a background start does were not rewritten to say its window is not seen. The crafter writes none of those files, and `trail/phases/phase-1.md` lists each line for the orchestrator.
+nothing
