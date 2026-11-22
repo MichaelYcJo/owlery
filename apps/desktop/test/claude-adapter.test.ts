@@ -2,9 +2,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { RoleEvent } from "../src/daemon/adapters/adapter";
-import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
-import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText } from "../src/daemon/adapters/claude-roles";
+import type { RoleEvent, RoleRun } from "../src/daemon/adapters/adapter";
+import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, INITIALIZE_LINE, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, PERMISSION_CUT_MARK, PERMISSION_TEXT_CHARS, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
+import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText, toolsOf } from "../src/daemon/adapters/claude-roles";
 import { ROLE_STAGES, type RoleStage } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
@@ -26,7 +26,7 @@ function script(folder: string, name: string, body: string): string {
 }
 
 describe("the Claude adapter's launch", () => {
-  it("passes exactly the flags that detach the session and keep the permission checks", () => {
+  it("passes exactly the flags that detach the session, keep the permission checks and bring each request to the session's own streams, and for a session with no role keeps the default tools less the three a host's answers add", () => {
     expect(claudeArgs("/work/tree")).toEqual([
       "-p",
       "--input-format",
@@ -41,13 +41,17 @@ describe("the Claude adapter's launch", () => {
       "--strict-mcp-config",
       "--permission-mode",
       "default",
+      "--permission-prompt-tool",
+      "stdio",
+      "--disallowedTools",
+      "AskUserQuestion,EnterPlanMode,ExitPlanMode",
       "--add-dir",
       "/work/tree",
     ]);
   });
 
-  it("adds to a role launch the bundle, the role's agent and the rules file after the permission mode, and the bundle's folder after the worktree, and nothing else", () => {
-    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md" };
+  it("gives a role launch the role's tools as one value in place of the default tools, then the bundle, the role's agent and the rules file, and the bundle's folder after the worktree, and nothing else", () => {
+    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"] };
     expect(claudeArgs("/work/tree", role)).toEqual([
       "-p",
       "--input-format",
@@ -62,6 +66,10 @@ describe("the Claude adapter's launch", () => {
       "--strict-mcp-config",
       "--permission-mode",
       "default",
+      "--permission-prompt-tool",
+      "stdio",
+      "--tools",
+      "Read,Glob,Grep,Bash",
       "--plugin-dir",
       "/app/dist/bundle",
       "--agent",
@@ -74,10 +82,13 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
-  it("turns no permission check off, with a role and without", () => {
-    for (const args of [claudeArgs("/work/tree"), claudeArgs("/work/tree", { bundleDir: "/bundle", agent: "owlery:crafter", rulesFile: "/rules.md" })]) {
+  it("turns no permission check off, with no role and with each role: the mode is default, and no other mode and no option that skips a check is named", () => {
+    const launches = [claudeArgs("/work/tree"), ...ROLE_STAGES.map((pair) => claudeArgs("/work/tree", { bundleDir: "/bundle", agent: agentOf(pair), rulesFile: "/rules.md", tools: toolsOf(pair) }))];
+    expect(launches).toHaveLength(4);
+    for (const args of launches) {
+      expect(args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
       expect(args[args.indexOf("--permission-mode") + 1]).toBe("default");
-      for (const off of ["bypassPermissions", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--bare"]) expect(args).not.toContain(off);
+      for (const off of ["bypassPermissions", "acceptEdits", "auto", "dontAsk", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--bare", "--permission-prompts"]) expect(args, off).not.toContain(off);
     }
   });
 
@@ -174,12 +185,12 @@ describe("the Claude adapter's run", () => {
     return events;
   }
 
-  it("declares a name and no feature", () => {
+  it("declares its name and the two features: it sets a session's tools by its role, and it reports permission requests and takes their answers", () => {
     expect(claudeAdapter({}).name).toBe("claude");
-    expect(claudeAdapter({}).features).toEqual([]);
+    expect(claudeAdapter({}).features).toEqual(["role-tools", "permission-requests"]);
   });
 
-  it("launches the CLI the shell found, in the folder, with the flags, the five names and the prompt on standard input, and maps what it prints", async () => {
+  it("launches the CLI the shell found, in the folder, with the flags and the five names, writes the handshake and then the prompt on standard input, ends the input at the result, and maps what it prints", async () => {
     const folder = temporaryFolder();
     const cwd = temporaryFolder();
     // Stands for the CLI: records how it was launched, then prints two lines of the stream.
@@ -190,9 +201,10 @@ describe("the Claude adapter's run", () => {
         `pwd -P > '${folder}/cwd'`,
         `for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`,
         `env | sort > '${folder}/env'`,
-        `cat > '${folder}/stdin'`,
         `echo '{"type":"assistant","message":{"content":[{"type":"text","text":"owl"}]}}'`,
         `echo '{"type":"result","is_error":false,"result":"owl","total_cost_usd":0.5}'`,
+        // It exits only at the end of its input, as a session whose host answers its requests does.
+        `cat > '${folder}/stdin'`,
         "exit 0",
       ].join("\n"),
     );
@@ -210,7 +222,10 @@ describe("the Claude adapter's run", () => {
       // What `sh` sets for itself.
       .filter((name) => !["PWD", "SHLVL", "_", "OLDPWD"].includes(name));
     expect(names).toEqual(["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "HOME", "LANG", "PATH", "USER"]);
-    expect(readFileSync(join(folder, "stdin"), "utf8")).toBe(promptLine("Which bird?"));
+    // The handshake on the first line, the prompt on the second, and then the end of the input, which the result brought.
+    expect(readFileSync(join(folder, "stdin"), "utf8")).toBe(`${INITIALIZE_LINE}${promptLine("Which bird?")}`);
+    expect(JSON.parse(INITIALIZE_LINE)).toEqual({ type: "control_request", request_id: "owlery-initialize", request: { subtype: "initialize" } });
+    expect(INITIALIZE_LINE.endsWith("\n")).toBe(true);
   });
 
   it("asks the login shell with a pane's environment: none of what a package script or Electron gave the app, and no node_modules folder in PATH", async () => {
@@ -240,16 +255,16 @@ describe("the Claude adapter's run", () => {
 
   it("reports the exit code of a CLI that ends without a result, and what it printed on its error stream", async () => {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", "cat > /dev/null\necho 'not json'\necho 'error: unknown option' >&2\nexit 3");
+    const cli = script(folder, "cli", "echo 'not json'\necho 'error: unknown option' >&2\nexit 3");
     expect(await run(fakeShell(folder, cli).env, "Q", folder)).toEqual([{ type: "exit", exitCode: 3, errorOutput: "error: unknown option\n" }]);
   });
 
   it("keeps the last ERROR_OUTPUT_CHARS characters of the error stream, and no half of a character at their start", async () => {
     const folder = temporaryFolder();
-    const plain = script(folder, "plain", `cat > /dev/null\nprintf '%s' '${"b".repeat(3000)}end' >&2\nexit 1`);
+    const plain = script(folder, "plain", `printf '%s' '${"b".repeat(3000)}end' >&2\nexit 1`);
     expect(await run(fakeShell(folder, plain).env, "Q", folder)).toEqual([{ type: "exit", exitCode: 1, errorOutput: `${"b".repeat(1997)}end` }]);
     // An a, 1,501 owls and an x are 3,004 of a string's characters, so the last 2,000 would open with the second half of an owl.
-    const owls = script(folder, "owls", `cat > /dev/null\nprintf '%s' 'a${"\u{1F989}".repeat(1501)}x' >&2\nexit 1`);
+    const owls = script(folder, "owls", `printf '%s' 'a${"\u{1F989}".repeat(1501)}x' >&2\nexit 1`);
     const [exit] = await run(fakeShell(folder, owls).env, "Q", folder);
     expect(exit).toEqual({ type: "exit", exitCode: 1, errorOutput: `${"\u{1F989}".repeat(999)}x` });
     expect(ERROR_OUTPUT_CHARS).toBe(2000);
@@ -275,7 +290,7 @@ describe("the Claude adapter's run", () => {
 
   it("asks the login shell once, however many sessions start", async () => {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", "cat > /dev/null\nexit 0");
+    const cli = script(folder, "cli", "exit 0");
     const shell = fakeShell(folder, cli);
     const adapter = claudeAdapter(shell.env);
     const ended = () => new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder }, (event) => event.type === "exit" && resolve()).catch(reject));
@@ -286,7 +301,7 @@ describe("the Claude adapter's run", () => {
 
   it("stops a run: the stop settles once the CLI's process has ended, and a second stop gives the same promise", async () => {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", "cat > /dev/null\nexec sleep 30");
+    const cli = script(folder, "cli", "exec sleep 30");
     const events: RoleEvent[] = [];
     const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
     const stopping = started.stop();
@@ -350,7 +365,7 @@ describe("the Claude adapter's run", () => {
 
   it("reports the exit of a CLI whose child still holds its streams soon after the exit, and signals nothing once the CLI has exited", async () => {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", `cat > /dev/null\nsleep 30 &\necho $! > '${folder}/child'\necho 'gone' >&2\nexit 4`);
+    const cli = script(folder, "cli", `sleep 30 &\necho $! > '${folder}/child'\necho 'gone' >&2\nexit 4`);
     const events: RoleEvent[] = [];
     const at = Date.now();
     const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
@@ -369,7 +384,7 @@ describe("the Claude adapter's run", () => {
     const folder = temporaryFolder();
     // The child ignores SIGPIPE, so it goes on to write how each of its two writes ended, 0 where the stream was still open to it.
     const late = `{"type":"result","is_error":false,"result":"late","total_cost_usd":0}`;
-    const cli = script(folder, "cli", `cat > /dev/null\n(trap '' PIPE; sleep 1; echo '${late}'; out=$?; echo 'late' >&2; err=$?; echo "$out $err" > '${folder}/printed') &\nexit 0`);
+    const cli = script(folder, "cli", `(trap '' PIPE; sleep 1; echo '${late}'; out=$?; echo 'late' >&2; err=$?; echo "$out $err" > '${folder}/printed') &\nexit 0`);
     const events: RoleEvent[] = [];
     await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
     const printed = join(folder, "printed");
@@ -446,7 +461,7 @@ describe("the Claude adapter's run", () => {
       const folder = temporaryFolder();
       const version = join(folder, "version");
       writeFileSync(version, "2.1.300 (Claude Code)\n");
-      const cli = script(folder, "cli", `if [ "$1" = "--version" ]; then cat '${version}'; exit 0; fi\ncat > /dev/null\nexit 0`);
+      const cli = script(folder, "cli", `if [ "$1" = "--version" ]; then cat '${version}'; exit 0; fi\nexit 0`);
       const shell = fakeShell(folder, cli);
       const adapter = claudeAdapter(shell.env);
       expect(await adapter.notice()).toBe(older("2.1.300"));
@@ -493,7 +508,7 @@ describe("a role's rules file", () => {
     ]);
   });
 
-  it("opens with a head that names the role, the stage, the bundle's root and the documents, and says what to do where a step names what the bundle does not hold", () => {
+  it("opens with a head that names the role, the stage, the bundle's root, the documents and the session's tools, and says what to do where a call is refused and where a step names what the bundle does not hold", () => {
     expect(rulesHead("/app/dist/bundle", PROOFER)).toBe(
       [
         "# Owlery role session: proofer, round",
@@ -508,12 +523,20 @@ describe("a role's rules file", () => {
         "- `skills/agent-contract/SKILL.md`",
         "- `skills/code-review/SKILL.md`",
         "",
+        "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.",
+        "",
         "The bundle holds documents only. A path under those four directories that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
         "",
       ].join("\n"),
     );
     const head = rulesHead("/elsewhere", { role: "crafter", stage: "fix-pass" });
     for (const named of ["# Owlery role session: crafter, fix-pass\n", "the crafter of the Owlery role bundle, at the stage `fix-pass`", "`agents/crafter.md`", "`/elsewhere`", "- `skills/implement/fix-pass.md`\n"]) expect(head, named).toContain(named);
+    // Each pair's head names the tools of its own launch, in the launch's order.
+    for (const pair of ROLE_STAGES) {
+      expect(rulesHead("/elsewhere", pair), pair.role).toContain(
+        `\n\nYou hold these tools and no other: ${toolsOf(pair).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.\n\n`,
+      );
+    }
   });
 
   it("holds the head, then each document after a line that names it, whole and without its frontmatter, in the table's order", () => {
@@ -589,7 +612,7 @@ describe("the Claude adapter's role launch", () => {
   /** A folder with a script CLI that prints `lines` and then does `then`, a shell that names it, a scratch bundle and a folder for the rules files. */
   function launch(lines: string[], then = "exit 0") {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", [`for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`, "cat > /dev/null", ...lines.map((line) => `echo '${line}'`), then].join("\n"));
+    const cli = script(folder, "cli", [`for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`, ...lines.map((line) => `echo '${line}'`), then].join("\n"));
     const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
     const bundleDir = scratchBundle(folder);
     const rulesDir = join(folder, "run", "roles");
@@ -620,12 +643,46 @@ describe("the Claude adapter's role launch", () => {
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     const rulesFile = join(rulesDir, "proofer-round.md");
-    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, { bundleDir, agent: "owlery:proofer", rulesFile }));
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, PROOFER));
     expect(statSync(rulesFile).mode & 0o777).toBe(0o600);
     expect(statSync(rulesDir).mode & 0o777).toBe(0o700);
     // The file was written whole: no partial file is left beside it.
     expect(readdirSync(rulesDir)).toEqual(["proofer-round.md"]);
+  });
+
+  it("launches each role with the tools of its grant alone, as one value after --tools: a proofer and a sealer with none that writes a file, a crafter with Edit and Write", async () => {
+    const launched: [string, string | undefined][] = [];
+    for (const pair of ROLE_STAGES) {
+      const init = JSON.stringify({ type: "system", subtype: "init", agents: [agentOf(pair)] });
+      const { folder, env, bundleDir, rulesDir } = launch([init, RESULT]);
+      const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, pair);
+      expect(events.at(-1), pair.role).toEqual({ type: "exit", exitCode: 0, errorOutput: "" });
+      const args = readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1);
+      // One `--tools`, and one argument as its value: the next argument is the bundle's option.
+      expect(args.filter((arg) => arg === "--tools"), pair.role).toHaveLength(1);
+      expect(args[args.indexOf("--tools") + 2], pair.role).toBe("--plugin-dir");
+      launched.push([pair.role, args[args.indexOf("--tools") + 1]]);
+    }
+    expect(launched).toEqual([
+      ["proofer", "Read,Glob,Grep,Bash"],
+      ["crafter", "Read,Glob,Grep,Bash,Edit,Write"],
+      ["sealer", "Read,Glob,Grep,Bash"],
+    ]);
+  });
+
+  it("reports a role session's request for a tool its launch did not give it as a call of another kind that names no path, whatever the tool does, and a request for a tool of the launch as before", async () => {
+    const CRAFTER: RoleStage = { role: "crafter", stage: "fix-pass" };
+    const init = JSON.stringify({ type: "system", subtype: "init", agents: [agentOf(CRAFTER)] });
+    const asks = (id: string, tool: string, input: unknown): string => JSON.stringify({ type: "control_request", request_id: id, request: { subtype: "can_use_tool", tool_name: tool, input } });
+    const { folder, env, bundleDir, rulesDir } = launch([init, asks("r1", "NotebookEdit", { notebook_path: "FOLDER/a.ipynb" }), asks("r2", "Write", { file_path: "FOLDER/a.ts" }), RESULT]);
+    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, CRAFTER);
+    expect(events).toEqual([
+      { type: "permission", id: "r1", tool: "NotebookEdit", action: "other", path: null, text: '{"notebook_path":"FOLDER/a.ipynb"}' },
+      { type: "permission", id: "r2", tool: "Write", action: "write", path: "FOLDER/a.ts", text: "FOLDER/a.ts" },
+      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
   });
 
   it("writes the rules file again before each role launch, so a launch carries the bundle as it stands", async () => {
@@ -708,6 +765,181 @@ describe("the Claude adapter's role launch", () => {
   });
 });
 
+describe("a permission request on the Claude adapter's streams", () => {
+  /** One line the CLI prints to ask whether it may make a call. */
+  const asks = (id: string, tool: string, input: unknown): string => JSON.stringify({ type: "control_request", request_id: id, request: { subtype: "can_use_tool", tool_name: tool, input, tool_use_id: "toolu_1" } });
+
+  it("maps a request to a neutral event: the line's id, the tool's name, what the call does, the path where it names a file, and what a person reads of it", () => {
+    expect(eventsForLine(asks("r1", "Edit", { file_path: "/w/src/a.ts", old_string: "a", new_string: "b" }))).toEqual([{ type: "permission", id: "r1", tool: "Edit", action: "write", path: "/w/src/a.ts", text: "/w/src/a.ts" }]);
+    expect(eventsForLine(asks("r2", "Write", { file_path: "notes.md", content: "x" }))).toEqual([{ type: "permission", id: "r2", tool: "Write", action: "write", path: "notes.md", text: "notes.md" }]);
+    expect(eventsForLine(asks("r3", "NotebookEdit", { notebook_path: "/w/a.ipynb", new_source: "x" }))).toEqual([{ type: "permission", id: "r3", tool: "NotebookEdit", action: "write", path: "/w/a.ipynb", text: "/w/a.ipynb" }]);
+    expect(eventsForLine(asks("r4", "Read", { file_path: "/elsewhere/secret" }))).toEqual([{ type: "permission", id: "r4", tool: "Read", action: "read", path: "/elsewhere/secret", text: "/elsewhere/secret" }]);
+    expect(eventsForLine(asks("r5", "Bash", { command: "printf x >> README.md", description: "Append" }))).toEqual([{ type: "permission", id: "r5", tool: "Bash", action: "run", path: null, text: "printf x >> README.md" }]);
+    expect(eventsForLine(asks("r6", "WebFetch", { url: "https://example.com", prompt: "Read it" }))).toEqual([{ type: "permission", id: "r6", tool: "WebFetch", action: "other", path: null, text: '{"url":"https://example.com","prompt":"Read it"}' }]);
+  });
+
+  it("reads a call that names no path or no command by its whole input, and names no path for it", () => {
+    expect(eventsForLine(asks("r1", "Write", { content: "x" }))).toEqual([{ type: "permission", id: "r1", tool: "Write", action: "write", path: null, text: '{"content":"x"}' }]);
+    expect(eventsForLine(asks("r2", "Read", { file_path: 7 }))).toEqual([{ type: "permission", id: "r2", tool: "Read", action: "read", path: null, text: '{"file_path":7}' }]);
+    expect(eventsForLine(asks("r3", "Bash", {}))).toEqual([{ type: "permission", id: "r3", tool: "Bash", action: "run", path: null, text: "{}" }]);
+    // A file tool's `file_path` is no path of a notebook's edit, and a command is no path.
+    expect(eventsForLine(asks("r4", "NotebookEdit", { file_path: "/w/a.ipynb" }))).toMatchObject([{ action: "write", path: null }]);
+    expect(eventsForLine(asks("r5", "Bash", { command: "ls", file_path: "/w/a" }))).toMatchObject([{ action: "run", path: null, text: "ls" }]);
+    // A `command` is what a person reads of a shell call alone: another tool's is read with the rest of its input.
+    expect(eventsForLine(asks("r6", "Task", { command: "ls" }))).toMatchObject([{ action: "other", path: null, text: '{"command":"ls"}' }]);
+  });
+
+  it("takes the tools of a launch as the only ones whose calls it names: a request for any other is a call of another kind with no path, and a request for one of them, or of a launch that named no tools, is read by what the tool does", () => {
+    const PROOFER = ["Read", "Glob", "Grep", "Bash"];
+    const CRAFTER = [...PROOFER, "Edit", "Write"];
+    expect(eventsForLine(asks("r1", "NotebookEdit", { notebook_path: "/w/a.ipynb" }), CRAFTER)).toEqual([{ type: "permission", id: "r1", tool: "NotebookEdit", action: "other", path: null, text: '{"notebook_path":"/w/a.ipynb"}' }]);
+    expect(eventsForLine(asks("r2", "Edit", { file_path: "/w/a.ts" }), PROOFER)).toEqual([{ type: "permission", id: "r2", tool: "Edit", action: "other", path: null, text: '{"file_path":"/w/a.ts"}' }]);
+    // A command of a tool the launch did not give is not read as the call's text either.
+    expect(eventsForLine(asks("r3", "Bash", { command: "ls" }), [])).toEqual([{ type: "permission", id: "r3", tool: "Bash", action: "other", path: null, text: '{"command":"ls"}' }]);
+    expect(eventsForLine(asks("r4", "Edit", { file_path: "/w/a.ts" }), CRAFTER)).toMatchObject([{ action: "write", path: "/w/a.ts" }]);
+    expect(eventsForLine(asks("r5", "Bash", { command: "ls" }), PROOFER)).toMatchObject([{ action: "run", text: "ls" }]);
+    expect(eventsForLine(asks("r6", "NotebookEdit", { notebook_path: "/w/a.ipynb" }))).toMatchObject([{ action: "write", path: "/w/a.ipynb" }]);
+  });
+
+  it("gives a person at most PERMISSION_TEXT_CHARS characters of a call, ends a text it cut with the mark that says so, and leaves no half of a character at the cut", () => {
+    expect(PERMISSION_TEXT_CHARS).toBe(2000);
+    expect(PERMISSION_CUT_MARK).toBe(" [cut: the call holds more than is shown]");
+    const kept = PERMISSION_TEXT_CHARS - PERMISSION_CUT_MARK.length;
+    const [long] = eventsForLine(asks("r1", "Bash", { command: "c".repeat(2500) }));
+    expect(long).toMatchObject({ text: `${"c".repeat(kept)}${PERMISSION_CUT_MARK}` });
+    expect((long as { text: string }).text).toHaveLength(2000);
+    // A text of exactly the bound is whole, and carries no mark. One character more is cut.
+    const [whole] = eventsForLine(asks("r2", "Bash", { command: "c".repeat(2000) }));
+    expect(whole).toMatchObject({ text: "c".repeat(2000) });
+    const [over] = eventsForLine(asks("r3", "Bash", { command: "c".repeat(2001) }));
+    expect(over).toMatchObject({ text: `${"c".repeat(kept)}${PERMISSION_CUT_MARK}` });
+    // An owl is two of a string's characters, so a cut after its first would leave half of it before the mark.
+    const [owl] = eventsForLine(asks("r4", "Bash", { command: `${"c".repeat(kept - 1)}\u{1F989}${"c".repeat(100)}` }));
+    expect(owl).toMatchObject({ text: `${"c".repeat(kept - 1)}${PERMISSION_CUT_MARK}` });
+    // An owl that ends where the cut falls is kept whole.
+    const [fits] = eventsForLine(asks("r5", "Bash", { command: `${"c".repeat(kept - 2)}\u{1F989}${"c".repeat(100)}` }));
+    expect(fits).toMatchObject({ text: `${"c".repeat(kept - 2)}\u{1F989}${PERMISSION_CUT_MARK}` });
+    // The path a rule reads is not cut.
+    const [path] = eventsForLine(asks("r6", "Write", { file_path: `/w/${"d".repeat(2500)}` }));
+    expect(path).toMatchObject({ path: `/w/${"d".repeat(2500)}`, text: `/w/${"d".repeat(kept - 3)}${PERMISSION_CUT_MARK}` });
+  });
+
+  it("maps a withdrawn request to an event with its id, and reports nothing for a control line of another kind", () => {
+    expect(eventsForLine('{"type":"control_cancel_request","request_id":"r1"}')).toEqual([{ type: "permission-withdrawn", id: "r1" }]);
+    expect(eventsForLine('{"type":"control_cancel_request"}')).toEqual([]);
+    expect(eventsForLine('{"type":"control_response","response":{"subtype":"success","request_id":"owlery-initialize","response":{}}}')).toEqual([]);
+    expect(eventsForLine('{"type":"control_request","request_id":"x1","request":{"subtype":"interrupt"}}')).toEqual([]);
+    expect(eventsForLine('{"type":"control_request","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}')).toEqual([]);
+    expect(eventsForLine('{"type":"control_request","request_id":"x2"}')).toEqual([]);
+  });
+
+  /** A shell that names `cli` as the CLI it found. */
+  function shellFor(folder: string, cli: string): NodeJS.ProcessEnv {
+    return { SHELL: script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`), HOME: folder, USER: "person" };
+  }
+
+  /** Starts one run whose listener is also given the run, and gives its events once it has exited. */
+  async function answered(env: NodeJS.ProcessEnv, cwd: string, onEvent: (event: RoleEvent, run: RoleRun) => void): Promise<RoleEvent[]> {
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      // No event arrives before the promise of `start` has resolved, so the listener holds the run.
+      const started = claudeAdapter(env).start({ prompt: "Q", cwd }, (event) => {
+        events.push(event);
+        void started.then((run) => onEvent(event, run));
+        if (event.type === "exit") resolve();
+      });
+      started.catch(reject);
+    });
+    return events;
+  }
+
+  it("writes an allowance with the request's own input and a refusal with its reason, each on one line of the session's input, and nothing for an id it does not wait on", async () => {
+    const folder = temporaryFolder();
+    const edit = { file_path: `${folder}/a.ts`, old_string: "a", new_string: "b" };
+    // Stands for the CLI: it reads the handshake and the prompt, asks twice and reads each answer before it goes on, then gives its result and copies the rest of its input.
+    const cli = script(
+      folder,
+      "cli",
+      [
+        "IFS= read -r handshake",
+        "IFS= read -r prompt",
+        `echo '${asks("r1", "Edit", edit)}'`,
+        "IFS= read -r first",
+        `printf '%s\\n' "$first" > '${folder}/answers'`,
+        `echo '${asks("r2", "Bash", { command: "ls" })}'`,
+        "IFS= read -r second",
+        `printf '%s\\n' "$second" >> '${folder}/answers'`,
+        `echo '{"type":"result","is_error":false,"result":"done","total_cost_usd":0}'`,
+        `cat >> '${folder}/answers'`,
+        "exit 0",
+      ].join("\n"),
+    );
+    const events = await answered(shellFor(folder, cli), folder, (event, run) => {
+      if (event.type !== "permission") return;
+      // An id the run does not wait on writes nothing, before the answer and after it.
+      run.answer("r9", { allow: true });
+      if (event.id === "r1") run.answer("r1", { allow: true });
+      else run.answer("r2", { allow: false, reason: 'No: "ls" is refused.' });
+      run.answer(event.id, { allow: true });
+    });
+    expect(events).toEqual([
+      { type: "permission", id: "r1", tool: "Edit", action: "write", path: edit.file_path, text: edit.file_path },
+      { type: "permission", id: "r2", tool: "Bash", action: "run", path: null, text: "ls" },
+      { type: "result", text: "done", isError: false, costUsd: 0 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+    const written = readFileSync(join(folder, "answers"), "utf8");
+    expect(written.endsWith("\n")).toBe(true);
+    expect(written.split("\n").slice(0, -1).map((line) => JSON.parse(line) as unknown)).toEqual([
+      { type: "control_response", response: { subtype: "success", request_id: "r1", response: { behavior: "allow", updatedInput: edit } } },
+      { type: "control_response", response: { subtype: "success", request_id: "r2", response: { behavior: "deny", message: 'No: "ls" is refused.' } } },
+    ]);
+  });
+
+  it("reports a withdrawn request and waits on it no more, and answers a control request of another subtype with an error, reporting nothing of it", async () => {
+    const folder = temporaryFolder();
+    const cli = script(
+      folder,
+      "cli",
+      [
+        "IFS= read -r handshake",
+        "IFS= read -r prompt",
+        `echo '${asks("r1", "Bash", { command: "ls" })}'`,
+        `echo '{"type":"control_cancel_request","request_id":"r1"}'`,
+        `echo '{"type":"control_request","request_id":"x1","request":{"subtype":"no_such_subtype"}}'`,
+        "IFS= read -r answer",
+        `printf '%s\\n' "$answer" > '${folder}/answers'`,
+        `echo '{"type":"result","is_error":false,"result":"done","total_cost_usd":0}'`,
+        `cat >> '${folder}/answers'`,
+        "exit 0",
+      ].join("\n"),
+    );
+    const events = await answered(shellFor(folder, cli), folder, (event, run) => {
+      // The answer to a request that was withdrawn is written nowhere.
+      if (event.type === "permission-withdrawn") run.answer("r1", { allow: true });
+    });
+    expect(events).toEqual([
+      { type: "permission", id: "r1", tool: "Bash", action: "run", path: null, text: "ls" },
+      { type: "permission-withdrawn", id: "r1" },
+      { type: "result", text: "done", isError: false, costUsd: 0 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+    expect(readFileSync(join(folder, "answers"), "utf8").split("\n").slice(0, -1).map((line) => JSON.parse(line) as unknown)).toEqual([
+      { type: "control_response", response: { subtype: "error", request_id: "x1", error: "Owlery answers no control request of the subtype no_such_subtype" } },
+    ]);
+  });
+
+  it("writes no answer once the result has ended the session's input", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", [`echo '${asks("r1", "Bash", { command: "ls" })}'`, `echo '{"type":"result","is_error":false,"result":"done","total_cost_usd":0}'`, `cat > '${folder}/stdin'`, "exit 0"].join("\n"));
+    const events = await answered(shellFor(folder, cli), folder, (event, run) => {
+      if (event.type === "result") run.answer("r1", { allow: true });
+    });
+    expect(events.map((event) => event.type)).toEqual(["permission", "result", "exit"]);
+    expect(readFileSync(join(folder, "stdin"), "utf8")).toBe(`${INITIALIZE_LINE}${promptLine("Q")}`);
+  });
+});
+
 describe("the output stream of a role launch, as one real run of Claude Code 2.1.330 printed it", () => {
   // The proofer at a round, asked three questions on 2026-11-22 through `pnpm run role:run`; each id and each path of the machine is replaced.
   const fixture = join(__dirname, "fixtures", "claude-role-stream.jsonl");
@@ -728,7 +960,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
   });
 
   it("gives the answer, which states a fact of the definition, one of the appended rules and the first line of a bundle file the session read", () => {
-    const events = lines.flatMap(eventsForLine);
+    const events = lines.flatMap((line) => eventsForLine(line));
     const last = events.at(-1);
     expect(last).toMatchObject({ type: "result", isError: false, costUsd: expect.any(Number) });
     const answer = last?.type === "result" ? last.text : "";
@@ -740,7 +972,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
 
   it("goes on as a role launch's run: the adapter reports its text and its result, and fails nothing", async () => {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", `cat > /dev/null\ncat '${fixture}'`);
+    const cli = script(folder, "cli", `cat '${fixture}'`);
     const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
     const events: RoleEvent[] = [];
     await new Promise<void>((resolve, reject) => {
@@ -751,7 +983,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
         })
         .catch(reject);
     });
-    expect(events).toEqual([...lines.flatMap(eventsForLine), { type: "exit", exitCode: 0, errorOutput: "" }]);
+    expect(events).toEqual([...lines.flatMap((line) => eventsForLine(line)), { type: "exit", exitCode: 0, errorOutput: "" }]);
     expect(events.at(-2)).toMatchObject({ type: "result", isError: false });
   });
 });
@@ -764,7 +996,7 @@ describe("the output stream of a run with no login, as Claude Code 2.1.330 print
   });
 
   it("gives the message's text, then a result that is an error with the same text and no cost", () => {
-    expect(lines.flatMap(eventsForLine)).toEqual([
+    expect(lines.flatMap((line) => eventsForLine(line))).toEqual([
       { type: "text", text: "Not logged in · Please run /login" },
       { type: "result", text: "Not logged in · Please run /login", isError: true, costUsd: 0 },
     ]);
@@ -784,7 +1016,7 @@ describe("the output stream, as one real run printed it", () => {
   });
 
   it("gives the answer's text, then the result with the whole answer and the cost", () => {
-    const events = lines.flatMap(eventsForLine);
+    const events = lines.flatMap((line) => eventsForLine(line));
     const texts = events.flatMap((event) => (event.type === "text" ? [event.text] : []));
     expect(texts.join("")).toMatch(/^owl\.?$/i);
     const last = events.at(-1);

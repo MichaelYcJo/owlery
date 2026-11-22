@@ -111,7 +111,7 @@
       /* The sidebar's filter and the foot's three controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
       .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; }
       .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
-      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and a fact where the theme sets its facts in it. */
+      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines, the text of a call a session asks to make and the terminal, and a fact where the theme sets its facts in it. */
       .branch { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
       /* A state's colour, which its icon and its words take, and the shapes of its mark, which are the theme's: a line, a filled part, and for work the faint track and the part that turns. The fill of a wait and of a failure is a colour the theme names beside the state's. */
       .state.waiting { --state: var(--state-waiting); --part-line: var(--shape-waiting); --part-fill: var(--shape-waiting-fill); --part-fill-colour: var(--state-waiting-fill); }
@@ -412,6 +412,11 @@
       #headless .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
       #headless .state { font-size: var(--size-caption); }
       #headless .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* A call the session asks the person to allow, in the form of what an agent says with the edge of what needs the person: its head names the tool, the call's text stands whole in the fixed-width face, and "Allow" and "Refuse" stand at its right foot, neither of them the main button. */
+      #headless .permission { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-5) var(--space-6); border-radius: var(--radius-said); background: var(--said-ground); box-shadow: var(--said-edge-waiting); }
+      #headless .permission h3 { font-weight: 500; color: var(--ink); }
+      #headless .call { font-family: var(--font-mono); font-size: var(--size-second); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #headless .answers { display: flex; justify-content: flex-end; gap: var(--space-3); }
       /* What a failed session's process printed on its error stream, under its error, as the process printed it. */
       #headless .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }

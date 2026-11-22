@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -108,7 +108,7 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 export interface InboxLine {
   title: string;
   branch: string;
-  /** `waiting` for a work item parked with questions for the person, whatever its panes say. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, and for one whose headless session waits for the person to allow a call, whatever its panes say. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
@@ -117,6 +117,11 @@ export interface InboxLine {
 /** The questions of a work item's record, in the order of the file: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
 function questionsOf(workItem: WorkItem): readonly Question[] {
   return (workItem.questions as Question[] | undefined) ?? [];
+}
+
+/** The calls a work item's headless sessions wait for the person to allow or refuse, the oldest first: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
+function permissionsOf(workItem: WorkItem): readonly PermissionAsk[] {
+  return (workItem.permissions as PermissionAsk[] | undefined) ?? [];
 }
 
 /**
@@ -133,10 +138,11 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
 /**
  * One line of the inbox: the work item, its state, and its new commits. A
  * work item parked with questions for the person waits, whatever its panes
- * say, so it stands with the work items that wait for the person. Otherwise
- * the state is that of its most recent live pane of a kind that reports
- * state. An exited pane keeps its last state and is passed over, because
- * nothing will change that state again.
+ * say, and so does one whose headless session waits for the person to allow
+ * a call, so each stands with the work items that wait for the person.
+ * Otherwise the state is that of its most recent live pane of a kind that
+ * reports state. An exited pane keeps its last state and is passed over,
+ * because nothing will change that state again.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
@@ -144,21 +150,24 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: parkedWith(workItem) ? "waiting" : reporting ? reporting.state : null,
+    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 ? "waiting" : reporting ? reporting.state : null,
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
 
 /**
  * Since when a line's state has lasted, which its age is counted from: for
- * a work item parked with questions the earliest time the daemon first read
- * one of its open questions at, and otherwise the time of the state of the
- * pane the line reads, `session`. Null where neither gives one.
+ * a work item parked with questions, or whose headless session waits for
+ * the person to allow a call, the earliest of the times the daemon first
+ * read one of its open questions at and the times its requests arrived at,
+ * all of them the daemon's clock, and otherwise the time of the state of
+ * the pane the line reads, `session`. Null where none gives one.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
-  const parked = parkedWith(workItem);
-  if (!parked) return session?.stateSince ?? null;
-  const times = parked.flatMap(({ since }) => (since === null ? [] : [since]));
+  const parked = parkedWith(workItem) ?? [];
+  const asks = permissionsOf(workItem);
+  if (parked.length === 0 && asks.length === 0) return session?.stateSince ?? null;
+  const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...asks.map(({ at }) => at)];
   return times.length > 0 ? Math.min(...times) : null;
 }
 
@@ -412,6 +421,23 @@ export function answersFor(questions: readonly Pick<QuestionLine, "id" | "option
 export function parkNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
   const held = new Set(before.filter((workItem) => parkedWith(workItem)).map((workItem) => workItem.id));
   return workItems.filter((workItem) => parkedWith(workItem) && !held.has(workItem.id) && !workItem.muted && workItem.id !== inFront).map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: "Waiting for your answer" }));
+}
+
+/**
+ * The notifications for the calls headless sessions began to wait on since
+ * the window's lists were `before`: one for each request of `workItems`
+ * whose id none of `before`, the work items and the archived ones the
+ * window held, held. It is titled with the work item's title and says what
+ * a waiting pane's notification says. None is given for a work item whose
+ * notifications are muted, nor for `inFront`, the work item whose view is
+ * in front of a focused window. An archived work item is not among
+ * `workItems`, so none is given for one.
+ */
+export function permissionNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  const held = new Set(before.flatMap((workItem) => permissionsOf(workItem).map(({ id }) => id)));
+  return workItems
+    .filter((workItem) => !workItem.muted && workItem.id !== inFront)
+    .flatMap((workItem) => permissionsOf(workItem).flatMap(({ id }) => (held.has(id) ? [] : [{ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }])));
 }
 
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
@@ -929,11 +955,16 @@ export function stateWithAge(state: AgentState | null, since: number | null | un
   return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
 }
 
+/** What an agent that waits for the person to allow a call of a tool asks, in the window's words: "Asks to use Bash". */
+function asksToUse(tool: string): string {
+  return `Asks to use ${tool}`;
+}
+
 /** What a pane's state carried, as a person reads it: its text, or for a pane that waits with a tool's name and no text, which tool it asks for. */
 function saidBy(session: SessionInfo | undefined): string | null {
   if (!session || session.state === null) return null;
   if (session.stateText) return session.stateText;
-  return session.state === "waiting" && session.stateTool ? `Asks to use ${session.stateTool}` : null;
+  return session.state === "waiting" && session.stateTool ? asksToUse(session.stateTool) : null;
 }
 
 /**
@@ -952,19 +983,25 @@ export function stateSays(session: SessionInfo | undefined, paneKinds: readonly 
 }
 
 /**
- * The text of a line's second row, and which of the four it is: for a work
+ * The text of a line's second row, and which of the five it is: for a work
  * item parked with questions the first question, followed by how many more
- * it waits on, as in " (and 2 more questions)"; otherwise what the agent's
- * state carried, otherwise the newest commit's subject, otherwise the
- * branch. While a search is typed it is the branch, where the letters that
- * match are marked.
+ * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
+ * session of the work item waits for the person to allow a call, the oldest
+ * request as the tool it asks to use and its text, followed by how many
+ * more wait, as in " (and 1 more)"; otherwise what the agent's state
+ * carried, otherwise the newest commit's subject, otherwise the branch.
+ * While a search is typed it is the branch, where the letters that match
+ * are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "state" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "state" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) {
     const more = open.length - 1;
     return { says: "question", text: `${open[0]?.asks ?? ""}${more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : ""}` };
   }
+  const asks = searching ? [] : permissionsOf(workItem);
+  const oldest = asks[0];
+  if (oldest) return { says: "permission", text: `${asksToUse(oldest.tool)}: ${oldest.text}${asks.length > 1 ? ` (and ${asks.length - 1} more)` : ""}` };
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];
@@ -2065,25 +2102,43 @@ export interface HeadlessLine {
   id: number;
   prompt: string;
   state: HeadlessState;
+  /** The mark the line is drawn with: the session's state, or `waiting` while the session waits for the person to allow a call. */
+  mark: HeadlessState | "waiting";
+  /** The state in words beside the mark: the state's own word, or "Needs you" while the session waits for the person to allow a call. */
+  words: string;
   /** The answer as far as it has arrived, or the error of a session that failed. */
   text: string;
   /** What the agent's process of a failed session printed on its error stream, shown under the error with its line breaks kept, and empty for a session that did not fail. */
   errorOutput: string;
   /** Whether the line offers "Stop": a session that is working can be stopped, and one that ended cannot. */
   stop: boolean;
+  /** The calls the session waits for the person to allow or refuse, the oldest first: each with its id, which an answer names, the head that names the tool it asks to use, and what a person reads of the call. */
+  asks: { id: number; head: string; text: string }[];
 }
 
-/** The lines of one work item's headless sessions, the most recent first, so the one just asked sits under the field. */
-export function headlessLines(held: readonly HeadlessInfo[], workItemId: number): HeadlessLine[] {
+/** The lines of one work item's headless sessions, the most recent first, so the one just asked sits under the field, each with the calls it waits for the person to allow or refuse. */
+export function headlessLines(held: readonly HeadlessInfo[], workItem: WorkItem): HeadlessLine[] {
+  const waiting = permissionsOf(workItem);
   return held
-    .filter((info) => info.workItemId === workItemId)
+    .filter((info) => info.workItemId === workItem.id)
     .sort((a, b) => b.id - a.id)
-    .map((info) => ({
-      id: info.id,
-      prompt: info.prompt,
-      state: info.state,
-      text: info.state === "failed" ? (info.error ?? "") : info.answer,
-      errorOutput: info.state === "failed" ? info.errorOutput : "",
-      stop: info.state === "working",
-    }));
+    .map((info): HeadlessLine => {
+      const asks = waiting.filter(({ headlessId }) => headlessId === info.id).map(({ id, tool, text }) => ({ id, head: asksToUse(tool), text }));
+      return {
+        id: info.id,
+        prompt: info.prompt,
+        state: info.state,
+        mark: asks.length > 0 ? "waiting" : info.state,
+        words: asks.length > 0 ? stateHeading("waiting") : info.state,
+        text: info.state === "failed" ? (info.error ?? "") : info.answer,
+        errorOutput: info.state === "failed" ? info.errorOutput : "",
+        stop: info.state === "working",
+        asks,
+      };
+    });
+}
+
+/** What tells one drawing of a work item's "Ask" section from the next: it differs where a line or a request of it differs, and between two work items. The section is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the section shows. */
+export function headlessKey(workItemId: number, lines: readonly HeadlessLine[]): string {
+  return JSON.stringify([workItemId, lines]);
 }

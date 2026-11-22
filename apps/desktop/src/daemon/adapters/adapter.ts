@@ -5,13 +5,20 @@
 
 import type { RoleStage } from "../../shared/protocol";
 
+/** What a call does, as its adapter reads it: it reads or writes the file at a path, runs a command, or does something else. */
+export type PermissionAction = "read" | "write" | "run" | "other";
+
 export type RoleEvent =
   // A piece of the agent's answer, in order.
   | { type: "text"; text: string }
   // The end of the turn: the whole answer, or the error's text where `isError`; the cost in US dollars where the agent reports one.
   | { type: "result"; text: string; isError: boolean; costUsd: number | null }
   // The agent's process ended. `errorOutput` is the last of what it printed on its error stream, and empty where it printed nothing there. Nothing follows it.
-  | { type: "exit"; exitCode: number; errorOutput: string };
+  | { type: "exit"; exitCode: number; errorOutput: string }
+  // The agent asks to make one call, and makes none of it before `RoleRun.answer` is called with this `id`. `path` is the file a read or a write names, and null otherwise. `text` is what a person reads of the call: the path, the command, or the call's input, 2,000 characters at most, and a cut text ends with a mark that says so.
+  | { type: "permission"; id: string; tool: string; action: PermissionAction; path: string | null; text: string }
+  // The agent no longer waits for an answer to the request `id`.
+  | { type: "permission-withdrawn"; id: string };
 
 export interface RoleRun {
   /**
@@ -19,12 +26,17 @@ export interface RoleRun {
    * the process has exited, and a second call returns the same promise.
    */
   stop(): Promise<void>;
+  /** Answers the request `id`: the call runs, or the agent is told `reason`. An id the run does not wait on is ignored. */
+  answer(id: string, answer: { allow: true } | { allow: false; reason: string }): void;
 }
+
+/** A feature an adapter can declare: it sets a session's tools by its role, and it reports permission requests and takes their answers. */
+export type RoleFeature = "role-tools" | "permission-requests";
 
 export interface RoleAdapter {
   readonly name: string;
-  /** The features this adapter supports, for a client to show or hide a control by; no adapter declares one yet. */
-  readonly features: readonly string[];
+  /** The features this adapter supports. The daemon starts a role session only through an adapter that declares both, and a session with no role through any. */
+  readonly features: readonly RoleFeature[];
   /**
    * Starts one session that answers `prompt` in the folder `cwd`, and reports
    * its events to `listener`, none of them before the promise resolves. With

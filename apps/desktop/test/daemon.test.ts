@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
-import { fakeAdapter } from "../src/daemon/adapters/fake";
+import { type FakeAsk, fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
@@ -17,7 +17,7 @@ import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -26,7 +26,7 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
@@ -446,7 +446,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -1637,7 +1637,7 @@ describe("repositories", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -1664,7 +1664,7 @@ describe("repositories", () => {
     let stopped = 0;
     const inner = fakeAdapter({ delayMs: 60_000 });
     // The adapter takes a moment to start a run, as one that launches a process does.
-    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -2281,7 +2281,7 @@ describe("what a person sets on a work item", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
@@ -2560,6 +2560,7 @@ describe("what a person sets on a work item", () => {
       start: async (options, listener) => {
         const run = await inner.start(options, listener);
         return {
+          ...run,
           stop: async () => {
             await run.stop();
             await new Promise((r) => setTimeout(r, 300));
@@ -2582,7 +2583,7 @@ describe("what a person sets on a work item", () => {
     const made = repository();
     const inner = fakeAdapter({ delayMs: 60_000 });
     // The run never says it has ended.
-    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await inner.start(options, listener); return { stop: () => new Promise<void>(() => {}) }; } };
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await inner.start(options, listener); return { stop: () => new Promise<void>(() => {}), answer: () => {} }; } };
     const { c, url, workItem } = await withWorkItem(made, { roleAdapter, endWaitMs: 300, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Which file?" });
@@ -4347,7 +4348,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, permissions: [], aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {
@@ -4421,6 +4422,7 @@ describe("headless sessions", () => {
         seen.started.push(options);
         const run = await inner.start(options, listener);
         return {
+          ...run,
           stop: () => {
             seen.stopped++;
             return run.stop();
@@ -4546,7 +4548,7 @@ describe("headless sessions", () => {
           listener({ type: "text", text: " And more." });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
         }, 0);
-        return Promise.resolve({ stop: () => Promise.resolve() });
+        return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
       },
     };
     const { c, workItem } = await withWorkItem({ roleAdapter });
@@ -4671,6 +4673,7 @@ describe("headless sessions", () => {
       start: async (options, listener) => {
         const run = await inner.start(options, listener);
         return {
+          ...run,
           stop: async () => {
             await run.stop();
             await pause(300);
@@ -4698,6 +4701,7 @@ describe("headless sessions", () => {
         await pause(150);
         const run = await inner.start(options, listener);
         return {
+          ...run,
           stop: () => {
             stopped++;
             return run.stop();
@@ -4771,6 +4775,7 @@ describe("headless sessions", () => {
         if (options.prompt === "Slow to start?") await pause(400);
         const run = await inner.adapter.start(options, listener);
         return {
+          ...run,
           stop: () => {
             stopped++;
             return run.stop();
@@ -4830,7 +4835,7 @@ describe("headless sessions", () => {
           listener({ type: "result", text: "slow", isError: false, costUsd: null });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
         };
-        return { stop: () => Promise.resolve() };
+        return { stop: () => Promise.resolve(), answer: () => {} };
       },
     };
     const { clients, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 2 }, 2);
@@ -4889,7 +4894,7 @@ describe("headless sessions", () => {
         if (options.prompt !== "First?") return quick.start(options, listener);
         setTimeout(() => listener({ type: "result", text: "first", isError: false, costUsd: null }), 0);
         exitFirst = () => listener({ type: "exit", exitCode: 0, errorOutput: "late" });
-        return { stop: () => Promise.resolve() };
+        return { stop: () => Promise.resolve(), answer: () => {} };
       },
     };
     const { c, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 1 });
@@ -4946,6 +4951,362 @@ describe("headless sessions", () => {
     await pause(100);
     expect(toldSince(before)).toEqual([]);
     expect((await listed()).map(([id]) => id)).toEqual([third]);
+  });
+
+  describe("permission requests", () => {
+    type Inbox = Extract<ServerMessage, { type: "inbox" }>;
+    type Client = Awaited<ReturnType<typeof client>>;
+    const SHELL: FakeAsk = { tool: "Bash", action: "run", path: null, text: "printf x >> README.md" };
+    const CRAFTER = { role: "crafter", stage: "fix-pass" } as const;
+    /** The requests an `inbox` carries on a work item. */
+    const asksIn = (m: Inbox, workItemId: number): PermissionAsk[] | undefined => m.workItems.find((item) => item.id === workItemId)?.permissions;
+    /** Every request every `inbox` and `ready` the client received carried, on any work item. */
+    const everAsked = (c: Client): PermissionAsk[] => c.messages.flatMap((m) => (m.type === "inbox" || m.type === "ready" ? [...m.workItems, ...m.archived].flatMap((item) => item.permissions) : []));
+    /** A fake adapter whose sessions raise the requests the case sets afterwards, once it knows its work item's folder. */
+    function asking(options: Parameters<typeof fakeAdapter>[0] = {}) {
+      const held = { asks: [] as FakeAsk[] };
+      return { held, adapter: fakeAdapter({ ...options, asks: () => held.asks }) };
+    }
+    /** Asks one session and gives the lines its answer holds once it finished: what the daemon answered each request with, then the fake's own text. */
+    async function answersOf(c: Client, workItemId: number, role?: RoleStage): Promise<string[]> {
+      c.send({ type: "ask", requestId: 50, workItemId, prompt: "Q", ...(role ? { role } : {}) });
+      const { headless } = await c.message("asked", (m) => m.requestId === 50);
+      const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+      return finished.headless.answer.split("\n").slice(0, -1);
+    }
+    const OUTSIDE = (role: string, path: string) => `Owlery lets the ${role} write only inside the work item's worktree, and ${path} is outside it. Do not work around it: say in your report which step needed the write.`;
+    const NO_WRITE = (role: string) => `Owlery gives the ${role} no call that writes a file. Do not work around it: say in your report which step needed the write.`;
+    const NO_COMMAND = (role: string) => `Owlery gives the ${role} no command that asks for permission. Do not work around it: say in your report which step needed the command.`;
+    const NO_CALL = (role: string) => `Owlery's rule for the ${role} does not allow this call. Do not work around it: say in your report which step needed it.`;
+
+    it("answers a crafter's request by its grant: a write inside the worktree and a command are allowed, a write anywhere else and every other call are refused with the reason, and nothing waits for the person", async () => {
+      const { held, adapter } = asking();
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      const { worktree } = workItem;
+      const outside = join(worktree, "..", "..", "outside");
+      mkdirSync(outside);
+      mkdirSync(join(worktree, "src"));
+      symlinkSync(outside, join(worktree, "link"));
+      symlinkSync(join(outside, "not-there.txt"), join(worktree, "dangling"));
+      symlinkSync(join(worktree, "src"), join(worktree, "inner"));
+      symlinkSync(join(worktree, "src"), join(outside, "in"));
+      mkdirSync(join(worktree, "~"));
+      mkdirSync(join(worktree, "deep", "er"), { recursive: true });
+      symlinkSync(outside, join(worktree, "deep", "out"));
+      symlinkSync(join(worktree, "deep", "er"), join(worktree, "hop"));
+      symlinkSync(outside, join(worktree, " out"));
+      // A link out under five folders of 200-character names: the path to it is longer than the system reads, as the worktree's own and as the text read from the worktree. No call can make a path that long whole, so the lower three folders are made beside the worktree and moved under the upper two.
+      const names = ["a", "b", "c", "d", "e"].map((letter) => letter.repeat(200));
+      const lower = join(outside, "..", "lower");
+      mkdirSync(join(lower, ...names.slice(2)), { recursive: true });
+      symlinkSync(outside, join(lower, ...names.slice(2), "link"));
+      mkdirSync(join(worktree, names[0]!, names[1]!), { recursive: true });
+      renameSync(join(lower, names[2]!), join(worktree, names[0]!, names[1]!, names[2]!));
+      const deep = `${names.join("/")}/link/a.txt`;
+      // A link out in a folder that cannot be searched, so nothing reads the link.
+      mkdirSync(join(worktree, "closed"));
+      symlinkSync(outside, join(worktree, "closed", "link"));
+      chmodSync(join(worktree, "closed"), 0o600);
+      // The case's folders are removed by their whole paths, so the long path is made short and the closed folder opened first.
+      cleanups.push(() => {
+        renameSync(join(worktree, names[0]!, names[1]!, names[2]!), join(lower, names[2]!));
+        chmodSync(join(worktree, "closed"), 0o700);
+      });
+      const write = (path: string | null): FakeAsk => ({ tool: "Write", action: "write", path, text: path ?? "{}" });
+      held.asks = [
+        // Inside: a path of the worktree, a relative one, a file and a folder that are not there yet, a link that stays inside, a `..` in the part that is there, a link outside that points in, a folder of the worktree named `~`, and a path with a space before it that is inside with the space and without.
+        write(join(worktree, "README.md")),
+        write("src/new.ts"),
+        write(join(worktree, "new-folder", "deep", "new.ts")),
+        write("inner/new.ts"),
+        { tool: "Edit", action: "write", path: "src/../README.md", text: "src/../README.md" },
+        write(`${outside}/in/new.ts`),
+        write("./~/a.txt"),
+        write(" src/new.ts"),
+        // Outside: another folder, a way out through `..`, the folder above, through a link, through a link and back, through a link whose target is not there, a folder whose name opens with the worktree's, the bundle's, and a write that names no file.
+        write(join(outside, "a.txt")),
+        write("../outside.txt"),
+        write(".."),
+        write("link/a.txt"),
+        write("link/../b.txt"),
+        write("dangling"),
+        write(`${worktree}-2/a.txt`),
+        write("/app/dist/bundle/skills/core/SKILL.md"),
+        // Outside by one reading of several, each path written as text because `join` would settle its `..`: a `..` in the part that is not there, which climbs back to a link that leads out, relative and whole; the same after a link that stays inside, where neither reading follows the link the `..` reaches once the missing folder is made; a `..` after a link outside that points in, which the text settles to the link's own folder; a home folder as `~` names it, the person's and another's, with a space before it too; a path a space hides the root of; a link whose name opens with a space; and a path cut at a null character, which names the link.
+        write("missing/../link/a.txt"),
+        write(`${worktree}/missing/../link/a.txt`),
+        write("hop/missing/../../out/a.txt"),
+        write(`${outside}/in/../c.txt`),
+        write("~/a.txt"),
+        write("~"),
+        write("~other/a.txt"),
+        write(" ~/a.txt"),
+        write(` ${outside}/a.txt`),
+        write(" out/a.txt"),
+        write("link\u0000/a.txt"),
+        // Outside because the system cannot read a part of the path, so no link past that part is read: a link out under folders deeper than the system reads a path, as text and whole; a link out in a folder that cannot be searched; a file named as a folder; and a path inside the worktree written longer than the system reads.
+        write(deep),
+        write(`${worktree}/${deep}`),
+        write("closed/link/a.txt"),
+        write("README.md/a.txt"),
+        write(`${"./".repeat(600)}src/new.ts`),
+        write(null),
+        SHELL,
+        { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" },
+        { tool: "WebFetch", action: "other", path: null, text: "{}" },
+      ];
+      expect(await answersOf(c, workItem.id, CRAFTER)).toEqual([
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Edit",
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Write",
+        `refused: Write: ${OUTSIDE("crafter", join(outside, "a.txt"))}`,
+        `refused: Write: ${OUTSIDE("crafter", "../outside.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "..")}`,
+        `refused: Write: ${OUTSIDE("crafter", "link/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "link/../b.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "dangling")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${worktree}-2/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "/app/dist/bundle/skills/core/SKILL.md")}`,
+        `refused: Write: ${OUTSIDE("crafter", "missing/../link/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${worktree}/missing/../link/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "hop/missing/../../out/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${outside}/in/../c.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "~/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "~")}`,
+        `refused: Write: ${OUTSIDE("crafter", "~other/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", " ~/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", ` ${outside}/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", " out/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "link\u0000/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", deep)}`,
+        `refused: Write: ${OUTSIDE("crafter", `${worktree}/${deep}`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "closed/link/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "README.md/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${"./".repeat(600)}src/new.ts`)}`,
+        `refused: Write: ${NO_CALL("crafter")}`,
+        "allowed: Bash",
+        `refused: Read: ${NO_CALL("crafter")}`,
+        `refused: WebFetch: ${NO_CALL("crafter")}`,
+      ]);
+      expect(everAsked(c)).toEqual([]);
+    });
+
+    it.each([
+      ["proofer", { role: "proofer", stage: "round" }],
+      ["sealer", { role: "sealer", stage: "seal" }],
+    ] as const)("refuses every request of a %s, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report, and nothing waits for the person", async (name, role) => {
+      const { held, adapter } = asking();
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      held.asks = [{ tool: "Edit", action: "write", path: join(workItem.worktree, "README.md"), text: "README.md" }, SHELL, { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" }, { tool: "WebFetch", action: "other", path: null, text: "{}" }];
+      const answers = await answersOf(c, workItem.id, role);
+      expect(answers).toEqual([`refused: Edit: ${NO_WRITE(name)}`, `refused: Bash: ${NO_COMMAND(name)}`, `refused: Read: ${NO_CALL(name)}`, `refused: WebFetch: ${NO_CALL(name)}`]);
+      for (const answer of answers) expect(answer).toMatch(/Do not work around it: say in your report which step needed /);
+      expect(everAsked(c)).toEqual([]);
+    });
+
+    /** A daemon whose one client asked a session with no role that raises one request, once the request waits. */
+    async function waiting(options: Partial<DaemonOptions> = {}, asks: FakeAsk[] = [SHELL]) {
+      const { held, adapter } = asking();
+      held.asks = asks;
+      const made = await withWorkItem({ roleAdapter: adapter, ...options }, 2);
+      const { c, workItem } = made;
+      c.send({ type: "ask", requestId: 60, workItemId: workItem.id, prompt: "Q" });
+      const { headless } = await c.message("asked", (m) => m.requestId === 60);
+      const inbox = await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === asks.filter((ask) => !ask.withdraw).length);
+      return { ...made, held, headless, asked: asksIn(inbox, workItem.id)! };
+    }
+    /** Waits for an `inbox` that arrives after the client's `since`th message and carries no request on the work item. */
+    const cleared = (c: Client, since: number, workItemId: number) => c.until(() => c.messages.slice(since).find((m) => m.type === "inbox" && asksIn(m, workItemId)?.length === 0));
+
+    it("keeps a request of a session with no role for the person: every client's `inbox` carries it on its work item with the session's id, the session stays working, and a client that connects later is given it", async () => {
+      const { clients, c, url, workItem, headless, asked } = await waiting();
+      expect(asked).toEqual([{ id: 1, headlessId: headless.id, tool: "Bash", action: "run", text: "printf x >> README.md", at: 1234 }]);
+      // Another work item of the repository holds none of it.
+      c.send({ type: "createWorkItem", requestId: 64, repo: workItem.repo, title: "Beside it", kind: "shell", cols: 80, rows: 24 });
+      const beside = (await c.message("workItemCreated", (m) => m.requestId === 64)).workItem;
+      expect(beside.permissions).toEqual([]);
+      await clients[1]!.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+      await pause(100);
+      expect(told(clients[0]!).map((h) => h.state)).toEqual(["working"]);
+      const later = await (await client(url)).message("ready");
+      expect(later.workItems.map((item) => [item.id, item.permissions])).toEqual([[workItem.id, asked], [beside.id, []]]);
+      expect(later.headless.map((h) => h.state)).toEqual(["working"]);
+      // The request names no adapter and no path of the adapter's event.
+      expect(Object.keys(asked[0]!).sort()).toEqual(["action", "at", "headlessId", "id", "text", "tool"]);
+    });
+
+    it("allows the call at a person's allowance: the daemon answers `done` before the `inbox` that carries the work item with no request, and the session goes on with the call allowed", async () => {
+      const { clients, c, workItem, headless, asked } = await waiting();
+      const other = clients[1]!;
+      await other.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+      const [before, otherBefore] = [c.messages.length, other.messages.length];
+      c.send({ type: "answerPermission", requestId: 61, workItemId: workItem.id, id: asked[0]!.id, allow: true });
+      const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+      expect(finished.headless.answer).toBe('allowed: Bash\nYou asked: "Q"');
+      const after = c.messages.slice(before).filter((m) => m.type === "done" || m.type === "inbox");
+      expect(after[0]).toEqual({ type: "done", requestId: 61 });
+      expect(asksIn(after[1] as Inbox, workItem.id)).toEqual([]);
+      // Every client is told, and only the one that answered is told `done`.
+      await cleared(other, otherBefore, workItem.id);
+      expect(other.messages.some((m) => m.type === "done")).toBe(false);
+    });
+
+    it("refuses the call at a person's refusal, with the sentence that says the person refused it", async () => {
+      const { c, workItem, headless, asked } = await waiting();
+      const before = c.messages.length;
+      c.send({ type: "answerPermission", requestId: 61, workItemId: workItem.id, id: asked[0]!.id, allow: false });
+      const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+      expect(finished.headless.answer).toBe('refused: Bash: The person refused this call.\nYou asked: "Q"');
+      const after = c.messages.slice(before).filter((m) => m.type === "done" || m.type === "inbox");
+      expect(after[0]).toEqual({ type: "done", requestId: 61 });
+      expect(asksIn(after[1] as Inbox, workItem.id)).toEqual([]);
+    });
+
+    it("lists the requests of a work item the oldest first, each under an id of the daemon's own, and an allowance covers the one call it names: the same call of the same session waits on", async () => {
+      // Two sessions of the work item raise the same two requests each, under the adapter's same ids, a moment apart: the first of each, then the second of each.
+      const { held, adapter } = asking({ delayMs: 150 });
+      held.asks = [SHELL, SHELL];
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      c.send({ type: "ask", requestId: 60, workItemId: workItem.id, prompt: "Q" });
+      c.send({ type: "ask", requestId: 62, workItemId: workItem.id, prompt: "Q" });
+      const headless = (await c.message("asked", (m) => m.requestId === 60)).headless;
+      const second = (await c.message("asked", (m) => m.requestId === 62)).headless;
+      const four = asksIn(await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 4), workItem.id)!;
+      expect(four.map((ask) => [ask.id, ask.headlessId, ask.text])).toEqual([[1, headless.id, SHELL.text], [2, second.id, SHELL.text], [3, headless.id, SHELL.text], [4, second.id, SHELL.text]]);
+      c.send({ type: "answerPermission", requestId: 63, workItemId: workItem.id, id: 1, allow: true });
+      const before = c.messages.length;
+      await c.message("done", (m) => m.requestId === 63);
+      const three = asksIn(await c.until(() => c.messages.slice(before).find((m): m is Inbox => m.type === "inbox" && asksIn(m, workItem.id)?.length === 3)), workItem.id)!;
+      expect(three.map((ask) => ask.id)).toEqual([2, 3, 4]);
+      await pause(400);
+      // The session took the one allowance and still works, waiting on the same call's second request.
+      expect(told(c).filter((h) => h.id === headless.id).map((h) => [h.state, h.answer])).toEqual([["working", ""], ["working", "allowed: Bash\n"]]);
+    });
+
+    it("answers an `answerPermission` for a request it does not hold with an error, and changes no list: an id no session waits on, a request of another work item, one already answered, and an answer that neither allows nor refuses", async () => {
+      const { c, url, workItem, asked } = await waiting({}, [SHELL, SHELL]);
+      const refusedWith = async (requestId: number, fields: object) => {
+        c.send({ type: "answerPermission", requestId, ...fields });
+        return (await c.message("error", (m) => m.requestId === requestId)).message;
+      };
+      expect(await refusedWith(70, { workItemId: workItem.id, id: 99, allow: true })).toBe("no permission request 99 waits in this work item");
+      expect(await refusedWith(71, { workItemId: workItem.id + 1, id: asked[0]!.id, allow: true })).toBe(`no permission request ${asked[0]!.id} waits in this work item`);
+      expect(await refusedWith(72, { workItemId: workItem.id, id: asked[0]!.id })).toBe("an answer to a permission request says whether it allows the call");
+      expect(await refusedWith(73, { workItemId: workItem.id, id: asked[0]!.id, allow: "yes" })).toBe("an answer to a permission request says whether it allows the call");
+      expect((await (await client(url)).message("ready")).workItems.find((item) => item.id === workItem.id)?.permissions).toEqual(asked);
+      c.send({ type: "answerPermission", requestId: 74, workItemId: workItem.id, id: asked[0]!.id, allow: false });
+      await c.message("done", (m) => m.requestId === 74);
+      await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+      const before = c.messages.length;
+      expect(await refusedWith(75, { workItemId: workItem.id, id: asked[0]!.id, allow: true })).toBe(`no permission request ${asked[0]!.id} waits in this work item`);
+      await pause(100);
+      // The work item's pane prints meanwhile.
+      expect(c.messages.slice(before).flatMap((m) => (m.type === "output" ? [] : [m.type]))).toEqual(["error"]);
+      expect((await (await client(url)).message("ready")).workItems.find((item) => item.id === workItem.id)?.permissions).toEqual([asked[1]]);
+    });
+
+    it("ends a request unanswered where a client stops its session: an `inbox` carries the work item with no request, and a later answer is an error", async () => {
+      const { c, workItem, headless, asked } = await waiting();
+      const before = c.messages.length;
+      c.send({ type: "stopHeadless", requestId: 80, id: headless.id });
+      await cleared(c, before, workItem.id);
+      c.send({ type: "answerPermission", requestId: 81, workItemId: workItem.id, id: asked[0]!.id, allow: true });
+      expect((await c.message("error", (m) => m.requestId === 81)).message).toBe(`no permission request ${asked[0]!.id} waits in this work item`);
+    });
+
+    it("ends a request unanswered where its session reaches its limit, which counts from the session's start whether or not it waits", async () => {
+      const { c, workItem, headless } = await waiting({ headlessLimitMs: 400 });
+      const before = c.messages.length;
+      const failed = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
+      expect([failed.stopped, failed.error]).toEqual(["limit", "the session reached its time limit and was stopped"]);
+      await cleared(c, before, workItem.id);
+    });
+
+    it("ends a request unanswered where its session's process exits, and where its turn ends with a result", async () => {
+      for (const last of ["exit", "result"] as const) {
+        let end = (): void => {};
+        // A session that asks once, and ends when the case says so with no answer given.
+        const roleAdapter: RoleAdapter = {
+          name: "fake",
+          features: [],
+          notice: () => Promise.resolve(null),
+          start: (_options, listener) => {
+            setTimeout(() => listener({ type: "permission", id: "r1", tool: "Bash", action: "run", path: null, text: "ls" }), 0);
+            end = () => listener(last === "exit" ? { type: "exit", exitCode: 3, errorOutput: "" } : { type: "result", text: "done", isError: false, costUsd: null });
+            return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
+          },
+        };
+        const { c, workItem } = await withWorkItem({ roleAdapter });
+        c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+        await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+        const before = c.messages.length;
+        end();
+        await cleared(c, before, workItem.id);
+        const ended = c.messages.slice(before).flatMap((m) => (m.type === "headless" ? [m.headless.state] : []));
+        expect(ended, last).toEqual([last === "exit" ? "failed" : "finished"]);
+      }
+    });
+
+    it("ends a request unanswered where its work item is archived: the archived work item holds none", async () => {
+      const { c, url, workItem, headless } = await waiting({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+      await c.message("exit");
+      c.send({ type: "archiveWorkItem", requestId: 90, id: workItem.id, running: { panes: [], headless: [headless.id] } });
+      await c.message("done", (m) => m.requestId === 90);
+      const ready = await (await client(url)).message("ready");
+      expect(ready.archived.map((item) => [item.id, item.permissions])).toEqual([[workItem.id, []]]);
+      expect(ready.headless.map((h) => [h.state, h.stopped])).toEqual([["failed", "request"]]);
+    });
+
+    it("takes a request its session withdrew off the list: an `inbox` carries the work item with no request, the session goes on, and a later answer is an error", async () => {
+      const { held, adapter } = asking({ delayMs: 150 });
+      held.asks = [{ ...SHELL, withdraw: true }];
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+      const held1 = asksIn(await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1), workItem.id)!;
+      const before = c.messages.length;
+      await cleared(c, before, workItem.id);
+      // The withdrawal took it off, and not the session's end: the session still works.
+      expect(told(c).map((h) => h.state)).not.toContain("finished");
+      c.send({ type: "answerPermission", requestId: 2, workItemId: workItem.id, id: held1[0]!.id, allow: true });
+      expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(`no permission request ${held1[0]!.id} waits in this work item`);
+      expect((await c.message("headless", (m) => m.headless.state === "finished")).headless.answer).toBe('You asked: "Q"');
+    });
+
+    it("starts a role session only through an adapter that declares both features: it answers the ask with an error that names the adapter and what it lacks, starts nothing, and starts a session with no role all the same", async () => {
+      for (const [features, lacks] of [
+        [["role-tools"], "permission-requests"],
+        [["permission-requests"], "role-tools"],
+        [[], "role-tools and permission-requests"],
+      ] as const) {
+        const { adapter, seen } = watched(fakeAdapter({ features }));
+        const { c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
+        c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role: { role: "proofer", stage: "round" } });
+        expect(await c.message("error", (m) => m.requestId === 1), lacks).toEqual({ type: "error", requestId: 1, message: `the fake adapter cannot launch a role: it does not declare ${lacks}` });
+        expect(seen.started).toEqual([]);
+        expect((await (await client(url)).message("ready")).headless).toEqual([]);
+        c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Q" });
+        expect((await c.message("headless", (m) => m.headless.state === "finished")).headless.role).toBeNull();
+        expect(seen.started).toEqual([{ prompt: "Q", cwd: workItem.worktree }]);
+      }
+    });
+
+    it("holds in a look the requests that waited when a client sent `looked`, and gives them to a client that connects afterwards though the request was answered since", async () => {
+      const { c, url, workItem, asked } = await waiting();
+      c.send({ type: "looked" });
+      // `looked` has no answer: the refusal of the start sent after it arrives once the daemon has handled both.
+      c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 95, workItemId: 999 });
+      await c.message("error", (m) => m.requestId === 95);
+      c.send({ type: "answerPermission", requestId: 96, workItemId: workItem.id, id: asked[0]!.id, allow: true });
+      await c.message("done", (m) => m.requestId === 96);
+      const ready = await (await client(url)).message("ready");
+      expect(ready.lastLook?.workItems.find((item) => item.id === workItem.id)?.permissions).toEqual(asked);
+      expect(ready.workItems.find((item) => item.id === workItem.id)?.permissions).toEqual([]);
+    });
   });
 });
 

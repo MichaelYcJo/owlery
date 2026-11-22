@@ -222,9 +222,9 @@ export function stateIcon(state: AgentState | null, changed = false): HTMLElemen
   return iconOf(stateClass(state), changed ? `${stateHeading(state)}, changed since you were last here` : stateHeading(state));
 }
 
-/** The icon of a headless session's state, named by the state's own word. */
-export function headlessIcon(state: HeadlessState): HTMLElement {
-  return iconOf(state, state);
+/** The icon of a headless session's line, `mark` being its state or `waiting` while it waits for the person, named by `words`, the line's words for it. */
+export function headlessIcon(mark: HeadlessState | "waiting", words: string): HTMLElement {
+  return iconOf(mark, words);
 }
 
 /** Draws a state in words where the preview and a view's right column say it: its icon, then the state with its age. */

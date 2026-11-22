@@ -128,9 +128,10 @@ describe("the built app's role bundle", () => {
       [
         `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
         `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
-        "cat > /dev/null",
         `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
         `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
+        // It exits at the end of its input, which the daemon ends once the result has arrived.
+        "cat > /dev/null",
       ].join("\n"),
     );
     // Stands for the login shell, and is the shell of the work item's pane too: it names the CLI and ends.
@@ -178,7 +179,7 @@ describe("the built app's role bundle", () => {
 
     const bundleDir = join(built, "bundle");
     const rulesFile = join(runDir, "roles", "proofer-round.md");
-    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(workItem.worktree, { bundleDir, agent: "owlery:proofer", rulesFile }));
+    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(workItem.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
