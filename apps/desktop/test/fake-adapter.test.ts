@@ -26,7 +26,7 @@ describe("the fake adapter", () => {
     expect(await run(fakeAdapter(), "Which owl?")).toEqual([
       { type: "text", text: 'You asked: "Which owl?"' },
       { type: "result", text: 'You asked: "Which owl?"', isError: false, costUsd: null },
-      { type: "exit", exitCode: 0 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
   });
 
@@ -37,7 +37,7 @@ describe("the fake adapter", () => {
       { type: "text", text: "a barn " },
       { type: "text", text: "owl" },
       { type: "result", text: "Q: a barn owl", isError: false, costUsd: null },
-      { type: "exit", exitCode: 0 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
   });
 
@@ -50,12 +50,17 @@ describe("the fake adapter", () => {
   it("told to fail, ends with an error result and exit 1", async () => {
     expect(await run(fakeAdapter({ fail: "result" }), "Q")).toEqual([
       { type: "result", text: "the fake adapter was told to fail", isError: true, costUsd: null },
-      { type: "exit", exitCode: 1 },
+      { type: "exit", exitCode: 1, errorOutput: "" },
     ]);
   });
 
   it("told to exit early, exits 1 without a result", async () => {
-    expect(await run(fakeAdapter({ fail: "exit" }), "Q")).toEqual([{ type: "exit", exitCode: 1 }]);
+    expect(await run(fakeAdapter({ fail: "exit" }), "Q")).toEqual([{ type: "exit", exitCode: 1, errorOutput: "" }]);
+  });
+
+  it("carries the error output it is given in each exit", async () => {
+    expect(await run(fakeAdapter({ fail: "exit", errorOutput: "error: unknown option\n" }), "Q")).toEqual([{ type: "exit", exitCode: 1, errorOutput: "error: unknown option\n" }]);
+    expect((await run(fakeAdapter({ errorOutput: "a warning" }), "Q")).at(-1)).toEqual({ type: "exit", exitCode: 0, errorOutput: "a warning" });
   });
 
   it("told not to start, starts nothing and says so", async () => {
@@ -65,11 +70,17 @@ describe("the fake adapter", () => {
     expect(events).toEqual([]);
   });
 
-  it("reports nothing more once its run is stopped", async () => {
+  it("reports nothing more once its run is stopped, and its stop settles at once, the same promise at each call", async () => {
     const events: RoleEvent[] = [];
     const started = await fakeAdapter({ pieces: () => ["one", "two"], delayMs: 100 }).start({ prompt: "Q", cwd: "/nowhere" }, (event) => events.push(event));
     await new Promise((r) => setTimeout(r, 150));
-    started.stop();
+    const stopping = started.stop();
+    expect(started.stop()).toBe(stopping);
+    // The stop settles at once: nothing is running to wait for.
+    let settled = false;
+    void stopping.then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(true);
     await new Promise((r) => setTimeout(r, 300));
     expect(events).toEqual([{ type: "text", text: "one" }]);
   });

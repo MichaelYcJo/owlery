@@ -1,9 +1,9 @@
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RoleEvent } from "../src/daemon/adapters/adapter";
-import { claudeAdapter, claudeArgs, claudeEnv, eventsForLine, LOOKUP_SCRIPT, lookupCommand, parseLookup, promptLine } from "../src/daemon/adapters/claude";
+import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, parseLookup, promptLine } from "../src/daemon/adapters/claude";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -169,7 +169,7 @@ describe("the Claude adapter's run", () => {
     expect(events).toEqual([
       { type: "text", text: "owl" },
       { type: "result", text: "owl", isError: false, costUsd: 0.5 },
-      { type: "exit", exitCode: 0 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     expect(readFileSync(join(folder, "cwd"), "utf8").trim()).toBe(cwd);
     expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(cwd));
@@ -207,10 +207,21 @@ describe("the Claude adapter's run", () => {
     expect(Object.keys(received)).not.toContain("ELECTRON_RUN_AS_NODE");
   });
 
-  it("reports the exit code of a CLI that ends without a result", async () => {
+  it("reports the exit code of a CLI that ends without a result, and what it printed on its error stream", async () => {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", "cat > /dev/null\necho 'not json'\nexit 3");
-    expect(await run(fakeShell(folder, cli).env, "Q", folder)).toEqual([{ type: "exit", exitCode: 3 }]);
+    const cli = script(folder, "cli", "cat > /dev/null\necho 'not json'\necho 'error: unknown option' >&2\nexit 3");
+    expect(await run(fakeShell(folder, cli).env, "Q", folder)).toEqual([{ type: "exit", exitCode: 3, errorOutput: "error: unknown option\n" }]);
+  });
+
+  it("keeps the last ERROR_OUTPUT_CHARS characters of the error stream, and no half of a character at their start", async () => {
+    const folder = temporaryFolder();
+    const plain = script(folder, "plain", `cat > /dev/null\nprintf '%s' '${"b".repeat(3000)}end' >&2\nexit 1`);
+    expect(await run(fakeShell(folder, plain).env, "Q", folder)).toEqual([{ type: "exit", exitCode: 1, errorOutput: `${"b".repeat(1997)}end` }]);
+    // An a, 1,501 owls and an x are 3,004 of a string's characters, so the last 2,000 would open with the second half of an owl.
+    const owls = script(folder, "owls", `cat > /dev/null\nprintf '%s' 'a${"\u{1F989}".repeat(1501)}x' >&2\nexit 1`);
+    const [exit] = await run(fakeShell(folder, owls).env, "Q", folder);
+    expect(exit).toEqual({ type: "exit", exitCode: 1, errorOutput: `${"\u{1F989}".repeat(999)}x` });
+    expect(ERROR_OUTPUT_CHARS).toBe(2000);
   });
 
   it("fails to start, saying so, where the login shell finds no CLI", async () => {
@@ -242,15 +253,116 @@ describe("the Claude adapter's run", () => {
     expect(shell.lookups()).toBe(1);
   });
 
-  it("stops a run: the CLI's process ends", async () => {
+  it("stops a run: the stop settles once the CLI's process has ended, and a second stop gives the same promise", async () => {
     const folder = temporaryFolder();
     const cli = script(folder, "cli", "cat > /dev/null\nexec sleep 30");
     const events: RoleEvent[] = [];
     const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
-    started.stop();
+    const stopping = started.stop();
+    expect(started.stop()).toBe(stopping);
+    const at = Date.now();
+    await stopping;
+    // The sleep ends at the signal, so no kill was needed.
+    expect(Date.now() - at).toBeLessThan(KILL_AFTER_MS);
     const end = Date.now() + 5000;
     while (events.length === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
     expect(events.map((event) => event.type)).toEqual(["exit"]);
+  });
+
+  /** Whether a process of that id runs. */
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /** The pid a script wrote into a file, once it has; the process is killed after the case where it still runs then. */
+  async function pidIn(file: string): Promise<number> {
+    const end = Date.now() + 5000;
+    while (!existsSync(file) || readFileSync(file, "utf8").trim() === "") {
+      if (Date.now() > end) throw new Error(`no pid in ${file}`);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const pid = Number(readFileSync(file, "utf8").trim());
+    cleanups.push(() => {
+      if (alive(pid)) process.kill(pid, "SIGKILL");
+    });
+    return pid;
+  }
+
+  it("kills a CLI that ignores the signal KILL_AFTER_MS after it, and what the CLI started in its group with it", async () => {
+    const folder = temporaryFolder();
+    // An ignored signal stays ignored across `exec` and in a child started after the trap.
+    const cli = script(folder, "cli", `trap '' TERM\nsleep 30 &\necho $! > '${folder}/child'\necho $$ > '${folder}/cli'\nexec sleep 30`);
+    const events: RoleEvent[] = [];
+    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    const [cliPid, childPid] = [await pidIn(join(folder, "cli")), await pidIn(join(folder, "child"))];
+    const at = Date.now();
+    await started.stop();
+    const took = Date.now() - at;
+    expect(took).toBeGreaterThanOrEqual(KILL_AFTER_MS - 50);
+    expect(took).toBeLessThan(KILL_AFTER_MS + 1500);
+    expect(alive(cliPid)).toBe(false);
+    // The child was the shell's, and is reaped by whoever took it when the shell's process ended.
+    const end = Date.now() + 2000;
+    while (alive(childPid) && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    expect(alive(childPid)).toBe(false);
+    expect(KILL_AFTER_MS).toBe(2000);
+    const exited = Date.now() + 2000;
+    while (events.length === 0 && Date.now() < exited) await new Promise((r) => setTimeout(r, 20));
+    // A process ended by a signal has no code.
+    expect(events).toEqual([{ type: "exit", exitCode: 1, errorOutput: "" }]);
+  });
+
+  it("reports the exit of a CLI whose child still holds its streams soon after the exit, and signals nothing once the CLI has exited", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", `cat > /dev/null\nsleep 30 &\necho $! > '${folder}/child'\necho 'gone' >&2\nexit 4`);
+    const events: RoleEvent[] = [];
+    const at = Date.now();
+    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    const childPid = await pidIn(join(folder, "child"));
+    const end = Date.now() + 5000;
+    while (events.length === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    expect(events).toEqual([{ type: "exit", exitCode: 4, errorOutput: "gone\n" }]);
+    expect(Date.now() - at).toBeLessThan(1500);
+    // The CLI's group may be gone or another's by now, so the stop signals it no more.
+    await started.stop();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(alive(childPid)).toBe(true);
+  });
+
+  it("reports nothing after the exit, and closes both streams to a child the CLI started, so what the child prints later fails to reach the run", async () => {
+    const folder = temporaryFolder();
+    // The child ignores SIGPIPE, so it goes on to write how each of its two writes ended, 0 where the stream was still open to it.
+    const late = `{"type":"result","is_error":false,"result":"late","total_cost_usd":0}`;
+    const cli = script(folder, "cli", `cat > /dev/null\n(trap '' PIPE; sleep 1; echo '${late}'; out=$?; echo 'late' >&2; err=$?; echo "$out $err" > '${folder}/printed') &\nexit 0`);
+    const events: RoleEvent[] = [];
+    await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    const printed = join(folder, "printed");
+    const end = Date.now() + 5000;
+    while ((!existsSync(printed) || readFileSync(printed, "utf8").trim() === "") && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    const [out, err] = readFileSync(printed, "utf8").trim().split(" ");
+    expect([out === "0", err === "0"]).toEqual([false, false]);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events).toEqual([{ type: "exit", exitCode: 0, errorOutput: "" }]);
+  });
+});
+
+describe("the output stream of a run with no login, as Claude Code 2.1.330 printed it", () => {
+  const lines = readFileSync(join(__dirname, "fixtures", "claude-not-logged-in.jsonl"), "utf8").split("\n").slice(0, -1);
+
+  it("is a recording of the init line, the synthetic message and the error result", () => {
+    expect(lines.map((line) => (JSON.parse(line) as { type: string }).type)).toEqual(["system", "assistant", "result"]);
+  });
+
+  it("gives the message's text, then a result that is an error with the same text and no cost", () => {
+    expect(lines.flatMap(eventsForLine)).toEqual([
+      { type: "text", text: "Not logged in · Please run /login" },
+      { type: "result", text: "Not logged in · Please run /login", isError: true, costUsd: 0 },
+    ]);
   });
 });
 

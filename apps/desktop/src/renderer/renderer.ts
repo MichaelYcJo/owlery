@@ -72,7 +72,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -1315,6 +1315,10 @@ function onMessage(message: ServerMessage): void {
       return;
     case "headless":
       takeHeadlessSession(message.headless);
+      return;
+    case "headlessDropped":
+      // The daemon drops only a session that ended, so no dialog that names the running sessions changes.
+      dropHeadless(message.id);
       return;
     case "error":
       // Nothing was created or started.

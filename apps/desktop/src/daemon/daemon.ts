@@ -47,10 +47,19 @@ const SILENT_START_MS = 10_000;
  * where the options name no time. A shell exits well inside it: the case
  * that removes a repository with a running `/bin/sh` pane is answered in
  * less than two seconds, which it asserts. A person who confirmed a dialog
- * waits on the answer, so the wait is no longer than this. How long an
- * agent's CLI takes to exit at the signal was not measured.
+ * waits on the answer, so the wait is no longer than this. The same wait
+ * holds for the headless runs that were stopped. Claude Code 2.1.330 run
+ * headless exited 389 ms after the signal while it waited for its first
+ * message (probed 2026-11-21), and the adapter kills a CLI that has not
+ * exited 2 seconds after the signal. Its exit during a turn was not measured.
  */
 const END_WAIT_MS = 3000;
+
+/** How long a headless session may work, from its start, before the daemon stops it, where the options name no time. */
+export const HEADLESS_LIMIT_MS = 60 * 60_000;
+
+/** How many of the headless sessions that ended the daemon keeps, where the options name no number. */
+export const HEADLESS_KEPT = 50;
 
 const isIds = (value: unknown): value is number[] => Array.isArray(value) && value.every((id) => typeof id === "number");
 const isRunning = (value: unknown): value is Running => typeof value === "object" && value !== null && isIds((value as Running).panes) && isIds((value as Running).headless);
@@ -100,8 +109,12 @@ export interface DaemonOptions {
   readyWaitMs?: number;
   /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
   silentStartMs?: number;
-  /** How long the daemon waits for the processes of the panes it ended to exit, before it refuses what ended them; 3 seconds when absent. */
+  /** How long the daemon waits for the processes of the panes it ended to exit, and for the headless runs it stopped to end, before it refuses what ended them where a pane's has not; 3 seconds when absent. */
   endWaitMs?: number;
+  /** How long a headless session may work, from its start, before the daemon stops it; `HEADLESS_LIMIT_MS` when absent. */
+  headlessLimitMs?: number;
+  /** How many of the headless sessions that ended the daemon keeps, apart from the ones still working; `HEADLESS_KEPT` when absent. */
+  keptHeadless?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -125,6 +138,8 @@ interface HeadlessSession {
   info: HeadlessInfo;
   /** The adapter's run, once it has started. */
   run: RoleRun | undefined;
+  /** The wait for the session's time limit. Its end and the daemon's close each cancel it. */
+  limit: NodeJS.Timeout | undefined;
 }
 
 /**
@@ -144,6 +159,8 @@ export class Daemon {
   // The headless sessions, by an id counted apart from the panes'. They live in memory alone.
   private readonly headless = new Map<number, HeadlessSession>();
   private nextHeadlessId = 1;
+  // The ids of the headless sessions that ended, in the order they ended. The first leaves the list where more ended than the daemon keeps.
+  private readonly endedHeadless = new Set<number>();
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
@@ -231,12 +248,17 @@ export class Daemon {
       clearTimeout(session.silentStart);
       if (session.info.alive) session.terminal.kill();
     }
-    for (const session of this.headless.values()) session.run?.stop();
+    // A run whose adapter is still starting is stopped once it has started, and the close does not wait for it.
+    const stops: Promise<void>[] = [];
+    for (const session of this.headless.values()) {
+      clearTimeout(session.limit);
+      if (session.run) stops.push(session.run.stop());
+    }
     this.fetches.close();
     this.hold?.release();
     this.hold = undefined;
     for (const client of this.clients.keys()) client.terminate();
-    await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
+    await Promise.all([new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve())), ...stops]);
   }
 
   private accept(socket: WebSocket): void {
@@ -674,14 +696,27 @@ export class Daemon {
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
         if (worktree === undefined) return;
         const session: HeadlessSession = {
-          info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, costUsd: null, startedAt: (this.options.now ?? Date.now)() },
+          info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, costUsd: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null },
           run: undefined,
+          limit: undefined,
         };
+        session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
         this.headless.set(session.info.id, session);
         // The answer first, so the client that asked knows the session as its own when every client is told of it.
         this.send(socket, { type: "asked", requestId: message.requestId, headless: session.info });
         this.headlessChanged(session);
         this.startHeadless(session, worktree);
+        return;
+      }
+      case "stopHeadless": {
+        const session = this.headless.get(message.id);
+        if (!session) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: `no headless session ${String(message.id)}` });
+          return;
+        }
+        // The answer first, so the client that asked knows its request was carried out when every client is told of the session.
+        this.send(socket, { type: "done", requestId: message.requestId });
+        if (session.info.state === "working") void this.stopHeadless(session, "the session was stopped at a request before it finished", "request");
         return;
       }
       case "looked": {
@@ -776,7 +811,11 @@ export class Daemon {
       clearTimeout(session.silentStart);
       this.sessions.delete(id);
     }
-    for (const [id, session] of this.headless) if (ids.has(session.info.workItemId)) this.headless.delete(id);
+    for (const [id, session] of this.headless) {
+      if (!ids.has(session.info.workItemId)) continue;
+      this.headless.delete(id);
+      this.endedHeadless.delete(id);
+    }
     for (const id of ids) {
       this.commitCounts.delete(id);
       this.aheadCounts.delete(id);
@@ -836,30 +875,40 @@ export class Daemon {
    * carries the sessions the person was told of. Where a session runs that
    * `told` does not name, it refuses and ends none. Otherwise it kills each
    * pane's process and stops each headless run, which is then `failed` with
-   * the error `why`, and waits until each pane's process has exited. Where
-   * one has not within the wait, it refuses with the sentence `late`, and
-   * goes on where `late` is null. It refuses where a session started in one
-   * of the work items while it waited. The panes stay listed, as exited
-   * ones.
+   * the error `why` and stopped at a request, and waits until each pane's
+   * process has exited and each headless run it stopped has ended. Where a
+   * pane's has not within the wait, it refuses with the sentence `late`, and
+   * goes on where `late` is null; a headless run that has not ended by then
+   * refuses nothing. It refuses where a session started in one of the work
+   * items while it waited. The panes stay listed, as exited ones.
    */
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
-    for (const session of headless) {
-      // The run of a session whose adapter is still starting is stopped when it has started.
-      session.run?.stop();
-      session.info.state = "failed";
-      session.info.error = why;
-      this.headlessChanged(session);
-    }
+    const stops = headless.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
     for (const session of panes) session.terminal.kill();
     let waitTimer: NodeJS.Timeout | undefined;
     const waited = new Promise<void>((resolve) => {
       waitTimer = setTimeout(resolve, this.options.endWaitMs ?? END_WAIT_MS);
     });
-    await Promise.race([Promise.all(panes.map((session) => session.exited)), waited]);
+    await Promise.race([Promise.all([...panes.map((session) => session.exited), ...stops]), waited]);
     clearTimeout(waitTimer);
     if (late !== null && panes.some(({ info }) => info.alive)) throw new Error(late);
     this.runningTold(workItemIds, told);
+  }
+
+  /**
+   * Stops a working headless session: it stops its run, and the session is
+   * `failed` with the error `why` and says what stopped it. It gives the
+   * promise of the run's end, and nothing where the adapter is still
+   * starting, whose run is stopped once it has started.
+   */
+  private stopHeadless(session: HeadlessSession, why: string, stopped: "limit" | "request"): Promise<void> | undefined {
+    const stopping = session.run?.stop();
+    session.info.state = "failed";
+    session.info.error = why;
+    session.info.stopped = stopped;
+    this.headlessChanged(session);
+    return stopping;
   }
 
   /** Starts a headless session's run through the adapter, and keeps what its events say of it. */
@@ -872,7 +921,12 @@ export class Daemon {
     };
     const onEvent = (event: RoleEvent): void => {
       if (event.type === "exit") {
+        // A session that left the list is told to nobody again.
+        if (this.headless.get(info.id) !== session) return;
+        const printed = info.errorOutput !== event.errorOutput;
+        info.errorOutput = event.errorOutput;
         if (info.state === "working") failed(`the session exited with code ${event.exitCode} and gave no result`);
+        else if (printed) this.headlessChanged(session);
         return;
       }
       // The result closes the answer: nothing that arrives after it changes the session.
@@ -894,16 +948,38 @@ export class Daemon {
     this.options.roleAdapter.start({ prompt: info.prompt, cwd }, onEvent).then(
       (run) => {
         // A daemon that closed while the adapter was starting stopped no run of this session, and neither did what ended the session meanwhile.
-        if (this.closed || info.state !== "working") run.stop();
+        if (this.closed || info.state !== "working") void run.stop();
         else session.run = run;
       },
-      (error: unknown) => failed(error instanceof Error ? error.message : String(error)),
+      (error: unknown) => {
+        // A session that ended while its adapter was starting keeps what ended it, and is told to nobody again. One the
+        // list no longer holds ended first: the bound drops only ended sessions, and a delete or a removal stops its
+        // working ones before it drops them.
+        if (info.state !== "working") return;
+        failed(error instanceof Error ? error.message : String(error));
+      },
     );
   }
 
-  /** Sends every client one headless session whole, after it changed. */
+  /**
+   * Sends every client one headless session whole, after it changed. A
+   * session that has just ended no longer waits for its limit, and where more
+   * sessions have ended than the daemon keeps, the one that ended first
+   * leaves the list and every client is told.
+   */
   private headlessChanged(session: HeadlessSession): void {
     this.broadcast({ type: "headless", headless: session.info });
+    if (session.info.state !== "working" && !this.endedHeadless.has(session.info.id)) {
+      clearTimeout(session.limit);
+      this.endedHeadless.add(session.info.id);
+      const kept = this.options.keptHeadless ?? HEADLESS_KEPT;
+      for (const id of this.endedHeadless) {
+        if (this.endedHeadless.size <= kept) break;
+        this.endedHeadless.delete(id);
+        this.headless.delete(id);
+        this.broadcast({ type: "headlessDropped", id });
+      }
+    }
     this.settleHold();
     this.checkIdle();
   }

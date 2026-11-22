@@ -21,7 +21,7 @@ export const held = {
   apps: [] as InstalledApp[],
   /** What the status line says of the daemon in place of its state, or nothing: that the daemon is of another build, as the main process answered when this page asked for the daemon (./view, `daemonNotice`). A notice of the window's own stands before it. */
   daemonNotice: "",
-  /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since. */
+  /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since, and taken out at the `headlessDropped` that names it. */
   headless: [] as HeadlessInfo[],
   /** The look the daemon held when this window said hello, or null where no person looked before. The window keeps none of its own. */
   lastLook: null as Look | null,
