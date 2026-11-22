@@ -43,7 +43,7 @@ The policy documents are `docs/architecture.md` and `docs/architecture.ko.md`: *
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 6, with entries P1 to P5 and the rows of *Removes* they name | Scenarios 1 to 4 as cases of `test/pr-check.test.ts`, each seen red before the folder holds its file, scenario 6 by `test/role-bundle.test.ts`, and the two searches of scenario 6 and those of scenario 5 printing nothing | |
+| 1 | `frame/design.md` *Scope* items 1 to 6, with entries P1 to P5 and the rows of *Removes* they name | Scenarios 1 to 4 as cases of `test/pr-check.test.ts`, each seen red before the folder holds its file, scenario 6 by `test/role-bundle.test.ts`, and the two searches of scenario 6 and those of scenario 5 printing nothing | `a2fd024` |
 | 2 | *Scope* items 7 to 12 and 19, with entries P6 to P8 and the parts of *Data & interfaces* on the protocol and the connection | Scenarios 7 to 16 as cases, each seen red before its code, and scenario 17 by its one case in the built app | |
 | 3 | *Scope* items 13 to 18, with entries P9 to P12 and the parts of *Data & interfaces* on the block grammar and the record | Scenarios 18 to 21 as cases, each seen red before its code, and the two searches of scenario 22 printing nothing | |
 
