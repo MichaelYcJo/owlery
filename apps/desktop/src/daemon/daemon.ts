@@ -180,9 +180,9 @@ export class Daemon {
   private readonly aheadCounts = new Map<number, number | null>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
-  // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
   private readonly records = new Map<number, RecordsPlace>();
+  // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
   // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
   private readonly archiving = new Set<number>();
