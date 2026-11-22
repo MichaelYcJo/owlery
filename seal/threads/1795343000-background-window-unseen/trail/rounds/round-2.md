@@ -43,6 +43,11 @@ Two fixes close it, and the choice is the orchestrator's. The first keeps the pl
 
 Then set phase 2's Status cell at `frame/plan.md:39` to `6efb9e9`. The second fix is the framer's: reframe `frame/plan.md` so that the fix pass of round 1 is not a row of *Phases*, and say in *Phases* that round 1's close blocks deliver *Scope* items 2, 4 and 5. That fix also owes `routing.md:18` and `frame/design.md:5`, which call the fix pass phase 2. The snippet above covers the first fix only, and leaves `routing.md:18` and `frame/design.md:5` standing, which stay true under it.
 
+```seal
+verdict: fixed f324548
+answer: `trail/phases/phase-2.md` now stands, written from the fix pass's hand-back and round 1's closes, with the census the fix pass ran, and plan.md's phase 2 Status is `6efb9e9`, the last commit of the phase.
+```
+
 ### 2. No case holds the handler's use of `chooseFolderDialog`, so dropping it from `main.ts` would bring the sheet back unnoticed
 
 ```seal
@@ -71,6 +76,11 @@ Precondition, not verified by this round: Electron's `dialog.showOpenDialog` is 
 
 It is seen red with `chooseFolderDialog(background, …)` taken out of `main.ts:173`: the stand-in answers `/r/project`, and the run draws no sheet. The snippet stops at the case. The fix pass owes `gaps.md:10`, whose "No case clicks Browse" the case makes false. The framer or the orchestrator owes the frame: `frame/design.md:35` and the acceptance row at `:53` name the new case beside the unit case, and the two `to` lines of the check-line operations at `:91` and `:96` add `apps/desktop/test/work-item-form.test.ts`. Where the orchestrator takes no built-app case, the fix pass says why, and `gaps.md:10` names who answers the unpinned line.
 
+```seal
+verdict: fixed 26b276b
+answer: The precondition holds: a probe in Electron 45.3.3's main process read `showOpenDialog` as an own writable, configurable property of `require("electron").dialog`, and the assignment replaced it. `7ef8dfb` adds the round's case last in the `describe` of `apps/desktop/test/work-item-form.test.ts` as written, and starts that file's app with `inspectMain`, which `evaluateMain` needs. `seal mutate` with `chooseFolderDialog(background, …)` taken out of `main.ts:173` read red: the case failed at `work-item-form.test.ts:193`, "expected '/r/project' to be null". The whole file then passed once under `OWLERY_BACKGROUND=1`, 8 cases. `26b276b` rewrites `gaps.md:10`: the case asks through `window.owlery.pickFolder()`, the call the Browse button makes, and no case clicks the button itself. `frame/design.md:35`, `:53`, `:91` and `:96` are the orchestrator's to fold.
+```
+
 ### 3. The frame's grounding misreports what its search for pinned sentences printed
 
 ```seal
@@ -84,6 +94,11 @@ Why it matters: the unit is `frame/design.md` *Grounding*, which `cafb67e` added
 
 ```markdown
 | No test pins a sentence *Rule changes* rewrites | Executed at `e6937ca`: `git grep -n -F` on each `from`, outside `seal/threads`, printed only the policy lines the operations rewrite: `docs/architecture.md:365`, `:366` and `:384`, `docs/architecture.ko.md:365`, `:366` and `:384`, `docs/design.md:487` and `docs/design.ko.md:487`. No test file holds one |
+```
+
+```seal
+verdict: fixed f324548
+answer: `frame/design.md`'s grounding row now names the lines the `git grep` prints: both editions' `:365`, `:366`, `:384` and both editions of `docs/design.md:487`.
 ```
 
 ## Confirmations
