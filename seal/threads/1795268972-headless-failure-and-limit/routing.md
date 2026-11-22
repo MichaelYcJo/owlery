@@ -2,7 +2,7 @@
 
 | Axis | Answer |
 |---|---|
-| Review | straight to the PR |
+| Review | through the review chain |
 | Destination | open the pull request |
 | Planning | framer |
 | Implementation | crafter |
@@ -19,6 +19,6 @@ The owner's words that hand the run over, in this session: "알아서 진행하�
 
 - **Planning, framer:** the issue leaves open how much of the error stream is kept, what the run's limit is and where it is stated, which client message ends a run, how long the daemon waits before it kills a process that ignores the signal, and how many finished sessions it keeps. The tree answers most of these, and a framer reads it. The milestone's role sessions (#38 on) run on this adapter, so the frame names what they will read.
 - **Implementation, crafter:** the work touches the headless adapter, the daemon's session list and the protocol, with their cases.
-- **Review, straight to the PR:** the change bounds an existing adapter, and the sealer reads the diff against the issue. Where the diff reaches what these grounds do not name, the route is raised to the review chain.
+- **Review, through the review chain (raised 2026-11-22):** the route was first `straight to the PR`, on the ground that the change bounds an existing adapter. The diff also changes the window (the "Stop" button, the error output, the drop of a session in `work-item-view.ts`, `renderer.ts`, `view.ts`, `shared.ts` and `index.html`) and what `Daemon#close` and `endSessions` wait for, which those grounds did not name, and the sealer withheld its first seal on it. As this file said, the route is raised: a proofer round reads the whole diff before the sealer.
 - **Automation, yes:** a fake CLI the cases start prints to its error stream, ignores a signal and never finishes.
 - **Branch:** the pull request merges into `release/v0.0.2` (`docs/roadmap.md` *Releases and the tracker*), by squash. It runs beside #30 and #28, cut from `dc82f88`; #30 carries the release's version move, so this work item moves no version.
