@@ -36,7 +36,7 @@ The command that read *Rule changes* (executed, read-only, from the framer's scr
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* item 1 | `background.test.ts` *showInBackground* seen red against the old function. `seal mutate` on `src/main/background.ts`, with no mutant surviving. The window server's watcher across six starts. The built-app files `trail/phases/phase-1.md` names, `pnpm run screenshots` and `measure:memory`, one at a time. All executed by the crafter | `dd022bb` |
-| 2 | `frame/design.md` *Scope* items 2, 4 and 5, the fix pass of round 1 | `pick-folder.test.ts` *chooseFolderDialog* seen red with the background branch of `chooseFolderDialog` removed. `node scripts/test-in-electron.mjs test/pick-folder.test.ts test/background.test.ts` in `apps/desktop` | |
+| 2 | `frame/design.md` *Scope* items 2, 4 and 5, the fix pass of round 1 | `pick-folder.test.ts` *chooseFolderDialog* seen red with the background branch of `chooseFolderDialog` removed. `node scripts/test-in-electron.mjs test/pick-folder.test.ts test/background.test.ts` in `apps/desktop` | `304b2ac` |
 
 *Scope* item 3 is this frame's own `## Rule changes`, which the settle writes, so no phase builds it.
 
