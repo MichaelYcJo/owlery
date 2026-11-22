@@ -34,6 +34,11 @@ The pins below make each case fail when its constant is lowered. Show each one r
     expect(CARD_LEAVE_MS).toBe(200);
 ```
 
+```seal
+verdict: fixed 59f1aef
+answer: applied the three pins as proposed, each after its measured pause; seen red with `seal mutate` (executed): `SUBMENU_LEAVE_MS = 0` failed at `work-item-menu.test.ts:414` (`expected +0 to be 300`), `CARD_SHOW_MS = 0` at `terminal-basics.test.ts:617` (`expected +0 to be 300`), `CARD_LEAVE_MS = 0` at `:665` (`expected +0 to be 200`); `e5a8e6c` makes `changelog.md:6` and `:8` say the cases fail where a pause is shortened where its timer starts or where its length is named, and `phase-1.md:11` and `:35` name the constant mutants
+```
+
 ### 2. The policy documents still list three things a background start lacks, after the diff made it a fourth: the system's pointer
 
 ```seal
@@ -55,6 +60,12 @@ Such a start lacks the Dock icon, the menu bar, the system's focus and the syste
 Such a start lacks four things a person's start has: the Dock icon, the menu bar, the system's focus on the window, and the system's pointer, which passes through the window to what is under it.
 ```
 
+```seal
+verdict: fixed e5a8e6c
+answer: applied the three sentences as proposed; after the merge of #123 the bullet stands at `docs/architecture.md:349` and `docs/architecture.ko.md:349`; heading and table-line counts of the pair stay 26/26 and 108/108 (executed, `grep -c`); no case reads `memory.md` (executed, `git grep`)
+location: `docs/architecture.md:349`, `docs/architecture.ko.md:349`
+```
+
 ### 3. The changelog and the phase record state that the person's pointer caused the link card failure, which `gaps.md` holds as not known
 
 ```seal
@@ -71,6 +82,11 @@ A person's pointer passing over the test's window can take its card away, and no
 
 <!-- trail/phases/phase-1.md:19, the paragraph's heading -->
 **The link card case's failure at `:608` is reproduced by a pointer over the suite's window, and by nothing else this phase tried.**
+```
+
+```seal
+verdict: fixed e5a8e6c
+answer: `changelog.md:3` now says a pointer can take the card away (one move handed to the app's process did), nothing else tried did (the page slowed twentyfold, load averages of 52 to 91), no failing run was caught with a pointer moving, and whether one did is the owner's to say; `phase-1.md:19` takes the proposed heading and says the evidence points to the pointer without proving it; `routing.md:20` ("Phase 1 found that the link card case failed under the person's own pointer") states it as fact as well, and it is the orchestrator's file, named in the hand-back
 ```
 
 ### 4. The phase record says `linkAt` is called only in the path case, yet the clear-screen case reads it for no link right after its pane comes back onto the stage
@@ -98,6 +114,11 @@ Nor were the clear-screen case's two reads at `terminal-basics.test.ts:1065-1066
     expect(await pasteOnceBack()).toBe(inBrackets);
     expect(await linkAt(9, 0)).toBe(false);
     expect(await linkAt(3, 1)).toBe(false);
+```
+
+```seal
+verdict: fixed 59f1aef
+answer: took the optional move, not `comeOnto`: the reads expect an absence, and `comeOnto` waits for a presence, so it cannot hold them; `pasteOnceBack` returns only once the paste reached the process, which the screen sends only after it drew the replay, so the two reads now come after it; the precondition holds by reading `test/fixtures/basics-shell.sh` (`stty raw -echo`, then `exec cat` into a file: a paste draws nothing); seen red with `seal mutate` (executed): the clear's `forget` removed failed at `terminal-basics.test.ts:1070`, `expected true to be false`; `e5a8e6c` corrects `phase-1.md:15` (`linkAt` is called in the path case and the clear-screen case) and `gaps.md:15`
 ```
 
 ## Confirmations
