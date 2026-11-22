@@ -1050,6 +1050,7 @@ describe("changesSince", () => {
         line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "3 new commits" },
         session: waits,
         sentence: "Waits for you. 2 new commits since you were last here.",
+        decided: 0,
       },
     ]);
     expect(summarySentence(changes)).toBe("1 waiting for you");
@@ -1121,11 +1122,68 @@ describe("changesSince", () => {
     const changes = changesSince(look([]), [LOGIN, SEARCH, third, fourth], sessions, KINDS);
     expect(changes.map((change) => change.workItem.id)).toEqual([3, 4, 2, 1]);
   });
+
+  describe("the decisions made without asking since the look", () => {
+    function decision(id: number, fields: Partial<Decision> = {}): Decision {
+      return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", at: 2000, reversed: null, ...fields };
+    }
+    const ASKED: Asked = { by: "sealer", at: 3000, questions: [{ id: 1, asks: "Which base does the branch start from?", options: [], default: null, answer: null }], answeredAt: null };
+    const THIRD: WorkItem = { ...LOGIN, id: 3, title: "Third", newCommits: 1 };
+
+    it("gives a parked work item, one that gained decisions alone and one that gained a commit and a decision as changed, the parked one first, counts the decisions apart from the one that waits, and opens the parked one", () => {
+      const before = look([SEARCH, THIRD, LOGIN]);
+      const changes = changesSince(before, [{ ...SEARCH, decisions: [decision(1), decision(2, { kind: "route" })] }, { ...THIRD, newCommits: 2, decisions: [decision(3)] }, { ...LOGIN, asked: ASKED }], [], KINDS);
+      expect(changes.map((change) => [change.workItem.id, change.sentence, change.decided])).toEqual([
+        [1, "Waits for you.", 0],
+        [2, "No agent is running. 2 decisions made without asking.", 2],
+        [3, "No agent is running. 1 new commit since you were last here. 1 decision made without asking.", 1],
+      ]);
+      expect(summarySentence(changes)).toBe("1 waiting for you. 3 decisions made without asking.");
+      expect(summaryHead(true, changes)).toBe("1 waiting for you. 3 decisions made without asking.");
+      expect(summaryControls(changes).main).toEqual({ label: "Answer the first question", opens: 1 });
+    });
+
+    it("counts a decision by its id: one the look already holds adds nothing, whether or not it was reversed since, and one it does not hold counts beside it", () => {
+      const held = { ...LOGIN, decisions: [decision(1), decision(2)] };
+      const reversed = { ...LOGIN, decisions: [decision(1), decision(2, { reversed: { at: 4000, message: "main에서 시작해 주세요" } })] };
+      expect(changesSince(look([held]), [held], [], KINDS)).toEqual([]);
+      expect(changesSince(look([held]), [reversed], [], KINDS)).toEqual([]);
+      const gained = changesSince(look([held]), [{ ...reversed, decisions: [...reversed.decisions, decision(5)] }], [], KINDS);
+      expect(gained.map((change) => [change.sentence, change.decided])).toEqual([["No agent is running. 1 decision made without asking.", 1]]);
+      // A decision recorded since the look and already reversed is one the look does not hold.
+      const both = changesSince(look([LOGIN]), [reversed], [], KINDS);
+      expect(both.map((change) => change.decided)).toEqual([2]);
+    });
+
+    it("counts every decision of a work item the look does not hold, after the words that it is new", () => {
+      const changes = changesSince(look([]), [{ ...LOGIN, decisions: [decision(1), decision(2)] }], [], KINDS);
+      expect(changes.map((change) => [change.sentence, change.decided])).toEqual([["No agent is running. New since you were last here. 2 decisions made without asking.", 2]]);
+    });
+
+    it("says an answered work item's state as its panes give it again, and names no decision for it", () => {
+      const answered = { ...LOGIN, asked: { ...ASKED, questions: [{ ...ASKED.questions[0]!, answer: "main" }], answeredAt: 5000 } };
+      const changes = changesSince(look([{ ...LOGIN, asked: ASKED }]), [answered], [session(3, { state: "working" })], KINDS);
+      expect(changes.map((change) => [change.sentence, change.decided])).toEqual([["Is working.", 0]]);
+      expect(changesSince(look([{ ...LOGIN, asked: ASKED }]), [{ ...LOGIN, asked: ASKED }], [session(3, { state: "working" })], KINDS)).toEqual([]);
+    });
+
+    it("reads a work item without the fields, in a look written before them and from a daemon of an earlier build, as one with no decision and no record, and throws at none", () => {
+      const { decisions: _decisions, asked: _asked, ...before } = LOGIN;
+      const EARLIER = before as WorkItem;
+      expect(changesSince(look([EARLIER]), [EARLIER], [], KINDS)).toEqual([]);
+      expect(changesSince(look([LOGIN]), [EARLIER], [], KINDS)).toEqual([]);
+      // Every decision is one a look written before the decisions does not hold.
+      const changes = changesSince(look([EARLIER]), [{ ...LOGIN, decisions: [decision(1)] }], [], KINDS);
+      expect(changes.map((change) => change.decided)).toEqual([1]);
+      expect(changesSince(look([]), [EARLIER], [], KINDS).map((change) => change.decided)).toEqual([0]);
+      expect(summaryControls(changesSince(look([]), [EARLIER], [], KINDS)).main.opens).toBe("inbox");
+    });
+  });
 });
 
 describe("summarySentence", () => {
-  function change(state: InboxLine["state"]): { line: InboxLine } {
-    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" } };
+  function change(state: InboxLine["state"], decided = 0): { line: InboxLine; decided: number } {
+    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, decided };
   }
 
   it("counts the changed work items by their present state, in the inbox's order and words, and leaves out the ones with no state", () => {
@@ -1136,6 +1194,13 @@ describe("summarySentence", () => {
   it("says how many work items changed where none of them has a state", () => {
     expect(summarySentence([change(null)])).toBe("1 work item changed");
     expect(summarySentence([change(null), change(null)])).toBe("2 work items changed");
+  });
+
+  it("adds after a full stop how many decisions were made without asking, the sum over the changed work items, of one and of several, and nothing where the sum is zero", () => {
+    expect(summarySentence([change("waiting"), change(null, 2), change("finished", 1)])).toBe("1 waiting for you, 1 finished. 3 decisions made without asking.");
+    expect(summarySentence([change("working", 1)])).toBe("1 working. 1 decision made without asking.");
+    expect(summarySentence([change(null, 2), change(null)])).toBe("2 work items changed. 2 decisions made without asking.");
+    expect(summarySentence([change("waiting", 0), change("waiting")])).toBe("2 waiting for you");
   });
 });
 
@@ -2115,7 +2180,7 @@ describe("summaryControls", () => {
 });
 
 describe("summaryHead", () => {
-  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine }];
+  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine, decided: 0 }];
 
   it("is the summary's sentence where a work item changed", () => {
     expect(summaryHead(true, waits)).toBe("1 waiting for you");

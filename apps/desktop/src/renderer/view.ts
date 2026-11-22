@@ -653,33 +653,48 @@ export interface Change {
   session: SessionInfo | undefined;
   /** What changed, opening with the present state. */
   sentence: string;
+  /** How many decisions made without asking the work item holds that the look does not hold for it. */
+  decided: number;
 }
 
 /** Each agent state as a change's sentence opens with it. */
 const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Waits for you.", working: "Is working.", finished: "Finished." };
 
+/** How many decisions were made without asking, as a change's sentence and the summary's sentence end with it. */
+function madeWithoutAsking(decided: number): string {
+  return `${decided} ${decided === 1 ? "decision" : "decisions"} made without asking.`;
+}
+
 /**
  * The work items that changed since the person last looked, in the order of
  * the inbox's groups: one whose line differs in the state or in the count of
- * new commits from its line in the look, and one the look does not hold. A
- * count the daemon gave on one side alone says nothing of a change. Each side
- * is read through `inboxLine` with its own sessions, and no session of one is
- * matched to a session of the other: a session's id starts again with the
- * daemon, and a work item's id does not.
+ * new commits from its line in the look, one that holds a decision made
+ * without asking that the look does not hold for it, and one the look does
+ * not hold. A park and its answer both change the line's state. A decision
+ * is told from the look's by its id, so one the look holds adds nothing,
+ * reversed since or not, and a look written before the decisions holds none.
+ * A change's sentence ends with how many such decisions the work item holds.
+ * A count the daemon gave on one side alone says nothing of a change. Each
+ * side is read through `inboxLine` with its own sessions, and no session of
+ * one is matched to a session of the other: a session's id starts again with
+ * the daemon, and a work item's id does not.
  */
 export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
   const changes = workItems.flatMap((workItem): Change[] => {
     const line = inboxLine(workItem, sessions, paneKinds);
     const said = [line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
     const before = look.workItems.find((item) => item.id === workItem.id);
+    const looked = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
+    const decided = decisionsOf(workItem).filter((decision) => !looked.has(decision.id)).length;
     if (!before) {
       said.push("New since you were last here.");
     } else {
       const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
-      if (rise === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
+      if (rise === 0 && decided === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
       if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
     }
-    return [{ workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" ") }];
+    if (decided > 0) said.push(madeWithoutAsking(decided));
+    return [{ workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" "), decided }];
   });
   return inboxGroups(changes).flatMap((group) => group.entries);
 }
@@ -687,17 +702,21 @@ export function changesSince(look: Look, workItems: readonly WorkItem[], session
 /**
  * The summary screen's sentence: the changed work items counted by their
  * present state, as the inbox's sentence counts every work item, or how many
- * changed where none of them has a state.
+ * changed where none of them has a state. The decisions made without asking
+ * since the look are counted apart: where the changed work items hold any,
+ * their sum follows after a full stop.
  */
-export function summarySentence(changes: readonly { line: InboxLine }[]): string {
-  return inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+export function summarySentence(changes: readonly { line: InboxLine; decided: number }[]): string {
+  const counted = inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+  const decided = changes.reduce((sum, change) => sum + change.decided, 0);
+  return decided > 0 ? `${counted}. ${madeWithoutAsking(decided)}` : counted;
 }
 
 /**
  * What stands in the place of the summary's sentence: the sentence where a
  * work item changed, and otherwise why the screen holds no line.
  */
-export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine }[]): string {
+export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine; decided: number }[]): string {
   if (!hasLook) return "No earlier look is recorded.";
   return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
 }
