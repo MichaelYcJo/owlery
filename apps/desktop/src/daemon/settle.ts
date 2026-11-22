@@ -223,12 +223,27 @@ function refusedIn(reading: SettleReading): { at: string; why: string }[] {
   return reading.release.flatMap((item) => item.refused.map((row) => ({ at: `${reading.root}/threads/${item.id}/${RECORD_FILE}:${row.line}`, why: row.why })));
 }
 
+/** A run of backticks to the next run of the same length, as the Markdown specifications read a code span, or one character they read as markup. */
+const MARKUP = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)|[\\`*_[\]<>&~|#]/g;
+
+/** A record's value as Markdown that shows what the record holds: its code spans as they stand, and each other markup character escaped with a backslash. */
+function literal(value: string): string {
+  return value.replace(MARKUP, (match: string, ticks: string | undefined) => (ticks === undefined ? `\\${match}` : match));
+}
+
+/** The text as one Markdown code span, its fence a run of backticks longer than any it holds, padded with a space where it opens or ends with one. */
+function code(text: string): string {
+  const fence = "`".repeat(Math.max(0, ...[...text.matchAll(/`+/g)].map((run) => run[0].length)) + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
 /** A decision's state as the list gives it: its word, with the person's message where it holds one. */
 function stateOf(decision: DecisionBlock): string {
   const state = decision.state;
   if (state.is === "decided") return "`decided`";
   const word = state.is === "applied" ? `applied ${state.commit}` : state.is === "carried" ? `carried ${state.home}` : "reversed";
-  return `\`${word}\`: ${state.message}`;
+  return `${code(word)}: ${literal(state.message)}`;
 }
 
 /**
@@ -250,12 +265,12 @@ export function listMarkdown(reading: SettleReading): string {
     if (of.length === 0) continue;
     lines.push(`- \`${kind}\`: ${counted(of.length, "decision")}, ${of.filter((decision) => decision.state.is !== "decided").length} reversed by the person`);
   }
-  if (refused.length > 0) lines.push(`- Not listed: ${counted(refused.length, "block")} the reader cannot read (${refused.map((block) => `\`${block.at}\``).join(", ")})`);
+  if (refused.length > 0) lines.push(`- Not listed: ${counted(refused.length, "block")} the reader cannot read (${refused.map((block) => code(block.at)).join(", ")})`);
   for (const item of items) {
-    lines.push("", `### ${item.id}${item.pullRequest === null ? "" : ` (#${item.pullRequest})`}`, "");
+    lines.push("", `### ${literal(item.id)}${item.pullRequest === null ? "" : ` (#${item.pullRequest})`}`, "");
     for (const decision of item.decisions) {
-      lines.push(`- Decision ${decision.id}, \`${decision.kind}\`: ${decision.decided}`, `  - Grounds: ${decision.grounds}`);
-      if (decision.by !== null) lines.push(`  - By: ${decision.by}`);
+      lines.push(`- Decision ${decision.id}, \`${decision.kind}\`: ${literal(decision.decided)}`, `  - Grounds: ${literal(decision.grounds)}`);
+      if (decision.by !== null) lines.push(`  - By: ${literal(decision.by)}`);
       lines.push(`  - State: ${stateOf(decision)}`);
     }
   }

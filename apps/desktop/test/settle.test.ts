@@ -359,6 +359,47 @@ describe("the release's decisions made without asking", () => {
     expect(listMarkdown(readSettle(repo))).toBe("- Not listed: 1 block the reader cannot read (`seal/threads/2-b/decisions.md:7`)\n");
   });
 
+  it("writes each value of the record as the record holds it, escaping outside code spans what Markdown reads as markup, and keeping the code spans the record writes", () => {
+    const repo = repository();
+    write(
+      repo,
+      "seal/threads/1-a/decisions.md",
+      record(
+        ["decision: 1 route", "decided: Name <ref> as *a*, keep `<raw>` and ``a`b`` as typed.", "grounds: a | b & c_d, an open ` stays [x](y) ~z~ #1 \\n", "by: **orchestrator**", "state: reversed", "reversal: Use <ref> here."],
+        ["decision: 2 scope", "decided: No push.", "grounds: None.", "state: carried notes`x", "reversal: Push it."],
+        ["decision: 3 scope", "decided: No tag.", "grounds: None.", "state: carried notes`", "reversal: Tag it."],
+      ),
+    );
+    write(repo, "seal/threads/2-*b*/decisions.md", record(["decision: 1 default", "decided: English.", "grounds: The key.", "state: decided"]));
+    expect(listMarkdown(readSettle(repo))).toBe(
+      [
+        "- `route`: 1 decision, 1 reversed by the person",
+        "- `default`: 1 decision, 0 reversed by the person",
+        "- `scope`: 2 decisions, 2 reversed by the person",
+        "",
+        "### 1-a",
+        "",
+        "- Decision 1, `route`: Name \\<ref\\> as \\*a\\*, keep `<raw>` and ``a`b`` as typed.",
+        "  - Grounds: a \\| b \\& c\\_d, an open \\` stays \\[x\\](y) \\~z\\~ \\#1 \\\\n",
+        "  - By: \\*\\*orchestrator\\*\\*",
+        "  - State: `reversed`: Use \\<ref\\> here.",
+        "- Decision 2, `scope`: No push.",
+        "  - Grounds: None.",
+        "  - State: ``carried notes`x``: Push it.",
+        "- Decision 3, `scope`: No tag.",
+        "  - Grounds: None.",
+        "  - State: `` carried notes` ``: Tag it.",
+        "",
+        "### 2-\\*b\\*",
+        "",
+        "- Decision 1, `default`: English.",
+        "  - Grounds: The key.",
+        "  - State: `decided`",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("says so where the release holds no decision made without asking", () => {
     const repo = repository();
     write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
