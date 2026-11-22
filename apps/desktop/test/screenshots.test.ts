@@ -10,10 +10,13 @@
 // asking and the questions are blocks the run writes into the two work
 // items' records, which the daemon reads in their worktrees. The repository
 // names a setup once three work items stand, so the one at work shows its
-// setup running, the one in the view shows its setup failed, with the paths
+// setup running, the one in the view has a setup that failed, with the paths
 // it copied and one it could not, and the form names the setup's command;
 // no setup's command runs, and the run types the code a setup pane ends
-// with. With
+// with. The side column of a view holds more than the window shows at once,
+// so the run scrolls it: the view's shot opens at the decisions made without
+// asking, with the "Setup" section below what it shows, and the parked
+// view's shot opens at the column's top, where its questions stand. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -262,12 +265,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     view: async () => {
       await app.click(SIDEBAR_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup")`, "the work item's view with its terminal and its setup");
-      // The "Setup" section stands below the commits and the changes, so the side column scrolls as far as it takes to show it whole.
-      await app.evaluate(`document.querySelector("#view-detail section.setup").scrollIntoView({ block: "nearest", behavior: "instant" })`);
+      // The decisions stand below what the agent asks, and the commits, the changes and the "Setup" section below them, so the side column scrolls until the decisions open what it shows.
+      await app.evaluate(`document.querySelector("#view-detail section.decisions").scrollIntoView({ block: "start", behavior: "instant" })`);
     },
     parked: async () => {
       await app.click(PARKED_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${QUESTIONS.length}`, "the parked work item's view with its questions");
+      // The questions stand first in the side column, which may still be where the view's shot scrolled it.
+      await app.evaluate(`document.getElementById("view-scroll").scrollTop = 0`);
     },
     menu: async () => {
       await show.inbox();
