@@ -43,6 +43,11 @@ The snippets replace *Scope* item 12 and the last row of *Removes*, and add a ro
 | 2026-11-22 | Review round 6's finding 2 raises Night watch light's `--state-failed` to `#7f5b00`, so it no longer equals that block's `--state-waiting`, `#846000`. *Principles* rule 4 said the two share the yellow, so it is rewritten in both editions to say they are a shade apart in the light appearance, where a word on a selected line needs the failure darker. The fold of round 6 names the rewording in *Scope* item 12 and *Removes* | `trail/rounds/round-6.md` finding 2; `apps/desktop/src/renderer/themes.css` lines 199 and 204 at `b573c3b`; `144d8f8` | `docs/design.md` *Principles* rules 4 and 9 |
 ```
 
+```seal
+verdict: fixed 8bd9b9f
+answer: *Scope* 12, *Removes*' last row and a *Judgments of the run* row now name *Principles* rule 4's rewording, as the round gives them.
+```
+
 ### 2. `gaps.md` row 21 says the error stands over eight lines in each screenshot, and the inbox's preview draws it over nine
 
 ```seal
@@ -56,6 +61,11 @@ Why it matters: the unit is `gaps.md` row 21, which `613ffd5` reworded in the fi
 
 ```markdown
 In each screenshot of the inbox and of the view, the path the setup could not copy, `certs/localhost-key.pem`, stands whole. Under it the error Node gave, `EACCES: permission denied, copyfile '…' -> '…'`, stands whole in the fixed-width face and the failure's colour, over nine lines in the inbox's preview and eight in the view. The form's two screenshots show no "Setup" section, since the dialog covers it. In Night watch light, "Setup failed" stands on the selected line in the darkened `#7f5b00`
+```
+
+```seal
+verdict: fixed 8bd9b9f
+answer: `gaps.md` row 21 now says nine lines in the inbox's preview and eight in the view, and that the form's screenshots show no "Setup" section.
 ```
 
 ## Confirmations
