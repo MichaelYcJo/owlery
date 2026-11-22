@@ -462,6 +462,12 @@ describe("the records place", () => {
       plan = await planRecords(flagged, "pnpm test", VERSION);
       expect(plan.files.map((file) => file.text)).toEqual([null, null, null]);
       expect(plan.blocked).toBe(differs("seal/config.json"));
+      // A link stands in the file's place, to a file outside the repository that holds the commit's text: a clone gets a file there, and the plan names the path.
+      rmSync(join(flagged, "seal/config.json"));
+      write(flagged, "../elsewhere.json", '{ "Broad gate": "make check" }\n');
+      symlinkSync(join(flagged, "../elsewhere.json"), join(flagged, "seal/config.json"));
+      expect(status(flagged)).toBe("");
+      expect((await planRecords(flagged, "pnpm test", VERSION)).blocked).toBe(differs("seal/config.json"));
     }
   });
 

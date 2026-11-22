@@ -290,12 +290,11 @@ function shows(folder: string, path: string): boolean {
  * What is compared is what the plan keeps or writes and what the daemon
  * reads. The plan's files, Owlery's workflow and every path below a new
  * root differ where git's status reports them, changed, removed, staged,
- * untracked or ignored, and where the commit holds something at the path
- * and the working tree shows nothing or the reverse, which status does not
- * report of a sparse checkout or of a file behind a link. A kept file also
- * differs where its text in the checkout, hashed as git would store it, is
- * not the commit's: status reports no change of a path it is told not to
- * look at, by the skip-worktree or the assume-unchanged flag of its index
+ * untracked or ignored. A kept file also differs where no file stands at
+ * its path in the checkout, which status does not report of a sparse
+ * checkout, and where its text there, hashed as git would store it, is not
+ * the commit's: status reports no change of a path it is told not to look
+ * at, by the skip-worktree or the assume-unchanged flag of its index
  * entry. The `README.md` of the other name of the root and a `hygiene.yml`
  * the plan does not keep are the project's own, and the daemon reads one
  * thing of each, whether it opens with the marker and whether it runs the
@@ -358,8 +357,8 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--ignored", "--untracked-files=all", "--", ...own, ...(kept === null && root !== null ? [root] : [])]);
   if (status.code !== 0) throw new Error(status.stderr.trim() || "git could not say how the checkout differs from its commit");
   const reported = status.stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.slice(3));
-  const apart = new Set(own.filter((path) => reported.includes(path) || holds(path) !== shows(folder, path)));
-  // A kept file's text in the checkout, hashed as git would store it, against the commit's. Status is not the reading of that: it reports no change of a path whose index entry is flagged skip-worktree or assume-unchanged, whatever the checkout holds.
+  const apart = new Set(own.filter((path) => reported.includes(path)));
+  // A kept file as the checkout holds it, against the commit's: one at whose path no file stands, which status does not report of a sparse checkout, and one whose text, hashed as git would store it, is another. Status is not the reading of that text: it reports no change of a path whose index entry is flagged skip-worktree or assume-unchanged, whatever the checkout holds.
   const keptFiles = files.filter((file) => file.text === null).map((file) => file.path);
   const standing = keptFiles.filter((path) => standsAsFile(folder, path));
   for (const path of keptFiles) if (!standing.includes(path)) apart.add(path);
@@ -371,9 +370,9 @@ export async function planRecords(folder: string, broadGate: string, version: st
       if (inCheckout[at] !== atCommit[at]) apart.add(path);
     });
   }
-  // A file the plan neither keeps nor writes is the project's own, and the daemon reads one thing of it. The index's text is read too, since the person's next commit takes it.
+  // What the daemon reads of the `README.md` at each name of the root and of `hygiene.yml`: whether it is a root's, and whether it runs the check. Where the plan neither keeps nor writes the file it is the project's own, and this is all that is compared of it. The index's text is read too, since the person's next commit takes it.
   const reads = (path: string): ((text: string | null) => boolean) => (path === PLUGIN_WORKFLOW ? runsPluginCheck : opensWithMarker);
-  for (const path of [...readmes, PLUGIN_WORKFLOW].filter((other) => !planned.includes(other))) {
+  for (const path of [...readmes, PLUGIN_WORKFLOW]) {
     const atCommit = reads(path)(await committed(path));
     const staged = FILE_MODES.includes(inIndex.get(path) ?? "") ? (await git(folder, ["cat-file", "blob", `:${path}`])).stdout : null;
     if (reads(path)(textOf(join(folder, path))) !== atCommit || reads(path)(staged) !== atCommit) apart.add(path);
