@@ -58,3 +58,4 @@ A new script, `pnpm --filter @owlery/desktop run settle`, needs Node, esbuild fr
 |---|---|---|---|
 | | | | |
 | 2026-11-22 | Fold phase 1: `settle.ts` exports `command` and `Printer` beside the reader, and `settle-main.ts` is the entry point alone; #40 is merged. The crafter's eight choices stand as recorded in `trail/phases/phase-1.md` | The phase 1 crafter's hand-back | the plugin's `skills/implement/orchestration.md` *A decision made after the frame is committed is folded* |
+| 2026-11-22 | Fold phase 2 into *Scope* 5 and 6: what is put back, how it is printed, and every case that exits 2 | The phase 2 crafter's hand-back | the plugin's `skills/implement/orchestration.md` *A decision made after the frame is committed is folded* |
