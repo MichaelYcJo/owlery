@@ -1,0 +1,15 @@
+# Questions for the planner: 1795340000-design-system
+
+What the issue left open and the tree answered, so that nobody reopens it:
+
+- Whether the work states its rules in `## Rule changes` or writes the policy root directly: `frame/design.md` *Rule changes*.
+- Where a token's value stands, in the document or in the style sheet: `frame/plan.md` *Alternatives considered*, rows 1 to 3.
+- How a pull request comes to carry screenshots, and whether a gate holds it: `frame/plan.md` *Alternatives considered*, rows 4 to 7.
+- Whether a failure may be red: `frame/design.md` *Grounding*, the first row.
+- Whether the brand research fixes a visual direction: `frame/design.md` *Grounding*, the row of `etcs/research/brand.md`.
+- Whether a direction may change the layout or the themes' names: `frame/design.md` *Scope*, out of scope.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | Which direction of `frame/design.md` *The directions* is Owlery's style: A, Register; B, Night watch; or C, Desk? The tree cannot answer it and no probe can, because it is the owner's taste, and `routing.md` names it as the one question this work puts to the owner. | a person | **A, Register.** The themes' colours and typefaces stay as chosen on 2026-11-19. The form changes: square corners, rules between lines, facts in fixed-width columns, a seal's column down the inbox, box marks, and the approval line as a ruled block of boxes. Titles in the list lose about 66px of width. **B, Night watch.** Every colour of both themes changes to the emblem's black and bone, the serif goes, and the owl's yellow eye becomes the one signal colour, with eye marks for the states and the night's words ("Needs you", "Asleep"). It overturns the choice of 2026-11-19 and moves the window into the neutral black camp of Orca, Conductor and Linear. **C, Desk.** Nothing changes but the mark of a wait. The build writes down what stands. The window stays nearest to Claude's and Cursor's warm ground with cream ink. **A mix the owner names**, such as A's form in B's colours: the framer folds it into the frame as the owner states it. Each option's mock-ups are under `frame/images/`, and `frame/images/mock.html` shows each live. | A, Register, on the grounds of `frame/design.md` *The framer's recommendation*. No phase of the build starts before the answer. | open |
+| Q2 | How does the pull request's body show an image committed in the work item's directory, so that GitHub draws it? The repository is public (`gh repo view --json visibility` printed `PUBLIC`, executed), so a link to the file at its commit is expected to draw. No probe can settle it at the frame: it needs a pushed commit and an open pull request, and no agent pushes. | the work | A link to the file at the commit that holds it, by the repository's own address. Or a relative link, which GitHub does not resolve in a pull request's body. Phase 3 decides it when the first body is composed, and records it in its phase record. | The link to the file at its commit. | open |
