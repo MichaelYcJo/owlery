@@ -211,8 +211,8 @@ check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.t
 **작업의 기록은 묻지 않고 내린 결정과 그 작업을 멈춰 둔 질문이 있는 단 하나의 자리입니다.** 둘 다 작업 폴더의 `decisions.md`에 `seal` 블록으로 하나씩 둡니다. 결정에는 번호, 종류(경로, 기본값을 택함, 범위를 정함, 트리가 답한 질문), 정한 내용, 근거, 상태가 있습니다. 질문에는 번호, 묻는 내용, 근거, 선택지, 기본값, 상태가 있습니다. 데몬은 작업의 워크트리에서 이 파일을 커밋 여부와 상관없이 읽고, 읽지 못한 블록은 읽지 못했다고 밝힐 뿐 그것으로 아무것도 정하지 않습니다. 사람이 무엇을 보았는지는 데몬의 상태이고, 어떤 기록에도 두지 않습니다.
 check: apps/desktop/test/record-blocks.test.ts apps/desktop/test/decision-record.test.ts
 
-**결정의 상태는 `decided`, `reversed`, `applied`, `carried` 가운데 하나이고, 질문의 상태는 `open`이나 `answered`입니다.** 사람은 메시지를 붙여 결정을 뒤집고, 기록은 그 메시지를 지닙니다. 작업이 머지되기 전에 뒤집힌 결정을 받아들인 단계는 그 커밋과 함께 `applied`라고 씁니다. 머지된 뒤에 뒤집힌 결정은 그것을 넘겨받은 이슈나 작업과 함께 `carried`라고 씁니다. `reversed`인 결정과 `open`인 질문은 기록의 열린 줄입니다. settle은 `git grep -n -E '^state: (reversed|open)[[:space:]]*$' -- '*/threads/*/decisions.md'`가 그 작업 폴더의 줄을 찍는 동안 폴더를 남겨 둡니다. 릴리스의 PR은 그 릴리스에서 묻지 않고 내린 결정을 같은 블록에서 읽어 나열합니다.
-check: apps/desktop/test/decision-record.test.ts
+**결정의 상태는 `decided`, `reversed`, `applied`, `carried` 가운데 하나이고, 질문의 상태는 `open`이나 `answered`입니다.** 사람은 메시지를 붙여 결정을 뒤집고, 기록은 그 메시지를 지닙니다. 작업이 머지되기 전에 뒤집힌 결정을 받아들인 단계는 그 커밋과 함께 `applied`라고 씁니다. 머지된 뒤에 뒤집힌 결정은 그것을 넘겨받은 이슈나 작업과 함께 `carried`라고 씁니다. `reversed`인 결정과 `open`인 질문, 데몬이 읽지 못한 블록은 기록의 열린 줄입니다. 릴리스의 settle은 그 작업의 기록에 열린 줄이 있는 동안 작업 폴더를 남겨 둡니다([릴리스와 트래커](roadmap.ko.md#릴리스와-트래커)). 릴리스의 PR은 그 릴리스에서 묻지 않고 내린 결정을 같은 블록에서 읽어 나열합니다.
+check: apps/desktop/test/decision-record.test.ts apps/desktop/test/settle.test.ts
 
 ### AgenticSeal과의 호환
 
