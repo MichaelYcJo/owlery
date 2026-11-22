@@ -44,6 +44,11 @@ seal/threads/1795339000-sessions-outlive-the-daemon/gaps.md, a row after line 10
 | Whether a role session ends when its daemon crashes: the adapter starts the CLI detached, with its input already ended, and nothing signals it at a crash (`apps/desktop/src/daemon/adapters/claude.ts:273`, `:310`) | Issue #55's work, which picks a run up after a crash and must not start the cut stage beside a session that still runs |
 ```
 
+```seal
+verdict: fixed 0fdd032
+answer: Both editions at line 44 now say a role session has no terminal, that a stop of the daemon signals it and waits for its end, and that its end at a crash was not run. The table's role-session cell at line 51 reads "Ends with the Mac. After a crash of the daemon, not run" in English and the same in Korean, and gaps.md has the row with issue #55's work as the answerer. Heading lines stay 27 and table lines 122 in each edition. Frame/design.md:108 stays the framer's. The orchestrator posts the follow-up comment on #55, which makes no commit.
+```
+
 ### 2. The handover row now says the inheriting process "took a resize", while the Korean edition says it sent one, and neither says the pane took the new size
 
 ```seal
@@ -63,6 +68,11 @@ docs/architecture.ko.md:62, the same sentence:
 대신 세운 칸은 그것을 쥐던 프로세스가 끝난 뒤에도 살았고, 그 프로세스에게서 칸의 디스크립터를 물려받은 프로세스가 칸을 읽고 칸의 크기를 바꿨습니다(2026-11-22 실험).
 
 seal/threads/1795339000-sessions-outlive-the-daemon/trail/phases/fix-1.md:12: the "Now" cell takes the same words, unless finding 3's fix removes the file.
+```
+
+```seal
+verdict: fixed 0fdd032
+answer: Both editions at line 62 now say the inheriting process read the pane and resized it, and that the pane took the new size, which is what frame/design.md:57 records. The two editions say the same. The fix-1.md cell the finding names is gone with the file (finding 3).
 ```
 
 ### 3. `fix-1.md` records the departures from the plan's blocks beside them, so the plan states a text the tree does not hold and the next reader has two to choose between
@@ -96,6 +106,11 @@ frame/plan.md:230 takes docs/architecture.ko.md:393
 
 Then delete seal/threads/1795339000-sessions-outlive-the-daemon/trail/phases/fix-1.md.
 Check: the round-2 probe, run again, prints "departing spans: 0".
+```
+
+```seal
+verdict: fixed 797d49a
+answer: trail/phases/fix-1.md is deleted, so no record lists a departure beside the plan's blocks. A fix pass writes no phase record, and the earlier prompt that asked for one was wrong. The plan's blocks are the framer's and are synced to the docs in the next commit, which the orchestrator makes after this pass; this fix pass did not edit frame/.
 ```
 
 ## Confirmations
