@@ -72,4 +72,4 @@ No dependency and no environment variable is added. `docs/product.md`, `docs/arc
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | Write the identity rule into `docs/` in this work item's own pull request, as phase 1, in both languages, and not through *Rule changes* for the settle | #119's first *Done when* line names `docs/product.md` *What we promise* and `docs/architecture.md` *Code runs the order, the orchestrator judges* as what the work writes; the owner moved #119 into release 0.0.2 because the rule is Owlery's identity and is to hold now ("agentic모드일땐 질문으로 인한 holding을 막는게 우리의 아이덴티티", rejecting a deferred form); #121 wrote its rule into `docs/` directly in the same release (`1b21c0c`). Q1 and Q2 stand at their defaults, posted on #119 for the owner to reverse | the plugin's `skills/implement/SKILL.md` *Document layout — two roots, three lifetimes*, read with the issue's first line; `skills/core/SKILL.md` *A judgment stands on a source document* |
