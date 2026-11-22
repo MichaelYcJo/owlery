@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type Asked, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -65,15 +65,20 @@ export interface InboxLine {
   commits: string;
 }
 
+/** The questions of a work item's record, in the order of the file: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
+function questionsOf(workItem: WorkItem): readonly Question[] {
+  return (workItem.questions as Question[] | undefined) ?? [];
+}
+
 /**
- * The questions a work item is parked with, while it is parked: its record
- * while that holds no time of an answer. Null once the person answered, for
- * a work item that never was parked, and for a daemon of an earlier build,
- * which sends no such field.
+ * The questions a work item is parked with, while it is parked: the
+ * questions of its record that have no answer, in the order of the file.
+ * Null once the person answered every one, for a work item that never was
+ * parked, and for a daemon of an earlier build, which sends no such field.
  */
-export function parkedWith(workItem: WorkItem): Asked | null {
-  const asked = (workItem.asked as Asked | null | undefined) ?? null;
-  return asked !== null && asked.answeredAt === null ? asked : null;
+export function parkedWith(workItem: WorkItem): Question[] | null {
+  const open = questionsOf(workItem).filter((question) => question.answer === null);
+  return open.length > 0 ? open : null;
 }
 
 /**
@@ -96,12 +101,16 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
 }
 
 /**
- * Since when a line's state has lasted, which its age is counted from: the
- * park for a work item parked with questions, and otherwise the time of the
- * state of the pane the line reads, `session`. Null where neither gives one.
+ * Since when a line's state has lasted, which its age is counted from: for
+ * a work item parked with questions the earliest time the daemon first read
+ * one of its open questions at, and otherwise the time of the state of the
+ * pane the line reads, `session`. Null where neither gives one.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
-  return parkedWith(workItem)?.at ?? session?.stateSince ?? null;
+  const parked = parkedWith(workItem);
+  if (!parked) return session?.stateSince ?? null;
+  const times = parked.flatMap(({ since }) => (since === null ? [] : [since]));
+  return times.length > 0 ? Math.min(...times) : null;
 }
 
 /** A work item as the lists and the sidebar show it: with its line, and the pane whose state the line reads where the work item is not parked. */
@@ -182,11 +191,11 @@ function decisionsOf(workItem: WorkItem): readonly Decision[] {
 /**
  * The mark a work item's line carries for the decisions made for it in place
  * of asking: how many stand, as in "2 decisions without asking", a standing
- * one being one no person reversed, or nothing where none stands. No decision
- * changes the line's state or its group.
+ * one being one whose state is `decided`, or nothing where none stands. No
+ * decision changes the line's state or its group.
  */
 export function decisionMark(workItem: WorkItem): string {
-  const standing = decisionsOf(workItem).filter((decision) => decision.reversed === null).length;
+  const standing = decisionsOf(workItem).filter((decision) => decision.state === "decided").length;
   return standing === 0 ? "" : `${standing} ${standing === 1 ? "decision" : "decisions"} without asking`;
 }
 
@@ -204,21 +213,21 @@ export interface DecisionLine {
   says: string;
   /** Why, after "Grounds: ". */
   grounds: string;
-  /** How long ago it was recorded, in the words of an age. */
+  /** How long the decision has been in its state, in the words of an age: since the daemon first read it as made, or as reversed, applied or carried. Empty where the daemon sent no time. */
   age: string;
-  /** That a person reversed it, with how long ago, and the message they gave, or null while it stands. A work item's view offers "Reverse" on a line that stands. */
+  /** For a decision that no longer stands as made: that a person reversed it, that a commit took the reversal in or that it was carried to another home, and the message the person gave. Null while it stands. A work item's view offers "Reverse" on a line that stands. */
   reversed: { head: string; message: string } | null;
 }
 
-/** The lines of the decisions made for a work item in place of asking, every one of them, the reversed among them, the newest first. */
+/** The lines of the decisions made for a work item in place of asking, every one of them, whatever its state, the last of the record first. */
 export function decisionLines(workItem: WorkItem, now: number): DecisionLine[] {
-  return [...decisionsOf(workItem)].reverse().map(({ id, kind, says, grounds, at, reversed }) => ({
+  return [...decisionsOf(workItem)].reverse().map(({ id, kind, says, grounds, state, reversal, landed, since }) => ({
     id,
     kind: DECISION_KIND[kind] ?? kind,
     says,
     grounds: `Grounds: ${grounds}`,
-    age: ageOf(at, now),
-    reversed: reversed && { head: `Reversed, ${ageOf(reversed.at, now)}`, message: reversed.message },
+    age: since === null ? "" : ageOf(since, now),
+    reversed: state === "decided" ? null : { head: state === "applied" ? `Applied in ${landed ?? ""}` : state === "carried" ? `Carried to ${landed ?? ""}` : "Reversed", message: reversal ?? "" },
   }));
 }
 
@@ -226,22 +235,22 @@ export interface QuestionLine {
   /** The question's id, which its answer names it by. */
   id: number;
   asks: string;
-  /** While the work item is parked, the answers the asker names, each with what it implies and, for the question's default, the mark "Default". None once the record is answered. */
+  /** While the work item is parked, the answers the asker names, each with what it implies and, for the question's default, the mark "Default". None once the questions are answered. */
   options: { label: string; implies: string; mark: string }[];
-  /** The option chosen as the section is drawn: the question's default, or null where it has none and once the record is answered. */
+  /** The option chosen as the section is drawn: the question's default, or null where it has none and once the questions are answered. */
   chosen: number | null;
-  /** The person's answer, or null while the work item is parked. */
+  /** The person's answer, or null while the question is open. */
   answer: string | null;
 }
 
 export interface AskedSection {
   /** "Waiting for your answer" while the work item is parked, and "Answered" afterwards. */
   head: string;
-  /** Who asked and how long ago, and for an answered record how long ago it was answered. */
+  /** Who asked, where the record says it, and for how long the questions have waited or have been answered. */
   by: string;
   /** Whether the section takes answers. */
   parked: boolean;
-  /** What tells one drawing of the section from the next: it differs between two work items, two parks of one, and a park and its answer. A view draws the section again only where it differs, so a field the person types in is not drawn over. */
+  /** What tells one drawing of the section from the next: it differs between two work items, two sets of questions of one, and a park and its answer. A view draws the section again only where it differs, so a field the person types in is not drawn over. */
   key: string;
   questions: QuestionLine[];
 }
@@ -249,23 +258,31 @@ export interface AskedSection {
 /**
  * The section of a work item's view that holds the questions it is parked
  * with and takes the person's answers, or after the answer lists each
- * question with its answer. Null for a work item that never was parked, and
- * for a daemon of an earlier build, which sends no record.
+ * question with its answer. While a question of the record is open, the
+ * section holds the open questions and no other. Null for a work item whose
+ * record holds no question, and for a daemon of an earlier build, which
+ * sends none.
  */
 export function askedSection(workItem: WorkItem, now: number): AskedSection | null {
-  const asked = (workItem.asked as Asked | null | undefined) ?? null;
-  if (asked === null) return null;
-  const parked = asked.answeredAt === null;
+  const all = questionsOf(workItem);
+  if (all.length === 0) return null;
+  const open = parkedWith(workItem);
+  const shown = open ?? all;
+  const parked = open !== null;
+  const by = shown.find((question) => question.by !== null)?.by ?? null;
+  const times = shown.flatMap(({ since }) => (since === null ? [] : [since]));
+  // The questions have waited since the first of them was read, and have all been answered since the last of them was.
+  const age = times.length === 0 ? "" : `${ageOf(parked ? Math.min(...times) : Math.max(...times), now)} ago`;
   return {
     head: parked ? "Waiting for your answer" : "Answered",
-    by: parked ? `Asked by ${asked.by}, ${ageOf(asked.at, now)} ago` : `Asked by ${asked.by}, answered ${ageOf(asked.answeredAt, now)} ago`,
+    by: [by === null ? "" : `Asked by ${by}`, age === "" ? "" : parked ? age : `answered ${age}`].filter((words) => words !== "").join(", "),
     parked,
-    key: `${workItem.id}:${asked.at}:${asked.answeredAt}`,
-    questions: asked.questions.map(({ id, asks, options, default: taken, answer }) => ({
+    key: `${workItem.id}:${parked ? "open" : "answered"}:${shown.map(({ id }) => id).join(",")}`,
+    questions: shown.map(({ id, asks, options, default: taken, answer }) => ({
       id,
       asks,
-      options: parked ? options.map(({ label, implies }, index) => ({ label, implies, mark: index === taken ? "Default" : "" })) : [],
-      chosen: parked ? taken : null,
+      options: parked ? options.map(({ label, implies }) => ({ label, implies, mark: label === taken ? "Default" : "" })) : [],
+      chosen: parked && taken !== null && options.some(({ label }) => label === taken) ? options.findIndex(({ label }) => label === taken) : null,
       answer,
     })),
   };
@@ -835,10 +852,10 @@ export function stateSays(session: SessionInfo | undefined, paneKinds: readonly 
  * match are marked.
  */
 export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "state" | "commit" | "branch"; text: string } {
-  const asked = searching ? null : parkedWith(workItem);
-  if (asked) {
-    const more = asked.questions.length - 1;
-    return { says: "question", text: `${asked.questions[0]?.asks ?? ""}${more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : ""}` };
+  const open = searching ? null : parkedWith(workItem);
+  if (open) {
+    const more = open.length - 1;
+    return { says: "question", text: `${open[0]?.asks ?? ""}${more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : ""}` };
   }
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };

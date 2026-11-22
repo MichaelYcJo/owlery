@@ -1,24 +1,24 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { basename, isAbsolute } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Asked, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork, roleStageOf } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
-import { AskedStore } from "./asked";
 import { OutputBuffer } from "./buffer";
-import { DecisionStore, isDecisionKind } from "./decisions";
+import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withDecision, withQuestion, withReversal, workItemDirectory, writeRecord } from "./decision-record";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
+import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
-/** How much of a state's text the daemon keeps, and of each text of a decision and of a question. */
+/** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
 const STATE_TEXT_CHARS = 2000;
 
 /** The first `STATE_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
@@ -78,6 +78,19 @@ function characters(text: string): number {
   return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
 }
 
+/** The kinds of a decision. */
+const DECISION_KINDS: readonly DecisionKind[] = ["route", "default", "scope", "answered"];
+
+/** What the daemon holds of one read of a work item's record, as a client is sent it. */
+interface RecordRead {
+  decisions: Decision[];
+  questions: Question[];
+  unread: Unread[];
+}
+
+/** What a work item holds of its record where its worktree holds none. */
+const NO_RECORD: RecordRead = { decisions: [], questions: [], unread: [] };
+
 export interface PaneCommand {
   command: string;
   args: string[];
@@ -92,7 +105,7 @@ export interface DaemonOptions {
   commandFor: (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the decisions made without asking, in `decisions.json`, and the questions the work items are parked with, in `asked.json`; without it all five are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, and the times the daemon first read each block of a work item's record at, in `record-times.json`; without it all four are in memory alone. */
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
@@ -170,8 +183,10 @@ export class Daemon {
   private readonly store: RepositoryStore;
   private readonly lastLook: LastLook;
   private readonly keepAwake: KeepAwakeStore;
-  private readonly decisions: DecisionStore;
-  private readonly asked: AskedStore;
+  // When the daemon first read each block of each work item's record in its state. The record holds no clock.
+  private readonly times: RecordTimes;
+  // What was last read of each work item's record of decisions and questions, by the work item's id, as a client is sent it. The record is the store: this is what the last read found, and nothing is written from it.
+  private readonly recordsRead = new Map<number, RecordRead>();
   // The hold that stands now, where one does. The daemon holds one at most.
   private hold: { release(): void } | undefined;
   // The fetches of the bases work items start from: a form's and a creation's of one branch are one fetch.
@@ -207,8 +222,10 @@ export class Daemon {
     this.lastLook = new LastLook(options.runDir);
     this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
     this.keepAwake = new KeepAwakeStore(options.runDir);
-    this.decisions = new DecisionStore(options.runDir);
-    this.asked = new AskedStore(options.runDir);
+    this.times = new RecordTimes(options.runDir);
+    // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
+    for (const held of this.store.workItems()) if (held.item.archivedAt !== null) this.readRecord(held);
+    this.flushTimes();
   }
 
   listen(port: number): Promise<number> {
@@ -258,86 +275,156 @@ export class Daemon {
   }
 
   /**
-   * Records a decision made for a work item in place of asking the person,
-   * and sends every client the lists, in which the work item holds it. The
-   * daemon's own code calls it, as it calls `agentEvent`: no client's message
-   * records a decision. It returns the decision at once, with its id and the
-   * daemon's time. It holds nothing: it changes no session and no other work
-   * item, and starts and stops nothing. What was decided and its grounds are
-   * kept without the white space at their ends, 2000 characters of each at
-   * most. It returns nothing, records nothing and sends nothing for a work
-   * item the daemon does not keep, a kind that is none of `DecisionKind`,
-   * and what was decided or grounds that are empty or no text.
+   * Writes a decision made for a work item in place of asking the person into
+   * the work item's record, as a block that stands `decided`, and sends every
+   * client the lists, in which the work item holds it. The daemon's own code
+   * calls it, as it calls `agentEvent`: no client's message records a
+   * decision. It returns the decision as read back from the record, with its
+   * id and the daemon's time. It holds nothing: it changes no session and no
+   * other work item, starts and stops nothing, and commits nothing. What was
+   * decided, its grounds and who decided are written without the white space
+   * at their ends, 2000 characters of each at most. It returns nothing,
+   * writes nothing and sends nothing for a work item the daemon does not
+   * keep, one whose worktree holds no directory of its own, a kind that is
+   * none of `DecisionKind`, what was decided or grounds that are empty or no
+   * text, who decided that is empty or no text, and where the record's
+   * writer throws, which the log then says.
    */
-  decided(workItemId: number, decision: { kind: DecisionKind; says: string; grounds: string }): Decision | undefined {
-    const { kind, says, grounds } = (typeof decision === "object" && decision !== null ? decision : {}) as { kind?: unknown; says?: unknown; grounds?: unknown };
-    if (!this.store.workItem(workItemId) || !isDecisionKind(kind) || typeof says !== "string" || typeof grounds !== "string") return undefined;
-    const kept = { kind, says: cutText(says.trim()), grounds: cutText(grounds.trim()) };
-    if (kept.says === "" || kept.grounds === "") return undefined;
-    this.keptChange("decisions", () => this.decisions.record(workItemId, kept, (this.options.now ?? Date.now)()));
+  decided(workItemId: number, decision: { kind: DecisionKind; says: string; grounds: string; by?: string | null }): Decision | undefined {
+    const { kind, says, grounds, by = null } = (typeof decision === "object" && decision !== null ? decision : {}) as { kind?: unknown; says?: unknown; grounds?: unknown; by?: unknown };
+    const held = this.store.workItem(workItemId);
+    if (!held || !DECISION_KINDS.includes(kind as DecisionKind) || typeof says !== "string" || typeof grounds !== "string" || (by !== null && typeof by !== "string")) return undefined;
+    const kept = { kind: kind as DecisionKind, decided: cutText(says.trim()), grounds: cutText(grounds.trim()), by: by === null ? null : cutText(by.trim()) };
+    if (kept.decided === "" || kept.grounds === "" || kept.by === "") return undefined;
+    const written = this.writtenRecord(held, (text) => withDecision(text, kept));
+    const id = written?.decisions.at(-1)?.id;
+    if (id === undefined) return undefined;
     this.broadcastInbox();
-    // The one just recorded is the work item's last, whether or not its write threw.
-    return this.decisions.of(workItemId).at(-1);
+    return this.recordsRead.get(workItemId)?.decisions.find((each) => each.id === id);
   }
 
   /**
-   * Parks a work item with questions for the person, and sends every client
-   * the lists, in which the work item holds the record. The daemon's own
-   * code calls it, as it calls `decided`: no client's message parks a work
-   * item. It returns the record at once, with the daemon's time, each
-   * question numbered by its place from 1, and no answer. It holds nothing
-   * but that one work item's wait for the person: it starts nothing, stops
+   * Parks a work item: writes each question for the person into the work
+   * item's record as an `open` block, all in one write of the file, and
+   * sends every client the lists, in which the work item holds them. The
+   * daemon's own code calls it, as it calls `decided`: no client's message
+   * parks a work item. It returns the questions as read back from the
+   * record, each with its id and the daemon's time. It holds nothing but
+   * that one work item's wait for the person: it starts nothing, stops
    * nothing and refuses nothing in any work item, the parked one among them,
-   * whose panes and whose `ask` are served as before. A record that was
-   * answered is replaced. Who asked and each text of a question are kept
-   * without the white space at their ends, 2000 characters of each at most.
-   * It returns nothing, records nothing and sends nothing for a work item
-   * the daemon does not keep, an archived one, one that is already parked, a
-   * call with no question, a question whose text is empty or no text, a
-   * default that names no option of its question, an option whose label is
-   * empty or whose label or implication is no text, and an asker that is
-   * empty or no text.
+   * whose panes and whose `ask` are served as before, and it commits
+   * nothing. A park of a work item that is already parked adds its
+   * questions. Who asks and each text of a question are written without the
+   * white space at their ends, 2000 characters of each at most. It returns
+   * nothing, writes nothing and sends nothing for a work item the daemon
+   * does not keep, an archived one, one whose worktree holds no directory of
+   * its own, a call with no question, a question whose text or grounds are
+   * empty or no text, two options of one question with one label, a default
+   * that names no option of its question, an option whose label is empty or
+   * whose label or implication is no text, an asker that is empty or no
+   * text, and where the record's writer throws, which the log then says.
    */
-  park(workItemId: number, asking: { by: string; questions: { asks: string; options?: { label: string; implies: string }[]; default?: number | null }[] }): Asked | undefined {
+  park(workItemId: number, asking: { by?: string | null; questions: { asks: string; grounds: string; options?: { label: string; implies: string }[]; default?: string | null }[] }): Question[] | undefined {
     const held = this.store.workItem(workItemId);
-    if (!held || held.item.archivedAt !== null || this.asked.of(workItemId)?.answeredAt === null) return undefined;
-    const { by, questions } = (typeof asking === "object" && asking !== null ? asking : {}) as { by?: unknown; questions?: unknown };
-    if (typeof by !== "string" || !Array.isArray(questions) || questions.length === 0) return undefined;
-    const asked: Asked = { by: cutText(by.trim()), at: (this.options.now ?? Date.now)(), questions: [], answeredAt: null };
-    if (asked.by === "") return undefined;
+    if (!held || held.item.archivedAt !== null) return undefined;
+    const { by = null, questions } = (typeof asking === "object" && asking !== null ? asking : {}) as { by?: unknown; questions?: unknown };
+    if ((by !== null && typeof by !== "string") || !Array.isArray(questions) || questions.length === 0) return undefined;
+    const asker = by === null ? null : cutText(by.trim());
+    if (asker === "") return undefined;
+    const kept: { asks: string; grounds: string; by: string | null; options: { label: string; implies: string }[]; default: string | null }[] = [];
     for (const question of questions as unknown[]) {
-      const { asks, options = [], default: taken = null } = (typeof question === "object" && question !== null ? question : {}) as { asks?: unknown; options?: unknown; default?: unknown };
-      if (typeof asks !== "string" || !Array.isArray(options)) return undefined;
-      const kept: Asked["questions"][number] = { id: asked.questions.length + 1, asks: cutText(asks.trim()), options: [], default: null, answer: null };
-      if (kept.asks === "") return undefined;
+      const { asks, grounds, options = [], default: taken = null } = (typeof question === "object" && question !== null ? question : {}) as { asks?: unknown; grounds?: unknown; options?: unknown; default?: unknown };
+      if (typeof asks !== "string" || typeof grounds !== "string" || !Array.isArray(options) || (taken !== null && typeof taken !== "string")) return undefined;
+      const one = { asks: cutText(asks.trim()), grounds: cutText(grounds.trim()), by: asker, options: [] as { label: string; implies: string }[], default: taken === null ? null : cutText(taken.trim()) };
+      if (one.asks === "" || one.grounds === "") return undefined;
       for (const option of options as unknown[]) {
         const { label, implies } = (typeof option === "object" && option !== null ? option : {}) as { label?: unknown; implies?: unknown };
         if (typeof label !== "string" || typeof implies !== "string" || label.trim() === "") return undefined;
-        kept.options.push({ label: cutText(label.trim()), implies: cutText(implies.trim()) });
+        const named = cutText(label.trim());
+        // An answer is an option's label, so two options of one label would leave the record unable to say which was chosen.
+        if (one.options.some((each) => each.label === named)) return undefined;
+        one.options.push({ label: named, implies: cutText(implies.trim()) });
       }
-      if (taken !== null) {
-        if (!Number.isInteger(taken) || (taken as number) < 0 || (taken as number) >= kept.options.length) return undefined;
-        kept.default = taken as number;
-      }
-      asked.questions.push(kept);
+      if (one.default !== null && !one.options.some((each) => each.label === one.default)) return undefined;
+      kept.push(one);
     }
-    this.keptChange("questions", () => this.asked.park(workItemId, asked));
+    const written = this.writtenRecord(held, (text) => kept.reduce(withQuestion, text));
+    if (written === undefined) return undefined;
+    const ids = new Set(written.questions.slice(-kept.length).map((each) => each.id));
     this.broadcastInbox();
-    // The record just kept is the work item's, whether or not its write threw.
-    return this.asked.of(workItemId) ?? undefined;
+    return this.recordsRead.get(workItemId)?.questions.filter((each) => ids.has(each.id));
   }
 
   /**
-   * Runs a change of the decisions or of the questions the work items are
-   * parked with. Each store holds a change in memory before it writes it, so
-   * where the write throws the log says so, and the daemon goes on with what
-   * it holds.
+   * Applies a change to the record of a work item's directory, through the
+   * record's writer, and reads the record again for the lists. It gives the
+   * record as the writer read it back, or nothing where the work item's
+   * worktree holds no directory of its own or the writer throws, which the
+   * log then says: the file is then as it stood.
    */
-  private keptChange(what: "decisions" | "questions", change: () => void): void {
+  private writtenRecord(held: Held, change: (text: string) => string): DecisionRecord | undefined {
+    const directory = workItemDirectory(held.item.worktree, held.item.branch);
+    if (directory === null) return undefined;
+    let written: DecisionRecord;
     try {
-      change();
+      written = writeRecord(directory, change);
     } catch (error) {
-      console.error(`the ${what} were not written: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`the record was not written: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+    this.readRecord(held);
+    this.flushTimes();
+    return written;
+  }
+
+  /**
+   * Reads a work item's record of decisions and questions from its worktree,
+   * committed or not, and answers whether it reads otherwise than at the last
+   * read. A work item whose worktree holds no directory of its own, or whose
+   * directory holds no record, has no decision and no question. A block the
+   * reader refuses and a fence it names as not read are no decision and no
+   * question: each is kept as an unread line with the reader's reason, and
+   * nothing is decided on it. A record that stands and cannot be read is one
+   * unread line that says why. Each block's time is the daemon's own, from
+   * the store of the times.
+   */
+  private readRecord({ item }: Held): boolean {
+    const directory = workItemDirectory(item.worktree, item.branch);
+    let record: Pick<DecisionRecord, "decisions" | "questions" | "refusals" | "notices"> = { decisions: [], questions: [], refusals: [], notices: [] };
+    if (directory !== null) {
+      try {
+        record = readDecisionRecord(readFileSync(join(directory, RECORD_FILE), "utf8"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") record = { ...record, refusals: [{ line: 1, why: `the record cannot be read: ${error instanceof Error ? error.message : String(error)}` }] };
+      }
+    }
+    const since = this.times.since(item.id, [...record.decisions, ...record.questions].map(({ id, state }) => ({ id, state: state.is })), (this.options.now ?? Date.now)());
+    const read: RecordRead = {
+      decisions: record.decisions.map(({ id, kind, decided, grounds, by, state }) => ({
+        id,
+        kind,
+        says: decided,
+        grounds,
+        by,
+        state: state.is,
+        reversal: state.is === "decided" ? null : state.message,
+        landed: state.is === "applied" ? state.commit : state.is === "carried" ? state.home : null,
+        since: since.get(id) ?? null,
+      })),
+      questions: record.questions.map(({ id, asks, grounds, by, options, default: taken, state }) => ({ id, asks, grounds, by, options: options.map(({ label, implies }) => ({ label, implies })), default: taken, answer: state.is === "answered" ? state.answer : null, since: since.get(id) ?? null })),
+      unread: [...record.refusals, ...record.notices].map(({ line, why }) => ({ line, why })).sort((a, b) => a.line - b.line),
+    };
+    const before = this.recordsRead.get(item.id);
+    this.recordsRead.set(item.id, read);
+    return JSON.stringify(read) !== JSON.stringify(before ?? NO_RECORD);
+  }
+
+  /** Writes the times of the records where a read or a drop changed them. The store holds a change in memory before it writes it, so where the write throws the log says so, and the daemon goes on with what it holds. */
+  private flushTimes(): void {
+    try {
+      this.times.flush();
+    } catch (error) {
+      console.error(`the times of the records were not written: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -453,9 +540,9 @@ export class Daemon {
             const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
-            // The two stores are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the stores hold under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
-            this.keptChange("decisions", () => this.decisions.drop([stored.item.id]));
-            this.keptChange("questions", () => this.asked.drop([stored.item.id]));
+            // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
+            this.times.drop([stored.item.id]);
+            this.flushTimes();
             // A creation is also how a repository is added, so the inbox below says what it holds of the records place.
             this.readRecords(stored.repository);
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
@@ -672,11 +759,8 @@ export class Daemon {
           if (typeof workItemId !== "number" || typeof decisionId !== "number" || typeof typed !== "string") throw new Error("a reversal names a work item, a decision of it and a message");
           const said = cutText(typed.trim());
           if (said === "") throw new Error("Say why the decision is reversed.");
-          if (!this.store.workItem(workItemId)) throw new Error(`no work item ${String(workItemId)}`);
-          const decision = this.decisions.of(workItemId).find((held) => held.id === decisionId);
-          if (!decision) throw new Error(`work item ${String(workItemId)} holds no decision ${String(decisionId)}`);
-          if (decision.reversed !== null) throw new Error("The decision is already reversed.");
-          this.keptChange("decisions", () => this.decisions.reverse(workItemId, decisionId, said, (this.options.now ?? Date.now)()));
+          // The writer refuses an id the record holds no decision of and a decision that does not stand `decided`, in its own words.
+          this.personWrote(workItemId, (text) => withReversal(text, decisionId, said));
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the reversal.
           this.send(socket, { type: "done", requestId: message.requestId });
           this.broadcastInbox();
@@ -689,21 +773,23 @@ export class Daemon {
         try {
           const { workItemId, answers } = message as { workItemId: unknown; answers: unknown };
           const given = Array.isArray(answers) ? (answers as unknown[]).map((answer) => (typeof answer === "object" && answer !== null ? answer : {}) as { questionId?: unknown; answer?: unknown }) : undefined;
-          if (typeof workItemId !== "number" || !given || !given.every((answer) => typeof answer.questionId === "number" && typeof answer.answer === "string")) throw new Error("an answer names a work item and gives an answer to each of its questions");
-          if (!this.store.workItem(workItemId)) throw new Error(`no work item ${String(workItemId)}`);
-          const asked = this.asked.of(workItemId);
-          if (!asked || asked.answeredAt !== null) throw new Error(`Work item ${String(workItemId)} waits for no answer.`);
-          const said = new Map<number, string>();
-          for (const { questionId, answer } of given as { questionId: number; answer: string }[]) {
-            if (!asked.questions.some((question) => question.id === questionId)) throw new Error(`work item ${String(workItemId)} asked no question ${String(questionId)}`);
-            if (said.has(questionId)) throw new Error(`Question ${String(questionId)} is answered twice.`);
-            said.set(questionId, cutText(answer.trim()));
-            if (said.get(questionId) === "") throw new Error(`Give an answer to question ${String(questionId)}.`);
-          }
-          const left = asked.questions.find((question) => !said.has(question.id));
-          if (left) throw new Error(`Question ${String(left.id)} has no answer.`);
-          this.keptChange("questions", () => this.asked.answer(workItemId, said, (this.options.now ?? Date.now)()));
-          // The answer first, so the client that asked knows its request was carried out when the inbox carries the answered record.
+          if (typeof workItemId !== "number" || !given || !given.every((answer) => typeof answer.questionId === "number" && typeof answer.answer === "string")) throw new Error("an answer names a work item and gives an answer to each of its open questions");
+          this.personWrote(workItemId, (text) => {
+            // The open questions are read from the text the write is applied to, so the answers are held against the record as it stands at the write.
+            const open = readDecisionRecord(text).questions.filter((question) => question.state.is === "open");
+            if (open.length === 0) throw new Error(`Work item ${String(workItemId)} waits for no answer.`);
+            const said = new Map<number, string>();
+            for (const { questionId, answer } of given as { questionId: number; answer: string }[]) {
+              if (!open.some((question) => question.id === questionId)) throw new Error(`Work item ${String(workItemId)} holds no open question ${String(questionId)}.`);
+              if (said.has(questionId)) throw new Error(`Question ${String(questionId)} is answered twice.`);
+              said.set(questionId, cutText(answer.trim()));
+              if (said.get(questionId) === "") throw new Error(`Give an answer to question ${String(questionId)}.`);
+            }
+            const left = open.find((question) => !said.has(question.id));
+            if (left) throw new Error(`Question ${String(left.id)} has no answer.`);
+            return [...said].reduce((next, [questionId, answer]) => withAnswer(next, questionId, answer), text);
+          });
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the answers.
           this.send(socket, { type: "done", requestId: message.requestId });
           this.broadcastInbox();
         } catch (error) {
@@ -782,6 +868,9 @@ export class Daemon {
               }
               // A removal of its repository can take the work item out of the store while the archive waits.
               if (this.store.setWorkItem(id, { archivedAt: (this.options.now ?? Date.now)() }) === undefined) throw new Error(`no work item ${String(id)}`);
+              // No pass reads an archived work item, so its record is read here, as it stands at the archive.
+              this.readRecord(held);
+              this.flushTimes();
               // The answer first, so the client that asked knows its request was carried out when the inbox carries the archive.
               this.send(socket, { type: "done", requestId: message.requestId });
               this.broadcastInbox();
@@ -802,9 +891,13 @@ export class Daemon {
           if (changed === undefined) throw new Error(`no work item ${String(message.id)}`);
           this.send(socket, { type: "done", requestId: message.requestId });
           if (!changed) return;
-          this.broadcastInbox();
-          // Git was not read for the work item while it was archived, so its branch is read now, and not at the next read of them all.
+          // Neither git nor the record was read for the work item while it was archived, so its record is read now, and its branch, and not at the next read of them all.
           const held = this.store.workItem(message.id);
+          if (held) {
+            this.readRecord(held);
+            this.flushTimes();
+          }
+          this.broadcastInbox();
           if (held) void this.readBranch(held).then((moved) => { if (moved) this.broadcastInbox(); });
         } catch (error) {
           this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
@@ -1002,7 +1095,7 @@ export class Daemon {
     return `An archive of work item ${String(id)} is ending its sessions. Try again.`;
   }
 
-  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch, the decisions made for each, which leave `decisions.json` with them, and the questions each is parked with, which leave `asked.json`. A delete and a repository's removal call it. What the two stores hold under an id that is given to a new work item is dropped where the id is given, in the `createWorkItem` case. The store of the repositories is not touched. */
+  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch and of each record, and the times of each record's blocks, which leave `record-times.json` with them. A delete and a repository's removal call it. The record itself goes with the worktree. What the times hold under an id that is given to a new work item is dropped where the id is given, in the `createWorkItem` case. The store of the repositories is not touched. */
   private dropWorkItems(ids: ReadonlySet<number>): void {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
@@ -1018,9 +1111,10 @@ export class Daemon {
       this.commitCounts.delete(id);
       this.aheadCounts.delete(id);
       this.branches.delete(id);
+      this.recordsRead.delete(id);
     }
-    this.keptChange("decisions", () => this.decisions.drop(ids));
-    this.keptChange("questions", () => this.asked.drop(ids));
+    this.times.drop(ids);
+    this.flushTimes();
   }
 
   /**
@@ -1303,7 +1397,7 @@ export class Daemon {
     return this.options.version;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, with the decisions made for it, and with the questions it is parked with or was parked with last. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with what was last read of its record: its decisions, its questions and what the reader did not read. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -1315,9 +1409,25 @@ export class Daemon {
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
-      decisions: this.decisions.of(item.id),
-      asked: this.asked.of(item.id),
+      ...(this.recordsRead.get(item.id) ?? NO_RECORD),
     };
+  }
+
+  /**
+   * Writes a person's word, a reversal or their answers, into the record of
+   * a work item, through the record's writer, and reads the record again for
+   * the lists. It throws, with the file as it stood, for a work item the
+   * daemon does not keep, one whose worktree holds no directory of its own,
+   * and whatever the change or the writer throws.
+   */
+  private personWrote(workItemId: number, change: (text: string) => string): void {
+    const held = this.store.workItem(workItemId);
+    if (!held) throw new Error(`no work item ${String(workItemId)}`);
+    const directory = workItemDirectory(held.item.worktree, held.item.branch);
+    if (directory === null) throw new Error(`Work item ${String(workItemId)} has no record of decisions.`);
+    writeRecord(directory, change);
+    this.readRecord(held);
+    this.flushTimes();
   }
 
   /** Sends every client the whole of the four lists, after one of them changed. */
@@ -1402,18 +1512,20 @@ export class Daemon {
 
   /**
    * Reads from git the new commits of each work item that is not archived,
-   * and from each repository's working tree what it holds of the records
-   * place, and tells every client where a count changed, a branch's head
-   * moved or a repository's records place is another. An archived work item
-   * keeps what was last read of its branch.
+   * from its worktree its record of decisions and questions, and from each
+   * repository's working tree what it holds of the records place, and tells
+   * every client where a count changed, a branch's head moved, a record
+   * reads otherwise or a repository's records place is another. An archived
+   * work item keeps what was last read of its branch and of its record. The
+   * records are read first and without a wait, so a `ready` that goes out
+   * before git has answered still carries them.
    */
   private async readCommits(): Promise<void> {
-    const moved = await Promise.all(
-      this.store
-        .workItems()
-        .filter(({ item }) => item.archivedAt === null)
-        .map((held) => this.readBranch(held)),
-    );
+    const open = this.store.workItems().filter(({ item }) => item.archivedAt === null);
+    // Every record is read, so `some` is not what gathers the answers: it would stop at the first that changed.
+    const recorded = open.map((held) => this.readRecord(held));
+    this.flushTimes();
+    const moved = [...recorded, ...(await Promise.all(open.map((held) => this.readBranch(held))))];
     // Every repository is read, so `some` is not what gathers the answers: it would stop at the first that changed.
     const placed = this.store.repositories().map((repository) => this.readRecords(repository));
     if (moved.includes(true) || placed.includes(true)) this.broadcastInbox();

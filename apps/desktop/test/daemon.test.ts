@@ -11,10 +11,11 @@ import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "..
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
-import { SUBJECT, workflowText } from "../src/daemon/records-place";
+import { type DecisionRecord, RECORD_FILE, readDecisionRecord, withApplied, withCarried, withDecision, withReversal } from "../src/daemon/decision-record";
+import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -23,13 +24,11 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "asked", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "pinned", "questions", "repo", "repoId", "repoName", "title", "unread", "worktree"];
 /** What a work item holds of the fields a person sets, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
-/** What a work item holds of the decisions made for it in place of asking, before one is recorded. */
-const NO_DECISION = { decisions: [] };
-/** What a work item holds of the questions it is parked with, where it never was parked. */
-const NOT_ASKED = { asked: null };
+/** What a work item holds of its record of decisions and questions where its worktree holds none. */
+const NO_RECORD = { decisions: [], questions: [], unread: [] };
 /** What a repository holds of the fields a person sets, before any is set. */
 /** What a repository holds of the records place where its checkout holds none. */
 const NO_RECORDS = { root: null, check: null, broadGate: null };
@@ -444,7 +443,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_DECISION, ...NOT_ASKED, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -463,13 +462,14 @@ describe("work items", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Keys", kind: "shell", cols: 80, rows: 24 });
     const created = await c.message("workItemCreated");
-    // Two decisions, one of them reversed, so that the lists carry a decision and a reversal.
+    // Two decisions, one of them reversed, a park with a question that names options, and a block the reader refuses, so that the lists carry a decision, a question, an option and an unread line.
+    const directory = withDirectory(created.workItem);
     d.decided(created.workItem.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." });
     d.decided(created.workItem.id, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file." });
     c.send({ type: "reverseDecision", requestId: 2, workItemId: created.workItem.id, decisionId: 1, message: "Frame it first." });
     await c.message("done", (m) => m.requestId === 2);
-    // A park with a question that names options, so that the lists carry a record, a question and an option.
-    d.park(created.workItem.id, { by: "sealer", questions: [{ asks: "Which base?", options: [{ label: "main", implies: "The default." }], default: 0 }] });
+    d.park(created.workItem.id, { by: "sealer", questions: [{ asks: "Which base?", grounds: "No document names it.", options: [{ label: "main", implies: "The default." }], default: "main" }] });
+    writeFileSync(join(directory, RECORD_FILE), `${readFileSync(join(directory, RECORD_FILE), "utf8")}\n\`\`\`seal\n\`\`\`\n`);
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
     expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
     expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
@@ -497,11 +497,11 @@ describe("work items", () => {
       expect(Object.keys(workItem.commits![0]!).sort()).toEqual(["added", "at", "hash", "removed", "subject"]);
       expect(Object.keys(workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
       expect(Object.keys(workItem.changes!.list[0]!).sort()).toEqual(["added", "path", "removed"]);
-      expect(workItem.decisions.map((decision) => Object.keys(decision).sort())).toEqual([["at", "grounds", "id", "kind", "reversed", "says"], ["at", "grounds", "id", "kind", "reversed", "says"]]);
-      expect([Object.keys(workItem.decisions[0]!.reversed!).sort(), workItem.decisions[1]!.reversed]).toEqual([["at", "message"], null]);
-      expect(Object.keys(workItem.asked!).sort()).toEqual(["answeredAt", "at", "by", "questions"]);
-      expect(workItem.asked!.questions.map((question) => Object.keys(question).sort())).toEqual([["answer", "asks", "default", "id", "options"]]);
-      expect(Object.keys(workItem.asked!.questions[0]!.options[0]!).sort()).toEqual(["implies", "label"]);
+      const DECISION_FIELDS = ["by", "grounds", "id", "kind", "landed", "reversal", "says", "since", "state"];
+      expect(workItem.decisions.map((decision) => Object.keys(decision).sort())).toEqual([DECISION_FIELDS, DECISION_FIELDS]);
+      expect(workItem.questions.map((question) => Object.keys(question).sort())).toEqual([["answer", "asks", "by", "default", "grounds", "id", "options", "since"]]);
+      expect(Object.keys(workItem.questions[0]!.options[0]!).sort()).toEqual(["implies", "label"]);
+      expect(workItem.unread.map((unread) => Object.keys(unread).sort())).toEqual([["line", "why"]]);
     }
   });
 
@@ -3121,16 +3121,37 @@ async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
   await c.message("error", (m) => m.requestId === requestId);
 }
 
+/** Makes a work item's directory in its worktree, uncommitted: the records root with its marker, and a `routing.md` under `threads/<name>` that names the work item's branch. Gives the directory. */
+function withDirectory(workItem: { worktree: string; branch: string }, name = "1-item"): string {
+  const directory = join(workItem.worktree, "seal", "threads", name);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(workItem.worktree, "seal", "README.md"), `${MARKER}\n`);
+  writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${workItem.branch} |\n`);
+  return directory;
+}
+
+/** The record of a work item's directory as the reader reads its file, or null where no file stands. */
+function recordIn(directory: string): DecisionRecord | null {
+  const file = join(directory, RECORD_FILE);
+  return existsSync(file) ? readDecisionRecord(readFileSync(file, "utf8")) : null;
+}
+
+/** The file of a work item's record as bytes, or null where none stands. */
+const bytesIn = (directory: string): string | null => (existsSync(join(directory, RECORD_FILE)) ? readFileSync(join(directory, RECORD_FILE), "base64") : null);
+
+type Lists = { workItems: WorkItem[]; archived: WorkItem[] };
+const itemOf = (lists: Lists, id: number): WorkItem | undefined => [...lists.workItems, ...lists.archived].find((w) => w.id === id);
 describe("the decisions made without asking", () => {
-  type Inbox = Extract<ServerMessage, { type: "inbox" }>;
   const DEFAULT = { kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default." } as const;
   const ROUTE = { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file, apps/desktop/src/renderer/view.ts." } as const;
-  const decisionsOf = (inbox: { workItems: { id: number; decisions: unknown }[] }, id: number) => inbox.workItems.find((w) => w.id === id)?.decisions;
-  const stored = (runDir: string): unknown => JSON.parse(readFileSync(join(runDir, "decisions.json"), "utf8"));
+  /** A decision as the daemon sends one that stands as made. */
+  const made = (id: number, decision: { kind: string; says: string; grounds: string }, since: number, by: string | null = null) => ({ id, ...decision, by, state: "decided", reversal: null, landed: null, since });
 
-  it("records a decision for one work item and tells every client: that work item holds it with an id, the daemon's time and no reversal, the other holds none, no session changes, and the other's headless session finishes", async () => {
+  it("writes a decision into the record of one work item and tells every client: that work item holds it with the id 1, the texts given and the daemon's time, the other holds none, no session changes, and the other's headless session finishes; a second decision takes the id 2", async () => {
     const { d, url, c, workItems, sessions } = await withWorkItems(["Decided for", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 100 }) });
     const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
     const other = await client(url);
     await other.message("ready");
     c.send({ type: "ask", requestId: 1, workItemId: b.id, prompt: "Still there?" });
@@ -3139,53 +3160,116 @@ describe("the decisions made without asking", () => {
     other.messages.length = 0;
     const decision = d.decided(a.id, DEFAULT);
     // It returned at once: the session it left alone is still working.
-    expect(decision).toEqual({ id: 1, ...DEFAULT, at: 1234, reversed: null });
+    expect(decision).toEqual(made(1, DEFAULT, 1234));
+    expect(recordIn(directory)).toMatchObject({ decisions: [{ id: 1, kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds, by: null, state: { is: "decided" } }], questions: [], refusals: [], notices: [] });
     for (const told of [c, other]) {
       const inbox = await told.message("inbox");
-      expect(decisionsOf(inbox, a.id)).toEqual([decision]);
-      expect(decisionsOf(inbox, b.id)).toEqual([]);
       expect(inbox.workItems).toEqual([{ ...a, decisions: [decision] }, b]);
       expect(inbox.sessions).toEqual(sessions);
       // Nothing but the lists is sent for it, and no headless session was told as changed by it.
       expect(told.messages.filter((m) => m.type !== "headless").map((m) => m.type)).toEqual(["inbox"]);
     }
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working")).headless).toMatchObject({ workItemId: b.id, state: "finished", stopped: null });
+    expect(d.decided(a.id, { ...ROUTE, by: "orchestrator" })).toEqual(made(2, ROUTE, 1234, "orchestrator"));
     const later = await (await client(url)).message("ready");
-    expect([decisionsOf(later, a.id), decisionsOf(later, b.id), later.sessions]).toEqual([[decision], [], sessions]);
+    expect([itemOf(later, a.id)?.decisions, itemOf(later, b.id)?.decisions, later.sessions]).toEqual([[decision, made(2, ROUTE, 1234, "orchestrator")], [], sessions]);
+    expect(recordIn(directory)?.decisions.map(({ id, by }) => [id, by])).toEqual([[1, null], [2, "orchestrator"]]);
   });
 
-  it("stores what was decided and its grounds without the white space at their ends, 2000 characters of each at most, and takes each of the four kinds", async () => {
+  it("writes what was decided, its grounds and who decided without the white space at their ends, 2000 characters of each at most and each on one line, and takes each of the four kinds", async () => {
     const { d, workItems } = await withWorkItems(["Decided for"], { now: () => 5 });
     const id = workItems[0]!.id;
-    expect(d.decided(id, { kind: "scope", says: `  ${"가".repeat(2001)}\n`, grounds: `\t${"g".repeat(1999)}😀 ` })).toEqual({ id: 1, kind: "scope", says: "가".repeat(2000), grounds: "g".repeat(1999), at: 5, reversed: null });
+    withDirectory(workItems[0]!);
+    expect(d.decided(id, { kind: "scope", says: `  ${"가".repeat(2001)}\n`, grounds: `\t${"g".repeat(1999)}😀 `, by: " the\norchestrator " })).toEqual({ ...made(1, { kind: "scope", says: "가".repeat(2000), grounds: "g".repeat(1999) }, 5), by: "the orchestrator" });
+    expect(d.decided(id, { ...DEFAULT, says: "Start\r\nfrom main." })?.says).toBe("Start from main.");
     expect((["route", "default", "answered"] as const).map((kind) => d.decided(id, { ...DEFAULT, kind })?.kind)).toEqual(["route", "default", "answered"]);
   });
 
-  it("records nothing, writes no file and tells no client for a work item it does not keep, a kind that is none of the four, and what was decided or grounds that are empty or no text", async () => {
-    const { d, c, url, runDir, workItems } = await withWorkItems(["Decided for"]);
-    const id = workItems[0]!.id;
+  it("writes nothing and tells no client for a work item it does not keep, one whose worktree holds no directory, one whose worktree holds two directories that name its branch, a kind that is none of the four, what was decided or grounds that are empty or no text, and who decided that is empty or no text", async () => {
+    const { d, c, url, runDir, workItems } = await withWorkItems(["Decided for", "No directory", "Two directories"]);
+    const [a, none, two] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    const twice = [withDirectory(two, "1-first"), withDirectory(two, "2-second")];
     const loose = d.decided.bind(d) as (workItemId: unknown, decision: unknown) => unknown;
     expect(loose(99, DEFAULT)).toBeUndefined();
-    expect(loose(String(id), DEFAULT)).toBeUndefined();
-    for (const decision of [{ ...DEFAULT, kind: "guess" }, { ...DEFAULT, kind: undefined }, { ...DEFAULT, says: "" }, { ...DEFAULT, says: " \n\t" }, { ...DEFAULT, says: 3 }, { ...DEFAULT, grounds: "  " }, { ...DEFAULT, grounds: null }, null]) {
-      expect(loose(id, decision)).toBeUndefined();
+    expect(loose(String(a.id), DEFAULT)).toBeUndefined();
+    expect(loose(none.id, DEFAULT)).toBeUndefined();
+    expect(loose(two.id, DEFAULT)).toBeUndefined();
+    for (const decision of [{ ...DEFAULT, kind: "guess" }, { ...DEFAULT, kind: undefined }, { ...DEFAULT, says: "" }, { ...DEFAULT, says: " \n\t" }, { ...DEFAULT, says: 3 }, { ...DEFAULT, grounds: "  " }, { ...DEFAULT, grounds: null }, { ...DEFAULT, by: " " }, { ...DEFAULT, by: 3 }, null]) {
+      expect(loose(a.id, decision)).toBeUndefined();
     }
     // An inbox for any of them would have arrived before the refusal of a start sent after them.
     await settled(c);
     expect(c.messages.map((m) => m.type)).toEqual(["error"]);
-    expect(existsSync(join(runDir, "decisions.json"))).toBe(false);
-    expect(decisionsOf(await (await client(url)).message("ready"), id)).toEqual([]);
+    expect([directory, ...twice].map(bytesIn)).toEqual([null, null, null]);
+    expect(readdirSync(join(none.worktree)).includes("seal")).toBe(false);
+    expect(["decisions.json", "asked.json"].map((file) => existsSync(join(runDir, file)))).toEqual([false, false]);
+    expect((await (await client(url)).message("ready")).workItems.map(({ decisions, questions, unread }) => ({ decisions, questions, unread }))).toEqual([NO_RECORD, NO_RECORD, NO_RECORD]);
     // The call as the refusals above would have it taken, so the method is the one under test.
-    expect(loose(id, DEFAULT)).toMatchObject({ id: 1 });
+    expect(loose(a.id, DEFAULT)).toMatchObject({ id: 1 });
   });
 
-  it("reverses a decision at a `reverseDecision`, with the time and the message as typed, answers before the inbox that carries it, and refuses a second reversal, a decision of another work item, one that does not exist, a message of white space and a work item it does not keep, with no inbox after", async () => {
+  it("reads the record as the store: a second daemon on the run folder lists two decisions, one reversed, and an open question as the file holds them, and the run folder holds neither `decisions.json` nor `asked.json`; a block written into the file by hand, uncommitted, arrives in an inbox after the next pass; and a block the reader refuses is sent as unread with its line and the reader's reason, the blocks around it listed", async () => {
+    const { d, c, made: repository, runDir, workItems } = await withWorkItems(["Recorded"], { now: () => 1000 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const file = join(directory, RECORD_FILE);
+    d.decided(a.id, ROUTE);
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "Frame it first." });
+    await c.message("done", (m) => m.requestId === 1);
+    await d.close();
+
+    const later = await daemon({ runDir, worktreesRoot: repository.root, now: () => 5000, commitPollMs: 30 });
+    const lc = await client(later.url);
+    const ready = await lc.message("ready");
+    const held = [{ ...made(1, ROUTE, 1000), state: "reversed", reversal: "Frame it first." }, made(2, DEFAULT, 1000)];
+    const question = { id: 3, asks: "May it push?", grounds: "A push needs the person's approval.", by: "sealer", options: [], default: null, answer: null, since: 1000 };
+    expect(itemOf(ready, a.id)).toMatchObject({ decisions: held, questions: [question], unread: [] });
+    expect(["decisions.json", "asked.json"].map((name) => existsSync(join(runDir, name)))).toEqual([false, false]);
+    expect(git(a.worktree, "status", "--porcelain", "--", "seal")).toContain("seal/");
+
+    // A stage writes a block without the daemon's method: the next pass reads it.
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md, milestone 2." }));
+    const inbox = await lc.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 3);
+    expect(itemOf(inbox, a.id)?.decisions.at(-1)).toEqual(made(4, { kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md, milestone 2." }, 5000));
+
+    // A block with a blank line inside is refused at that line. The blocks around it are still read, and the next block takes an id above the refused one's.
+    const before = readFileSync(file, "utf8");
+    const fence = "```";
+    const broken = `${fence}seal\ndecision: 5 default\n\ndecided: x\ngrounds: y\nstate: decided\n${fence}\n`;
+    // The text ends with a line end, so its count of lines is one under the split's, and the broken block opens after one blank line.
+    const opener = before.split("\n").length + 1;
+    writeFileSync(file, withDecision(`${before}\n${broken}`, { kind: "answered", decided: "The tree answers it.", grounds: "docs/product.md." }));
+    const after = await lc.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(after, a.id)?.unread).toEqual([{ line: opener + 2, why: "a blank line inside a `seal` block: its lines are fields, one after another, and the block is not read past it" }]);
+    expect(itemOf(after, a.id)?.decisions.map(({ id, kind }) => [id, kind])).toEqual([[1, "route"], [2, "default"], [4, "scope"], [6, "answered"]]);
+    expect(itemOf(after, a.id)?.questions).toEqual([question]);
+  });
+
+  it("sends a fence that opens like a `seal` block and is not one as unread, at its line, beside the refusals in the order of the file", async () => {
+    const { d, c, workItems } = await withWorkItems(["Noticed"], { now: () => 1, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const fence = "```";
+    writeFileSync(join(directory, RECORD_FILE), `${fence}seal x\ndecision: 1 default\n${fence}\n\n${fence}seal\n${fence}\n`);
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)?.unread.map(({ line, why }) => [line, why.slice(0, 22)])).toEqual([[1, "not read: ````seal x` "], [5, "an empty `seal` block:"]]);
+    expect(itemOf(inbox, a.id)?.decisions).toEqual([]);
+    // Nothing is decided on either: the next decision is written, and both lines stay named.
+    expect(d.decided(a.id, DEFAULT)).toMatchObject({ id: 1 });
+  });
+
+  it("reverses a decision at a `reverseDecision`: the block reads `reversed` with the message as typed, the answer comes before the inbox that carries it with a new time, and a second reversal, an id that is a question's, an id the record does not hold, a message of white space, a work item it does not keep and one with no directory are each refused with the file byte for byte as it stood and no inbox after", async () => {
     let clock = 1000;
-    const { d, c, url, runDir, workItems } = await withWorkItems(["Decided for", "Another"], { now: () => clock });
-    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const { d, c, url, workItems } = await withWorkItems(["Decided for", "Another", "No directory"], { now: () => clock });
+    const [a, b, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(b)] as const;
     const first = d.decided(a.id, DEFAULT)!;
     const second = d.decided(b.id, ROUTE)!;
-    await c.message("inbox", (m) => (decisionsOf(m, b.id) as unknown[]).length === 1);
+    d.park(b.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    await c.message("inbox", (m) => itemOf(m, b.id)?.questions.length === 1);
     const other = await client(url);
     await other.message("ready");
     c.messages.length = 0;
@@ -3195,23 +3279,25 @@ describe("the decisions made without asking", () => {
     const inbox = await c.message("inbox");
     expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
     expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
-    const reversed = { ...first, reversed: { at: 2000, message: typed } };
-    expect([decisionsOf(inbox, a.id), decisionsOf(inbox, b.id)]).toEqual([[reversed], [second]]);
+    const reversed = { ...first, state: "reversed", reversal: typed, since: 2000 };
+    expect([itemOf(inbox, a.id)?.decisions, itemOf(inbox, b.id)?.decisions]).toEqual([[reversed], [second]]);
+    expect(recordIn(directories[0])?.decisions.map(({ state }) => state)).toEqual([{ is: "reversed", message: typed }]);
     // Every client is told, and the one that asked alone is answered.
-    expect(decisionsOf(await other.message("inbox"), a.id)).toEqual([reversed]);
+    expect(itemOf(await other.message("inbox"), a.id)?.decisions).toEqual([reversed]);
     expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
-    expect(stored(runDir)).toEqual({ nextId: 3, workItems: { [a.id]: [reversed], [b.id]: [second] } });
 
     c.messages.length = 0;
     clock = 3000;
+    const bytes = directories.map(bytesIn);
     const refusals = [
-      [2, { workItemId: a.id, decisionId: first.id, message: "again" }, "The decision is already reversed."],
-      [3, { workItemId: a.id, decisionId: second.id, message: "of another" }, `work item ${a.id} holds no decision ${second.id}`],
-      [4, { workItemId: b.id, decisionId: 9, message: "of none" }, `work item ${b.id} holds no decision 9`],
+      [2, { workItemId: a.id, decisionId: first.id, message: "again" }, "decision 1 is reversed, and only a decision that stands decided is reversed"],
+      [3, { workItemId: b.id, decisionId: 2, message: "a question's id" }, "the record holds no decision 2"],
+      [4, { workItemId: b.id, decisionId: 9, message: "of none" }, "the record holds no decision 9"],
       [5, { workItemId: b.id, decisionId: second.id, message: " \n\t" }, "Say why the decision is reversed."],
       [6, { workItemId: 99, decisionId: second.id, message: "nowhere" }, "no work item 99"],
-      [7, { workItemId: b.id, decisionId: second.id, message: 3 }, "a reversal names a work item, a decision of it and a message"],
-      [8, { workItemId: b.id, decisionId: String(second.id), message: "no id" }, "a reversal names a work item, a decision of it and a message"],
+      [7, { workItemId: none.id, decisionId: 1, message: "no record" }, `Work item ${none.id} has no record of decisions.`],
+      [8, { workItemId: b.id, decisionId: second.id, message: 3 }, "a reversal names a work item, a decision of it and a message"],
+      [9, { workItemId: b.id, decisionId: String(second.id), message: "no id" }, "a reversal names a work item, a decision of it and a message"],
     ] as const;
     for (const [requestId, fields, message] of refusals) {
       c.send({ type: "reverseDecision", requestId, ...fields });
@@ -3219,114 +3305,193 @@ describe("the decisions made without asking", () => {
     }
     await settled(c);
     expect(c.messages.map((m) => m.type)).toEqual(refusals.map(() => "error").concat("error"));
-    expect(stored(runDir)).toEqual({ nextId: 3, workItems: { [a.id]: [reversed], [b.id]: [second] } });
+    expect(directories.map(bytesIn)).toEqual(bytes);
     const ready = await (await client(url)).message("ready");
-    expect([decisionsOf(ready, a.id), decisionsOf(ready, b.id)]).toEqual([[reversed], [second]]);
+    expect([itemOf(ready, a.id)?.decisions, itemOf(ready, b.id)?.decisions]).toEqual([[reversed], [second]]);
+    // The message as the refusals above would have it taken, so the case is the one under test.
+    c.send({ type: "reverseDecision", requestId: 20, workItemId: b.id, decisionId: second.id, message: "Frame it." });
+    expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
   });
 
-  it("lists after a restart the decisions made before it, a reversed one as it stood, from a file the user alone can read, and gives the next decision an id above both", async () => {
-    const { d, c, made, runDir, workItems } = await withWorkItems(["Outlives the daemon"], { now: () => 1234 });
-    const id = workItems[0]!.id;
-    const first = d.decided(id, ROUTE)!;
-    const second = d.decided(id, DEFAULT)!;
-    c.send({ type: "reverseDecision", requestId: 1, workItemId: id, decisionId: first.id, message: "Frame it first." });
+  it("sends each decision as its block stands: an applied one with its commit and a carried one with its home, each with the person's message", async () => {
+    const { c, workItems } = await withWorkItems(["Taken in"], { now: () => 1, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    let text = withDecision(withDecision("", { kind: "default", decided: "Start from main.", grounds: "The default base.", by: "orchestrator" }), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." });
+    text = withCarried(withReversal(withApplied(withReversal(text, 1, "Start from the release branch."), 1, "abc1234"), 2, "Take the phone in."), 2, "#53");
+    writeFileSync(join(directory, RECORD_FILE), text);
+    const inbox = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 2);
+    expect(itemOf(inbox, a.id)?.decisions).toEqual([
+      { id: 1, kind: "default", says: "Start from main.", grounds: "The default base.", by: "orchestrator", state: "applied", reversal: "Start from the release branch.", landed: "abc1234", since: 1 },
+      { id: 2, kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md.", by: null, state: "carried", reversal: "Take the phone in.", landed: "#53", since: 1 },
+    ]);
+  });
+
+  it("keeps each block's time as its own: a later pass and a second daemon send the time of the first read, a reversal gives the decision the time of that read and leaves the question's, a block that leaves the file leaves `record-times.json`, and a daemon that starts with the file removed gives every block its start's time", async () => {
+    let clock = 1000;
+    const { d, c, made: repository, runDir, workItems } = await withWorkItems(["Timed"], { now: () => clock, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const file = join(directory, RECORD_FILE);
+    const times = (): unknown => JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8"));
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "decided", since: 1000 }, 2: { state: "open", since: 1000 } } } });
+    expect(statSync(join(runDir, "record-times.json")).mode & 0o777).toBe(0o600);
+    // A pass at a later clock reads both again, and neither time moves. The block a pass at that clock finds first is the mark that it ran.
+    clock = 2000;
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." }));
+    const passed = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 2);
+    expect([itemOf(passed, a.id)?.decisions.map(({ since }) => since), itemOf(passed, a.id)?.questions.map(({ since }) => since)]).toEqual([[1000, 2000], [1000]]);
+
+    clock = 3000;
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
     await c.message("done", (m) => m.requestId === 1);
+    const reversed = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions[0]?.state === "reversed");
+    expect([itemOf(reversed, a.id)?.decisions.map(({ since }) => since), itemOf(reversed, a.id)?.questions.map(({ since }) => since)]).toEqual([[3000, 2000], [1000]]);
     await d.close();
-    expect(statSync(join(runDir, "decisions.json")).mode & 0o777).toBe(0o600);
 
-    const later = await daemon({ runDir, worktreesRoot: made.root, now: () => 5678 });
-    const held = [{ ...first, reversed: { at: 1234, message: "Frame it first." } }, second];
-    expect(decisionsOf(await (await client(later.url)).message("ready"), id)).toEqual(held);
-    expect(later.daemon.decided(id, DEFAULT)).toEqual({ id: 3, ...DEFAULT, at: 5678, reversed: null });
+    clock = 4000;
+    const second = await daemon({ runDir, worktreesRoot: repository.root, now: () => clock, commitPollMs: 30 });
+    const sc = await client(second.url);
+    const ready = await sc.message("ready");
+    expect([itemOf(ready, a.id)?.decisions.map(({ since }) => since), itemOf(ready, a.id)?.questions.map(({ since }) => since)]).toEqual([[3000, 2000], [1000]]);
+    // The question's block leaves the file: a record of the two decisions alone is put in its place.
+    const kept = readFileSync(file, "utf8");
+    const from = kept.indexOf("```seal\nquestion:");
+    const until = kept.indexOf("```\n", from + 3) + 4;
+    writeFileSync(file, kept.slice(0, from) + kept.slice(until));
+    await sc.message("inbox", (m) => itemOf(m, a.id)?.questions.length === 0);
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "reversed", since: 3000 }, 3: { state: "decided", since: 2000 } } } });
+    await second.daemon.close();
+
+    rmSync(join(runDir, "record-times.json"));
+    clock = 5000;
+    const third = await daemon({ runDir, worktreesRoot: repository.root, now: () => clock });
+    const again = await (await client(third.url)).message("ready");
+    expect(itemOf(again, a.id)?.decisions.map(({ id, since }) => [id, since])).toEqual([[1, 5000], [3, 5000]]);
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "reversed", since: 5000 }, 3: { state: "decided", since: 5000 } } } });
   });
 
-  it("lists an archived work item under `archived` with its decisions, and takes a work item's decisions out of the file at its delete and at its repository's removal, so a work item created afterwards holds none", async () => {
-    const { d, c, url, made, runDir, workItems, sessions } = await withWorkItems(["Archived", "Deleted", "Removed"]);
+  it("lists an archived work item under `archived` with what its record holds, the blocks written since the last pass among them, reads it again at its own start, and takes a work item's times out of `record-times.json` at its delete and at its repository's removal", async () => {
+    const { d, c, made: repository, runDir, workItems, sessions } = await withWorkItems(["Archived", "Deleted", "Removed"], { now: () => 9 });
     const [archived, deleted, removed] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const times = (): { workItems: Record<string, unknown> } => JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8")) as { workItems: Record<string, unknown> };
+    const directory = withDirectory(archived);
+    for (const each of [deleted, removed]) withDirectory(each);
     const kept = d.decided(archived.id, DEFAULT)!;
-    const lost = d.decided(deleted.id, ROUTE)!;
-    const last = d.decided(removed.id, ROUTE)!;
+    d.decided(deleted.id, ROUTE);
+    d.decided(removed.id, ROUTE);
+    const [question] = d.park(archived.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] })!;
+    // A block a stage wrote after the daemon's last read is read at the archive, since no pass reads an archived work item.
+    const file = join(directory, RECORD_FILE);
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." }));
     c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
     const inbox = await c.message("inbox", (m) => m.archived.length === 1);
-    expect(inbox.archived[0]).toMatchObject({ id: archived.id, decisions: [kept] });
-    expect(stored(runDir)).toEqual({ nextId: 4, workItems: { [archived.id]: [kept], [deleted.id]: [lost], [removed.id]: [last] } });
-    // A decision is recorded for an archived work item as for any the daemon keeps.
-    const late = d.decided(archived.id, ROUTE)!;
-    expect((await c.message("inbox", (m: Inbox) => (m.archived[0]?.decisions.length ?? 0) === 2)).archived[0]?.decisions).toEqual([kept, late]);
+    const late = made(3, { kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md." }, 9);
+    expect(inbox.archived[0]).toMatchObject({ id: archived.id, decisions: [kept, late], questions: [question] });
+    expect(inbox.workItems.map(({ id }) => id)).toEqual([deleted.id, removed.id]);
+    expect(Object.keys(times().workItems)).toEqual([String(archived.id), String(deleted.id), String(removed.id)]);
 
     c.send({ type: "readLoss", requestId: 2, id: deleted.id });
     const { loss } = await c.message("workItemLoss", (m) => m.requestId === 2);
-    c.send({ type: "deleteWorkItem", requestId: 3, id: deleted.id, stamp: loss.stamp, force: false, running: { panes: [sessions[1]!.id], headless: [] } });
+    c.send({ type: "deleteWorkItem", requestId: 3, id: deleted.id, stamp: loss.stamp, force: true, running: { panes: [sessions[1]!.id], headless: [] } });
     await c.message("done", (m) => m.requestId === 3);
-    expect(stored(runDir)).toEqual({ nextId: 5, workItems: { [archived.id]: [kept, late], [removed.id]: [last] } });
+    expect(Object.keys(times().workItems)).toEqual([String(archived.id), String(removed.id)]);
     expect(d.decided(deleted.id, DEFAULT)).toBeUndefined();
+    await d.close();
 
-    c.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [archived.id, removed.id], running: { panes: [sessions[2]!.id], headless: [] } });
-    await c.message("done", (m) => m.requestId === 4);
-    expect(stored(runDir)).toEqual({ nextId: 5, workItems: {} });
+    // A daemon that starts reads the archived work item's record, which no pass of it reads.
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "answered", decided: "The tree answers it.", grounds: "docs/product.md." }));
+    const later = await daemon({ runDir, worktreesRoot: repository.root, commandFor: silent, now: () => 20 });
+    const lc = await client(later.url);
+    const ready = await lc.message("ready");
+    expect(ready.archived[0]).toMatchObject({ id: archived.id, decisions: [kept, late, made(4, { kind: "answered", says: "The tree answers it.", grounds: "docs/product.md." }, 20)], questions: [question] });
 
-    c.send({ type: "createWorkItem", requestId: 5, repo: made.repo, title: "Made after", kind: "shell", cols: 80, rows: 24 });
-    const next = (await c.message("workItemCreated", (m) => m.requestId === 5)).workItem;
-    expect(next.decisions).toEqual([]);
-    expect(decisionsOf(await (await client(url)).message("ready"), next.id)).toEqual([]);
-    // An id is given once over the whole store, the dropped ones never again.
-    expect(d.decided(next.id, DEFAULT)).toMatchObject({ id: 5 });
+    lc.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [archived.id, removed.id], running: NONE_RUNNING });
+    await lc.message("done", (m) => m.requestId === 4);
+    expect(times()).toEqual({ workItems: {} });
   });
 
-  it("stays up and holds a decision and its reversal where its run folder cannot be written, and says so in its log", async () => {
-    const made = temporaryRepository();
-    cleanups.push(made.remove);
-    const runDir = join(made.base, "run");
+  it("leaves `record-times.json` at its start as it stood, the entries under an id its repositories do not hold among them, and drops what stands under an id, and under no other, where a new work item is given that id", async () => {
+    const repository = temporaryRepository();
+    cleanups.push(repository.remove);
+    const runDir = join(repository.base, "run");
     mkdirSync(runDir);
-    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: silent, now: () => 7 });
+    // The entries a list of repositories that was lost left behind: under the id the first work item made will take, and under another.
+    const stray = JSON.stringify({ workItems: { 1: { 1: { state: "decided", since: 5 } }, 99: { 1: { state: "open", since: 6 } } } });
+    writeFileSync(join(runDir, "record-times.json"), stray);
+    const { url } = await daemon({ runDir, worktreesRoot: repository.root, commandFor: silent, now: () => 11, commitPollMs: 30 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Held in memory", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await c.message("workItemCreated");
-    // A folder stands where the file goes, so its write is refused.
-    mkdirSync(join(runDir, "decisions.json"));
+    expect(readFileSync(join(runDir, "record-times.json"), "utf8")).toBe(stray);
+    c.send({ type: "createWorkItem", requestId: 1, repo: repository.repo, title: "Made anew", kind: "shell", cols: 80, rows: 24 });
+    const next = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    expect(next).toMatchObject({ id: 1, ...NO_RECORD });
+    // A record whose first block has the id and the state of the stray entry: its time is this daemon's, not the entry's.
+    const directory = withDirectory(next);
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: "Start from main.", grounds: "The default base." }));
+    const inbox = await c.message("inbox", (m) => itemOf(m, 1)?.decisions.length === 1);
+    expect(itemOf(inbox, 1)?.decisions[0]?.since).toBe(11);
+    expect(JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8"))).toEqual({ workItems: { 1: { 1: { state: "decided", since: 11 } }, 99: { 1: { state: "open", since: 6 } } } });
+  });
+
+  it("stays up where a record cannot be read or written: the work item is sent with one unread line that says why, a decision and a park return nothing, a reversal is refused with what refused it, and its log says so; and holds the times in memory where `record-times.json` cannot be written", async () => {
+    const { d, c, runDir, workItems } = await withWorkItems(["Unreadable", "Times unwritten"], { now: () => 7, commitPollMs: 30 });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
     const said: string[] = [];
     const error = console.error;
     console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
     cleanups.push(() => {
       console.error = error;
     });
-    const decision = d.decided(workItem.id, DEFAULT)!;
-    expect(decision).toMatchObject({ id: 1, reversed: null });
-    c.send({ type: "reverseDecision", requestId: 2, workItemId: workItem.id, decisionId: 1, message: "No." });
-    await c.message("done", (m) => m.requestId === 2);
-    expect(decisionsOf(await (await client(url)).message("ready"), workItem.id)).toEqual([{ ...decision, reversed: { at: 7, message: "No." } }]);
-    expect(said.filter((line) => line.startsWith("the decisions were not written: "))).toHaveLength(2);
+    // A folder stands where the record goes, so it is neither read nor replaced.
+    mkdirSync(join(directory, RECORD_FILE));
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: expect.stringMatching(/^the record cannot be read: EISDIR/) }] });
+    expect(d.decided(a.id, DEFAULT)).toBeUndefined();
+    expect(d.park(a.id, { questions: [{ asks: "May it push?", grounds: "It needs an approval." }] })).toBeUndefined();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toMatch(/^EISDIR/);
+    expect(said.filter((line) => line.startsWith("the record was not written: EISDIR"))).toHaveLength(2);
+
+    mkdirSync(join(runDir, "record-times.json"));
+    expect(d.decided(b.id, DEFAULT)).toMatchObject({ id: 1, since: 7 });
+    expect(said.filter((line) => line.startsWith("the times of the records were not written: "))).toHaveLength(1);
+    expect(d.decided(b.id, ROUTE)).toMatchObject({ id: 2, since: 7 });
   });
 });
 
 describe("the questions a work item is parked with", () => {
-  type Inbox = Extract<ServerMessage, { type: "inbox" }>;
-  const BASE = { asks: "Which base does the branch start from?", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: 0 };
-  const FREE = { asks: "What should the screen be called?" };
+  const BASE = { asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main" };
+  const FREE = { asks: "May the session push to the remote?", grounds: "A push needs the person's approval." };
   const ASKING = { by: "sealer", questions: [BASE, FREE] };
-  /** The record a park with `ASKING` at the time given leaves. */
-  const parkedAt = (at: number) => ({ by: "sealer", at, questions: [{ id: 1, ...BASE, answer: null }, { id: 2, asks: FREE.asks, options: [], default: null, answer: null }], answeredAt: null });
+  /** The two questions of `ASKING` as the daemon sends them open, numbered from `first`. */
+  const open = (since: number, first = 1) => [
+    { id: first, ...BASE, by: "sealer", answer: null, since },
+    { id: first + 1, ...FREE, by: "sealer", options: [], default: null, answer: null, since },
+  ];
   const TYPED = "둘 다 아니고, 세 번째 방법으로";
-  const answeredAt = (at: number, answeredAt: number) => ({ ...parkedAt(at), questions: [{ ...parkedAt(at).questions[0]!, answer: "main" }, { ...parkedAt(at).questions[1]!, answer: TYPED }], answeredAt });
-  const askedOf = (lists: { workItems: { id: number; asked: unknown }[] }, id: number) => lists.workItems.find((w) => w.id === id)?.asked;
-  const stored = (runDir: string): unknown => JSON.parse(readFileSync(join(runDir, "asked.json"), "utf8"));
 
-  it("parks one work item with its questions and tells every client, and holds nothing else: the other work item holds no record and its headless session finishes, a pane starts in each of the two, an `ask` in the parked one is taken, and a third work item is created", async () => {
+  it("parks one work item with its questions as open blocks and tells every client, and holds nothing else: the other work item holds none and its headless session finishes, a pane starts in each of the two, an `ask` in the parked one is taken, a third work item is created, and a second park of the parked one adds its question", async () => {
     const { d, url, c, made, workItems, sessions } = await withWorkItems(["Parked", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 150 }) });
     const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
     const other = await client(url);
     await other.message("ready");
     c.send({ type: "ask", requestId: 1, workItemId: b.id, prompt: "Still there?" });
     const { headless } = await c.message("asked");
     c.messages.length = 0;
     other.messages.length = 0;
-    const record = d.park(a.id, ASKING);
-    expect(record).toEqual(parkedAt(1234));
+    const questions = d.park(a.id, ASKING);
+    expect(questions).toEqual(open(1234));
+    expect(recordIn(directory)).toMatchObject({ decisions: [], questions: [{ id: 1, asks: BASE.asks, grounds: BASE.grounds, by: "sealer", options: BASE.options, default: "main", state: { is: "open" } }, { id: 2, asks: FREE.asks, by: "sealer", options: [], default: null, state: { is: "open" } }], refusals: [] });
     for (const told of [c, other]) {
       const inbox = await told.message("inbox");
-      expect(inbox.workItems).toEqual([{ ...a, asked: record }, b]);
-      expect(askedOf(inbox, b.id)).toBeNull();
+      expect(inbox.workItems).toEqual([{ ...a, questions }, b]);
       expect(inbox.sessions).toEqual(sessions);
       // Nothing but the lists is sent for it.
       expect(told.messages.filter((m) => m.type !== "headless").map((m) => m.type)).toEqual(["inbox"]);
@@ -3340,38 +3505,42 @@ describe("the questions a work item is parked with", () => {
     expect((await c.message("asked", (m) => m.requestId === 4)).headless).toMatchObject({ workItemId: a.id, state: "working" });
     c.send({ type: "createWorkItem", requestId: 5, repo: made.repo, title: "A third", kind: "shell", cols: 80, rows: 24 });
     const third = (await c.message("workItemCreated", (m) => m.requestId === 5)).workItem;
-    expect(third.asked).toBeNull();
+    expect(third.questions).toEqual([]);
     // The session that was working when the park returned finishes, after the lists that carry the park.
     const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working");
     expect(finished.headless).toMatchObject({ workItemId: b.id, state: "finished", stopped: null });
     expect(c.messages.findIndex((m) => m.type === "inbox")).toBeLessThan(c.messages.indexOf(finished));
+    // A park of a work item that is already parked is not refused: its question is a third open block.
+    const more = d.park(a.id, { questions: [{ asks: "And the credential?", grounds: "No session holds the token." }] });
+    expect(more).toEqual([{ id: 3, asks: "And the credential?", grounds: "No session holds the token.", by: null, options: [], default: null, answer: null, since: 1234 }]);
     const later = await (await client(url)).message("ready");
-    expect([askedOf(later, a.id), askedOf(later, b.id), askedOf(later, third.id)]).toEqual([record, null, null]);
+    expect([itemOf(later, a.id)?.questions, itemOf(later, b.id)?.questions, itemOf(later, third.id)?.questions]).toEqual([[...questions!, ...more!], [], []]);
   });
 
-  it("stores who asked and each text of a question without the white space at its ends, 2000 characters of each at most, numbers the questions from 1, and reads a question given no options and no default as one with neither", async () => {
+  it("writes who asks and each text of a question without the white space at its ends, 2000 characters of each at most, in one write of the file, and reads a question given no options and no default as one with neither", async () => {
     const { d, workItems } = await withWorkItems(["Parked"], { now: () => 5 });
+    withDirectory(workItems[0]!);
     const long = "가".repeat(2001);
-    const record = d.park(workItems[0]!.id, {
-      by: `  ${long}\n`,
-      questions: [{ asks: `\t${"q".repeat(1999)}😀 `, options: [{ label: ` ${long} `, implies: `\n${long}` }, { label: "second", implies: "" }], default: 1 }, { asks: " One more? ", options: [{ label: "yes", implies: " Then it goes on. " }], default: null }, { asks: "Free?" }],
-    });
     const cut = "가".repeat(2000);
-    expect(record).toEqual({
-      by: cut,
-      at: 5,
+    const questions = d.park(workItems[0]!.id, {
+      by: `  ${long}\n`,
       questions: [
-        { id: 1, asks: "q".repeat(1999), options: [{ label: cut, implies: cut }, { label: "second", implies: "" }], default: 1, answer: null },
-        { id: 2, asks: "One more?", options: [{ label: "yes", implies: "Then it goes on." }], default: null, answer: null },
-        { id: 3, asks: "Free?", options: [], default: null, answer: null },
+        { asks: `\t${"q".repeat(1999)}😀 `, grounds: ` ${long} `, options: [{ label: ` ${long} `, implies: `\n${long}` }, { label: "second", implies: "" }], default: " second " },
+        { asks: " One more? ", grounds: " It needs\nan approval. ", options: [{ label: "yes", implies: " Then it goes on. " }], default: null },
+        { asks: "Free?", grounds: "A credential." },
       ],
-      answeredAt: null,
     });
+    expect(questions).toEqual([
+      { id: 1, asks: "q".repeat(1999), grounds: cut, by: cut, options: [{ label: cut, implies: cut }, { label: "second", implies: "" }], default: "second", answer: null, since: 5 },
+      { id: 2, asks: "One more?", grounds: "It needs an approval.", by: cut, options: [{ label: "yes", implies: "Then it goes on." }], default: null, answer: null, since: 5 },
+      { id: 3, asks: "Free?", grounds: "A credential.", by: cut, options: [], default: null, answer: null, since: 5 },
+    ]);
   });
 
-  it("parks nothing, writes no file and tells no client for a work item it does not keep, an archived one, a call with no question, a question with an empty text, a default that names no option, an option with no label and an asker that is empty or no text, and leaves the record of a work item that is already parked as it stood", async () => {
-    const { d, c, url, runDir, workItems, sessions } = await withWorkItems(["Parked", "Archived"], { now: () => 7 });
-    const [a, archived] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+  it("writes nothing and tells no client for a work item it does not keep, an archived one, one with no directory, a call with no question, a question with an empty text or empty grounds, two options of one question with one label, a default that names no option, an option with no label, a field of another type and an asker that is empty", async () => {
+    const { d, c, url, workItems, sessions } = await withWorkItems(["Parked", "Archived", "No directory"], { now: () => 7 });
+    const [a, archived, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(archived)];
     c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[1]!.id], headless: [] } });
     await c.message("inbox", (m) => m.archived.length === 1);
     c.messages.length = 0;
@@ -3379,20 +3548,22 @@ describe("the questions a work item is parked with", () => {
     expect(loose(99, ASKING)).toBeUndefined();
     expect(loose(String(a.id), ASKING)).toBeUndefined();
     expect(loose(archived.id, ASKING)).toBeUndefined();
+    expect(loose(none.id, ASKING)).toBeUndefined();
     const refused = [
       null,
       { by: "sealer" },
       { ...ASKING, questions: [] },
       { ...ASKING, questions: {} },
       { ...ASKING, questions: [BASE, null] },
-      { ...ASKING, questions: [BASE, { asks: "" }] },
-      { ...ASKING, questions: [BASE, { asks: " \n\t" }] },
-      { ...ASKING, questions: [{ asks: 3 }] },
-      { ...ASKING, questions: [{ ...BASE, default: 2 }] },
-      { ...ASKING, questions: [{ ...BASE, default: -1 }] },
-      { ...ASKING, questions: [{ ...BASE, default: 0.5 }] },
-      { ...ASKING, questions: [{ ...BASE, default: "main" }] },
-      { ...ASKING, questions: [{ asks: "Free?", default: 0 }] },
+      { ...ASKING, questions: [BASE, { ...FREE, asks: "" }] },
+      { ...ASKING, questions: [BASE, { ...FREE, asks: " \n\t" }] },
+      { ...ASKING, questions: [{ ...FREE, asks: 3 }] },
+      { ...ASKING, questions: [BASE, { ...FREE, grounds: " " }] },
+      { ...ASKING, questions: [BASE, { asks: FREE.asks }] },
+      { ...ASKING, questions: [{ ...BASE, options: [BASE.options[0], { label: " main ", implies: "The same label." }] }] },
+      { ...ASKING, questions: [{ ...BASE, default: "develop" }] },
+      { ...ASKING, questions: [{ ...BASE, default: 0 }] },
+      { ...ASKING, questions: [{ ...FREE, default: "main" }] },
       { ...ASKING, questions: [{ ...BASE, options: {} }] },
       { ...ASKING, questions: [{ ...BASE, options: [null, BASE.options[1]] }] },
       { ...ASKING, questions: [{ ...BASE, options: [{ label: " ", implies: "x" }, BASE.options[1]] }] },
@@ -3402,30 +3573,40 @@ describe("the questions a work item is parked with", () => {
       { ...ASKING, by: "  " },
       { ...ASKING, by: 3 },
     ];
-    for (const asking of refused) expect(loose(a.id, asking)).toBeUndefined();
+    for (const asking of refused) expect(loose(a.id, asking), JSON.stringify(asking)).toBeUndefined();
     // An inbox for any of them would have arrived before the refusal of a start sent after them.
     await settled(c);
     expect(c.messages.map((m) => m.type)).toEqual(["error"]);
-    expect(existsSync(join(runDir, "asked.json"))).toBe(false);
+    expect(directories.map(bytesIn)).toEqual([null, null]);
     const ready = await (await client(url)).message("ready");
-    expect([askedOf(ready, a.id), ready.archived[0]?.asked]).toEqual([null, null]);
-
+    expect([itemOf(ready, a.id)?.questions, ready.archived[0]?.questions]).toEqual([[], []]);
     // The call as the refusals above would have it taken, so the method is the one under test.
-    const record = loose(a.id, ASKING);
-    expect(record).toEqual(parkedAt(7));
-    await c.message("inbox");
-    c.messages.length = 0;
-    expect(loose(a.id, { by: "proofer", questions: [FREE] })).toBeUndefined();
-    await settled(c);
-    expect(c.messages.map((m) => m.type)).toEqual(["error"]);
-    expect(stored(runDir)).toEqual({ workItems: { [a.id]: record } });
-    expect(askedOf(await (await client(url)).message("ready"), a.id)).toEqual(record);
+    expect(loose(a.id, ASKING)).toEqual(open(7));
   });
 
-  it("ends the park at an `answerQuestions`, with the time and each answer as typed, answers before the inbox that carries it, and lets the work item be parked again, the new record in the place of the answered one", async () => {
+  it("writes nothing of a park whose second question the record's writer refuses, the first question neither", async () => {
+    const { d, workItems } = await withWorkItems(["Parked"], { now: () => 7 });
+    const directory = withDirectory(workItems[0]!);
+    d.decided(workItems[0]!.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
+    const bytes = bytesIn(directory);
+    const said: string[] = [];
+    const error = console.error;
+    console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
+    cleanups.push(() => {
+      console.error = error;
+    });
+    // A label that holds a backtick is no label the record's grammar takes.
+    expect(d.park(workItems[0]!.id, { questions: [FREE, { ...FREE, options: [{ label: "a`b", implies: "" }] }] })).toBeUndefined();
+    expect(bytesIn(directory)).toBe(bytes);
+    expect(said.filter((line) => line.startsWith("the record was not written: "))).toHaveLength(1);
+  });
+
+  it("ends the park at an `answerQuestions`: each open block reads `answered` with its answer as typed, cut as every text is, the answer comes before the inbox that carries it, and the answered blocks stay in the record beside the questions of a later park", async () => {
     let clock = 1000;
-    const { d, c, url, runDir, workItems } = await withWorkItems(["Parked", "Another"], { now: () => clock });
+    const { d, c, url, workItems } = await withWorkItems(["Parked", "Another"], { now: () => clock });
     const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
     d.park(a.id, ASKING);
     await c.message("inbox");
     const other = await client(url);
@@ -3436,50 +3617,55 @@ describe("the questions a work item is parked with", () => {
     const inbox = await c.message("inbox");
     expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
     expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
-    expect([askedOf(inbox, a.id), askedOf(inbox, b.id)]).toEqual([answeredAt(1000, 2000), null]);
+    const answered = [{ ...open(1000)[0]!, answer: "main", since: 2000 }, { ...open(1000)[1]!, answer: TYPED, since: 2000 }];
+    expect([itemOf(inbox, a.id)?.questions, itemOf(inbox, b.id)?.questions]).toEqual([answered, []]);
+    expect(recordIn(directory)?.questions.map(({ state }) => state)).toEqual([{ is: "answered", answer: "main" }, { is: "answered", answer: TYPED }]);
     // Every client is told, and the one that asked alone is answered.
-    expect(askedOf(await other.message("inbox"), a.id)).toEqual(answeredAt(1000, 2000));
+    expect(itemOf(await other.message("inbox"), a.id)?.questions).toEqual(answered);
     expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
-    expect(stored(runDir)).toEqual({ workItems: { [a.id]: answeredAt(1000, 2000) } });
 
     clock = 3000;
-    const again = d.park(a.id, { by: "proofer", questions: [{ asks: `${"답".repeat(2001)}?` }] });
-    expect(again).toEqual({ by: "proofer", at: 3000, questions: [{ id: 1, asks: "답".repeat(2000), options: [], default: null, answer: null }], answeredAt: null });
-    expect(askedOf(await c.message("inbox", (m: Inbox) => (askedOf(m, a.id) as { at: number }).at === 3000), a.id)).toEqual(again);
-    // An answer is cut as every text of a record is.
+    const again = d.park(a.id, { by: "proofer", questions: [{ asks: `${"답".repeat(2001)}?`, grounds: "An approval." }] });
+    expect(again).toEqual([{ id: 3, asks: "답".repeat(2000), grounds: "An approval.", by: "proofer", options: [], default: null, answer: null, since: 3000 }]);
+    // The answered questions need no answer again: the message answers the open one alone.
     clock = 4000;
-    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "가".repeat(2001) }] });
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 3, answer: "가".repeat(2001) }] });
     await c.message("done", (m) => m.requestId === 2);
-    expect(stored(runDir)).toEqual({ workItems: { [a.id]: { ...again, questions: [{ ...again!.questions[0]!, answer: "가".repeat(2000) }], answeredAt: 4000 } } });
+    expect(recordIn(directory)?.questions.map(({ id, state }) => [id, state])).toEqual([[1, { is: "answered", answer: "main" }], [2, { is: "answered", answer: TYPED }], [3, { is: "answered", answer: "가".repeat(2000) }]]);
   });
 
-  it("refuses an `answerQuestions` that leaves a question out, answers a question the record does not hold or one question twice, gives an empty answer, names a work item that is not parked or one it does not keep, or is of another shape, and changes nothing and sends no inbox", async () => {
+  it("refuses an `answerQuestions` that leaves an open question out, answers an id that is no open question of the record or one question twice, gives an empty answer, names a work item with no open question, one with no directory or one it does not keep, or is of another shape, with the file byte for byte as it stood and no inbox after", async () => {
     let clock = 1000;
-    const { d, c, url, runDir, workItems } = await withWorkItems(["Parked", "Never parked", "Answered"], { now: () => clock });
-    const [a, b, answered] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const { d, c, url, workItems } = await withWorkItems(["Parked", "Never parked", "Answered", "No directory"], { now: () => clock });
+    const [a, b, answered, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(b), withDirectory(answered)];
+    d.decided(a.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
     d.park(a.id, ASKING);
     d.park(answered.id, { by: "proofer", questions: [FREE] });
-    c.send({ type: "answerQuestions", requestId: 1, workItemId: answered.id, answers: [{ questionId: 1, answer: "The answering section" }] });
-    await c.message("inbox", (m: Inbox) => (askedOf(m, answered.id) as { answeredAt: number | null } | null)?.answeredAt === 1000);
-    const before = stored(runDir);
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: answered.id, answers: [{ questionId: 1, answer: "Yes." }] });
+    await c.message("inbox", (m) => itemOf(m, answered.id)?.questions[0]?.answer === "Yes.");
+    const bytes = directories.map(bytesIn);
     c.messages.length = 0;
     clock = 2000;
-    const both = [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }];
-    const shape = "an answer names a work item and gives an answer to each of its questions";
+    // The decision took the id 1, so the two questions of the park are 2 and 3.
+    const both = [{ questionId: 2, answer: "main" }, { questionId: 3, answer: TYPED }];
+    const shape = "an answer names a work item and gives an answer to each of its open questions";
     const refusals = [
-      [2, { workItemId: a.id, answers: [both[0]] }, "Question 2 has no answer."],
-      [3, { workItemId: a.id, answers: [] }, "Question 1 has no answer."],
-      [4, { workItemId: a.id, answers: [...both, { questionId: 3, answer: "a third" }] }, `work item ${a.id} asked no question 3`],
-      [5, { workItemId: a.id, answers: [...both, { questionId: 2, answer: "again" }] }, "Question 2 is answered twice."],
-      [6, { workItemId: a.id, answers: [both[0], { questionId: 2, answer: " \n\t" }] }, "Give an answer to question 2."],
-      [7, { workItemId: b.id, answers: both }, `Work item ${b.id} waits for no answer.`],
-      [8, { workItemId: answered.id, answers: [{ questionId: 1, answer: "another" }] }, `Work item ${answered.id} waits for no answer.`],
-      [9, { workItemId: 99, answers: both }, "no work item 99"],
-      [10, { workItemId: String(a.id), answers: both }, shape],
-      [11, { workItemId: a.id, answers: { 1: "main", 2: TYPED } }, shape],
-      [12, { workItemId: a.id, answers: [both[0], null] }, shape],
-      [13, { workItemId: a.id, answers: [both[0], { questionId: "2", answer: TYPED }] }, shape],
-      [14, { workItemId: a.id, answers: [both[0], { questionId: 2, answer: 3 }] }, shape],
+      [2, { workItemId: a.id, answers: [both[0]] }, "Question 3 has no answer."],
+      [3, { workItemId: a.id, answers: [] }, "Question 2 has no answer."],
+      [4, { workItemId: a.id, answers: [...both, { questionId: 9, answer: "a third" }] }, `Work item ${a.id} holds no open question 9.`],
+      [5, { workItemId: a.id, answers: [...both, { questionId: 1, answer: "a decision's id" }] }, `Work item ${a.id} holds no open question 1.`],
+      [6, { workItemId: a.id, answers: [...both, { questionId: 3, answer: "again" }] }, "Question 3 is answered twice."],
+      [7, { workItemId: a.id, answers: [both[0], { questionId: 3, answer: " \n\t" }] }, "Give an answer to question 3."],
+      [8, { workItemId: b.id, answers: both }, `Work item ${b.id} waits for no answer.`],
+      [9, { workItemId: answered.id, answers: [{ questionId: 1, answer: "another" }] }, `Work item ${answered.id} waits for no answer.`],
+      [10, { workItemId: none.id, answers: both }, `Work item ${none.id} has no record of decisions.`],
+      [11, { workItemId: 99, answers: both }, "no work item 99"],
+      [12, { workItemId: String(a.id), answers: both }, shape],
+      [13, { workItemId: a.id, answers: { 2: "main", 3: TYPED } }, shape],
+      [14, { workItemId: a.id, answers: [both[0], null] }, shape],
+      [15, { workItemId: a.id, answers: [both[0], { questionId: "3", answer: TYPED }] }, shape],
+      [16, { workItemId: a.id, answers: [both[0], { questionId: 3, answer: 3 }] }, shape],
     ] as const;
     for (const [requestId, fields, message] of refusals) {
       c.send({ type: "answerQuestions", requestId, ...fields });
@@ -3487,126 +3673,31 @@ describe("the questions a work item is parked with", () => {
     }
     await settled(c);
     expect(c.messages.map((m) => m.type)).toEqual(refusals.map(() => "error").concat("error"));
-    expect(stored(runDir)).toEqual(before);
+    expect(directories.map(bytesIn)).toEqual(bytes);
     const ready = await (await client(url)).message("ready");
-    expect([askedOf(ready, a.id), askedOf(ready, b.id)]).toEqual([parkedAt(1000), null]);
+    expect([itemOf(ready, a.id)?.questions, itemOf(ready, b.id)?.questions]).toEqual([open(1000, 2), []]);
     // The message as the refusals above would have it taken, so the case is the one under test.
     c.send({ type: "answerQuestions", requestId: 20, workItemId: a.id, answers: both });
     expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
   });
 
-  it("lists after a restart the records kept before it, a parked work item's and an answered one's as each stood, from a file the user alone can read", async () => {
-    const { d, c, made, runDir, workItems } = await withWorkItems(["Parked", "Answered"], { now: () => 1234 });
-    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
-    d.park(a.id, ASKING);
-    d.park(b.id, ASKING);
-    c.send({ type: "answerQuestions", requestId: 1, workItemId: b.id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
-    await c.message("done", (m) => m.requestId === 1);
-    await d.close();
-    expect(statSync(join(runDir, "asked.json")).mode & 0o777).toBe(0o600);
-
-    const later = await daemon({ runDir, worktreesRoot: made.root, now: () => 5678 });
-    const lc = await client(later.url);
-    const ready = await lc.message("ready");
-    expect([askedOf(ready, a.id), askedOf(ready, b.id)]).toEqual([parkedAt(1234), answeredAt(1234, 1234)]);
-    // The park read from the file is the one an answer ends, and the answered record is the one a park replaces.
-    expect(later.daemon.park(a.id, ASKING)).toBeUndefined();
-    expect(later.daemon.park(b.id, ASKING)).toEqual(parkedAt(5678));
-  });
-
-  it("lists an archived work item under `archived` with its record, takes an answer for it, and takes a work item's record out of the file at its delete and at its repository's removal, so a work item created afterwards holds none", async () => {
-    const { d, c, url, made, runDir, workItems, sessions } = await withWorkItems(["Archived", "Deleted", "Removed"], { now: () => 9 });
-    const [archived, deleted, removed] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
-    const decision = d.decided(archived.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." })!;
-    for (const { id } of workItems) d.park(id, ASKING);
+  it("takes an answer for an archived work item, lists it under `archived` with its questions as answered, and reads its record again at its restore, in the inbox that lists it as restored", async () => {
+    const { d, c, workItems, sessions } = await withWorkItems(["Archived"], { now: () => 9 });
+    const archived = workItems[0]!;
+    const directory = withDirectory(archived);
+    d.park(archived.id, ASKING);
     c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
-    const inbox = await c.message("inbox", (m) => m.archived.length === 1);
-    expect(inbox.archived[0]).toMatchObject({ id: archived.id, decisions: [decision], asked: parkedAt(9) });
-    expect(stored(runDir)).toEqual({ workItems: { [archived.id]: parkedAt(9), [deleted.id]: parkedAt(9), [removed.id]: parkedAt(9) } });
+    expect((await c.message("inbox", (m) => m.archived.length === 1)).archived[0]?.questions).toEqual(open(9));
     c.send({ type: "answerQuestions", requestId: 2, workItemId: archived.id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
     await c.message("done", (m) => m.requestId === 2);
-    expect((await c.message("inbox", (m: Inbox) => m.archived[0]?.asked?.answeredAt === 9)).archived[0]?.asked).toEqual(answeredAt(9, 9));
-
-    c.send({ type: "readLoss", requestId: 3, id: deleted.id });
-    const { loss } = await c.message("workItemLoss", (m) => m.requestId === 3);
-    c.send({ type: "deleteWorkItem", requestId: 4, id: deleted.id, stamp: loss.stamp, force: false, running: { panes: [sessions[1]!.id], headless: [] } });
-    await c.message("done", (m) => m.requestId === 4);
-    expect(stored(runDir)).toEqual({ workItems: { [archived.id]: answeredAt(9, 9), [removed.id]: parkedAt(9) } });
-    expect(d.park(deleted.id, ASKING)).toBeUndefined();
-
-    c.send({ type: "removeRepository", requestId: 5, id: 1, workItems: [archived.id, removed.id], running: { panes: [sessions[2]!.id], headless: [] } });
-    await c.message("done", (m) => m.requestId === 5);
-    expect(stored(runDir)).toEqual({ workItems: {} });
-    expect(JSON.parse(readFileSync(join(runDir, "decisions.json"), "utf8"))).toEqual({ nextId: 2, workItems: {} });
-
-    c.send({ type: "createWorkItem", requestId: 6, repo: made.repo, title: "Made after", kind: "shell", cols: 80, rows: 24 });
-    const next = (await c.message("workItemCreated", (m) => m.requestId === 6)).workItem;
-    expect([next.asked, next.decisions]).toEqual([null, []]);
-    expect(askedOf(await (await client(url)).message("ready"), next.id)).toBeNull();
-  });
-
-  it("leaves at its start both files as they stood, the entries under an id its repositories do not hold among them, and drops what stands under an id, and under no other, where a new work item is given that id after `repositories.json` was lost", async () => {
-    const { d, c, made, runDir, workItems, sessions } = await withWorkItems(["Archived", "Open"], { now: () => 9 });
-    const [archived, open] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
-    const decisions = [d.decided(archived.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." })!, d.decided(open.id, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file." })!];
-    for (const { id } of workItems) d.park(id, ASKING);
-    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
-    await c.message("inbox", (m) => m.archived.length === 1);
-    await d.close();
-    // An entry under an id the repositories never gave stands in each file, as one left by a list of repositories that was lost.
-    const heldDecisions = { [archived.id]: [decisions[0]], [open.id]: [decisions[1]] };
-    const heldAsked = { [archived.id]: parkedAt(9), [open.id]: parkedAt(9) };
-    const stray = { id: 3, kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md.", at: 5, reversed: null };
-    const decisionsFile = { nextId: 4, workItems: { ...heldDecisions, 99: [stray] } };
-    const askedFile = { workItems: { ...heldAsked, 99: parkedAt(5) } };
-    writeFileSync(join(runDir, "decisions.json"), JSON.stringify(decisionsFile));
-    writeFileSync(join(runDir, "asked.json"), JSON.stringify(askedFile));
-    const storedDecisions = (): unknown => JSON.parse(readFileSync(join(runDir, "decisions.json"), "utf8"));
-
-    const later = await daemon({ runDir, worktreesRoot: made.root, now: () => 10 });
-    // The start drops nothing: the stray entries stand.
-    expect(storedDecisions()).toEqual(decisionsFile);
-    expect(stored(runDir)).toEqual(askedFile);
-    const ready = await (await client(later.url)).message("ready");
-    expect(ready.archived.map((w) => [w.id, w.decisions, w.asked])).toEqual([[archived.id, [decisions[0]], parkedAt(9)]]);
-    expect(ready.workItems.map((w) => [w.id, w.decisions, w.asked])).toEqual([[open.id, [decisions[1]], parkedAt(9)]]);
-    await later.daemon.close();
-
-    // The list of repositories is lost, so its ids begin again, and the first work item made takes the id the archived one had. The start on no repository still drops nothing, as a start does that reads the file of another build as no repository.
-    rmSync(join(runDir, "repositories.json"));
-    const anew = await daemon({ runDir, worktreesRoot: join(made.base, "worktrees-anew"), commandFor: silent, now: () => 11 });
-    expect(storedDecisions()).toEqual(decisionsFile);
-    expect(stored(runDir)).toEqual(askedFile);
-    const ac = await client(anew.url);
-    await ac.message("ready");
-    ac.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Made anew", kind: "shell", cols: 80, rows: 24 });
-    const next = (await ac.message("workItemCreated", (m) => m.requestId === 2)).workItem;
-    expect([next.id, next.decisions, next.asked]).toEqual([archived.id, [], null]);
-    const again = (await (await client(anew.url)).message("ready")).workItems.find((w) => w.id === next.id);
-    expect([again?.decisions, again?.asked]).toEqual([[], null]);
-    // The files hold nothing under the id given, and what stands under every other id as it stood.
-    expect(storedDecisions()).toEqual({ nextId: 4, workItems: { [open.id]: [decisions[1]], 99: [stray] } });
-    expect(stored(runDir)).toEqual({ workItems: { [open.id]: parkedAt(9), 99: parkedAt(5) } });
-    // A decision's id is given once over the whole store, the dropped ones never again.
-    expect(anew.daemon.decided(next.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." })).toMatchObject({ id: 4 });
-  });
-
-  it("stays up and holds a park and its answer where its run folder cannot be written, and says so in its log", async () => {
-    const { d, c, url, runDir, workItems } = await withWorkItems(["Held in memory"], { now: () => 7 });
-    const id = workItems[0]!.id;
-    // A folder stands where the file goes, so its write is refused.
-    mkdirSync(join(runDir, "asked.json"));
-    const said: string[] = [];
-    const error = console.error;
-    console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
-    cleanups.push(() => {
-      console.error = error;
-    });
-    expect(d.park(id, ASKING)).toEqual(parkedAt(7));
-    c.send({ type: "answerQuestions", requestId: 2, workItemId: id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
-    await c.message("done", (m) => m.requestId === 2);
-    expect(askedOf(await (await client(url)).message("ready"), id)).toEqual(answeredAt(7, 7));
-    expect(said.filter((line) => line.startsWith("the questions were not written: "))).toHaveLength(2);
+    expect((await c.message("inbox", (m) => m.archived[0]?.questions[0]?.answer === "main")).archived[0]?.questions.map(({ answer }) => answer)).toEqual(["main", TYPED]);
+    // A block a stage wrote while the work item was archived, which no pass read.
+    const file = join(directory, RECORD_FILE);
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "default", decided: "Start from main.", grounds: "The default base." }));
+    c.messages.length = 0;
+    c.send({ type: "restoreWorkItem", requestId: 3, id: archived.id });
+    const restored = await c.message("inbox");
+    expect([restored.archived, restored.workItems.map(({ decisions }) => decisions.map(({ id, since }) => [id, since]))]).toEqual([[], [[[3, 9]]]]);
   });
 });
 
@@ -3701,7 +3792,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_DECISION, ...NOT_ASKED, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {
