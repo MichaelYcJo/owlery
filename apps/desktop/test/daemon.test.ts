@@ -17,7 +17,7 @@ import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -4437,7 +4437,7 @@ describe("headless sessions", () => {
     const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ pieces: () => ["A barn ", "owl."] }) }, 2);
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?" });
-    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
+    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
     expect(await one.message("asked")).toEqual({ type: "asked", requestId: 5, headless: working });
     for (const c of [one, two]) {
       await c.message("headless", (m) => m.headless.state === "finished");
@@ -4468,7 +4468,7 @@ describe("headless sessions", () => {
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     const role = { role: "proofer", stage: "round" } as const;
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?", role });
-    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role });
+    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role });
     for (const c of [one, two]) {
       const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
       expect(headless.answer).toBe('As the proofer at the stage round, you asked: "Which owl?"');
@@ -4535,7 +4535,8 @@ describe("headless sessions", () => {
     expect(seen.stopped).toBe(2);
   });
 
-  it("carries the cost the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+  it("carries the usage the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+    const usage: Usage = { costUsd: 0.25, converted: false, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: 0, costUsd: 0.25 }] };
     const roleAdapter: RoleAdapter = {
       name: "priced",
       features: [],
@@ -4544,7 +4545,7 @@ describe("headless sessions", () => {
         setTimeout(() => {
           listener({ type: "text", text: "Let me look. " });
           listener({ type: "text", text: "An owl." });
-          listener({ type: "result", text: "An owl.", isError: false, costUsd: 0.25 });
+          listener({ type: "result", text: "An owl.", isError: false, usage });
           listener({ type: "text", text: " And more." });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
         }, 0);
@@ -4554,7 +4555,7 @@ describe("headless sessions", () => {
     const { c, workItem } = await withWorkItem({ roleAdapter });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
     const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
-    expect(headless).toMatchObject({ answer: "An owl.", costUsd: 0.25, error: null });
+    expect(headless).toMatchObject({ answer: "An owl.", usage, error: null });
     // The result closes the answer: the text that arrives after it changes nothing.
     await pause(100);
     expect(told(c).map((h) => h.answer)).toEqual(["", "Let me look. ", "Let me look. An owl.", "An owl."]);
@@ -4567,7 +4568,7 @@ describe("headless sessions", () => {
     expect((await one.message("asked")).headless.state).toBe("working");
     for (const c of [one, two]) {
       const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
-      expect(headless).toMatchObject({ id: 1, state: "failed", answer: "", error: "the fake adapter was told not to start", costUsd: null });
+      expect(headless).toMatchObject({ id: 1, state: "failed", answer: "", error: "the fake adapter was told not to start", usage: null });
     }
   });
 
@@ -4603,7 +4604,7 @@ describe("headless sessions", () => {
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
   });
 
   it("lists no headless session where none was asked, and counts them apart from the panes", async () => {
@@ -4618,16 +4619,23 @@ describe("headless sessions", () => {
     expect((await (await client(url)).message("ready")).headless.map((h) => [h.id, h.prompt, h.state])).toEqual([[1, "One", "finished"], [2, "Two", "finished"]]);
   });
 
-  it("carries only the fields the protocol names, the adapter's name not among them", async () => {
-    const { c, url, workItem } = await withWorkItem();
+  it("carries only the fields the protocol names, the adapter's name not among them, and a usage only with its mark", async () => {
+    const usage: Usage = { costUsd: 0.5, converted: true, models: [{ model: "owl-1", inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, costUsd: 0.5 }] };
+    const { c, url, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ usage: () => usage }) });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
     const asked = await c.message("asked");
     const changed = await c.message("headless", (m) => m.headless.state === "finished");
     const ready = await (await client(url)).message("ready");
-    const fields = ["answer", "costUsd", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "workItemId"];
+    const fields = ["answer", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "usage", "workItemId"];
     expect(Object.keys(asked).sort()).toEqual(["headless", "requestId", "type"]);
     expect(Object.keys(changed).sort()).toEqual(["headless", "type"]);
-    for (const info of [asked.headless, changed.headless, ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
+    for (const info of [asked.headless, ...told(c), ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
+    // The cost travels with whether it is a value converted at API prices, and nothing else of the agent's travels beside it.
+    for (const info of [changed.headless, ready.headless[0]!]) {
+      expect(info.usage).toEqual(usage);
+      expect(Object.keys(info.usage!).sort()).toEqual(["converted", "costUsd", "models"]);
+      expect(Object.keys(info.usage!.models[0]!).sort()).toEqual(["cacheReadTokens", "cacheWriteTokens", "costUsd", "inputTokens", "model", "outputTokens"]);
+    }
     expect(JSON.stringify([asked, changed, ready.headless])).not.toContain("fake");
   });
 
@@ -4832,7 +4840,7 @@ describe("headless sessions", () => {
       start: async (options, listener) => {
         if (options.prompt !== "Slow?") return quick.start(options, listener);
         finishSlow = () => {
-          listener({ type: "result", text: "slow", isError: false, costUsd: null });
+          listener({ type: "result", text: "slow", isError: false, usage: null });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
         };
         return { stop: () => Promise.resolve(), answer: () => {} };
@@ -4892,7 +4900,7 @@ describe("headless sessions", () => {
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
         if (options.prompt !== "First?") return quick.start(options, listener);
-        setTimeout(() => listener({ type: "result", text: "first", isError: false, costUsd: null }), 0);
+        setTimeout(() => listener({ type: "result", text: "first", isError: false, usage: null }), 0);
         exitFirst = () => listener({ type: "exit", exitCode: 0, errorOutput: "late" });
         return { stop: () => Promise.resolve(), answer: () => {} };
       },
@@ -5237,7 +5245,7 @@ describe("headless sessions", () => {
           notice: () => Promise.resolve(null),
           start: (_options, listener) => {
             setTimeout(() => listener({ type: "permission", id: "r1", tool: "Bash", action: "run", path: null, text: "ls" }), 0);
-            end = () => listener(last === "exit" ? { type: "exit", exitCode: 3, errorOutput: "" } : { type: "result", text: "done", isError: false, costUsd: null });
+            end = () => listener(last === "exit" ? { type: "exit", exitCode: 3, errorOutput: "" } : { type: "result", text: "done", isError: false, usage: null });
             return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
           },
         };

@@ -1068,7 +1068,7 @@ export class Daemon {
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
         if (worktree === undefined) return;
         const session: HeadlessSession = {
-          info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, costUsd: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role },
+          info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, usage: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role },
           run: undefined,
           limit: undefined,
           asks: new Map(),
@@ -1352,7 +1352,7 @@ export class Daemon {
         this.headlessChanged(session);
         return;
       }
-      info.costUsd = event.costUsd;
+      info.usage = event.usage;
       if (event.isError) {
         failed(event.text || "the session ended with an error");
         return;

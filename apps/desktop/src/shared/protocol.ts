@@ -355,6 +355,29 @@ export function roleStageOf(value: unknown): RoleStage | undefined {
   return ROLE_STAGES.find((pair) => pair.role === role && pair.stage === stage);
 }
 
+/** What one model used in a turn. A count is null where the agent reported none. */
+export interface ModelUsage {
+  /** The model's name, as the agent names it. */
+  model: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  /** The tokens read from the cache, and the tokens written to it. */
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  /** The model's part of the cost in US dollars, or null where the agent reported none. */
+  costUsd: number | null;
+}
+
+/** What a turn used, as its adapter reports it. */
+export interface Usage {
+  /** The turn's cost in US dollars, or null where the agent reported none. */
+  costUsd: number | null;
+  /** True unless the adapter knows the session's login is billed for each token: the cost is then a value converted at API prices and no charge. */
+  converted: boolean;
+  /** One for each model the agent reported, in the agent's order. */
+  models: ModelUsage[];
+}
+
 /** What a headless session is doing: `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error. */
 export type HeadlessState = "working" | "finished" | "failed";
 
@@ -371,8 +394,8 @@ export interface HeadlessInfo {
   answer: string;
   /** Why the session `failed`, and null in the other two states. */
   error: string | null;
-  /** What the turn cost in US dollars, or null where the agent reported none. */
-  costUsd: number | null;
+  /** What the turn used, as the result reported it: null until the result, and where the result carried none. */
+  usage: Usage | null;
   startedAt: number;
   /** The last of what the agent's process printed on its error stream, once the process has exited; empty until then and where it printed nothing there. */
   errorOutput: string;
