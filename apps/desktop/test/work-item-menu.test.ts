@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installedApps } from "../src/main/openers";
+import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
 import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, rowButtons } from "../src/renderer/view";
 import { BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
@@ -76,6 +77,45 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   const pointerTo = (at: { x: number; y: number }): Promise<unknown> => app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
   /** The middle of the item that says `label`, of any menu that is open. */
   const itemAt = (label: string): Promise<{ x: number; y: number }> => middleOf(`[...document.querySelectorAll('${MENU} [role="menuitem"]')].find((item) => item.textContent === ${JSON.stringify(label)})`);
+  /**
+   * Has the pointer come from the submenu's Finder item onto the menu's
+   * "Copy path" and back onto Finder, in one task of the page, and answers
+   * whether the submenu stood on "Copy path" and whether it stands back on
+   * Finder. Each arrival is the `pointerenter` a person's pointer raises on
+   * what it comes onto. No turn of the pause's timer falls between the two
+   * arrivals, however long the page takes to answer: two moves through the
+   * debugging port wait on an answer each, and on GitHub's runner the second
+   * has come after the pause ran out (#117). Two moves sent at once reach
+   * the page as one, which crosses nothing.
+   */
+  const crossToCopyPathAndBack = (): Promise<{ onCopyPath: boolean; back: boolean }> =>
+    value(`(() => {
+      const item = (label) => [...document.querySelectorAll('${MENU} [role="menuitem"]')].find((item) => item.textContent === label);
+      const arrive = (element) => element.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+      arrive(item("Copy path"));
+      const onCopyPath = document.querySelector('${SUBMENU}') !== null;
+      if (!onCopyPath) return { onCopyPath, back: false };
+      arrive(document.querySelector('${SUBMENU}'));
+      arrive(item("Finder"));
+      return { onCopyPath, back: document.querySelector('${SUBMENU}') !== null };
+    })()`);
+  /** Notes, by the page's clock, when the pointer next comes onto "Copy path" and when the submenu next closes, in `window.__close`. The pointer's arrival is read before the item reads it. */
+  const timeTheClose = (): Promise<unknown> =>
+    value(`void (() => {
+      const times = (window.__close = {});
+      const came = (event) => {
+        if (event.target.getAttribute?.("role") !== "menuitem" || event.target.textContent !== "Copy path") return;
+        times.came = performance.now();
+        document.removeEventListener("pointerenter", came, true);
+      };
+      document.addEventListener("pointerenter", came, true);
+      const closed = new MutationObserver((changes) => {
+        if (!changes.some((change) => [...change.removedNodes].some((node) => node.getAttribute?.("aria-label") === "Open in"))) return;
+        times.closed = performance.now();
+        closed.disconnect();
+      });
+      closed.observe(document.body, { childList: true });
+    })()`);
   /** The words of the item of the open menu the keyboard is on. */
   const itemInFocus = (): Promise<string | null> => value(`document.activeElement?.closest('${MENU}') ? document.activeElement.textContent : null`);
   /** The work items of the lines under an element, in the order they are drawn. */
@@ -362,13 +402,16 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(await submenuStands()).toBe(true);
     // On its way to a lower item of the submenu the pointer crosses the menu's next item, and the submenu waits for it.
-    await pointerTo(await itemAt("Copy path"));
-    expect(await submenuStands()).toBe(true);
-    await pointerTo(await itemAt("Finder"));
+    expect(await crossToCopyPathAndBack()).toEqual({ onCopyPath: true, back: true });
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(await submenuStands()).toBe(true);
+    // Where the pointer rests on another item of the menu, the submenu closes once the pause has run out, as the page's own clock times it, which rounds to a part of a millisecond.
+    await timeTheClose();
     await pointerTo(await itemAt("Copy path"));
     await submenuGone();
+    expect(await value<number>(`window.__close.closed - window.__close.came`)).toBeGreaterThanOrEqual(SUBMENU_LEAVE_MS - 1);
+    // The pause's own length, so a pause shortened where it is named fails here as well as one shortened where its timer starts.
+    expect(SUBMENU_LEAVE_MS).toBe(300);
     expect(await menuLabel()).toBe("Menu of project");
     expect(await opener()).toEqual(["Open in", "menu", "false", true]);
     // The keyboard on another item closes the submenu under a pointer that rests on Open in. The pointer then comes onto nothing, and a press of Open in opens the submenu and closes nothing.
