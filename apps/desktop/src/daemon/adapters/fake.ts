@@ -11,6 +11,8 @@ export interface FakeAdapterOptions {
   fail?: "start" | "result" | "exit";
   /** How long each event waits after the one before it. */
   delayMs?: number;
+  /** What every `exit` says the process printed on its error stream; nothing when absent. */
+  errorOutput?: string;
 }
 
 export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
@@ -20,15 +22,16 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
     start({ prompt }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const pieces = options.pieces?.(prompt) ?? [`You asked: "${prompt}"`];
+      const errorOutput = options.errorOutput ?? "";
       const events: RoleEvent[] =
         options.fail === "exit"
-          ? [{ type: "exit", exitCode: 1 }]
+          ? [{ type: "exit", exitCode: 1, errorOutput }]
           : options.fail === "result"
             ? [
                 { type: "result", text: "the fake adapter was told to fail", isError: true, costUsd: null },
-                { type: "exit", exitCode: 1 },
+                { type: "exit", exitCode: 1, errorOutput },
               ]
-            : [...pieces.map((text): RoleEvent => ({ type: "text", text })), { type: "result", text: pieces.join(""), isError: false, costUsd: null }, { type: "exit", exitCode: 0 }];
+            : [...pieces.map((text): RoleEvent => ({ type: "text", text })), { type: "result", text: pieces.join(""), isError: false, costUsd: null }, { type: "exit", exitCode: 0, errorOutput }];
       // Each event on a later turn of the event loop, as a process's output arrives.
       let timer: NodeJS.Timeout | undefined;
       const next = (index: number): void => {
@@ -40,7 +43,14 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
         }, options.delayMs ?? 0);
       };
       next(0);
-      return Promise.resolve({ stop: () => clearTimeout(timer) });
+      // No process runs, so the stop has nothing to wait for.
+      const stopped = Promise.resolve();
+      return Promise.resolve({
+        stop: () => {
+          clearTimeout(timer);
+          return stopped;
+        },
+      });
     },
   };
 }

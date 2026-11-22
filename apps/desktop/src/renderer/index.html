@@ -345,6 +345,8 @@
       #headless .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
       #headless .state { font-size: var(--size-caption); }
       #headless .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* What a failed session's process printed on its error stream, under its error, as the process printed it. */
+      #headless .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }
 
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
