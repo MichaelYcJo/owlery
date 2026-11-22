@@ -4346,6 +4346,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
+  /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep. */
+  const asLooked = ({ recorded: _recorded, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
@@ -4367,7 +4369,7 @@ describe("the last look", () => {
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const ready = await (await client(url)).message("ready");
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [asLooked(workItem)] });
     expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash" }]);
   });
 
@@ -4434,7 +4436,7 @@ describe("the last look", () => {
     const { url } = await daemon({ runDir, worktreesRoot: root, now: () => 5678 });
     const ready = await (await client(url)).message("ready");
     // The look keeps the session it was taken with, which the daemon that starts no longer holds.
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [asLooked(workItem)] });
     expect(ready.sessions).toEqual([]);
   });
 
