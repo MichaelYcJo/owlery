@@ -771,6 +771,8 @@ describe("a permission request on the Claude adapter's streams", () => {
     // A file tool's `file_path` is no path of a notebook's edit, and a command is no path.
     expect(eventsForLine(asks("r4", "NotebookEdit", { file_path: "/w/a.ipynb" }))).toMatchObject([{ action: "write", path: null }]);
     expect(eventsForLine(asks("r5", "Bash", { command: "ls", file_path: "/w/a" }))).toMatchObject([{ action: "run", path: null, text: "ls" }]);
+    // A `command` is what a person reads of a shell call alone: another tool's is read with the rest of its input.
+    expect(eventsForLine(asks("r6", "Task", { command: "ls" }))).toMatchObject([{ action: "other", path: null, text: '{"command":"ls"}' }]);
   });
 
   it("cuts what a person reads at PERMISSION_TEXT_CHARS characters, and leaves no half of a character at the cut", () => {
