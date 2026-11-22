@@ -13,7 +13,7 @@ The window had two looks, Night desk and Letter, and no document said how a part
 
 **The window names the state of a wait "Needs you"** wherever it names it (the inbox's group and head, a view, the summary, the bell, a notification), and a work item with no agent "Asleep". **A state's mark is the theme's own, and none is a speech bubble.**
 
-**Every theme meets WCAG AA**: text 4.5:1 against its ground, a state's mark and a focus ring 3:1, held by cases of the suite. The faint inks of every theme, Desk's among them, were raised to meet it.
+**Every word of the window can be read where it rests, in every theme**: 4.5:1 or more against the ground it is drawn on, at rest, under the pointer and on a selected line, and a state's mark and the keyboard's focus ring 3:1 or more, held by cases of the suite. The muted and faint inks of every theme, Desk's among them, and the state colours that fell short were raised for it. Three things are outside that floor: the ground drawn only while a part is pressed, the menu's item under the keyboard, and the edges of fields and buttons.
 
 **`docs/product.md` now lets a theme change the form of edges, rules and marks**, and never the layout, the words, the seal's drawing or the wax's red.
 
@@ -34,8 +34,8 @@ Register and Desk:
 
 ![Register dark, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-dark-inbox.png?raw=true)
 ![Register light, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-light-inbox.png?raw=true)
-![Register dark, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-dark-view.png?raw=true)
-![Register light, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-light-view.png?raw=true)
+![Register dark, a work item](../blob/b6201b295b5d76b478063c3378bd3db66e4096a3/seal/threads/1795340000-design-system/screenshots/register-dark-view.png?raw=true)
+![Register light, a work item](../blob/b6201b295b5d76b478063c3378bd3db66e4096a3/seal/threads/1795340000-design-system/screenshots/register-light-view.png?raw=true)
 ![Desk dark, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/desk-dark-inbox.png?raw=true)
 ![Desk light, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/desk-light-inbox.png?raw=true)
 ![Desk dark, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/desk-dark-view.png?raw=true)
