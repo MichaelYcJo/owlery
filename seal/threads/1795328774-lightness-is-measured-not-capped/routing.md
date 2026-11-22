@@ -17,6 +17,6 @@ The owner answered the routing question `agentic` for release 0.0.2 on 2026-11-2
 
 - **Planning, the session:** the issue names each sentence to rewrite and the rule to write, and the owner's words decide the rule; no `frame/` is written.
 - **Implementation, crafter:** an Opus crafter, the middle tier the owner set, because the change rewrites sections of `docs/architecture.md`, `docs/product.md` and `docs/roadmap.md` and their Korean editions together.
-- **Review, straight to the PR:** the change is to the policy documents alone, and the sealer reads it against the issue and the owner's words.
+- **Review, straight to the PR:** the change rewrites the policy documents, the sentences of `apps/desktop/measurements/memory.md` that named the old target, and one comment of `apps/desktop/src/renderer/view.ts` (`STAGE_PANES`); no behaviour of the app changes. The sealer reads it against the issue and the owner's words.
 - **Automation, no:** the documents' checks of the `Broad gate` key read the result; no case runs.
 - **Branch:** the pull request merges into `release/v0.0.2` by squash.
