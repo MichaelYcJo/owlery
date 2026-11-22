@@ -4,13 +4,14 @@
 //
 // A directory is kept while its record holds a `reversed` decision, an `open`
 // question or a block the reader refuses: a record that cannot be read is not
-// a record with nothing open. A notice of the reader is named and keeps
+// a record with nothing open, and a `decisions.md` that stands and cannot be
+// opened stops the reading. A notice of the reader is named and keeps
 // nothing. The release's work items are the directories the working tree
 // holds and the previous release's tag does not.
 //
-// It reads the working tree and asks git three things alone: the newest
-// release tag, the directories that tag holds, and the subject of the commit
-// that added each directory's `routing.md`. It writes nothing.
+// `readSettle` reads the working tree and asks git three things alone: the
+// newest release tag, the directories that tag holds, and the subject of the
+// commit that added each directory's `routing.md`. Nothing here writes.
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
