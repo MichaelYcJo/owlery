@@ -2,11 +2,12 @@
 // background, on a temporary clone, and drives the form through Electron's
 // debugging port: the name the window generates, the branch and the base the
 // daemon's plan gives, what the form says of the fetch of a remote's branch,
-// a creation from a base the person chose, and the folder the Browse button
+// a creation from a base the person chose, the setup a repository names,
+// from the form to the work item's view, and the folder the Browse button
 // asks for, which a background start answers with none. Its remote is a
 // folder beside the clone, and then a stand-in that never answers, so nothing
 // reaches the network.
-import { renameSync } from "node:fs";
+import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FIRST_WORDS, SECOND_WORDS } from "../src/shared/names";
@@ -156,6 +157,53 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(remoteMain()).toBe(laterCommit);
     await app.click("#work-item-cancel");
     await app.until(`!document.getElementById("work-item-dialog").open`, "the form closed");
+  });
+
+  it("names the repository's setup before the creation and creates nothing before it does, and shows its pane's tab, its words on the line and its section in the view, which names the command and runs it again", async () => {
+    // The two files stand untracked in the main checkout. The setup pane's process is the receiver too, so the setup runs until its pane is closed.
+    writeFileSync(join(clone.repo, ".worktreeinclude"), "notes.txt\n");
+    writeFileSync(join(clone.repo, ".worktreesetup"), "make setup\n");
+    try {
+      const TABS = `[...document.querySelectorAll("#tabs .tab .label")].map((label) => label.textContent).join(", ")`;
+      const SAYS = `document.querySelector("#view-detail .setup .setup-says")?.textContent`;
+      const COMMAND = `document.querySelector("#view-detail .setup .setup-command")?.textContent`;
+      const RUN_AGAIN = `(document.querySelector("#view-detail .setup button")?.textContent ?? null)`;
+      const SETUP_LINE = `document.getElementById("work-item-setup").textContent === "Copies the ignored files .worktreeinclude names from the main checkout. Then runs: make setup"`;
+      const { name } = await openForm();
+      await app.until(SETUP_LINE, "the setup under the name");
+      // Create pressed at once after a key in the folder field, before the plan of the field's new text answers, creates nothing.
+      const setRepo = (folder: string, press: boolean) =>
+        app.evaluate(`(() => { const field = document.getElementById("work-item-repo"); field.value = ${JSON.stringify(folder)}; field.dispatchEvent(new Event("input")); if (${String(press)}) document.getElementById("work-item-create").click(); })()`);
+      await setRepo(`${clone.repo}/`, true);
+      expect(await text("work-item-error")).toBe("Wait until the form shows what this folder's work item gets, its setup among it.");
+      expect(await app.evaluate<boolean>(`document.getElementById("work-item-dialog").open`)).toBe(true);
+      await setRepo(clone.repo, false);
+      await app.until(SETUP_LINE, "the setup under the name again");
+      await create(name);
+      await app.until(`${TABS} === "Setup, Shell"`, "the setup pane's tab before the shell's");
+      await app.until(`${SAYS} === "The command has run for less than a minute." && ${COMMAND} === "Command: make setup"`, "the setup's section, naming the command");
+      expect(await app.evaluate<string | null>(RUN_AGAIN)).toBeNull();
+      const lineSetup = `[...document.querySelectorAll("#inbox-lines button.line")].find((line) => line.querySelector(".title")?.textContent === ${JSON.stringify(name)})?.querySelector(".setup")`;
+      await app.click("#nav-inbox");
+      await app.until(`${lineSetup}?.textContent === "Setting up"`, "Setting up on the line");
+      await app.evaluate(`${lineSetup}.closest("button").click()`);
+      await app.until(`document.getElementById("view-title").textContent === ${JSON.stringify(name)} && ${TABS} === "Setup, Shell"`, "the view again");
+      // The person closes the setup pane, so its command did not end.
+      await app.click("#tabs .tab:nth-child(1) .close");
+      await app.until(`${SAYS} === "The setup pane ended before its command did." && ${RUN_AGAIN} === "Run setup again"`, "the setup failed, with a run again");
+      expect(await app.evaluate<string>(TABS)).toBe("Shell");
+      await app.click("#nav-inbox");
+      await app.until(`${lineSetup}?.textContent === "Setup failed" && ${lineSetup}.classList.contains("failed")`, "Setup failed on the line");
+      await app.evaluate(`${lineSetup}.closest("button").click()`);
+      await app.until(`${RUN_AGAIN} === "Run setup again"`, "the view's run again");
+      await app.click("#view-detail .setup button");
+      // The tabs stand in the order the panes started.
+      await app.until(`${TABS} === "Shell, Setup" && document.querySelector("#tabs .tab.active .label")?.textContent === "Setup"`, "the new setup pane in front");
+      await app.until(`${SAYS} === "The command has run for less than a minute." && ${RUN_AGAIN} === null`, "the setup running again");
+    } finally {
+      rmSync(join(clone.repo, ".worktreeinclude"));
+      rmSync(join(clone.repo, ".worktreesetup"));
+    }
   });
 
   it("says that a branch could not be fetched and since when the clone holds its commit, and still creates the work item there", async () => {

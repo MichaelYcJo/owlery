@@ -664,7 +664,7 @@ function closePane(session: SessionInfo): void {
   }
   const workItem = held.workItems.find((item) => item.id === session.workItemId);
   asking = session.id;
-  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds)} is working. Closing the pane ends its session.`;
+  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null)} is working. Closing the pane ends its session.`;
   // The keyboard starts on "Cancel", the dialog's first button.
   closeDialog.showModal();
 }
@@ -675,13 +675,13 @@ export function closeFront(): void {
   if (session) closePane(session);
 }
 
-/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. */
-function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean): HTMLElement {
+/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
+function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean, setupPane: number | null): HTMLElement {
   const tab = document.createElement("span");
   tab.className = `tab${shown ? " shown" : ""}${active ? " active" : ""}`;
   const label = document.createElement("button");
   label.className = "label";
-  label.textContent = tabLabel(session, listed, held.paneKinds);
+  label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
@@ -728,13 +728,13 @@ export function showView(): void {
       return [term, said];
     }),
   );
-  viewDetail.replaceChildren(...detail(entry, 0));
+  viewDetail.replaceChildren(...detail(entry, 0, (command) => runSetup(workItem.id, command)));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
   stripState.className = `state ${stateClass(line.state)}`;
   const listed = paneTabs(workItem, held.sessions);
   const { front: target, shown } = stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
-  tabs.replaceChildren(...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id))));
+  tabs.replaceChildren(...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id), workItem.setup?.paneId ?? null)));
   noPanes.hidden = listed.length > 0;
   stageShows(shown);
   if (target !== front) {
@@ -779,6 +779,11 @@ export function takeStarted(session: SessionInfo): void {
 /** Asks the daemon for no more output of a pane this window started, where the pane did not come onto the stage: the daemon sends a pane's output to the window that started it. */
 export function detachUnshown(id: number): void {
   if (!screenOf(id)) send({ type: "detach", id });
+}
+
+/** Asks the daemon to run a work item's setup again, as the view's "Run setup again" does, with the command the view named, which the daemon runs only where `.worktreesetup` still holds it: its answer, `started`, puts the new setup pane in front, and its refusal is said in the status line. */
+function runSetup(workItemId: number, command: string | null): void {
+  send({ type: "runSetup", requestId: request(), workItemId, ...startSize(), setupCommand: command });
 }
 
 /** Asks the field's prompt in the work item whose view is on screen. */

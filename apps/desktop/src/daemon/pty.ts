@@ -99,8 +99,9 @@ export class TerminalSession {
     this.proc.onData(listener);
   }
 
-  onExit(listener: (exitCode: number) => void): void {
-    this.proc.onExit(({ exitCode }) => listener(exitCode));
+  /** Calls `listener` at the process's end with its exit code and the signal that ended it, 0 where none did. A process a signal ended reports the code 0. */
+  onExit(listener: (exitCode: number, signal: number) => void): void {
+    this.proc.onExit(({ exitCode, signal }) => listener(exitCode, signal ?? 0));
   }
 
   write(data: string): void {

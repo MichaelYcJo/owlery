@@ -103,6 +103,17 @@ export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socke
   });
 }
 
+/**
+ * The command of a setup pane: the command a repository's `.worktreesetup`
+ * holds, passed whole to the user's interactive login shell, as a Claude Code
+ * pane's command is, so it finds the PATH their profile sets and reads the
+ * text as a line typed in a pane. The pane ends when the command does. Its
+ * environment holds the pane's id.
+ */
+export function setupPaneCommand(env: NodeJS.ProcessEnv, command: string, id: number): PaneCommand {
+  return { command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", command], env: { OWLERY_PANE_ID: String(id) } };
+}
+
 /** Reads the pane's id on the first line and the hook's JSON after it; anything else is no event. */
 export function parseEvent(text: string): HookEvent | undefined {
   const newline = text.indexOf("\n");

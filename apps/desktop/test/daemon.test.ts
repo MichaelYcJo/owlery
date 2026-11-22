@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +12,7 @@ import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery"
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { SUBJECT, workflowText } from "../src/daemon/records-place";
+import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItemLoss } from "../src/shared/protocol";
@@ -23,9 +24,10 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
-/** What a work item holds of the fields a person sets, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "setup", "title", "worktree"];
+const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
+/** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 /** What a repository holds of the records place where its checkout holds none. */
 const NO_RECORDS = { root: null, check: null, broadGate: null };
@@ -596,8 +598,8 @@ describe("work items", () => {
     };
     // A work item's own branch is a local branch, and a base as any other.
     const planned = await plan(2, { title: "Fix the login bug" });
-    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main" });
-    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "localBases", "remoteBases", "requestId", "type", "worktree"]);
+    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main", setupCommand: null, includes: false });
+    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "includes", "localBases", "remoteBases", "requestId", "setupCommand", "type", "worktree"]);
     // The name sent names the branch where the title leaves no slug, and a generated name where neither does.
     expect(await plan(3, { title: "로그인 버그", name: "amber-heron" })).toMatchObject({ branch: "owlery/amber-heron", worktree: join(root, "project", "amber-heron") });
     const name = generateName(() => 0.5);
@@ -635,6 +637,8 @@ describe("work items", () => {
       localBases: ["feature", "main", "recent", "origin/shadow"],
       remoteBases: ["origin/main", "origin/remote-only", "origin/older"],
       defaultBase: "origin/main",
+      setupCommand: null,
+      includes: false,
     });
     expect(existsSync(root)).toBe(false);
   });
@@ -852,6 +856,254 @@ describe("work items", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 2, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
     expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([session.id]);
+  });
+});
+
+describe("the setup of a new worktree", () => {
+  /** The app's setup command, with `/bin/sh` in place of the person's login shell. */
+  const setupCommandFor = (command: string, id: number) => ({ command: "/bin/sh", args: ["-c", command], env: { OWLERY_PANE_ID: String(id) } });
+
+  /** A temporary repository whose `.gitignore` ignores `.env`, `.env.*` and `node_modules/`, holding the ignored `.env`, and naming the files given at the top of its main checkout. */
+  function repositoryNaming(files: { include?: string; command?: string }) {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n");
+    git(made.repo, "add", ".gitignore");
+    git(made.repo, "commit", "--quiet", "-m", "ignore");
+    writeFileSync(join(made.repo, ".env"), "KEY=main\n");
+    if (files.include !== undefined) writeFileSync(join(made.repo, ".worktreeinclude"), files.include);
+    if (files.command !== undefined) writeFileSync(join(made.repo, ".worktreesetup"), files.command);
+    return made;
+  }
+
+  /** A daemon and a client, and the answer to a creation of a Claude Code pane's work item in the repository, which carries `shown`, or where none is given the command `.worktreesetup` holds, as the form shows it from its plan. */
+  async function createdIn(made: { repo: string; root: string }, options: Partial<DaemonOptions> = {}, shown?: string | null) {
+    const { url, daemon: d } = await daemon({ worktreesRoot: made.root, setupCommandFor, now: () => 1234, ...options });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up", kind: "claude", cols: 80, rows: 24, setupCommand: shown === undefined ? (await readSetup(made.repo)).command : shown });
+    return { url, d, c, answer: await c.message("workItemCreated", (m) => m.requestId === 1) };
+  }
+
+  /** The first inbox in which the work item's setup no longer runs. */
+  const setupEnded = (c: Awaited<ReturnType<typeof client>>, paneId?: number) => c.message("inbox", (m) => [...m.workItems, ...m.archived].some((w) => w.setup !== null && w.setup.state !== "running" && (paneId === undefined || w.setup.paneId === paneId)));
+
+  it("copies the included ignored paths and runs the command in a shell pane of the work item, started before the pane the creation names, sends the creating client its output, and records its success", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "echo setting-up; echo made > made.txt" });
+    const { c, answer } = await createdIn(made);
+    const setup = answer.workItem.setup!;
+    expect(setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "echo setting-up; echo made > made.txt", paneId: answer.session.id - 1, state: "running", exitCode: null, failure: null, startedAt: 1234, endedAt: null });
+    expect(Object.keys(setup).sort()).toEqual(SETUP_FIELDS);
+    // The answer carries the pane the creation named.
+    expect(answer.session).toMatchObject({ kind: "claude", workItemId: answer.workItem.id });
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toEqual({ ...setup, state: "succeeded", exitCode: 0, endedAt: 1234 });
+    expect(ended.sessions.map(({ id, kind, workItemId }) => [id, kind, workItemId])).toEqual([[setup.paneId, "shell", answer.workItem.id], [answer.session.id, "claude", answer.workItem.id]]);
+    expect(c.messages.some((m) => m.type === "output" && m.id === setup.paneId && m.data.includes("setting-up"))).toBe(true);
+    expect(readFileSync(join(answer.workItem.worktree, "made.txt"), "utf8")).toBe("made\n");
+    expect(readFileSync(join(answer.workItem.worktree, ".env"), "utf8")).toBe("KEY=main\n");
+  });
+
+  it("records a command that exits with another code than 0 as failed, and leaves the work item listed, the pane the creation named alive, and a new pane able to start", async () => {
+    const { c, answer } = await createdIn(repositoryNaming({ command: "exit 3" }));
+    const ended = await setupEnded(c);
+    expect(ended.workItems.map((w) => w.id)).toEqual([answer.workItem.id]);
+    expect(ended.workItems[0]!.setup).toMatchObject({ copied: [], state: "failed", exitCode: 3, failure: null });
+    expect(ended.sessions.find((s) => s.id === answer.session.id)?.alive).toBe(true);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: answer.workItem.id });
+    expect((await c.message("started", (m) => m.requestId === 2)).session).toMatchObject({ alive: true, workItemId: answer.workItem.id });
+  });
+
+  it("records a command whose process a signal ended as failed, with the signal, though its exit code reads 0", async () => {
+    const { c } = await createdIn(repositoryNaming({ command: "kill -TERM $$" }));
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 0, failure: "The setup command was ended by SIGTERM." });
+  });
+
+  it("runs the command though an included path failed to copy, and records the setup as failed with the path and why", async () => {
+    const made = repositoryNaming({ include: ".env\n.env.secret\n", command: "echo ran > ran.txt" });
+    writeFileSync(join(made.repo, ".env.secret"), "SECRET=1\n");
+    chmodSync(join(made.repo, ".env.secret"), 0o000);
+    cleanups.push(() => chmodSync(join(made.repo, ".env.secret"), 0o600));
+    const { c, answer } = await createdIn(made);
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toMatchObject({ copied: [".env"], copiedCount: 1, failedCopies: [{ path: ".env.secret", why: expect.stringContaining("EACCES") }], state: "failed", exitCode: 0, failure: null });
+    expect(readFileSync(join(answer.workItem.worktree, "ran.txt"), "utf8")).toBe("ran\n");
+  });
+
+  it("gives a work item in a repository that names neither file no setup, the one pane the creation named, and a worktree that holds no ignored file", async () => {
+    const made = repositoryNaming({});
+    const { url, answer } = await createdIn(made);
+    expect(answer.workItem.setup).toBeNull();
+    const ready = await (await client(url)).message("ready");
+    expect(ready.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    expect((await readLoss(made.repo, answer.workItem.branch, answer.workItem.worktree)).ignored).toEqual([]);
+  });
+
+  it("runs at a creation no command but the one the creation carries: where .worktreesetup changed after the plan, or the creation carries none, it copies, starts no setup pane and says why", async () => {
+    const changed = ".worktreesetup changed after the setup was shown, so no command ran.";
+    const made = repositoryNaming({ include: ".env\n", command: "echo ran > ran.txt" });
+    const { url, c, answer } = await createdIn(made, {}, "pnpm install\n");
+    expect(answer.workItem.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "echo ran > ran.txt", paneId: null, state: "failed", exitCode: null, failure: changed, startedAt: 1234, endedAt: 1234 });
+    // A client that carries no command showed none.
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Unshown", kind: "shell", cols: 80, rows: 24 });
+    const second = await c.message("workItemCreated", (m) => m.requestId === 2);
+    expect(second.workItem.setup).toMatchObject({ command: "echo ran > ran.txt", paneId: null, state: "failed", failure: changed });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id, second.session.id]);
+  });
+
+  it("records a setup whose pane the person closed, and one whose work item was archived, as failed: its pane ended before its command did", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const { c, answer } = await createdIn(made);
+    const closed = answer.workItem.setup!.paneId!;
+    c.send({ type: "close", id: closed });
+    const afterClose = await setupEnded(c, closed);
+    expect(afterClose.workItems[0]!.setup).toMatchObject({ paneId: closed, state: "failed", failure: "The setup pane ended before its command did." });
+    expect(afterClose.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Archived", kind: "shell", cols: 80, rows: 24, setupCommand: "sleep 30" });
+    const second = await c.message("workItemCreated", (m) => m.requestId === 2);
+    const archived = second.workItem.setup!.paneId!;
+    c.send({ type: "archiveWorkItem", requestId: 3, id: second.workItem.id, running: { panes: [archived, second.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    const after = await c.message("inbox", (m) => m.archived.some((w) => w.id === second.workItem.id));
+    expect(after.archived[0]!.setup).toMatchObject({ paneId: archived, state: "failed", failure: "The setup pane ended before its command did." });
+  });
+
+  it("keeps a setup running while its command runs, though another pane of the work item exits", async () => {
+    const { c, answer } = await createdIn(repositoryNaming({ command: "sleep 30" }), { commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 4"], env: {} }) });
+    const exited = await c.message("inbox", (m) => m.sessions.some((s) => s.id === answer.session.id && !s.alive));
+    expect(exited.workItems[0]!.setup).toMatchObject({ paneId: answer.workItem.setup!.paneId, state: "running", exitCode: null });
+  });
+
+  it("leaves a setup that runs as the daemon stops for the next daemon to read as failed, since the daemon stopped before it ended, and naming no pane", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { d, answer } = await createdIn(made, { runDir });
+    await d.close();
+    // The killed pane's exit has had time to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor });
+    const ready = await (await client(url)).message("ready");
+    expect(ready.workItems[0]!.setup).toEqual({ ...answer.workItem.setup, paneId: null, state: "failed", failure: "The daemon stopped before the setup command ended." });
+  });
+
+  it("names after a restart no pane of the setup, so the pane the next daemon gives the same id is no setup pane, and a run again leaves it listed", async () => {
+    const made = repositoryNaming({ command: "true" });
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { d, c, answer } = await createdIn(made, { runDir });
+    const old = answer.workItem.setup!.paneId!;
+    await setupEnded(c);
+    await d.close();
+    // The next daemon counts its pane ids from 1 again, and its panes exit at once.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const next = await client(url);
+    expect((await next.message("ready")).workItems[0]!.setup).toMatchObject({ paneId: null, state: "succeeded" });
+    next.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: answer.workItem.id });
+    const pane = (await next.message("started", (m) => m.requestId === 2)).session.id;
+    expect(pane).toBe(old);
+    await next.message("inbox", (m) => m.sessions.some((s) => s.id === pane && !s.alive));
+    next.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "true" });
+    const started = await next.message("started", (m) => m.requestId === 3);
+    const ended = await setupEnded(next, started.session.id);
+    expect(ended.sessions.map((s) => s.id)).toEqual([pane, started.session.id]);
+  });
+
+  it("runs the setup again at a person's request: copies what is missing, takes the earlier setup pane off the lists, runs only the command the press carries, answers with the new pane, and records the new setup in place of the old", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "test -e fixed" });
+    const { c, answer } = await createdIn(made);
+    const first = answer.workItem.setup!.paneId!;
+    expect((await setupEnded(c, first)).workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 1 });
+    writeFileSync(join(made.repo, ".worktreesetup"), "touch fixed");
+    // The press carries the command the view showed, which the file no longer holds: the earlier pane leaves the lists, and no command runs.
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "test -e fixed" });
+    await c.message("done", (m) => m.requestId === 2);
+    const refused = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === "touch fixed");
+    expect(refused.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: "touch fixed", paneId: null, state: "failed", exitCode: null, failure: ".worktreesetup changed after the setup was shown, so no command ran.", startedAt: 1234, endedAt: 1234 });
+    expect(refused.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    expect(existsSync(join(answer.workItem.worktree, "fixed"))).toBe(false);
+    // The next press carries the command the view shows now.
+    rmSync(join(answer.workItem.worktree, ".env"));
+    c.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "touch fixed" });
+    const started = await c.message("started", (m) => m.requestId === 3);
+    expect(started.session).toMatchObject({ kind: "shell", alive: true, workItemId: answer.workItem.id });
+    const ended = await setupEnded(c, started.session.id);
+    expect(ended.workItems[0]!.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "touch fixed", paneId: started.session.id, state: "succeeded", exitCode: 0, failure: null, startedAt: 1234, endedAt: 1234 });
+    expect(ended.sessions.map((s) => s.id)).toEqual([answer.session.id, started.session.id]);
+    expect(readFileSync(join(answer.workItem.worktree, ".env"), "utf8")).toBe("KEY=main\n");
+    // Where only .worktreeinclude stands and the press shows no command, the setup ends by the copy and the answer is `done`.
+    rmSync(join(made.repo, ".worktreesetup"));
+    c.send({ type: "runSetup", requestId: 4, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: null });
+    await c.message("done", (m) => m.requestId === 4);
+    const copied = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === null);
+    expect(copied.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: null, paneId: null, state: "succeeded", exitCode: null, failure: null, startedAt: 1234, endedAt: 1234 });
+    expect(copied.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+  });
+
+  it("refuses to run the setup again while its command runs, for a work item it does not list, in a repository that names neither file now, and in an archived work item, and changes nothing", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const { url, c, answer } = await createdIn(made);
+    const id = answer.workItem.id;
+    const held = async () => {
+      const ready = await (await client(url)).message("ready");
+      return [ready.sessions, ready.workItems, ready.archived];
+    };
+    const refused = async (requestId: number, workItemId: number) => {
+      const before = await held();
+      c.send({ type: "runSetup", requestId, workItemId, cols: 80, rows: 24 });
+      const { message } = await c.message("error", (m) => m.requestId === requestId);
+      expect(await held()).toEqual(before);
+      return message;
+    };
+    expect(await refused(2, id)).toBe(`The setup of work item ${id} is still running.`);
+    expect(await refused(3, 99)).toBe("no work item 99");
+    c.send({ type: "close", id: answer.workItem.setup!.paneId! });
+    await setupEnded(c);
+    rmSync(join(made.repo, ".worktreesetup"));
+    expect(await refused(4, id)).toBe(`${made.repo} names no setup: it holds neither .worktreeinclude nor .worktreesetup.`);
+    writeFileSync(join(made.repo, ".worktreesetup"), "true");
+    c.send({ type: "archiveWorkItem", requestId: 5, id, running: { panes: [answer.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 5);
+    expect(await refused(6, id)).toBe(`work item ${id} is archived, restore it first`);
+  });
+
+  it("records a setup whose pane could not start as failed, and says why", async () => {
+    const { url, answer } = await createdIn(repositoryNaming({ command: "true" }), {
+      setupCommandFor: () => {
+        throw new Error("no shell here");
+      },
+    });
+    expect(answer.workItem.setup).toMatchObject({ command: "true", paneId: null, state: "failed", exitCode: null, failure: "The setup pane could not start: no shell here", endedAt: 1234 });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id]);
+  });
+
+  it("starts no setup pane where an archive of the work item began while the setup ran again copied, and says so", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "true" });
+    const { url, c, answer } = await createdIn(made);
+    await setupEnded(c);
+    const held = heldGit(made.base, '[ "$1" = check-ignore ]');
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "archiveWorkItem", requestId: 3, id: answer.workItem.id, running: { panes: [answer.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    held.release();
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(`work item ${answer.workItem.id} is archived, restore it first`);
+    const ready = await (await client(url)).message("ready");
+    expect(ready.sessions.filter((s) => s.alive)).toEqual([]);
+    expect(ready.archived[0]!.setup).toEqual(answer.workItem.setup && { ...answer.workItem.setup, state: "succeeded", exitCode: 0, endedAt: 1234 });
+  });
+
+  it("names in a plan the command .worktreesetup holds, whole, and whether .worktreeinclude stands", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "pnpm install\n" });
+    const { url } = await daemon({ worktreesRoot: made.root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "planWorkItem", requestId: 1, repo: made.repo, title: "Planned" });
+    expect(await c.message("workItemPlan", (m) => m.requestId === 1)).toMatchObject({ branch: "owlery/planned", setupCommand: "pnpm install\n", includes: true });
+    rmSync(join(made.repo, ".worktreeinclude"));
+    c.send({ type: "planWorkItem", requestId: 2, repo: made.repo, title: "Planned" });
+    expect(await c.message("workItemPlan", (m) => m.requestId === 2)).toMatchObject({ setupCommand: "pnpm install\n", includes: false });
   });
 });
 

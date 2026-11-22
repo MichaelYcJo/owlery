@@ -364,6 +364,8 @@ async function openWorkItem(app: BuiltApp, repo: string, title: string): Promise
   await fill(app, "work-item-title", title);
   // The kind's menu is the system's own, which the debugging port does not reach, so the choice is set on the field.
   await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+  // Create creates nothing before the form shows the plan of its folder.
+  await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
   await app.click("#work-item-create");
   try {
     await untilInFront(app, 1);

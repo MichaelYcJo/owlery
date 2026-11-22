@@ -10,6 +10,20 @@ if [ ! -t 0 ]; then
   printf '\n__owlery_cli=%s\n__owlery_path=%s\n' "${0%/*}/sample-cli.sh" '/usr/bin:/bin'
   exit 0
 fi
+# A setup pane runs `$SHELL -l -i -c <the command .worktreesetup holds>`, and
+# a Claude Code pane `$SHELL -l -i -c 'exec claude …'`. The setup's command
+# never runs: the pane prints it and a few lines of an install, and then
+# waits for the run to type the code the command ends with, on a line.
+if [ "$3" = -c ] && [ "${4#exec claude }" = "$4" ]; then
+  # Without the line ends the file's command ends with.
+  printf '$ %s\r\n' "$(printf '%s' "$4")"
+  printf 'Lockfile is up to date, resolution step is skipped\r\n'
+  printf 'Progress: resolved \033[1m412\033[0m, reused \033[1m412\033[0m, downloaded 0, added 412\r\n'
+  stty -echo
+  read -r code
+  [ "$code" = 0 ] || printf '\033[31m ERR_PNPM_LIFECYCLE\033[0m  The postinstall script of a dependency exited with 1\r\n'
+  exit "$code"
+fi
 printf '$ git status --short\r\n'
 printf ' \033[31mM\033[0m src/login.ts\r\n'
 printf '\033[31m??\033[0m src/login.test.ts\r\n'

@@ -819,6 +819,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: "Second item" });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+    // Create creates nothing before the form shows the plan of its folder.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     await app.until(`document.getElementById("view-title").textContent === "Second item" && ${PANE_HAS_KEYBOARD}`, "the second work item's view");
     panes += 1;

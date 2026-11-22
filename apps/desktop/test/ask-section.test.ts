@@ -48,6 +48,8 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: "Alpha" });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+    // Create creates nothing before the form shows the plan of its folder.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha"`, "the view of Alpha");
   }, 120_000);
