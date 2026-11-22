@@ -163,15 +163,15 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       app.evaluate(
         `(() => { const of = (selector) => getComputedStyle(document.querySelector(selector)); return { line: of("#inbox-screen .line.selected").boxShadow, corner: of("#inbox-screen .line.selected").borderRadius, head: of("#inbox-screen .lines h2").backgroundColor, headEdge: of("#inbox-screen .lines h2").boxShadow, side: of("#sidebar").backgroundColor, fact: of("#inbox-screen .lines h2 .count").fontFamily, words: of("#inbox-screen .lines h2 .word").fontFamily }; })()`,
       );
-    /** The edge under a row of each list of records, as the page's style resolves it: a commit and a changed file of a work item, and the term and the value of a fact of a view. Alpha has no commit of its own, so each row is one this reading puts where the page puts its own, and takes away. */
-    const rows = (): Promise<{ commit: string; file: string; term: string; value: string }> =>
+    /** The edge under a row of each list of records, as the page's style resolves it: a commit and a changed file of a work item, a path its setup copied and one it could not, and the term and the value of a fact of a view. Alpha has no commit and no setup of its own, so each row is one this reading puts where the page puts its own, and takes away. */
+    const rows = (): Promise<{ commit: string; file: string; copied: string; notCopied: string; term: string; value: string }> =>
       app.evaluate(
-        `(() => { const made = []; const edge = (within, tag, name) => { const row = document.createElement(tag); row.className = name; document.querySelector(within).append(row); made.push(row); return getComputedStyle(row).boxShadow; }; const found = { commit: edge("#view-detail", "div", "commit"), file: edge("#view-detail", "div", "file"), term: edge("#view-fact-list", "dt", ""), value: edge("#view-fact-list", "dd", "") }; for (const row of made) row.remove(); return found; })()`,
+        `(() => { const made = []; const edge = (within, tag, name) => { const row = document.createElement(tag); row.className = name; document.querySelector(within).append(row); made.push(row); return getComputedStyle(row).boxShadow; }; const found = { commit: edge("#view-detail", "div", "commit"), file: edge("#view-detail", "div", "file"), copied: edge("#view-detail", "div", "copied"), notCopied: edge("#view-detail", "div", "not-copied"), term: edge("#view-fact-list", "dt", ""), value: edge("#view-fact-list", "dd", "") }; for (const row of made) row.remove(); return found; })()`,
       );
     // Desk: a line is a tile with no edge, a row of a list of records has none either, a group's head stands on no ground, and a count is set as the words are.
     const desk = await forms();
     expect(desk).toEqual({ line: "none", corner: "5px", head: "rgba(0, 0, 0, 0)", headEdge: "none", side: desk.side, fact: desk.words, words: desk.words });
-    expect(await rows()).toEqual({ commit: "none", file: "none", term: "none", value: "none" });
+    expect(await rows()).toEqual({ commit: "none", file: "none", copied: "none", notCopied: "none", term: "none", value: "none" });
 
     // Register: the selected line has the strong rule at its left and the rule under it, a group's head is a ruled band on the sidebar's ground, and a count is in the fixed-width face.
     await choose("theme", "register");
@@ -185,7 +185,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(register.words).toBe(desk.words);
     // Register rules each row of a list of records as it rules a line at rest: one rule under the row, and no rule at its left.
     const ruled = await rows();
-    for (const edge of [ruled.commit, ruled.file, ruled.term, ruled.value]) {
+    for (const edge of [ruled.commit, ruled.file, ruled.copied, ruled.notCopied, ruled.term, ruled.value]) {
       expect(edge).toMatch(/0px 1px 0px 0px$/);
       expect(edge).not.toContain("inset");
     }
