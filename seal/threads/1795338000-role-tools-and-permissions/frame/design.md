@@ -264,6 +264,10 @@ export interface PermissionAsk {
 
 **`package.json`.** A script `role:refusal` runs `test/role-session.test.ts` with `OWLERY_ROLE_REFUSAL=1`. The file's first case runs only under `OWLERY_ROLE_RUN=1` and its new case only under `OWLERY_ROLE_REFUSAL=1`, so each script spends one session.
 
+What the build added beside the sections above, folded by the orchestrator on 2026-11-22:
+
+- `PairKey` moves from `claude-roles.ts` to `role-grants.ts` and is exported, with `pairKey(role)`, so that the grant table is keyed by the same pairs as the documents' table and a new pair without a grant row fails the typecheck (phase 1).
+
 ## Rule changes
 
 - change

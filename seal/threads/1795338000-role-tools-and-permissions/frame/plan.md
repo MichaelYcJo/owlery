@@ -89,4 +89,4 @@ The version does not move: `apps/desktop/package.json` reads `0.0.2`. `docs/` is
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | Fold phase 1's addition (`PairKey`, `pairKey`) into *Data & interfaces*; Q1 (a) and Q2 (refused at once) stand at their defaults, decided by the orchestrator from the policy under `agentic` and not put to the owner | The phase 1 crafter's hand-back; the owner's rule of 2026-11-22 that no question holds the run and that questions are decided from the code and the policy and recorded | the plugin's `skills/implement/orchestration.md` *A decision made after the frame is committed is folded*; `docs/product.md` *What we promise* as #119 rewrites it |
