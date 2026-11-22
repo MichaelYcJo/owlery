@@ -4,9 +4,14 @@
 // sessions run detached from the user's environment"). Owlery never turns a
 // permission check off (docs/roadmap.md, milestone 1).
 import { execFile, spawn } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { terminalEnv } from "../pty";
+import { writeWholeFile } from "../whole-file";
+import type { RoleStage } from "../../shared/protocol";
 import type { RoleAdapter, RoleEvent } from "./adapter";
+import { agentOf, rulesFileName, rulesText } from "./claude-roles";
 
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
 export const ERROR_OUTPUT_CHARS = 2000;
@@ -30,9 +35,12 @@ function lastOf(text: string): string {
  * The arguments of one headless session that works in `cwd`: stream-json in
  * and out, no settings of the user's or the repository's, no hooks, no auto
  * memory, no MCP server, and the permission mode a session has with no
- * settings at all.
+ * settings at all. A role launch adds to them and takes none away: the role
+ * bundle as a plugin of this session alone, the role's agent of it, the file
+ * of rules appended to the system prompt, and the bundle's folder among the
+ * folders the session works in, so it reads the bundle's other documents.
  */
-export function claudeArgs(cwd: string): string[] {
+export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string }): string[] {
   return [
     "-p",
     "--input-format",
@@ -48,9 +56,11 @@ export function claudeArgs(cwd: string): string[] {
     "--strict-mcp-config",
     "--permission-mode",
     "default",
+    ...(role ? ["--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : []),
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
+    ...(role ? [role.bundleDir] : []),
   ];
 }
 
@@ -143,11 +153,43 @@ export function eventsForLine(line: string): RoleEvent[] {
 }
 
 /**
+ * Reads one line of a role launch's output for whether the session holds the
+ * role's agent. Claude Code starts a plain session, with no error, for an
+ * agent's name it does not hold and for a plugin folder that is not there
+ * (2.1.330, probed 2026-11-22), and only its `init` line shows it: the
+ * session's agents, and the plugins that did not load. `seen` is true once
+ * the line settles it, the `init` line or a `result` that arrived with none
+ * before it, and `failure` is then why the launch failed, or null.
+ */
+export function roleCheck(line: string, agent: string): { seen: boolean; failure: string | null } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return { seen: false, failure: null };
+  }
+  if (typeof parsed !== "object" || parsed === null) return { seen: false, failure: null };
+  const record = parsed as Record<string, unknown>;
+  if (record.type === "result") return { seen: true, failure: "the session did not say which agents it holds" };
+  if (record.type !== "system" || record.subtype !== "init") return { seen: false, failure: null };
+  const errors: unknown = record.plugin_errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    const first: unknown = errors[0];
+    const message = typeof first === "object" && first !== null ? (first as { message?: unknown }).message : undefined;
+    return { seen: true, failure: `the role bundle did not load: ${typeof message === "string" ? message : JSON.stringify(first)}` };
+  }
+  if (!Array.isArray(record.agents) || !record.agents.includes(agent)) return { seen: true, failure: `the session does not hold the agent ${agent}` };
+  return { seen: true, failure: null };
+}
+
+/**
  * The adapter for the user's own Claude Code. `env` is the daemon's
  * environment: it names the login shell, and gives the session its home, user
- * and locale.
+ * and locale. `bundleDir` is the role bundle's folder and `rulesDir` the
+ * folder the adapter writes each role's rules file into; an adapter given
+ * neither launches sessions with no role alone.
  */
-export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs?: number } = {}): RoleAdapter {
+export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs?: number; bundleDir?: string; rulesDir?: string } = {}): RoleAdapter {
   // Asked of the login shell once per daemon process; a lookup that failed is asked again.
   let found: Promise<{ cli: string; path: string }> | undefined;
 
@@ -164,10 +206,28 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     });
   };
 
+  /**
+   * What a role launch adds to the arguments, after writing the pair's rules
+   * file: whole, so a session that starts meanwhile never reads half of one,
+   * and again at each launch, so it holds the bundle as it stands. The folder
+   * and the file are the user's alone, as the daemon's other files are.
+   */
+  const launchOf = (role: RoleStage): { bundleDir: string; agent: string; rulesFile: string } => {
+    const { bundleDir, rulesDir } = options;
+    if (!bundleDir) throw new Error("this adapter was given no role bundle, so it launches no role");
+    if (!rulesDir) throw new Error("this adapter was given no folder for the rules files, so it launches no role");
+    const text = rulesText(bundleDir, role);
+    mkdirSync(rulesDir, { recursive: true, mode: 0o700 });
+    const rulesFile = join(rulesDir, rulesFileName(role));
+    writeWholeFile(rulesFile, text);
+    return { bundleDir, agent: agentOf(role), rulesFile };
+  };
+
   return {
     name: "claude",
     features: [],
-    async start({ prompt, cwd }, listener) {
+    async start({ prompt, cwd, role }, listener) {
+      const launch = role && launchOf(role);
       found ??= lookup().catch((error: unknown) => {
         found = undefined;
         throw error;
@@ -175,7 +235,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       const { cli, path } = await found;
       // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
       // signal to the group also reaches what the CLI started in it, such as a tool's shell.
-      const child = spawn(cli, claudeArgs(cwd), { cwd, env: claudeEnv(env, path), stdio: ["pipe", "pipe", "pipe"], detached: true });
+      const child = spawn(cli, claudeArgs(cwd, launch), { cwd, env: claudeEnv(env, path), stdio: ["pipe", "pipe", "pipe"], detached: true });
       await new Promise<void>((resolve, reject) => {
         child.once("spawn", resolve);
         child.once("error", reject);
@@ -186,10 +246,6 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (text: string) => {
         errorOutput = lastOf(errorOutput + text);
-      });
-      const lines = createInterface({ input: child.stdout });
-      lines.on("line", (line) => {
-        for (const event of eventsForLine(line)) listener(event);
       });
       let exited = false;
       let reported = false;
@@ -228,15 +284,34 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         }
       };
       let stopping: Promise<void> | undefined;
-      return {
-        stop: () =>
-          (stopping ??= (async () => {
-            signal("SIGTERM");
-            const kill = setTimeout(() => signal("SIGKILL"), KILL_AFTER_MS);
-            await exit;
-            clearTimeout(kill);
-          })()),
-      };
+      const stop = (): Promise<void> =>
+        (stopping ??= (async () => {
+          signal("SIGTERM");
+          const kill = setTimeout(() => signal("SIGKILL"), KILL_AFTER_MS);
+          await exit;
+          clearTimeout(kill);
+        })());
+      // A role launch is not the role's until its first line says the session holds the agent. `unchecked` is that
+      // agent until the line that settles it, and `refused` is set where it failed the launch: the listener then
+      // hears the reason as the run's result, the CLI is stopped, and nothing more of its output is reported.
+      let unchecked = launch?.agent;
+      let refused = false;
+      const lines = createInterface({ input: child.stdout });
+      lines.on("line", (line) => {
+        if (refused) return;
+        if (unchecked !== undefined) {
+          const { seen, failure } = roleCheck(line, unchecked);
+          if (seen) unchecked = undefined;
+          if (failure !== null) {
+            refused = true;
+            listener({ type: "result", text: failure, isError: true, costUsd: null });
+            void stop();
+            return;
+          }
+        }
+        for (const event of eventsForLine(line)) listener(event);
+      });
+      return { stop };
     },
   };
 }

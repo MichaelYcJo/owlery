@@ -13,7 +13,7 @@ import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import type { HeadlessInfo, KeepAwake, ServerMessage, WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -3125,7 +3125,7 @@ describe("headless sessions", () => {
 
   /** A fake adapter that also records where each session was started, and how many runs were stopped. */
   function watched(inner: RoleAdapter = fakeAdapter()) {
-    const seen = { started: [] as { prompt: string; cwd: string }[], stopped: 0 };
+    const seen = { started: [] as { prompt: string; cwd: string; role?: RoleStage }[], stopped: 0 };
     const adapter: RoleAdapter = {
       name: inner.name,
       features: inner.features,
@@ -3147,7 +3147,7 @@ describe("headless sessions", () => {
     const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ pieces: () => ["A barn ", "owl."] }) }, 2);
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?" });
-    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null };
+    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
     expect(await one.message("asked")).toEqual({ type: "asked", requestId: 5, headless: working });
     for (const c of [one, two]) {
       await c.message("headless", (m) => m.headless.state === "finished");
@@ -3170,6 +3170,79 @@ describe("headless sessions", () => {
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Where am I?" });
     await c.message("headless", (m) => m.headless.state === "finished");
     expect(seen.started).toEqual([{ prompt: "Where am I?", cwd: workItem.worktree }]);
+  });
+
+  it("launches a role: an ask with a pair the protocol lists starts the session as that role, and `asked`, every `headless` and a later `ready` carry the pair and the answer names it", async () => {
+    const { adapter, seen } = watched();
+    const { clients, url, workItem } = await withWorkItem({ roleAdapter: adapter }, 2);
+    const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
+    const role = { role: "proofer", stage: "round" } as const;
+    one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?", role });
+    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role });
+    for (const c of [one, two]) {
+      const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+      expect(headless.answer).toBe('As the proofer at the stage round, you asked: "Which owl?"');
+      expect(told(c).map((h) => h.role)).toEqual([role, role, role]);
+    }
+    expect(seen.started).toEqual([{ prompt: "Which owl?", cwd: workItem.worktree, role }]);
+    expect((await (await client(url)).message("ready")).headless.map((h) => h.role)).toEqual([role]);
+  });
+
+  it("launches each pair the protocol lists, and keeps of the pair the role and the stage alone", async () => {
+    const { adapter, seen } = watched();
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    expect(ROLE_STAGES).toEqual([
+      { role: "proofer", stage: "round" },
+      { role: "crafter", stage: "fix-pass" },
+      { role: "sealer", stage: "seal" },
+    ]);
+    for (const [index, pair] of ROLE_STAGES.entries()) {
+      c.send({ type: "ask", requestId: index + 1, workItemId: workItem.id, prompt: "Q", role: { ...pair, more: "not kept" } });
+      expect((await c.message("asked", (m) => m.requestId === index + 1)).headless.role).toEqual(pair);
+    }
+    expect(seen.started.map((started) => started.role)).toEqual([...ROLE_STAGES]);
+  });
+
+  it("refuses an ask whose role and stage are no pair the protocol lists, saying which, and starts nothing", async () => {
+    const { adapter, seen } = watched();
+    const { c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const refused = async (requestId: number, role: unknown) => {
+      c.send({ type: "ask", requestId, workItemId: workItem.id, prompt: "Q", role });
+      return (await c.message("error", (m) => m.requestId === requestId)).message;
+    };
+    expect(await refused(1, { role: "proofer", stage: "seal" })).toBe("no role proofer at the stage seal");
+    expect(await refused(2, { role: "framer", stage: "round" })).toBe("no role framer at the stage round");
+    expect(await refused(3, { role: "sealer" })).toBe("no role sealer at the stage undefined");
+    expect(await refused(4, "proofer")).toBe("no role undefined at the stage undefined");
+    expect(await refused(5, null)).toBe("no role undefined at the stage undefined");
+    expect(seen.started).toEqual([]);
+    expect(c.messages.some((m) => m.type === "asked" || m.type === "headless")).toBe(false);
+    expect((await (await client(url)).message("ready")).headless).toEqual([]);
+  });
+
+  it("starts a session with no role where the ask names none: its role is null, and the adapter is given none", async () => {
+    const { adapter, seen } = watched();
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+    expect(headless.role).toBeNull();
+    expect(headless.answer).toBe('You asked: "Q"');
+    expect(seen.started).toEqual([{ prompt: "Q", cwd: workItem.worktree }]);
+  });
+
+  it("holds a role session to its limit and to a client's stop as any other", async () => {
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter, headlessLimitMs: 150 });
+    const role = { role: "sealer", stage: "seal" } as const;
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role });
+    const limited = (await c.message("headless", (m) => m.headless.id === 1 && m.headless.state === "failed")).headless;
+    expect([limited.stopped, limited.error, limited.role]).toEqual(["limit", "the session reached its time limit and was stopped", role]);
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Q", role });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    c.send({ type: "stopHeadless", requestId: 3, id: headless.id });
+    const stopped = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
+    expect([stopped.stopped, stopped.role]).toEqual(["request", role]);
+    expect(seen.stopped).toBe(2);
   });
 
   it("carries the cost the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
@@ -3239,7 +3312,7 @@ describe("headless sessions", () => {
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
   });
 
   it("lists no headless session where none was asked, and counts them apart from the panes", async () => {
@@ -3260,7 +3333,7 @@ describe("headless sessions", () => {
     const asked = await c.message("asked");
     const changed = await c.message("headless", (m) => m.headless.state === "finished");
     const ready = await (await client(url)).message("ready");
-    const fields = ["answer", "costUsd", "error", "errorOutput", "id", "prompt", "startedAt", "state", "stopped", "workItemId"];
+    const fields = ["answer", "costUsd", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "workItemId"];
     expect(Object.keys(asked).sort()).toEqual(["headless", "requestId", "type"]);
     expect(Object.keys(changed).sort()).toEqual(["headless", "type"]);
     for (const info of [asked.headless, changed.headless, ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);

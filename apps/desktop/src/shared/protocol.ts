@@ -200,6 +200,29 @@ export interface Look {
   workItems: WorkItem[];
 }
 
+/**
+ * The roles a headless session can be launched as, each with the stage it is
+ * launched at. The names are neutral: which agent, which rules and which
+ * options a pair means is its adapter's (docs/architecture.md, "Rules that
+ * keep it portable"). A new stage is one pair here and one row of each
+ * adapter's table.
+ */
+export const ROLE_STAGES = [
+  { role: "proofer", stage: "round" },
+  { role: "crafter", stage: "fix-pass" },
+  { role: "sealer", stage: "seal" },
+] as const;
+
+/** One pair of `ROLE_STAGES`. */
+export type RoleStage = (typeof ROLE_STAGES)[number];
+
+/** The pair of `ROLE_STAGES` a value names by its `role` and its `stage`; nothing where it names none. */
+export function roleStageOf(value: unknown): RoleStage | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { role, stage } = value as Record<string, unknown>;
+  return ROLE_STAGES.find((pair) => pair.role === role && pair.stage === stage);
+}
+
 /** What a headless session is doing: `working` until its result, then `finished`, or `failed` where it gave none or an error. */
 export type HeadlessState = "working" | "finished" | "failed";
 
@@ -223,6 +246,8 @@ export interface HeadlessInfo {
   errorOutput: string;
   /** What stopped a `failed` session before it ended by itself: its time limit, or a request, a client's `stopHeadless` or an archive, a delete or a removal that ended it. Null where the session ended by itself or still works. */
   stopped: "limit" | "request" | null;
+  /** The role the session was launched as, and null for a session with none. */
+  role: RoleStage | null;
 }
 
 /**
@@ -300,8 +325,8 @@ export type ClientMessage =
   | { type: "forget"; id: number; keepModes?: true }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
-  // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit.
-  | { type: "ask"; requestId: number; workItemId: number; prompt: string }
+  // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage; the daemon answers a pair `ROLE_STAGES` does not list with an `error`, and starts nothing. Without it the session has no role.
+  | { type: "ask"; requestId: number; workItemId: number; prompt: string; role?: RoleStage }
   // Stops a headless session that is working: its run is stopped, and it is `failed`, with `stopped` set to `request`. A session that is not working is left as it is. The daemon answers with `done`, and with an `error` for an id it does not list.
   | { type: "stopHeadless"; requestId: number; id: number }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
