@@ -1,9 +1,11 @@
 // What the screenshot command captures and where it writes: the themes a run
 // was asked for, the file of each view in each theme and appearance, the
-// folder of the run, and the size a PNG file says it has. The run itself is
+// folder of the run, the size a PNG file says it has, and the pane of a work
+// item the run feeds its agent's events to. The run itself is
 // test/screenshots.test.ts.
 import { join, resolve } from "node:path";
 import { APPEARANCES, type Appearance, lookChoice, THEMES, type Theme } from "../src/shared/appearance";
+import type { SessionInfo, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
 /** The views a run captures, in the order it draws them: the inbox, the view of the work item that needs the person, the view of the work item parked with questions, a work item's menu and the "New work item" form. */
 export const VIEWS = ["inbox", "view", "parked", "menu", "dialog"] as const;
@@ -58,4 +60,17 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 export function pngSize(bytes: Buffer): { width: number; height: number } {
   if (bytes.length < 24 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE) || bytes.toString("latin1", 12, 16) !== "IHDR") throw new Error("the bytes are not a PNG file's");
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+}
+
+/**
+ * The pane the creation of the work item of that title named, among the
+ * work items and the panes the daemon lists: its pane that is not the one
+ * its setup runs in, which starts before it. A work item the daemon does not
+ * list, or one without such a pane, is refused.
+ */
+export function createdPane<Pane extends Pick<SessionInfo, "id" | "workItemId">>(listed: { workItems: readonly (Pick<WorkItem, "id" | "title"> & { setup: Pick<WorktreeSetup, "paneId"> | null })[]; sessions: readonly Pane[] }, title: string): Pane {
+  const item = listed.workItems.find((workItem) => workItem.title === title);
+  const pane = item && listed.sessions.find((session) => session.workItemId === item.id && session.id !== item.setup?.paneId);
+  if (!pane) throw new Error(`the daemon lists no pane of ${title}`);
+  return pane;
 }

@@ -8,7 +8,12 @@
 // the daemon's hook socket is fed, and the prompt asked in the view fails at
 // a stand-in for the CLI. No stage runs either: the decisions made without
 // asking and the questions are blocks the run writes into the two work
-// items' records, which the daemon reads in their worktrees. With
+// items' records, which the daemon reads in their worktrees. The repository
+// names a setup once three work items stand, so the one at work shows its
+// setup running, the one in the view shows its setup failed, with the paths
+// it copied and one it could not, and the form names the setup's command;
+// no setup's command runs, and the run types the code a setup pane ends
+// with. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -17,16 +22,16 @@
 // carries the files.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORD_FILE, withApplied, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
 import { WINDOW_SIZE } from "../src/main/window-size";
-import type { ServerMessage, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { ClientMessage, ServerMessage, SessionInfo, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { commitFile, temporaryRepository } from "./repositories";
-import { pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
+import { commitFile, git, temporaryRepository } from "./repositories";
+import { createdPane, pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
 /** The run, started by `pnpm run screenshots`. Without it the file is the cases. */
 const RUN = process.env.OWLERY_SCREENSHOTS === "1";
@@ -38,17 +43,35 @@ const SAMPLE_PANE = join(__dirname, "fixtures", "sample-pane.sh");
 
 /**
  * The work items of the run, which are invented examples, each with the kind
- * of its pane and the events its pane's hook is fed, as the hook's own input.
- * A shell's work item has no agent. The last one made is the one whose view
- * and menu are captured, and it is the one that needs the person.
+ * of its pane, the events its pane's hook is fed, as the hook's own input,
+ * and the state its setup shows, or null where its repository names no
+ * setup when it is made. A shell's work item has no agent. The last one made
+ * is the one whose view and menu are captured, and it is the one that needs
+ * the person.
  */
-const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[] }[] = [
-  { title: "Choose the base of the hotfix", kind: "shell", events: [] },
-  { title: "Rename the settings file", kind: "shell", events: [] },
-  { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }] },
-  { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }] },
-  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }] },
+const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[]; setup: "running" | "failed" | null }[] = [
+  { title: "Choose the base of the hotfix", kind: "shell", events: [], setup: null },
+  { title: "Rename the settings file", kind: "shell", events: [], setup: null },
+  { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }], setup: null },
+  { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
+  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }], setup: "failed" },
 ];
+/**
+ * The ignored files of the repository's main checkout, each with what it
+ * holds, which `.gitignore` names. They are invented examples.
+ */
+const IGNORED: Record<string, string> = {
+  ".env": "API_URL=http://localhost:3000\n",
+  "apps/web/.env.local": "SESSION_SECRET=local\n",
+  "node_modules/left-pad/index.js": "module.exports = (text) => text;\n",
+  "certs/localhost-key.pem": "-----BEGIN PRIVATE KEY-----\n",
+};
+/** The file of `IGNORED` nobody may read once the work item whose setup fails is made, so its setup cannot copy it. */
+const UNREADABLE = "certs/localhost-key.pem";
+/** What the main checkout's `.worktreeinclude` and `.worktreesetup` hold where a work item is made with a setup. No pane of the run runs the command. */
+const SETUP_FILES = { ".worktreeinclude": ".env\n**/.env.local\nnode_modules/\n*.pem\n", ".worktreesetup": "pnpm install\n" };
+/** The code the setup pane of a work item whose setup fails ends with, as the run types it into the pane. */
+const SETUP_FAILS_WITH = 1;
 /** The last work item made. */
 const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
 /** The first work item made, which the run parks with `QUESTIONS`. Its view is the view "parked". */
@@ -133,6 +156,24 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
     noSignature[0] = 0x88;
     expect(() => pngSize(noSignature)).toThrow("the bytes are not a PNG file's");
   });
+
+  it("feeds a work item's events to the pane its creation named, never to the setup pane that started before it, and refuses a work item without that pane", () => {
+    const workItems = [
+      { id: 1, title: "Rename the settings file", setup: null },
+      { id: 2, title: "Fix the login redirect", setup: { paneId: 3 } },
+      { id: 3, title: "Set up alone", setup: { paneId: 5 } },
+    ];
+    const sessions = [
+      { id: 1, workItemId: 1 },
+      { id: 3, workItemId: 2 },
+      { id: 4, workItemId: 2 },
+      { id: 5, workItemId: 3 },
+    ];
+    expect(createdPane({ workItems, sessions }, "Rename the settings file").id).toBe(1);
+    expect(createdPane({ workItems, sessions }, "Fix the login redirect").id).toBe(4);
+    expect(() => createdPane({ workItems, sessions }, "Set up alone")).toThrow("the daemon lists no pane of Set up alone");
+    expect(() => createdPane({ workItems, sessions }, "Add an export of the history")).toThrow("the daemon lists no pane of Add an export of the history");
+  });
 });
 
 describe.skipIf(!RUN)("the screenshots of the built app", () => {
@@ -143,8 +184,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const PARKED_LINE = `#repositories button[data-work-item="1"]`;
   const MENU = `[role="menu"]`;
 
-  /** The work items and the sessions the daemon lists, read as a second client of it. */
-  async function listed(): Promise<{ workItems: WorkItem[]; sessions: SessionInfo[] }> {
+  /** The work items and the sessions the daemon lists, read as a second client of it, which then hands the daemon `told` where it is given. */
+  async function listed(told?: ClientMessage): Promise<{ workItems: WorkItem[]; sessions: SessionInfo[] }> {
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);
     try {
@@ -153,7 +194,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
         socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")));
         socket.addEventListener("message", (event) => {
           const message = JSON.parse(String(event.data)) as ServerMessage;
-          if (message.type === "ready") resolve({ workItems: message.workItems, sessions: message.sessions });
+          if (message.type !== "ready") return;
+          if (told) socket.send(JSON.stringify(told));
+          resolve({ workItems: message.workItems, sessions: message.sessions });
         });
       });
     } finally {
@@ -161,12 +204,22 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     }
   }
 
-  /** The pane of the work item of that title. */
-  async function paneOf(title: string): Promise<SessionInfo> {
-    const { workItems, sessions } = await listed();
-    const pane = sessions.find((session) => session.workItemId === workItems.find((item) => item.title === title)?.id);
-    if (!pane) throw new Error(`the daemon lists no pane of ${title}`);
-    return pane;
+  /** The setup of the work item of that title, as the daemon lists it. */
+  async function setupOf(title: string): Promise<WorktreeSetup | null> {
+    return (await listed()).workItems.find((item) => item.title === title)?.setup ?? null;
+  }
+
+  /**
+   * Makes the main checkout name a setup, or none, before a work item is
+   * made: its two files, and `UNREADABLE` read by nobody where the setup is
+   * to fail, and readable by its owner otherwise.
+   */
+  function nameSetup(setup: "running" | "failed" | null): void {
+    for (const [file, text] of Object.entries(SETUP_FILES)) {
+      if (setup === null) rmSync(join(made.repo, file), { force: true });
+      else writeFileSync(join(made.repo, file), text);
+    }
+    chmodSync(join(made.repo, UNREADABLE), setup === "failed" ? 0o000 : 0o600);
   }
 
   /** Hands the daemon a hook's event for a pane, as the hook's own command does: the pane's id on a line and the event's JSON after it, to the socket named from inside its folder. */
@@ -208,7 +261,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element")`, "the work item's view with its terminal");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup")`, "the work item's view with its terminal and its setup");
+      // The "Setup" section stands below the commits and the changes, so the side column scrolls as far as it takes to show it whole.
+      await app.evaluate(`document.querySelector("#view-detail section.setup").scrollIntoView({ block: "nearest", behavior: "instant" })`);
     },
     parked: async () => {
       await app.click(PARKED_LINE);
@@ -250,19 +305,38 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   beforeAll(async () => {
     buildApp();
     made = temporaryRepository();
+    // The ignored files a setup copies, in the main checkout, and the `.gitignore` that ignores them, committed before any work item starts from the branch.
+    writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n*.pem\n");
+    git(made.repo, "add", ".gitignore");
+    git(made.repo, "commit", "--quiet", "-m", "ignore");
+    for (const [path, text] of Object.entries(IGNORED)) {
+      mkdirSync(dirname(join(made.repo, path)), { recursive: true });
+      writeFileSync(join(made.repo, path), text);
+    }
     app = await BuiltApp.start({ SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root });
     // The app starts in the background, and the page of a window without the system's focus draws as one a person has left.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     // A pane that comes to wait or to finish behind another raises a notification, and none of this run reaches the system's.
     await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
-    for (const { title, kind, events } of WORK_ITEMS) {
+    for (const { title, kind, events, setup } of WORK_ITEMS) {
+      // Before the form opens, since the form names the setup its plan read and the creation runs that one alone.
+      nameSetup(setup);
       await openForm(title);
       await app.evaluate(`document.getElementById("work-item-kind").value = ${JSON.stringify(kind)}`);
       await app.click("#work-item-create");
       await app.until(`!document.getElementById("work-item-dialog").open && !document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
       // The events follow the pane's start at once: a Claude Code pane that says nothing for ten seconds is listed as waiting.
-      for (const event of events) feed((await paneOf(title)).id, event);
+      for (const event of events) feed(createdPane(await listed(), title).id, event);
+      if (setup === null) continue;
+      const begun = await setupOf(title);
+      if (begun?.state !== "running" || begun.paneId === null) throw new Error(`the setup of ${title} is not running in a pane: ${JSON.stringify(begun)}`);
+      if (setup === "running") continue;
+      // The setup pane waits for the code its command ends with, on a line.
+      await listed({ type: "input", id: begun.paneId, data: `${SETUP_FAILS_WITH}\n` });
+      for (const deadline = Date.now() + 15_000; (await setupOf(title))?.state !== "failed"; await new Promise((resolve) => setTimeout(resolve, 100))) {
+        if (Date.now() >= deadline) throw new Error(`the setup of ${title} never failed`);
+      }
     }
     await app.until(`document.getElementById("strip-state").classList.contains("waiting")`, `${SHOWN} as the one that needs the person`);
 

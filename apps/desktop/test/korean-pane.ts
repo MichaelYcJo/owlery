@@ -179,6 +179,8 @@ export async function openReceiverPane(app: BuiltApp, repo: string, receivedFile
   await app.cdp("Input.insertText", { text: "Korean input" });
   // The kind's menu is the system's own, which the debugging port does not reach, so the choice is set on the field.
   await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+  // Create creates nothing before the form shows the plan of its folder.
+  await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
   await app.click("#work-item-create");
   try {
     await app.until(`!document.getElementById("work-item-view").hidden && document.querySelectorAll(".xterm-helper-textarea").length === 1`, "the work item's view with one terminal");

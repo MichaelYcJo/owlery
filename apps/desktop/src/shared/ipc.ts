@@ -67,7 +67,7 @@ export interface PathFound {
 export interface OwleryApi {
   /** Finds or starts the daemon and returns how to reach it and whether it is of another build, or why it could not be started. */
   daemon(): Promise<DaemonConnection | DaemonFailure>;
-  /** Opens the native folder dialog and returns the folder chosen, or null where none was. */
+  /** Opens the native folder dialog and returns the folder chosen, or null where none was. An app started in the background opens none and returns null. */
   pickFolder(): Promise<string | null>;
   /** The choice of theme and appearance the main process held when this page loaded: Night watch in the dark appearance at the first run. */
   appearance: LookChoice;

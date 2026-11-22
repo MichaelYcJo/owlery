@@ -201,7 +201,7 @@
   --state-working: #26262a;
   --state-finished: #62605c;
   --state-no-agent: #62605c;
-  --state-failed: #846000;
+  --state-failed: #7f5b00;
   --state-failed-fill: #e9b61a;
   --added: #4f6b2a;
   --removed: #53514d;
@@ -641,7 +641,7 @@
   --state-working: #564d43;
   --state-finished: #655c51;
   --state-no-agent: #655c51;
-  --state-failed: #8f550b;
+  --state-failed: #8b5107;
   --state-failed-fill: var(--state-failed);
   --added: #4f6b2a;
   --removed: #564d43;

@@ -53,6 +53,8 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     await app.cdp("Input.insertText", { text: title });
     // The kind's menu is the system's own, which the debugging port does not reach, so the choice is set on the field.
     await app.evaluate(`document.getElementById("work-item-kind").value = ${JSON.stringify(kind)}`);
+    // Create creates nothing before the form shows the plan of its folder.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     try {
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);

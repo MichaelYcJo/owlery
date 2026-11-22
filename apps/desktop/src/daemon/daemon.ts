@@ -5,18 +5,20 @@ import { basename, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, losesWork, roleStageOf } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withDecision, withQuestion, withReversal, workItemDirectory, writeRecord } from "./decision-record";
+import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { repositoryFileText } from "./repository-file";
+import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, whyNoCommit, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
@@ -28,6 +30,11 @@ function cutText<T extends string | null>(text: T): T | string {
   const last = text.charCodeAt(STATE_TEXT_CHARS - 1);
   // A character outside the basic plane is two of a string's, and the first of the two alone is no character.
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
+}
+
+/** The setup command a creation or a run again carries, the one its client showed the person: none where it carries no text, so no command runs that nobody was shown. */
+function shownCommand(message: { setupCommand?: unknown }): string | null {
+  return typeof message.setupCommand === "string" ? message.setupCommand : null;
 }
 
 /**
@@ -104,6 +111,8 @@ export interface DaemonOptions {
   paneKinds: readonly PaneKindInfo[];
   /** The command of a new pane of that kind, given the pane's id and whether the pane starts on the latest conversation of its folder. */
   commandFor: (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand;
+  /** The command of a setup pane, given the command a repository's `.worktreesetup` holds and the pane's id; `setupPaneCommand` of the daemon's environment when absent. */
+  setupCommandFor?: (command: string, id: number) => PaneCommand;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
   /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, and the times the daemon first read each block of a work item's record at, in `record-times.json`; without it all four are in memory alone. */
@@ -151,6 +160,8 @@ interface Session {
   silentStart: NodeJS.Timeout | undefined;
   /** Settled once the pane's process has exited. */
   exited: Promise<void>;
+  /** Whether the daemon ended the pane's process, at a close, an archive, a removal or a delete. */
+  ended: boolean;
 }
 
 interface HeadlessSession {
@@ -548,6 +559,8 @@ export class Daemon {
             // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
             const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
+            // The included paths are copied before the work item is listed, so no pane of it starts before they stand. The command runs only as the form showed it.
+            const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now, shownCommand(message));
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
@@ -559,6 +572,8 @@ export class Daemon {
             this.commitCounts.set(stored.item.id, 0);
             if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, 0);
             this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
+            // The setup pane starts first, and the answer carries the pane the creation named.
+            this.startSetup(socket, message, stored.item.id, place.worktree, setup);
             const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
@@ -575,7 +590,9 @@ export class Daemon {
           try {
             checkNaming(message);
             const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
-            this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned });
+            // The files are read from the main checkout, as a creation reads them. One that cannot be read names nothing here, and a creation says why.
+            const named = await repositoryOf(message.repo).then(readSetup).catch(() => ({ include: false, command: null }));
+            this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned, setupCommand: named.command, includes: named.include });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -960,6 +977,37 @@ export class Daemon {
         this.changing = this.changing.then(remove);
         return;
       }
+      case "runSetup": {
+        const run = async (): Promise<void> => {
+          try {
+            const { workItemId } = message;
+            if (typeof workItemId !== "number" || typeof message.cols !== "number" || typeof message.rows !== "number") throw new Error("a run of the setup names a work item and the size of its pane");
+            // Nothing runs in a work item the daemon does not list, nor in an archived one, nor in one being deleted.
+            if (this.worktreeFor(socket, message.requestId, workItemId) === undefined) return;
+            const held = this.store.workItem(workItemId);
+            if (!held) throw new Error(`no work item ${String(workItemId)}`);
+            const earlier = held.item.setup;
+            if (earlier?.state === "running") throw new Error(`The setup of work item ${String(workItemId)} is still running.`);
+            const setup = await beginSetup(held.repository.folder, held.item.worktree, this.options.now ?? Date.now, shownCommand(message));
+            if (setup === null) throw new Error(`${held.repository.folder} names no setup: it holds neither ${INCLUDE_FILE} nor ${SETUP_FILE}.`);
+            // An archive or a delete may have begun during the copy, and no pane starts in either.
+            if (this.worktreeFor(socket, message.requestId, workItemId) === undefined) return;
+            // The earlier setup pane, which has exited, leaves the lists, and the record names the new one.
+            const before = earlier?.paneId ?? null;
+            if (before !== null && this.sessions.get(before)?.info.alive === false) this.sessions.delete(before);
+            const recorded = this.startSetup(socket, message, workItemId, held.item.worktree, setup);
+            const pane = recorded?.paneId === null || recorded?.paneId === undefined ? undefined : this.sessions.get(recorded.paneId);
+            // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
+            this.send(socket, pane ? { type: "started", requestId: message.requestId, session: pane.info } : { type: "done", requestId: message.requestId });
+            this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // It copies into a worktree, so it waits behind the creations and the deletes, and no delete removes the folder meanwhile.
+        this.changing = this.changing.then(run);
+        return;
+      }
       case "attach": {
         const session = this.sessions.get(message.id);
         if (!session) return;
@@ -983,6 +1031,7 @@ export class Daemon {
         // Off the lists first, so the process's end is told to nobody as a session's.
         this.sessions.delete(message.id);
         clearTimeout(session.silentStart);
+        session.ended = true;
         if (session.info.alive) session.terminal.kill();
         this.broadcastInbox();
         this.checkIdle();
@@ -1197,7 +1246,10 @@ export class Daemon {
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
     const stops = headless.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
-    for (const session of panes) session.terminal.kill();
+    for (const session of panes) {
+      session.ended = true;
+      session.terminal.kill();
+    }
     let waitTimer: NodeJS.Timeout | undefined;
     const waited = new Promise<void>((resolve) => {
       waitTimer = setTimeout(resolve, this.options.endWaitMs ?? END_WAIT_MS);
@@ -1296,10 +1348,10 @@ export class Daemon {
     this.checkIdle();
   }
 
-  /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. */
-  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false): SessionInfo {
+  /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. `commandOf` gives the command of a pane that runs another than its kind's, as a setup pane does. */
+  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false, commandOf?: (id: number) => PaneCommand): SessionInfo {
     const id = this.nextId++;
-    const { command, args, env } = this.options.commandFor(pane.kind, id, { continueLatest });
+    const { command, args, env } = commandOf ? commandOf(id) : this.options.commandFor(pane.kind, id, { continueLatest });
     const terminal = TerminalSession.spawn({
       command,
       args,
@@ -1317,6 +1369,7 @@ export class Daemon {
       exited: new Promise<void>((resolve) => {
         exited = resolve;
       }),
+      ended: false,
     };
     this.sessions.set(id, session);
     if (this.reportsState(pane.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
@@ -1326,8 +1379,10 @@ export class Daemon {
       this.sendOutput(id, data);
     };
     terminal.onData(print);
-    terminal.onExit((exitCode) => {
+    terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
+      // A setup ends with its pane's process, whether or not the pane is still listed.
+      const setupEnded = this.setupExited(workItemId, id, exitCode, signal, session.ended);
       exited();
       clearTimeout(session.silentStart);
       // A closed pane is on no list, and its end is no client's news.
@@ -1336,12 +1391,59 @@ export class Daemon {
         print(`\r\n[process exited with code ${exitCode}]\r\n`);
         this.broadcast({ type: "exit", id, exitCode });
         this.broadcastInbox();
-      }
+      } else if (setupEnded) this.broadcastInbox();
       this.checkIdle();
     });
     this.clients.get(socket)?.add(id);
     this.checkIdle();
     return session.info;
+  }
+
+  /**
+   * Starts the pane of a setup that runs a command, in the work item's
+   * worktree, of the kind `shell` and at the size the request gives, with the
+   * command `setupCommandFor` gives, and records the setup with its pane.
+   * The client that asked receives the pane's output. Where the pane cannot
+   * start, the setup has failed and says why. A setup that has ended already,
+   * by its copy or because its command was not the one shown, and none at
+   * all, are recorded as they are.
+   */
+  private startSetup(socket: WebSocket, size: { cols: number; rows: number }, workItemId: number, cwd: string, setup: WorktreeSetup | null): WorktreeSetup | null {
+    let recorded = setup;
+    const { command } = setup ?? { command: null };
+    if (setup?.state === "running" && command !== null) {
+      const commandFor = this.options.setupCommandFor ?? ((text: string, id: number) => setupPaneCommand(process.env, text, id));
+      try {
+        const info = this.startSession(socket, { kind: "shell", cols: size.cols, rows: size.rows }, cwd, workItemId, false, (id) => commandFor(command, id));
+        recorded = { ...setup, paneId: info.id };
+      } catch (error) {
+        recorded = endedSetup(setup, { exitCode: null, failure: `The setup pane could not start: ${error instanceof Error ? error.message : String(error)}` }, (this.options.now ?? Date.now)());
+      }
+    }
+    this.store.setWorkItem(workItemId, { setup: recorded });
+    return recorded;
+  }
+
+  /**
+   * Ends the setup of a work item at the exit of its pane's process, where
+   * the setup runs and names that pane, whether or not the pane is still
+   * listed: it failed where the daemon ended the pane, and where a signal
+   * ended its process, whose exit code then reads 0. A daemon that is
+   * closing records nothing, so the next daemon reads the setup as one it
+   * stopped. It answers whether it ended one. The store holds the end
+   * whether or not its file was written: a pane's exit has no request to
+   * answer with the error.
+   */
+  private setupExited(workItemId: number, paneId: number, exitCode: number, signal: number, ended: boolean): boolean {
+    if (this.closed) return false;
+    const setup = this.store.workItem(workItemId)?.item.setup;
+    if (!setup || setup.state !== "running" || setup.paneId !== paneId) return false;
+    try {
+      this.store.setWorkItem(workItemId, { setup: endedSetup(setup, { exitCode, failure: ended ? PANE_ENDED : signal !== 0 ? signalEnded(signal) : null }, (this.options.now ?? Date.now)()) });
+    } catch (error) {
+      console.error(`the end of a setup was not written: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return true;
   }
 
   /**

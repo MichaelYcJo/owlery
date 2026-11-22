@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { Decision, Look, Question, SessionInfo, Unread, WorkItem } from "../src/shared/protocol";
+import type { Decision, Look, Question, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -26,6 +26,7 @@ const QUESTIONS: Question[] = [
   { id: 7, asks: "May the session push?", grounds: "A push needs an approval.", by: null, options: [], default: null, answer: "Yes.", since: null },
 ];
 const UNREAD: Unread[] = [{ line: 40, why: "an empty `seal` block" }];
+const SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -48,6 +49,7 @@ const WORK_ITEM: WorkItem = {
   decisions: [DECISION, REVERSED],
   questions: QUESTIONS,
   unread: UNREAD,
+  setup: SETUP,
 };
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
@@ -89,6 +91,8 @@ describe("LastLook", () => {
     workItem.questions.pop();
     workItem.unread[0]!.why = "changed";
     workItem.unread.pop();
+    workItem.setup!.copied.pop();
+    workItem.setup!.failedCopies[0]!.why = "gone";
     sessions.push({ ...SESSION, id: 5 });
     expect(look.get()).toEqual(LOOK);
   });
@@ -129,6 +133,7 @@ describe("LastLook", () => {
       decisions: [{ ...DECISION, model: "x" }, { ...REVERSED, at: 1160 }],
       questions: QUESTIONS.map((question) => ({ ...question, kind: "choice", options: question.options.map((option) => ({ ...option, note: "x" })) })),
       unread: UNREAD.map((unread) => ({ ...unread, block: 39 })),
+      setup: { ...SETUP, shell: "/bin/zsh", failedCopies: SETUP.failedCopies.map((entry) => ({ ...entry, code: "EACCES" })) },
     };
     writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, by: "a window", sessions: [{ ...SESSION, pid: 7 }], workItems: [workItem] }));
     expect(new LastLook(dir).get()).toEqual(LOOK);
@@ -167,7 +172,7 @@ describe("LastLook", () => {
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, repoName: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, baseBranch: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, aheadOfBase: "2" }] }))).toBeNull();
-    for (const field of [{ repoId: "1" }, { repoId: null }, { pinned: "yes" }, { pinned: null }, { muted: 1 }, { muted: null }, { groupId: "2" }, { archivedAt: "9" }]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, ...field }] }))).toBeNull();
+    for (const field of [{ repoId: "1" }, { repoId: null }, { pinned: "yes" }, { pinned: null }, { muted: 1 }, { muted: null }, { groupId: "2" }, { archivedAt: "9" }, { setup: "running" }, { setup: { ...SETUP, state: "done" } }, { setup: { ...SETUP, copied: [1] } }, { setup: { ...SETUP, failedCopies: [{ why: "x" }] } }, { setup: { ...SETUP, startedAt: undefined } }]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, ...field }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: "none" }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: [null] }] }))).toBeNull();
     for (const commit of [{ hash: 7 }, { subject: 7 }, { at: "1100" }, { added: "3" }, { removed: "1" }]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: [{ ...COMMIT, ...commit }] }] }))).toBeNull();
@@ -240,6 +245,13 @@ describe("LastLook", () => {
     const held = [[[DECISION, REVERSED], QUESTIONS, UNREAD], [[], [], []]];
     expect(JSON.parse(readFileSync(file, "utf8")).workItems.map((item: WorkItem) => [item.decisions, item.questions, item.unread])).toEqual(held);
     expect(new LastLook(dir).get()?.workItems.map((item) => [item.decisions, item.questions, item.unread])).toEqual(held);
+  });
+
+  it("reads a look a build before the setup wrote, whose work items lack it, with none", () => {
+    const dir = runDir();
+    const { setup: _setup, ...before } = WORK_ITEM;
+    writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, workItems: [before] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, setup: null }] });
   });
 
   it("holds the look it was given though the file cannot be written, and says that it was not", () => {

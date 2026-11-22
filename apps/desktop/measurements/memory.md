@@ -34,7 +34,7 @@ OWLERY_BACKGROUND=1 OWLERY_MEMORY_SCENARIOS=inbox,one,eight-in-turn,inbox-after-
 
 ## The kind of start
 
-Every run here is an agent's. The app starts under `OWLERY_BACKGROUND=1`, and the measurement tells the page that it has the focus, because a page without it may draw nothing. Such a start lacks four things a person's start has: the Dock icon, the menu bar, the system's focus on the window, and the system's pointer, which passes through the window to what is under it.
+Every run here is an agent's. The app starts under `OWLERY_BACKGROUND=1`, and the measurement tells the page that it has the focus, because a page without it may draw nothing. Such a start lacks five things a person's start has: the Dock icon, the menu bar, the system's focus on the window, the system's pointer, which passes through the window to what is under it, and the window on the screen, which is drawn at opacity 0.
 
 A person's run leaves the variable unset and keeps the window in front for the whole run, with nothing typed:
 

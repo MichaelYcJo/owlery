@@ -6,9 +6,10 @@
 /**
  * True where the app starts in the background: `OWLERY_BACKGROUND` is `1` in
  * the environment. The app then takes neither the system's focus nor, on
- * macOS, a place in the Dock, and its window opens without the keyboard and
- * lets the system's pointer through (`showInBackground`). Absent, empty or
- * any other value, the app starts as it ships.
+ * macOS, a place in the Dock, and its window opens without the keyboard,
+ * lets the system's pointer through and draws nothing on the screen
+ * (`showInBackground`). Absent, empty or any other value, the app starts as
+ * it ships.
  */
 export function startsInBackground(env: NodeJS.ProcessEnv): boolean {
   return env.OWLERY_BACKGROUND === "1";
@@ -16,16 +17,22 @@ export function startsInBackground(env: NodeJS.ProcessEnv): boolean {
 
 /**
  * Shows the window of an app started in the background: it lets the
- * system's pointer through to what is under it, and then shows below the
- * window in front, without the keyboard. The system routes the pointer of
- * the person at the machine to the windows under this one, so none of their
- * clicks lands in it. Their pointer passing over the window then moves no
- * pointer in the page either, and a case's pointer, which the debugging port
- * moves, stays where the case put it (#117). The debugging port's input
- * reaches the page as before.
+ * system's pointer through to what is under it, turns fully transparent, and
+ * then shows below the window in front, without the keyboard. The system
+ * routes the pointer of the person at the machine to the windows under this
+ * one, so none of their clicks lands in it. Their pointer passing over the
+ * window then moves no pointer in the page either, and a case's pointer,
+ * which the debugging port moves, stays where the case put it (#117). At
+ * opacity 0 the screen shows nothing of the window, so a test's or an
+ * agent's run draws nothing over the windows of the person at the machine
+ * (#148). Its page stays visible and draws its frames under the windows over
+ * it, where at full opacity it was hidden and drew none (measured for #148),
+ * so the debugging port's input, its reads and its captures of the page
+ * reach it as before.
  */
-export function showInBackground(win: { setIgnoreMouseEvents(ignore: boolean): void; showInactive(): void }): void {
+export function showInBackground(win: { setIgnoreMouseEvents(ignore: boolean): void; setOpacity(opacity: number): void; showInactive(): void }): void {
   win.setIgnoreMouseEvents(true);
+  win.setOpacity(0);
   win.showInactive();
 }
 
