@@ -1,0 +1,9 @@
+# Changelog: the built app's timed cases hold without a retry
+
+Issue #117. Three cases of the desktop suite that start the built app failed on some runs. Two failed on GitHub's macOS runner: the Open in submenu's pointer case and the case that opens a work item from its worktree's link. The third, the link card case, failed on the owner's Mac. The runner retried a failed case once, so the first two did not turn a pull request red on their own.
+
+- **A window started with `OWLERY_BACKGROUND=1` lets your pointer through.** Such a start is a test's or an agent's. Its window stood in the middle of your screen and took your mouse: a click of yours landed in it, and a move of yours over it reached its page and took a test's pointer off a link. The window now ignores the system's mouse, so your pointer reaches the windows under it. The test or agent drives the window through Electron's debugging port, as before.
+- **The submenu's pointer case no longer races its 300 ms pause.** The pointer's way from the submenu across the menu's next item and back reaches the page in one of its tasks. The case still fails where the pause is removed or shortened.
+- **The cases that point at a pane's link wait until the pane's text is drawn.** The terminal looks for the links of a row once, as the pointer comes onto it. A pane's output, or the replay of a pane whose view has just come in front, could arrive after the case's pointer. The pointer now comes again until the link shows.
+- **The link card case times the card's pauses by the page's clock.** It no longer reads the card in the moment before a pause runs out.
+- **The runner retries no case.** `apps/desktop/vitest.config.ts` no longer runs a failed case a second time where `CI` is set, so a case that fails once on the runner fails the run.
