@@ -831,3 +831,27 @@ export async function removeBranch(repo: string, branch: string): Promise<void> 
   if (!(await branchExists(repo, branch))) return;
   await git(repo, ["branch", "-D", "--", branch]);
 }
+
+/**
+ * Commits one file of a worktree and nothing else, on the branch the worktree
+ * stands on: `git add` of that path, then a `git commit` that names that
+ * path, with the subject and the trailer as its two paragraphs. Git runs
+ * with the person's identity and the repository's hooks, as #40's setup
+ * commits: no option skips a hook or a signature, and nothing is pushed.
+ * What else is staged stays staged and is not committed, and what else is
+ * changed stays changed. Where either command fails it throws git's words, a
+ * hook's output among them, and where the commit failed the path is first
+ * taken out of the index again, so the file stands written and not staged.
+ */
+export async function commitAlone(worktree: string, path: string, subject: string, trailer: string): Promise<void> {
+  const run = (args: string[]): Promise<{ failed: boolean; said: string }> =>
+    new Promise((resolve) => {
+      execFile("git", args, { cwd: worktree, encoding: "utf8" }, (error, stdout, stderr) => resolve({ failed: error !== null, said: `${stderr}${stdout}`.trim() || (error?.message ?? "") }));
+    });
+  const added = await run(["add", "--", path]);
+  if (added.failed) throw new Error(added.said);
+  const committed = await run(["commit", "-m", subject, "-m", trailer, "--", path]);
+  if (!committed.failed) return;
+  await run(["reset", "--quiet", "--", path]);
+  throw new Error(committed.said);
+}

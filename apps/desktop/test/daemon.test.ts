@@ -474,11 +474,12 @@ describe("work items", () => {
     expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
     expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
     expect(Object.keys(created.workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
-    // A commit, so that the lists carry one and a changed file.
+    // The daemon commits the reversal, so the lists carry a commit and a changed file. The case's own commit waits for it, since two commits of one worktree do not run at once.
+    await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
     writeFileSync(join(created.workItem.worktree, "one.txt"), "one\n");
     git(created.workItem.worktree, "add", "one.txt");
     git(created.workItem.worktree, "commit", "--quiet", "-m", "add one");
-    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
+    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 2);
     // A look, so that `ready` carries one; the `attach` after it is answered once the daemon has handled both.
     c.send({ type: "looked" });
     c.send({ type: "attach", id: created.session.id });
@@ -3713,6 +3714,115 @@ describe("the questions a work item is parked with", () => {
     c.send({ type: "restoreWorkItem", requestId: 3, id: archived.id });
     const restored = await c.message("inbox");
     expect([restored.archived, restored.workItems.map(({ decisions }) => decisions.map(({ id, since }) => [id, since]))]).toEqual([[], [[[3, 9]]]]);
+  });
+});
+
+describe("the commit of a person's word", () => {
+  const DEFAULT = { kind: "default", says: "Start from main.", grounds: "The default base." } as const;
+  const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";
+  /** How many commits the worktree's branch holds. */
+  const commitsIn = (worktree: string): number => Number(git(worktree, "rev-list", "--count", "HEAD"));
+  /** The newest commit of the worktree's branch: its subject, the rest of its message, who wrote and who committed it, and the paths it changed. */
+  const newest = (worktree: string) => ({
+    subject: git(worktree, "log", "-1", "--format=%s").trim(),
+    body: git(worktree, "log", "-1", "--format=%b").trim(),
+    by: git(worktree, "log", "-1", "--format=%an <%ae>, %cn <%ce>").trim(),
+    paths: git(worktree, "show", "--name-only", "--format=", "HEAD").trim().split("\n"),
+  });
+  /** What git says of the worktree's changes, a line for each path. */
+  const status = (worktree: string): string[] => git(worktree, "status", "--porcelain", "--untracked-files=all").split("\n").filter((line) => line !== "").sort();
+
+  it("commits a reversal where no session of the work item is working: one new commit whose only path is `decisions.md`, under the person's identity, with the subject that names the decision and the trailer that names the work item's directory, and a change staged beside it and one not staged stand as they stood; an `answerQuestions` gives a commit of its own, which the daemon's close waits for", async () => {
+    const { d, c, workItems } = await withWorkItems(["Reversed"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795330500-reversed");
+    const record = "seal/threads/1795330500-reversed/decisions.md";
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May the session push?", grounds: "A push needs the person's approval." }] });
+    writeFileSync(join(a.worktree, "staged.txt"), "staged\n");
+    git(a.worktree, "add", "staged.txt");
+    writeFileSync(join(a.worktree, "README.md"), "changed and not staged\n");
+    const stood = status(a.worktree);
+    expect(stood).toEqual([" M README.md", "?? seal/README.md", `?? ${record}`, "?? seal/threads/1795330500-reversed/routing.md", "A  staged.txt"]);
+    expect(commitsIn(a.worktree)).toBe(1);
+
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "기본값 말고 main에서 시작해 주세요" });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's reversal of decision 1", body: "Seal-Routing: 1795330500-reversed", by: WHO, paths: [record] });
+    expect(git(a.worktree, "show", `HEAD:${record}`)).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "기본값 말고 main에서 시작해 주세요" });
+    // The record is committed and nothing else moved: the staged file is still staged and not committed, and the other change is still not staged.
+    const left = stood.filter((line) => line !== `?? ${record}`);
+    expect(status(a.worktree)).toEqual(left);
+
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "Yes, push." }] });
+    await c.message("done", (m) => m.requestId === 2);
+    // No wait but the close's: the commit under way has ended when the close has.
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(3);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's answers", body: "Seal-Routing: 1795330500-reversed", by: WHO, paths: [record] });
+    expect(git(a.worktree, "show", `HEAD:${record}`)).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(status(a.worktree)).toEqual(left);
+  });
+
+  it("leaves the record written and not committed while a headless session of the work item is working, and while a pane of it is: the other work item's word is committed meanwhile, and the first commit made once nothing works carries what was left", async () => {
+    const { d, c, workItems } = await withWorkItems(["Worked in", "Quiet"], { roleAdapter: fakeAdapter({ delayMs: 400 }) });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    for (const says of ["One.", "Two.", "Three."]) d.decided(a.id, { ...DEFAULT, says });
+    d.decided(b.id, DEFAULT);
+    const reverse = async (requestId: number, workItemId: number, decisionId: number): Promise<void> => {
+      c.send({ type: "reverseDecision", requestId, workItemId, decisionId, message: `Not ${String(decisionId)}.` });
+      await c.message("done", (m) => m.requestId === requestId);
+    };
+
+    // A headless session works in the first work item, and none in the second.
+    c.send({ type: "ask", requestId: 1, workItemId: a.id, prompt: "Quick?" });
+    await c.message("asked", (m) => m.requestId === 1);
+    await reverse(2, a.id, 1);
+    await reverse(3, b.id, 1);
+    await c.until(() => (commitsIn(b.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(b.worktree).subject).toBe("chore: record the person's reversal of decision 1");
+    await c.message("headless", (m) => m.headless.state === "finished");
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "Not 1." });
+
+    // A pane of the first work item says it is working.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: a.id });
+    const { session } = await c.message("started", (m) => m.requestId === 4);
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await reverse(5, a.id, 2);
+    d.agentEvent(session.id, "Stop", {});
+    // Nothing works now. The commits of one worktree run one after another, so this one is made after the daemon left the second reversal.
+    await reverse(6, a.id, 3);
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 3");
+    const committed = readDecisionRecord(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md"));
+    expect(committed.decisions.map(({ state }) => state)).toEqual([1, 2, 3].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+    expect(recordIn(directory)).toEqual(committed);
+  });
+
+  it("answers `done` and keeps the record written where the commit fails: a `pre-commit` hook that exits 1 leaves the branch with no new commit and the record not staged, and the log holds git's words, the hook's among them", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Hooked"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    // A worktree runs the hooks of its repository.
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'the hook says no' >&2\nexit 1\n", { mode: 0o755 });
+    const said = logged();
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    const stood = status(a.worktree);
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (said.length > 0 ? true : undefined), 3000);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^the person's word was not committed: /);
+    expect(said[0]).toContain("the hook says no");
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+    expect(status(a.worktree)).toEqual(stood);
   });
 });
 

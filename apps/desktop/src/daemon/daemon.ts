@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
@@ -16,7 +16,7 @@ import { LastLook } from "./last-look";
 import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
-import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
+import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
 const STATE_TEXT_CHARS = 2000;
@@ -197,6 +197,8 @@ export class Daemon {
   private readonly commitCounts = new Map<number, number | null>();
   // How many commits each work item's branch was last read to hold that its base branch does not, by the work item's id.
   private readonly aheadCounts = new Map<number, number | null>();
+  // The commits of a person's word that are under way or wait, by the worktree each is made in: the last of them, which ends once every one before it has. Two commits of one worktree never run git at once.
+  private readonly wordCommits = new Map<string, Promise<void>>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
   /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
@@ -446,7 +448,8 @@ export class Daemon {
     this.hold?.release();
     this.hold = undefined;
     for (const client of this.clients.keys()) client.terminate();
-    await Promise.all([new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve())), ...stops]);
+    // A commit of a person's word that is under way is waited for, so the close leaves no git at work in a worktree.
+    await Promise.all([new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve())), ...stops, ...this.wordCommits.values()]);
   }
 
   private accept(socket: WebSocket): void {
@@ -760,7 +763,7 @@ export class Daemon {
           const said = cutText(typed.trim());
           if (said === "") throw new Error("Say why the decision is reversed.");
           // The writer refuses an id the record holds no decision of and a decision that does not stand `decided`, in its own words.
-          this.personWrote(workItemId, (text) => withReversal(text, decisionId, said));
+          this.personWrote(workItemId, `chore: record the person's reversal of decision ${String(decisionId)}`, (text) => withReversal(text, decisionId, said));
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the reversal.
           this.send(socket, { type: "done", requestId: message.requestId });
           this.broadcastInbox();
@@ -774,7 +777,7 @@ export class Daemon {
           const { workItemId, answers } = message as { workItemId: unknown; answers: unknown };
           const given = Array.isArray(answers) ? (answers as unknown[]).map((answer) => (typeof answer === "object" && answer !== null ? answer : {}) as { questionId?: unknown; answer?: unknown }) : undefined;
           if (typeof workItemId !== "number" || !given || !given.every((answer) => typeof answer.questionId === "number" && typeof answer.answer === "string")) throw new Error("an answer names a work item and gives an answer to each of its open questions");
-          this.personWrote(workItemId, (text) => {
+          this.personWrote(workItemId, "chore: record the person's answers", (text) => {
             // The open questions are read from the text the write is applied to, so the answers are held against the record as it stands at the write.
             const open = readDecisionRecord(text).questions.filter((question) => question.state.is === "open");
             if (open.length === 0) throw new Error(`Work item ${String(workItemId)} waits for no answer.`);
@@ -1415,12 +1418,13 @@ export class Daemon {
 
   /**
    * Writes a person's word, a reversal or their answers, into the record of
-   * a work item, through the record's writer, and reads the record again for
-   * the lists. It throws, with the file as it stood, for a work item the
-   * daemon does not keep, one whose worktree holds no directory of its own,
-   * and whatever the change or the writer throws.
+   * a work item, through the record's writer, reads the record again for
+   * the lists, and has the record committed under the subject given
+   * (`commitWord`). It throws, with the file as it stood and no commit, for
+   * a work item the daemon does not keep, one whose worktree holds no
+   * directory of its own, and whatever the change or the writer throws.
    */
-  private personWrote(workItemId: number, change: (text: string) => string): void {
+  private personWrote(workItemId: number, subject: string, change: (text: string) => string): void {
     const held = this.store.workItem(workItemId);
     if (!held) throw new Error(`no work item ${String(workItemId)}`);
     const directory = workItemDirectory(held.item.worktree, held.item.branch);
@@ -1428,6 +1432,39 @@ export class Daemon {
     writeRecord(directory, change);
     this.readRecord(held);
     this.flushTimes();
+    this.commitWord(held, directory, subject);
+  }
+
+  /**
+   * Commits a work item's record, and that file alone, in the work item's
+   * worktree, after a person's word was written into it: with the subject
+   * given and the trailer `Seal-Routing:` that names the work item's
+   * directory, which the pull request check reads. It returns at once, and
+   * the commit is made after every earlier one of the same worktree has
+   * ended. Where a pane of the work item says it is working, or a headless
+   * session of it is working, when the commit's turn comes, nothing is
+   * committed: the file stands written, and the session's own commit, or the
+   * next commit made here, carries it. A commit that fails leaves the file
+   * written and says git's words in the log. `Daemon#decided` and
+   * `Daemon#park` do not come here: the stage that calls them commits the
+   * record with its own commit.
+   */
+  private commitWord(held: Held, directory: string, subject: string): void {
+    const { id, worktree } = held.item;
+    const commit = async (): Promise<void> => {
+      const working = [...this.sessions.values()].some(({ info }) => info.alive && info.workItemId === id && info.state === "working") || [...this.headless.values()].some(({ info }) => info.workItemId === id && info.state === "working");
+      if (working) return;
+      try {
+        await commitAlone(worktree, relative(worktree, join(directory, RECORD_FILE)), subject, `Seal-Routing: ${basename(directory)}`);
+      } catch (error) {
+        console.error(`the person's word was not committed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    const last = (this.wordCommits.get(worktree) ?? Promise.resolve()).then(commit);
+    this.wordCommits.set(worktree, last);
+    void last.then(() => {
+      if (this.wordCommits.get(worktree) === last) this.wordCommits.delete(worktree);
+    });
   }
 
   /** Sends every client the whole of the four lists, after one of them changed. */

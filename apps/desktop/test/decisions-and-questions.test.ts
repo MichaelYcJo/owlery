@@ -124,7 +124,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     made?.remove();
   }, 30_000);
 
-  it("opens on the summary with the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, and draws no section for a question the look holds as answered", async () => {
+  it("opens on the summary with the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, draws no section for a question the look holds as answered, and commits each word as a commit of the record alone", async () => {
     // The look holds two of the first work item's three decisions and no question of the second, so one decision is new and the parked work item changed.
     await app.until(`document.getElementById("summary-screen").hidden === false`, "the summary");
     expect(await text("#summary-sentence")).toBe("1 needs you. 1 decision made without asking.");
@@ -220,5 +220,16 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     expect(await text("#inbox-summary")).toBe("");
     expect(await text(`#inbox-lines button[data-work-item="2"] .second .says`)).not.toContain("Which base");
     expect(await text(`#inbox-lines button[data-work-item="1"] .second .decided`)).toBe("1 decision without asking, 1 reversed");
+
+    // No session works in either work item, so the daemon committed each word: one commit on the work item's branch, of the record alone, with the trailer that names the work item's directory.
+    for (const [name, subject] of [["alpha", "chore: record the person's reversal of decision 1"], ["beta", "chore: record the person's answers"]] as const) {
+      const worktree = join(made.root, name);
+      const newest = (): string => git(worktree, "log", "-1", "--format=%s%n%b").trim();
+      // The commit is made after the daemon's `done`, so the case waits for it.
+      for (let waits = 0; waits < 50 && newest().split("\n")[0] !== subject; waits++) await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(newest()).toBe(`${subject}\nSeal-Routing: 1-${name}`);
+      expect(git(worktree, "show", "--name-only", "--format=", "HEAD").trim()).toBe(`seal/threads/1-${name}/${RECORD_FILE}`);
+      expect(git(worktree, "rev-list", "--count", "HEAD").trim()).toBe("2");
+    }
   });
 });
