@@ -613,6 +613,54 @@ describe("the Claude adapter's role launch", () => {
   });
 });
 
+describe("the output stream of a role launch, as one real run of Claude Code 2.1.330 printed it", () => {
+  // The proofer at a round, asked three questions on 2026-11-22 through `pnpm run role:run`; each id and each path of the machine is replaced.
+  const fixture = join(__dirname, "fixtures", "claude-role-stream.jsonl");
+  const lines = readFileSync(fixture, "utf8").split("\n").slice(0, -1);
+
+  it("opens with an init line that lists the bundle as a plugin of the session and its three agents by the plugin's name", () => {
+    const init = JSON.parse(lines[0]!) as { type: string; subtype: string; claude_code_version: string; agents: string[]; plugins: { name: string; source: string }[]; plugin_errors?: unknown };
+    expect([init.type, init.subtype, init.claude_code_version]).toEqual(["system", "init", "2.1.330"]);
+    expect(init.agents.filter((agent) => agent.startsWith("owlery:"))).toEqual(["owlery:crafter", "owlery:proofer", "owlery:sealer"]);
+    expect(init.plugins).toContainEqual(expect.objectContaining({ name: "owlery", source: "owlery@inline" }));
+    expect(init.plugin_errors ?? []).toEqual([]);
+  });
+
+  it("passes the check of the role it was launched as, and of no role the bundle does not hold", () => {
+    for (const pair of ROLE_STAGES) expect(roleCheck(lines[0]!, agentOf(pair)), pair.role).toEqual({ seen: true, failure: null });
+    expect(roleCheck(lines[0]!, "owlery:framer")).toEqual({ seen: true, failure: "the session does not hold the agent owlery:framer" });
+    expect(roleCheck(lines[0]!, "proofer")).toEqual({ seen: true, failure: "the session does not hold the agent proofer" });
+  });
+
+  it("gives the answer, which states a fact of the definition, one of the appended rules and the first line of a bundle file the session read", () => {
+    const events = lines.flatMap(eventsForLine);
+    const last = events.at(-1);
+    expect(last).toMatchObject({ type: "result", isError: false, costUsd: expect.any(Number) });
+    const answer = last?.type === "result" ? last.text : "";
+    for (const fact of ["round-<n>/clone", "8, 16 and 20", "# Review round <N>"]) expect(answer, fact).toContain(fact);
+    // The one tool the session used is the read of the bundle's file, in the folder the launch added.
+    const used = lines.flatMap((line) => ((JSON.parse(line) as { message?: { content?: { type: string; name?: string; input?: { file_path?: string } }[] } }).message?.content ?? []).filter((block) => block.type === "tool_use"));
+    expect(used.map((block) => [block.name, block.input?.file_path])).toEqual([["Read", "/app/dist/bundle/templates/records/sdd-round.md"]]);
+  });
+
+  it("goes on as a role launch's run: the adapter reports its text and its result, and fails nothing", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", `cat > /dev/null\ncat '${fixture}'`);
+    const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      claudeAdapter({ SHELL: shell, HOME: folder }, { bundleDir: scratchBundle(folder), rulesDir: join(folder, "roles") })
+        .start({ prompt: "Q", cwd: folder, role: { role: "proofer", stage: "round" } }, (event) => {
+          events.push(event);
+          if (event.type === "exit") resolve();
+        })
+        .catch(reject);
+    });
+    expect(events).toEqual([...lines.flatMap(eventsForLine), { type: "exit", exitCode: 0, errorOutput: "" }]);
+    expect(events.at(-2)).toMatchObject({ type: "result", isError: false });
+  });
+});
+
 describe("the output stream of a run with no login, as Claude Code 2.1.330 printed it", () => {
   const lines = readFileSync(join(__dirname, "fixtures", "claude-not-logged-in.jsonl"), "utf8").split("\n").slice(0, -1);
 
