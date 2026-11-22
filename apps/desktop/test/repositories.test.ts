@@ -299,7 +299,8 @@ describe("RepositoryStore", () => {
     const repository = { id: 3, folder: "/r/project", name: "The project", icon: "P", defaultBase: "origin/main", hidden: true, addedAt: 5, groups: [{ id: 2, name: "Later" }], workItems: [item] };
     const carried = { ...SETUP, extra: 1, failedCopies: [{ ...SETUP.failedCopies[0], code: "EACCES" }] };
     writeFileSync(join(dir, "repositories.json"), JSON.stringify([{ ...repository, note: "x", groups: [{ id: 2, name: "Later", colour: "red" }], workItems: [{ ...item, repo: "/r/project", setup: carried }] }]));
-    expect(new RepositoryStore(dir).repositories()).toEqual([repository]);
+    // A setup is read naming no pane, as every setup at a daemon's start is.
+    expect(new RepositoryStore(dir).repositories()).toEqual([{ ...repository, workItems: [{ ...item, setup: { ...SETUP, paneId: null } }] }]);
   });
 
   it("starts empty where the file is not a list of repositories, and does not read work-items.json in its place", () => {
