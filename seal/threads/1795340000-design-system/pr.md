@@ -13,7 +13,7 @@ The window had two looks, Night desk and Letter, and no document said how a part
 
 **The window names the state of a wait "Needs you"** wherever it names it (the inbox's group and head, a view, the summary, the bell, a notification), and a work item with no agent "Asleep". **A state's mark is the theme's own, and none is a speech bubble.**
 
-**Every word of the window can be read where it rests, in every theme**: 4.5:1 or more against the ground it is drawn on, at rest, under the pointer and on a selected line, and a state's mark and the keyboard's focus ring 3:1 or more, held by cases of the suite. The muted and faint inks of every theme, Desk's among them, and the state colours that fell short were raised for it. Three things are outside that floor: the ground drawn only while a part is pressed, the menu's item under the keyboard, and the edges of fields and buttons.
+**Every word of the window can be read where it rests, in every theme**: 4.5:1 or more against the ground it is drawn on, at rest, under the pointer and on a selected line, and a state's mark and the keyboard's focus ring 3:1 or more, held by cases of the suite. The muted and faint inks of every theme, Desk's among them, and the state colours that fell short were raised for it. Four things are outside that floor: a disabled button, which the window draws at 45% of its strength ("Ask" while its field is empty), the ground drawn only while a part is pressed, the menu's item under the keyboard, and the edges of fields and buttons.
 
 **`docs/product.md` now lets a theme change the form of edges, rules and marks**, and never the layout, the words, the seal's drawing or the wax's red.
 

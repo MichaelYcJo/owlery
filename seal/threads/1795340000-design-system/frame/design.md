@@ -90,7 +90,7 @@ Each mock-up is `images/mock.html` drawn by a headless Chrome, with the layout's
 - **Red on the seal alone, and a failure that is not red.**
 - **No speech mark.** No theme draws a wait as a chat bubble.
 - **A dark and a light appearance.**
-- **Contrast.** Words stand at 4.5 to 1 or more against the ground under them, and at 3 to 1 where they are 24px or more, or 18.66px or more in a bold weight. A state's mark and the ring of the keyboard's focus stand at 3 to 1 or more against the ground around them. A value that falls under a floor is raised in every theme, Desk's among them. Two things stand outside the floors: a ground drawn only while a part is pressed, which lasts as long as the press and the part's words were read before it, and a disabled part, drawn at 45% of its strength.
+- **Contrast.** Words stand at 4.5 to 1 or more against the ground under them, and at 3 to 1 where they are 24px or more, or 18.66px or more in a bold weight. A state's mark and the ring of the keyboard's focus stand at 3 to 1 or more against the ground around them. A value that falls under a floor is raised in every theme, Desk's among them. Two things stand outside the floors: a ground drawn only while a part is pressed, which lasts as long as the press and the part's words were read before it, and a disabled button, which the window draws at 45% of its strength.
 
 ### What each theme is
 
