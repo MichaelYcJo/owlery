@@ -140,6 +140,11 @@ The bundle holds documents only. A path under those four directories that the bu
 
 **What the milestone's next items build on, and do not get here.** #39 sets the tools and the permission mode of each role through the same `role` of `start`, and the bundle's folder is among the session's folders, so #39's rules keep a crafter from writing there. #41 launches a proofer and a crafter through `startHeadless` with a `RoleStage`, reads the session's `role`, and rewrites the two definitions and the documents of their stages for the records the daemon commits. #42 does the same for the sealer. #40 decides the scripts, and with them what the sentences that name one become. A new stage is one pair in `ROLE_STAGES` and one row of the table in `claude-roles.ts`.
 
+What the build added beside the sections above, folded by the orchestrator on 2026-11-22:
+
+- `apps/desktop/src/daemon/adapters/claude.ts` also exports `versionNotice(printed)`, which turns what `claude --version` printed into the notice or none.
+- `apps/desktop/src/renderer/view.ts` holds `statusNotice(own, daemon, agent)`, which chooses the status line's notice, and `apps/desktop/src/renderer/shared.ts` holds `held.agentNotice`.
+
 ## Rule changes
 
 - change
