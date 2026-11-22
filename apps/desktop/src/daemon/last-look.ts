@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Changes, CommitInfo, FileChange, Look, SessionInfo, WorkItem } from "../shared/protocol";
+import type { Changes, CommitInfo, FileChange, Look, PermissionAsk, SessionInfo, WorkItem } from "../shared/protocol";
 import { writeWholeFile } from "./whole-file";
 
 const FILE = "last-look.json";
@@ -37,9 +37,21 @@ function isChanges(value: unknown): value is Changes {
   return isRecord(value) && typeof value.files === "number" && typeof value.added === "number" && typeof value.removed === "number" && Array.isArray(value.list) && value.list.every(isFileChange);
 }
 
-/** The fields of a work item that came with the repositories. A look written by a build before them holds none, and each is read as `lookOf` reads an absent one. */
-type SinceRepositories = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt";
-/** A work item as a look's file holds one: every field of the protocol's, the ones that came with the repositories absent or of the protocol's type. */
+function isPermissionAsk(value: unknown): value is PermissionAsk {
+  return (
+    isRecord(value) &&
+    typeof value.id === "number" &&
+    typeof value.headlessId === "number" &&
+    typeof value.tool === "string" &&
+    (value.action === "read" || value.action === "write" || value.action === "run" || value.action === "other") &&
+    typeof value.text === "string" &&
+    typeof value.at === "number"
+  );
+}
+
+/** The fields of a work item that came with the repositories, and the one that came with the permission requests. A look written by a build before them holds none, and each is read as `lookOf` reads an absent one. */
+type SinceRepositories = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "permissions";
+/** A work item as a look's file holds one: every field of the protocol's, the ones `SinceRepositories` names absent or of the protocol's type. */
 type WrittenWorkItem = Omit<WorkItem, SinceRepositories> & Partial<Pick<WorkItem, SinceRepositories>>;
 
 function isWorkItem(value: unknown): value is WrittenWorkItem {
@@ -64,7 +76,8 @@ function isWorkItem(value: unknown): value is WrittenWorkItem {
     (item.pinned === undefined || typeof item.pinned === "boolean") &&
     (item.muted === undefined || typeof item.muted === "boolean") &&
     (item.groupId === undefined || isNumberOrNull(item.groupId)) &&
-    (item.archivedAt === undefined || isNumberOrNull(item.archivedAt))
+    (item.archivedAt === undefined || isNumberOrNull(item.archivedAt)) &&
+    (item.permissions === undefined || (Array.isArray(item.permissions) && item.permissions.every(isPermissionAsk)))
   );
 }
 
@@ -78,13 +91,14 @@ function isLook(value: unknown): value is Omit<Look, "workItems"> & { workItems:
  * among it: what the lists or a file's entries carry beyond them, or become
  * afterwards, is not the look's. A work item without a field that came with
  * the repositories gets that field's empty value: the id 0, which no
- * repository bears, no pin, no mute, no group and no archive.
+ * repository bears, no pin, no mute, no group and no archive. One without
+ * its permission requests gets none.
  */
 function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonly WrittenWorkItem[]): Look {
   return {
     at,
     sessions: sessions.map(({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool }) => ({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool })),
-    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt }) => ({
+    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, permissions }) => ({
       id,
       title,
       repoId: repoId ?? 0,
@@ -103,6 +117,7 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
       muted: muted ?? false,
       groupId: groupId ?? null,
       archivedAt: archivedAt ?? null,
+      permissions: (permissions ?? []).map(({ id, headlessId, tool, action, text, at }) => ({ id, headlessId, tool, action, text, at })),
     })),
   };
 }
@@ -115,8 +130,8 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
  * user alone, and is read at start, so the look outlives the daemon. A file
  * whose entries lack a field of the protocol's, as one a build before that
  * field wrote, is no look, but for the fields of a work item that came with
- * the repositories: a look without them is read with each at its empty
- * value. Given no run directory, the look is kept in memory alone.
+ * the repositories or with the permission requests: a look without them is
+ * read with each at its empty value. Given no run directory, the look is kept in memory alone.
  */
 export class LastLook {
   private look: Look | null = null;

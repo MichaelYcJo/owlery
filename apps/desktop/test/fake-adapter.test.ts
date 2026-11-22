@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RoleEvent } from "../src/daemon/adapters/adapter";
+import type { RoleEvent, RoleRun } from "../src/daemon/adapters/adapter";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
 import type { RoleStage } from "../src/shared/protocol";
 
@@ -18,9 +18,11 @@ async function run(adapter: ReturnType<typeof fakeAdapter>, prompt: string, role
 }
 
 describe("the fake adapter", () => {
-  it("declares a name and no feature", () => {
+  it("declares its name and the two features, or the list it was told to declare in their place", () => {
     expect(fakeAdapter().name).toBe("fake");
-    expect(fakeAdapter().features).toEqual([]);
+    expect(fakeAdapter().features).toEqual(["role-tools", "permission-requests"]);
+    expect(fakeAdapter({ features: ["role-tools"] }).features).toEqual(["role-tools"]);
+    expect(fakeAdapter({ features: [] }).features).toEqual([]);
   });
 
   it("answers a prompt with a text that quotes it, then the result and exit 0", async () => {
@@ -100,6 +102,103 @@ describe("the fake adapter", () => {
     expect(settled).toBe(true);
     await new Promise((r) => setTimeout(r, 300));
     expect(events).toEqual([{ type: "text", text: "one" }]);
+  });
+
+  /** Starts one run whose listener is also given the run, and gives its events once it has exited. */
+  async function answering(adapter: ReturnType<typeof fakeAdapter>, onEvent: (event: RoleEvent, run: RoleRun) => void, role?: RoleStage): Promise<RoleEvent[]> {
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      let run: RoleRun | undefined;
+      adapter
+        .start({ prompt: "Q", cwd: "/nowhere", ...(role ? { role } : {}) }, (event) => {
+          events.push(event);
+          onEvent(event, run!);
+          if (event.type === "exit") resolve();
+        })
+        .then((started) => (run = started), reject);
+    });
+    return events;
+  }
+
+  const EDIT = { tool: "Edit", action: "write", path: "/w/a.ts", text: "/w/a.ts" } as const;
+  const SHELL = { tool: "Bash", action: "run", path: null, text: "ls" } as const;
+
+  it("raises each request it was given before its text, waits for each answer, and says in its text what each answer was, in the requests' order", async () => {
+    const adapter = fakeAdapter({ asks: () => [EDIT, SHELL], pieces: () => ["done"] });
+    const events = await answering(adapter, (event, run) => {
+      // The second request is answered first, and the first only once both wait.
+      if (event.type !== "permission" || event.id !== "ask-2") return;
+      run.answer("ask-2", { allow: false, reason: "Not here." });
+      run.answer("ask-1", { allow: true });
+    });
+    expect(events).toEqual([
+      { type: "permission", id: "ask-1", ...EDIT },
+      { type: "permission", id: "ask-2", ...SHELL },
+      { type: "text", text: "allowed: Edit\n" },
+      { type: "text", text: "refused: Bash: Not here.\n" },
+      { type: "text", text: "done" },
+      { type: "result", text: "allowed: Edit\nrefused: Bash: Not here.\ndone", isError: false, costUsd: null },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+  });
+
+  it("goes on only once a request is answered: until then it reports the request and nothing after it", async () => {
+    const events: RoleEvent[] = [];
+    const started = await fakeAdapter({ asks: () => [SHELL] }).start({ prompt: "Q", cwd: "/nowhere" }, (event) => events.push(event));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events).toEqual([{ type: "permission", id: "ask-1", ...SHELL }]);
+    // An id it does not wait on is ignored.
+    started.answer("ask-7", { allow: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(events).toHaveLength(1);
+    started.answer("ask-1", { allow: true });
+    // A second answer to the same request is ignored.
+    started.answer("ask-1", { allow: false, reason: "Too late." });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events.map((event) => (event.type === "text" || event.type === "result" ? event.text : event.type))).toEqual(["permission", "allowed: Bash\n", 'You asked: "Q"', 'allowed: Bash\nYou asked: "Q"', "exit"]);
+  });
+
+  it("answers a request in the turn that reports it, where the listener does", async () => {
+    const events = await answering(fakeAdapter({ asks: () => [SHELL] }), (event, run) => {
+      if (event.type === "permission") run.answer(event.id, { allow: false, reason: "No." });
+    });
+    expect(events.at(-2)).toEqual({ type: "result", text: 'refused: Bash: No.\nYou asked: "Q"', isError: false, costUsd: null });
+  });
+
+  it("gives its requests the prompt and the role it was started with, as it gives its pieces", async () => {
+    const adapter = fakeAdapter({ asks: (prompt, role) => [{ tool: "Bash", action: "run", path: null, text: `${prompt} as ${role ? `${role.role}/${role.stage}` : "no role"}` }] });
+    const allow = (event: RoleEvent, run: RoleRun): void => {
+      if (event.type === "permission") run.answer(event.id, { allow: true });
+    };
+    expect((await answering(adapter, allow, { role: "crafter", stage: "fix-pass" }))[0]).toMatchObject({ type: "permission", text: "Q as crafter/fix-pass" });
+    expect((await answering(adapter, allow))[0]).toMatchObject({ type: "permission", text: "Q as no role" });
+  });
+
+  it("withdraws a request it was told to withdraw: it reports the request, then that it waits no more, puts nothing of it in its text, and ignores a later answer", async () => {
+    const adapter = fakeAdapter({ asks: () => [{ ...SHELL, withdraw: true }, EDIT] });
+    const events = await answering(adapter, (event, run) => {
+      if (event.type === "permission-withdrawn") run.answer("ask-1", { allow: true });
+      if (event.type === "permission" && event.id === "ask-2") run.answer("ask-2", { allow: true });
+    });
+    expect(events).toEqual([
+      { type: "permission", id: "ask-1", ...SHELL },
+      { type: "permission-withdrawn", id: "ask-1" },
+      { type: "permission", id: "ask-2", ...EDIT },
+      { type: "text", text: "allowed: Edit\n" },
+      { type: "text", text: 'You asked: "Q"' },
+      { type: "result", text: 'allowed: Edit\nYou asked: "Q"', isError: false, costUsd: null },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+  });
+
+  it("reports nothing more of a run stopped while it waits for an answer, whatever is answered afterwards", async () => {
+    const events: RoleEvent[] = [];
+    const started = await fakeAdapter({ asks: () => [SHELL] }).start({ prompt: "Q", cwd: "/nowhere" }, (event) => events.push(event));
+    await new Promise((r) => setTimeout(r, 50));
+    await started.stop();
+    started.answer("ask-1", { allow: true });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events).toEqual([{ type: "permission", id: "ask-1", ...SHELL }]);
   });
 
   it("has no notice of its agent unless it is given one, and gives the one it was given at every call", async () => {

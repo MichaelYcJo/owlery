@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { Look, SessionInfo, WorkItem } from "../src/shared/protocol";
+import type { Look, PermissionAsk, SessionInfo, WorkItem } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -19,6 +19,7 @@ function runDir(): string {
 const SESSION: SessionInfo = { id: 4, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: 1200, stateText: "May I run the tests?", stateTool: "Bash" };
 const COMMIT = { hash: "abc1234", subject: "add the form", at: 1100, added: 3, removed: 1 };
 const FILE = { path: "src/form.ts", added: 3, removed: 1 };
+const ASK: PermissionAsk = { id: 3, headlessId: 2, tool: "Bash", action: "run", text: "printf x >> README.md", at: 1150 };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -38,6 +39,7 @@ const WORK_ITEM: WorkItem = {
   muted: true,
   groupId: 2,
   archivedAt: null,
+  permissions: [ASK],
 };
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
@@ -70,6 +72,8 @@ describe("LastLook", () => {
     workItem.changes!.files = 9;
     workItem.changes!.list[0]!.added = 9;
     workItem.changes!.list.pop();
+    workItem.permissions[0]!.text = "changed";
+    workItem.permissions.push({ ...ASK, id: 4 });
     sessions.push({ ...SESSION, id: 5 });
     expect(look.get()).toEqual(LOOK);
   });
@@ -105,6 +109,7 @@ describe("LastLook", () => {
     const workItem = {
       ...WORK_ITEM,
       note: "x",
+      permissions: [{ ...ASK, path: "/w/a.ts" }],
       commits: WORK_ITEM.commits!.map((commit) => ({ ...commit, author: "someone" })),
       changes: { ...WORK_ITEM.changes!, binary: 1, list: WORK_ITEM.changes!.list.map((file) => ({ ...file, mode: "100644" })) },
     };
@@ -153,6 +158,9 @@ describe("LastLook", () => {
     for (const changes of [{ files: "2" }, { added: null }, { removed: null }, { list: {} }, { list: [null] }, { list: [{ ...FILE, path: 3 }] }, { list: [{ ...FILE, added: "3" }] }, { list: [{ ...FILE, removed: "1" }] }]) {
       expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, changes: { ...WORK_ITEM.changes, ...changes } }] }))).toBeNull();
     }
+    for (const permissions of ["none", {}, [null], ["Bash"], [{ ...ASK, id: "3" }], [{ ...ASK, headlessId: null }], [{ ...ASK, tool: 7 }], [{ ...ASK, action: "delete" }], [{ ...ASK, text: null }], [{ ...ASK, at: "1150" }], [{ ...ASK, at: undefined }]]) {
+      expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, permissions }] })), JSON.stringify(permissions)).toBeNull();
+    }
     // The file as the first line of this case would have it read, so the reader is the one under test.
     expect(read(JSON.stringify(LOOK))).toEqual(LOOK);
   });
@@ -188,6 +196,19 @@ describe("LastLook", () => {
     for (const field of ["repoId", "pinned", "muted", "groupId", "archivedAt"] as const) {
       writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, archivedAt: 9, [field]: undefined }] }));
       expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, archivedAt: 9, [field]: empty[field] }] });
+    }
+  });
+
+  it("reads a look a build before the permission requests wrote, whose work items hold no list of them, with none on each", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { permissions: _permissions, ...before } = WORK_ITEM;
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before, { ...before, id: 2 }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, permissions: [] }, { ...before, id: 2, permissions: [] }] });
+    // Each kind of what a call does is read.
+    for (const action of ["read", "write", "run", "other"] as const) {
+      writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, permissions: [{ ...ASK, action }] }] }));
+      expect(new LastLook(dir).get(), action).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, permissions: [{ ...ASK, action }] }] });
     }
   });
 

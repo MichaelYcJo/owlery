@@ -5,14 +5,15 @@ import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork, roleStageOf } from "../shared/protocol";
-import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type PermissionAsk, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork, roleStageOf } from "../shared/protocol";
+import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
+import { verdictOn } from "./role-grants";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
@@ -140,7 +141,12 @@ interface HeadlessSession {
   run: RoleRun | undefined;
   /** The wait for the session's time limit. Its end and the daemon's close each cancel it. */
   limit: NodeJS.Timeout | undefined;
+  /** The requests the session waits for the person to answer, by the ids its adapter gave them. They live in memory alone, as the session does, and end with it. */
+  asks: Map<string, PermissionAsk>;
 }
+
+/** The features an adapter declares to launch a role: without the first a role session would hold every tool, and without the second no call of it would be answered by its role's rule. */
+const ROLE_FEATURES: readonly RoleFeature[] = ["role-tools", "permission-requests"];
 
 /**
  * Owns the terminal sessions and their output, and the headless sessions and
@@ -159,6 +165,8 @@ export class Daemon {
   // The headless sessions, by an id counted apart from the panes'. They live in memory alone.
   private readonly headless = new Map<number, HeadlessSession>();
   private nextHeadlessId = 1;
+  // The ids of the permission requests that wait for the person, counted across every session since the daemon started.
+  private nextPermissionId = 1;
   // The ids of the headless sessions that ended, in the order they ended. The first leaves the list where more ended than the daemon keeps.
   private readonly endedHeadless = new Set<number>();
   private idleTimer: NodeJS.Timeout | undefined;
@@ -708,12 +716,19 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: `no role ${String(named.role)} at the stage ${String(named.stage)}` });
           return;
         }
+        // A role session's tools and its answers are its adapter's to keep, so an adapter that declares less launches none.
+        const lacks = role === null ? [] : ROLE_FEATURES.filter((feature) => !this.options.roleAdapter.features.includes(feature));
+        if (lacks.length > 0) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: `the ${this.options.roleAdapter.name} adapter cannot launch a role: it does not declare ${lacks.join(" and ")}` });
+          return;
+        }
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
         if (worktree === undefined) return;
         const session: HeadlessSession = {
           info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, costUsd: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role },
           run: undefined,
           limit: undefined,
+          asks: new Map(),
         };
         session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
         this.headless.set(session.info.id, session);
@@ -732,6 +747,27 @@ export class Daemon {
         // The answer first, so the client that asked knows its request was carried out when every client is told of the session.
         this.send(socket, { type: "done", requestId: message.requestId });
         if (session.info.state === "working") void this.stopHeadless(session, "the session was stopped at a request before it finished", "request");
+        return;
+      }
+      case "answerPermission": {
+        if (typeof message.allow !== "boolean") {
+          this.send(socket, { type: "error", requestId: message.requestId, message: "an answer to a permission request says whether it allows the call" });
+          return;
+        }
+        for (const session of this.headless.values()) {
+          if (session.info.workItemId !== message.workItemId) continue;
+          for (const [adapterId, ask] of session.asks) {
+            if (ask.id !== message.id) continue;
+            session.asks.delete(adapterId);
+            // The answer first, so the client that asked knows its request was carried out when the inbox carries the work item without the request.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            // An allowance is the one call's, and nothing of it is kept: the same call asks again.
+            session.run?.answer(adapterId, message.allow ? { allow: true } : { allow: false, reason: "The person refused this call." });
+            this.broadcastInbox();
+            return;
+          }
+        }
+        this.send(socket, { type: "error", requestId: message.requestId, message: `no permission request ${String(message.id)} waits in this work item` });
         return;
       }
       case "looked": {
@@ -946,6 +982,22 @@ export class Daemon {
       }
       // The result closes the answer: nothing that arrives after it changes the session.
       if (info.state !== "working") return;
+      if (event.type === "permission") {
+        // The adapter reports no event before its run is held (`RoleAdapter.start`), so the answer has a run to go to.
+        const verdict = verdictOn(info.role, event, cwd);
+        if (verdict.answer === "allow") session.run?.answer(event.id, { allow: true });
+        else if (verdict.answer === "refuse") session.run?.answer(event.id, { allow: false, reason: verdict.reason });
+        else {
+          // The person's to answer: the call is held, and the request goes out with its work item. The session's limit runs on meanwhile.
+          session.asks.set(event.id, { id: this.nextPermissionId++, headlessId: info.id, tool: event.tool, action: event.action, text: event.text, at: (this.options.now ?? Date.now)() });
+          this.broadcastInbox();
+        }
+        return;
+      }
+      if (event.type === "permission-withdrawn") {
+        if (session.asks.delete(event.id)) this.broadcastInbox();
+        return;
+      }
       if (event.type === "text") {
         info.answer += event.text;
         this.headlessChanged(session);
@@ -980,10 +1032,16 @@ export class Daemon {
    * Sends every client one headless session whole, after it changed. A
    * session that has just ended no longer waits for its limit, and where more
    * sessions have ended than the daemon keeps, the one that ended first
-   * leaves the list and every client is told.
+   * leaves the list and every client is told. A session that is no longer
+   * working waits for no answer, so the requests it held end unanswered, and
+   * every client is sent the lists without them.
    */
   private headlessChanged(session: HeadlessSession): void {
     this.broadcast({ type: "headless", headless: session.info });
+    if (session.info.state !== "working" && session.asks.size > 0) {
+      session.asks.clear();
+      this.broadcastInbox();
+    }
     if (session.info.state !== "working" && !this.endedHeadless.has(session.info.id)) {
       clearTimeout(session.limit);
       this.endedHeadless.add(session.info.id);
@@ -1104,7 +1162,7 @@ export class Daemon {
     return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })) };
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, and with what was last read of its branch. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with the requests of its headless sessions that wait for the person, the oldest first. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -1116,6 +1174,7 @@ export class Daemon {
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
+      permissions: [...this.headless.values()].flatMap((session) => (session.info.workItemId === item.id ? [...session.asks.values()] : [])).sort((a, b) => a.id - b.id),
     };
   }
 

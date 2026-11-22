@@ -131,6 +131,7 @@ const LOGIN: WorkItem = {
   muted: false,
   groupId: null,
   archivedAt: null,
+  permissions: [],
 };
 const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };

@@ -153,9 +153,10 @@ describe("the built app's role bundle", () => {
       [
         `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
         `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
-        "cat > /dev/null",
         `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
         `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
+        // It exits at the end of its input, which the daemon ends once the result has arrived.
+        "cat > /dev/null",
       ].join("\n"),
     );
     // Stands for the login shell, and is the shell of the work item's pane too: it names the CLI and ends.

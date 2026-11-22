@@ -171,6 +171,24 @@ export interface WorkItem {
   groupId: number | null;
   /** When it was archived, or null while it is not. */
   archivedAt: number | null;
+  /** The calls its headless sessions wait for the person to allow or refuse, the oldest first. A daemon of an earlier build sends no such field, and a client reads its absence as none. */
+  permissions: PermissionAsk[];
+}
+
+/** One call a headless session waits for the person to allow or refuse. */
+export interface PermissionAsk {
+  /** Given once by the daemon since it started. */
+  id: number;
+  /** The headless session that asks. */
+  headlessId: number;
+  /** The tool's name, as the session's agent names it. */
+  tool: string;
+  /** What the call does: it reads or writes a file, runs a command, or does something else. */
+  action: "read" | "write" | "run" | "other";
+  /** What a person reads of the call: the path, the command, or the call's input, 2,000 characters at most. */
+  text: string;
+  /** The daemon's clock when the request arrived. */
+  at: number;
 }
 
 export interface SessionInfo {
@@ -223,7 +241,7 @@ export function roleStageOf(value: unknown): RoleStage | undefined {
   return ROLE_STAGES.find((pair) => pair.role === role && pair.stage === stage);
 }
 
-/** What a headless session is doing: `working` until its result, then `finished`, or `failed` where it gave none or an error. */
+/** What a headless session is doing: `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error. */
 export type HeadlessState = "working" | "finished" | "failed";
 
 /**
@@ -325,10 +343,12 @@ export type ClientMessage =
   | { type: "forget"; id: number; keepModes?: true }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
-  // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage; the daemon answers a pair `ROLE_STAGES` does not list with an `error`, and starts nothing. Without it the session has no role.
+  // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage, and the daemon answers each call of it that asks for permission by the role's rule. The daemon answers a pair `ROLE_STAGES` does not list with an `error`, and so an adapter that cannot launch a role, and starts nothing. Without `role` the session has no role, and each call of it that asks for permission waits for the person, in its work item's `permissions`, while the session stays `working`.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string; role?: RoleStage }
   // Stops a headless session that is working: its run is stopped, and it is `failed`, with `stopped` set to `request`. A session that is not working is left as it is. The daemon answers with `done`, and with an `error` for an id it does not list.
   | { type: "stopHeadless"; requestId: number; id: number }
+  // Answers one permission request of the work item's `permissions`, by its `id`: with `allow` true the call runs, and that one call alone, and with `allow` false the agent is told the person refused it. The daemon answers with `done`, before the `inbox` that carries the work item without the request, and with an `error` for a request that does not wait in that work item, which changes nothing.
+  | { type: "answerPermission"; requestId: number; workItemId: number; id: number; allow: boolean }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.

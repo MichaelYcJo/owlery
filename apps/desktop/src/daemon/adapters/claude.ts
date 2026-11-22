@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 import { terminalEnv } from "../pty";
 import { writeWholeFile } from "../whole-file";
 import type { RoleStage } from "../../shared/protocol";
-import type { RoleAdapter, RoleEvent } from "./adapter";
+import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun } from "./adapter";
 import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
 
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
@@ -27,6 +27,9 @@ export const KILL_AFTER_MS = 2000;
  */
 export const MIN_CLAUDE_VERSION = "2.1.326";
 
+/** How much of a call a permission request tells a person, in a string's characters. */
+export const PERMISSION_TEXT_CHARS = 2000;
+
 /** How long after the CLI's exit the run's `exit` waits for the CLI's streams to close, which a child the CLI started can hold open. */
 const STREAMS_GRACE_MS = 300;
 
@@ -39,16 +42,28 @@ function lastOf(text: string): string {
   return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
 }
 
+/** The first `PERMISSION_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
+function firstOf(text: string): string {
+  if (text.length <= PERMISSION_TEXT_CHARS) return text;
+  const head = text.slice(0, PERMISSION_TEXT_CHARS);
+  const last = head.charCodeAt(head.length - 1);
+  // A character outside the basic plane is two of a string's, and the first of the two alone is no character.
+  return last >= 0xd800 && last <= 0xdbff ? head.slice(0, -1) : head;
+}
+
 /**
  * The arguments of one headless session that works in `cwd`: stream-json in
  * and out, no settings of the user's or the repository's, no hooks, no auto
- * memory, no MCP server, and the permission mode a session has with no
- * settings at all. A role launch adds to them and takes none away: the
- * built-in tools the session holds, named as one value so that no other
- * reaches it, the role bundle as a plugin of this session alone, the role's
- * agent of it, the file of rules appended to the system prompt, and the
- * bundle's folder among the folders the session works in, so it reads the
- * bundle's other documents.
+ * memory, no MCP server, the permission mode a session has with no settings
+ * at all, and each call that mode asks a person about brought to the
+ * session's own streams, where the adapter answers it. A role launch names
+ * the built-in tools the session holds, as one value so that no other
+ * reaches it, and adds the role bundle as a plugin of this session alone,
+ * the role's agent of it, the file of rules appended to the system prompt,
+ * and the bundle's folder among the folders the session works in, so it
+ * reads the bundle's other documents. A launch with no role keeps Claude
+ * Code's default tools, less the three the CLI adds where a host answers its
+ * prompts, which ask a person something no stream of this session carries.
  */
 export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] }): string[] {
   return [
@@ -66,7 +81,9 @@ export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: strin
     "--strict-mcp-config",
     "--permission-mode",
     "default",
-    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : []),
+    "--permission-prompt-tool",
+    "stdio",
+    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : ["--disallowedTools", "AskUserQuestion,EnterPlanMode,ExitPlanMode"]),
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
@@ -94,6 +111,9 @@ export function claudeEnv(env: NodeJS.ProcessEnv, path: string): Record<string, 
 export function promptLine(prompt: string): string {
   return `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: prompt }] } })}\n`;
 }
+
+/** The line that opens a session's input, before the prompt: the handshake of a host that answers the session's control requests. */
+export const INITIALIZE_LINE = `${JSON.stringify({ type: "control_request", request_id: "owlery-initialize", request: { subtype: "initialize" } })}\n`;
 
 /** What the lookup has the shell print: the CLI's path and the shell's PATH, each on a marked line of its own. */
 export const LOOKUP_SCRIPT = `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' "$(command -v claude)" "$PATH"`;
@@ -149,20 +169,63 @@ function isTextBlock(block: unknown): block is TextBlock {
   return type === "text" && typeof text === "string" && text !== "";
 }
 
-/**
- * Maps one line of the output stream to neutral events: the text blocks of an
- * `assistant` message, and the `result` line. Every other line is dropped,
- * and so is a line that is not JSON.
- */
-export function eventsForLine(line: string): RoleEvent[] {
+/** A line of the output stream as the JSON object it holds; nothing where it holds none. */
+function recordOf(line: string): Record<string, unknown> | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(line);
   } catch {
-    return [];
+    return undefined;
   }
-  if (typeof parsed !== "object" || parsed === null) return [];
-  const record = parsed as Record<string, unknown>;
+  return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : undefined;
+}
+
+/**
+ * Reads one line of the output stream for a request the CLI makes of its
+ * host and waits for the answer to: its id, its subtype, and what it carries.
+ * Nothing where the line is no such request, or names no id to answer under.
+ */
+export function controlRequestOf(line: string): { id: string; subtype: unknown; request: Record<string, unknown> } | undefined {
+  const record = recordOf(line);
+  if (record?.type !== "control_request" || typeof record.request_id !== "string") return undefined;
+  const request = typeof record.request === "object" && record.request !== null ? (record.request as Record<string, unknown>) : {};
+  return { id: record.request_id, subtype: request.subtype, request };
+}
+
+/** What a call of each of Claude Code's tools does, and the name of the input's field that holds the file it reads or writes. A tool that is not here does something else. */
+const CALLS: Record<string, { action: PermissionAction; path?: string }> = {
+  Edit: { action: "write", path: "file_path" },
+  Write: { action: "write", path: "file_path" },
+  NotebookEdit: { action: "write", path: "notebook_path" },
+  Read: { action: "read", path: "file_path" },
+  Bash: { action: "run" },
+};
+
+/** The neutral event of a request to use a tool: what the call does, the file it names, and what a person reads of it, which is the path, the command, or the input as JSON. */
+function permissionEvent(id: string, request: Record<string, unknown>): RoleEvent {
+  const tool = typeof request.tool_name === "string" ? request.tool_name : "";
+  const input = typeof request.input === "object" && request.input !== null ? (request.input as Record<string, unknown>) : {};
+  const call = Object.hasOwn(CALLS, tool) ? CALLS[tool]! : { action: "other" as const };
+  const named = call.path === undefined ? undefined : input[call.path];
+  const path = typeof named === "string" ? named : null;
+  const read = path ?? (call.action === "run" && typeof input.command === "string" ? input.command : JSON.stringify(request.input ?? {}));
+  return { type: "permission", id, tool, action: call.action, path, text: firstOf(read) };
+}
+
+/**
+ * Maps one line of the output stream to neutral events: the text blocks of an
+ * `assistant` message, the `result` line, a request to use a tool, and the
+ * withdrawal of one. Every other line is dropped, a control line of another
+ * kind among them, and so is a line that is not JSON.
+ */
+export function eventsForLine(line: string): RoleEvent[] {
+  const record = recordOf(line);
+  if (!record) return [];
+  if (record.type === "control_request") {
+    const control = controlRequestOf(line);
+    return control?.subtype === "can_use_tool" ? [permissionEvent(control.id, control.request)] : [];
+  }
+  if (record.type === "control_cancel_request") return typeof record.request_id === "string" ? [{ type: "permission-withdrawn", id: record.request_id }] : [];
   if (record.type === "assistant") {
     const content = (record.message as { content?: unknown } | null | undefined)?.content;
     if (!Array.isArray(content)) return [];
@@ -196,14 +259,8 @@ export function eventsForLine(line: string): RoleEvent[] {
  * it, and `failure` is then why the launch failed, or null.
  */
 export function roleCheck(line: string, agent: string): { seen: boolean; failure: string | null } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return { seen: false, failure: null };
-  }
-  if (typeof parsed !== "object" || parsed === null) return { seen: false, failure: null };
-  const record = parsed as Record<string, unknown>;
+  const record = recordOf(line);
+  if (!record) return { seen: false, failure: null };
   if (record.type === "result") return { seen: true, failure: "the session did not say which agents it holds" };
   if (record.type !== "system" || record.subtype !== "init") return { seen: false, failure: null };
   if (Array.isArray(record.agents) && record.agents.includes(agent)) return { seen: true, failure: null };
@@ -266,7 +323,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
 
   return {
     name: "claude",
-    features: [],
+    features: ["role-tools", "permission-requests"],
     async start({ prompt, cwd, role }, listener) {
       const launch = role && launchOf(role);
       const { cli, path } = await located();
@@ -308,8 +365,21 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       });
       // `close` follows the last line of output, unless a child the CLI started holds the streams past the grace.
       child.once("close", (code) => report(code));
-      // One message, then the end of input, so the session ends after one turn.
-      child.stdin.end(promptLine(prompt));
+      // The handshake, then one message. The input stays open for the answers to the session's requests, and ends at
+      // the result, so the session ends after one turn.
+      child.stdin.write(INITIALIZE_LINE);
+      child.stdin.write(promptLine(prompt));
+      // The requests the session waits on, by their ids, each with the input of its call, which an allowance gives back unchanged.
+      const waiting = new Map<string, unknown>();
+      const respond = (response: object): void => {
+        child.stdin.write(`${JSON.stringify({ type: "control_response", response })}\n`);
+      };
+      const answer: RoleRun["answer"] = (id, given) => {
+        if (!waiting.has(id)) return;
+        const input = waiting.get(id);
+        waiting.delete(id);
+        respond({ subtype: "success", request_id: id, response: given.allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: given.reason } });
+      };
       const signal = (name: NodeJS.Signals): void => {
         // Once the CLI has exited its group may be gone, and the group's id may name another's processes.
         if (exited || child.pid === undefined) return;
@@ -346,9 +416,21 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
             return;
           }
         }
-        for (const event of eventsForLine(line)) listener(event);
+        const control = controlRequestOf(line);
+        if (control?.subtype === "can_use_tool") waiting.set(control.id, control.request.input);
+        // The CLI waits for an answer to every request it makes, so one the adapter does not take is answered as an error.
+        else if (control) respond({ subtype: "error", request_id: control.id, error: `Owlery answers no control request of the subtype ${String(control.subtype)}` });
+        for (const event of eventsForLine(line)) {
+          if (event.type === "permission-withdrawn") waiting.delete(event.id);
+          if (event.type === "result") {
+            // Nothing is answered after the result: the turn is over, and the end of the input ends the session.
+            waiting.clear();
+            child.stdin.end();
+          }
+          listener(event);
+        }
       });
-      return { stop };
+      return { stop, answer };
     },
     async notice() {
       try {
