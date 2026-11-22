@@ -126,11 +126,17 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(await saved({ theme: "desk", appearance: "light" })).toEqual({ theme: "desk", appearance: "light" });
   });
 
-  it("opens the next page in the saved choice, and under Match the system follows the system's appearance while the window is open", async () => {
+  it("opens the next page in the saved choice before its module runs, and under Match the system follows the system's appearance while the window is open", async () => {
     // A page loaded again holds nothing of the page before it, so what it shows is what the main process read from the file.
+    // The new page notes its two attributes when its body begins, which is before its own module runs: what stands there then is the preload's. The debugging port runs such a script only once its Page domain is on.
+    await app.cdp("Page.enable");
+    await app.cdp("Page.addScriptToEvaluateOnNewDocument", {
+      source: `new MutationObserver((_records, observer) => { if (!document.body) return; window.__atBody = [document.documentElement.dataset.theme, document.documentElement.dataset.appearance]; observer.disconnect(); }).observe(document, { childList: true, subtree: true });`,
+    });
     await app.evaluate(`window.__beforeReload = true`);
     await app.cdp("Page.reload");
     await app.until(`window.__beforeReload === undefined && document.getElementById("theme")?.options.length === 3`, "the page loaded again, with its controls");
+    expect(await app.evaluate<string[]>(`window.__atBody`)).toEqual(["desk", "light"]);
     const again = await shown();
     expect(again).toEqual({ theme: "desk", appearance: "light", themeValue: "desk", themeTitle: "Theme: Desk", appearanceValue: "light", appearanceTitle: "Appearance: Light", ground: GROUNDS.desk.light, terminalGround: again.terminalGround, terminal: null });
 
