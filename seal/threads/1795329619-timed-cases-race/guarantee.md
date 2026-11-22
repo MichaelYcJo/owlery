@@ -34,3 +34,22 @@ Read, and not a disagreement: `routing.md` *Why this way* says the orchestrator 
 target: 3bca033 against 6f10cd0
 Verdict: withheld reason: the orchestrator's pr.md disagrees with gaps.md on what is settled — pr.md:3 says "This finds each cause" though pr.md:9 and pr.md:19 and gaps.md:11 leave the link card's cause the owner's, and pr.md:17-19 lists one thing not verified where gaps.md:10 names a second for the owner (a person's real pointer over a background window reaching nothing in it), which pr.md:9 states as settled and trail/phases/phase-1.md:29 holds unverified
 ```
+
+## Re-audit at `41bba7f`
+
+One commit follows the block above, `41bba7f`, touching `pr.md` and `guarantee.md` alone (executed: `git log --no-merges --name-only b3b6aea..HEAD ^6f10cd0`); `git diff 3bca033 41bba7f -- apps docs` is empty (executed), so no claim re-run above has a coordinate it touched, and those rows stand. The broad run's record still stands at HEAD: only paths under `seal/threads/1795329619-timed-cases-race/` follow `b3b6aea`. The earlier block stays as it was.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The body file is `pr.md` above the records' line and the records' text below it, at `41bba7f` | the prompt's body file, recomposed | `seal pr-body seal/threads/1795329619-timed-cases-race --body <scratchpad>/1795329619-timed-cases-race/pr-body.md --check` | holds (executed): exit 0, "matches" |
+| Both runner runs passed all 35 files with no retry, `44998865255` at `180b223` and `45001211978` at `a002e5d` | `pr.md:3` | `gh run view <id> --json headSha,conclusion` and `--log`, run above | holds (executed the reads, above) |
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the orchestrator's part of the pull request body | `pr.md` at `41bba7f`: the cause of two cases found and the most likely cause of the third (`:3`); the background window ignores the mouse through `setIgnoreMouseEvents(true)` (`:9`); two items not verified, both the owner's (`:19-20`) | `gaps.md:10` and `gaps.md:11`, `trail/phases/phase-1.md:19` and `:29`, `apps/desktop/src/main/background.ts:27-29`, the two runs, `changelog.md:3` | none. The earlier block's reason is answered: `:3` no longer says each cause was found, `:9` no longer states what a real pointer reaches, and `:20` carries `gaps.md:10`'s item with the leave event `phase-1.md:29` names |
+| the design, the build, the last round, the changelog | unchanged since the block above (`git diff 3bca033 41bba7f` touches none of their files) | as the table above reads them | none, as above |
+
+```seal
+target: 41bba7f against 6f10cd0
+Verdict: sealed
+```
