@@ -73,7 +73,7 @@ Review round 4 left two things, each with an issue in `release: 0.0.3`.
 
 Review round 5 left one thing, with an issue in `release: 0.0.3`.
 
-- **`Daemon#decided` and `Daemon#park` write a stage's block without asking where the worktree stands.** A person's word is refused before it is written where the worktree is off its branch or a git operation is under way in it (`worktrees.ts#whyNoCommit`), and a stage's block is not, so a block written while a rebase stands stopped goes with `git rebase --abort`. Nothing calls either method yet: their callers, #41 and #42, refuse or defer the write the same way. #150.
+- **`Daemon#decided` and `Daemon#park` write a stage's block without asking where the worktree stands.** A person's word is refused before it is written where the worktree is off its branch or a git operation is under way in it (`worktrees.ts#whyNoCommit`), and a stage's block is not, so a block written while a rebase stands stopped goes with `git rebase --abort`. Nothing calls either method yet. Their callers are #41 and #42, and #51 for `Daemon#decided` (`frame/plan.md` *Overlap with the release*), and each is to refuse or defer the write as `personWrote` refuses a person's word. #150 holds it.
 
 The merge of the base at `0d3c5e0`, which brought the worktree's setup (#155), left one thing within reach.
 
