@@ -189,6 +189,15 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     }
     // The sidebar's items are navigation, and an item at rest carries no rule in Register.
     expect(await app.evaluate<string>(`getComputedStyle(document.querySelector("#sidebar-nav .side-item:not([aria-current])")).boxShadow`)).toBe("none");
+
+    // A fact's rule is drawn under its term and under its value, so the two end at one height where the value runs to several lines, and the rule runs unbroken. The worktree's folder is such a value.
+    await app.click("#repositories [data-work-item]");
+    await app.until(`!document.getElementById("work-item-view").hidden && document.querySelector("#view-fact-list dd")`, "the view of Alpha with its facts");
+    const facts = await app.evaluate<{ term: string; lines: number; termBottom: number; valueBottom: number }[]>(
+      `[...document.querySelectorAll("#view-fact-list dt")].map((term) => { const value = term.nextElementSibling; const text = document.createRange(); text.selectNodeContents(value); return { term: term.textContent, lines: new Set([...text.getClientRects()].map((box) => Math.round(box.top))).size, termBottom: term.getBoundingClientRect().bottom, valueBottom: value.getBoundingClientRect().bottom }; })`,
+    );
+    expect(facts.filter((fact) => fact.lines > 1).map((fact) => fact.term)).toContain("Worktree");
+    for (const fact of facts) expect({ term: fact.term, bottom: fact.termBottom }).toEqual({ term: fact.term, bottom: fact.valueBottom });
   });
 
   it("draws each state's mark in the shapes and the fill the theme in use gives the state", async () => {

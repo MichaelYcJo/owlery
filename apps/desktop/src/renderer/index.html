@@ -335,8 +335,8 @@
       #view-scroll { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); min-height: 0; overflow: auto; padding: var(--space-6); }
       #view-head { display: flex; flex-direction: column; gap: var(--space-2); }
       #view-facts-title { overflow-wrap: anywhere; }
-      /* A fact is a row of a list of records too: its term and its value carry the line's edge, and the space between the two is the term's own, so the rule under a fact runs unbroken. */
-      #view-fact-list { display: grid; grid-template-columns: calc(var(--fact-label) + 10px) minmax(0, 1fr); align-items: start; font-size: var(--size-second); }
+      /* A fact is a row of a list of records too: its term and its value carry the line's edge, each is as high as the row, and the space between the two is the term's own, so the rule under a fact runs unbroken where the value runs to several lines too. */
+      #view-fact-list { display: grid; grid-template-columns: calc(var(--fact-label) + 10px) minmax(0, 1fr); align-items: stretch; font-size: var(--size-second); }
       #view-fact-list dt { padding-right: 10px; color: var(--ink-faint); }
       #view-fact-list dt, #view-fact-list dd { box-sizing: border-box; min-height: var(--detail-line); padding-top: var(--space-2); padding-bottom: var(--space-2); box-shadow: var(--line-edge); }
       #view-fact-list dd { margin: 0; overflow-wrap: anywhere; }
