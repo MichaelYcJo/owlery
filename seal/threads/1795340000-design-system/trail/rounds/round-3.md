@@ -40,6 +40,11 @@ and a disabled button, which `button:disabled` draws at 45% of its strength.
 
 The two rows of `frame/plan.md` *Judgments of the run* that name "a disabled part" (`:84`, `:85`) are dated records of a decision. Whether they are reworded is the orchestrator's call. Finding 2's sentences follow whichever wording this fix gives. No case reads the principle's words, so the sentence is pinned by nothing, as round 2 found for its last sentence.
 
+```seal
+verdict: fixed 9ee7239
+answer: principle 9 now reads "A disabled button, which the window draws at 45% of its strength" in `docs/design.md:19`, and "쓸 수 없어 세기의 45%로 그리는 단추" in `docs/design.ko.md:19`, so both editions exempt the same thing; `frame/design.md` *Contrast* says the same.
+```
+
 ### 2. The pull request text and the changelog list three things outside the contrast floor, and principle 9 names a fourth, which the screenshots show
 
 ```seal
@@ -64,6 +69,11 @@ Four things are not held to it. Two are outside the floor by that principle: the
 ```
 
 The rest of `changelog.md:7` stands. Where finding 1's fix words the exemption another way, these two sentences take its words. `pr.md` is the orchestrator's file, and `changelog.md` is the fix pass's.
+
+```seal
+verdict: fixed 9ee7239
+answer: `pr.md` and `changelog.md:7` now name four things outside the floor, a disabled button ("Ask" while its field is empty, 2.5 to 4.3 to 1) among them.
+```
 
 ## Confirmations
 
