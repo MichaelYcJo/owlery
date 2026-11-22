@@ -65,3 +65,8 @@ Phase 7 left six things within reach.
 - **A commit that fails is not tried again, and the window is not told.** The daemon's log holds git's words. *Scope* item 22 answers `done` and logs. The commit of the next reversal or answer in that work item carries the file.
 - **Only a pane that reports its state can hold a commit.** A shell pane, and a CLI that sends no events, never say `working`. A person's own git command in a shell pane can meet the daemon's commit on the index's lock, which `frame/plan.md` *Technical context* names as the second failure: the commit then fails and is logged.
 - **The trailer names the work item's directory whether or not its `routing.md` is committed.** The pull request check refuses a `Seal-Routing:` trailer that names no declaration the pull request holds, and says to commit the `routing.md`. A directory made by hand and never committed gives such a commit. The stage that makes the directory (#41, #51) commits its `routing.md`.
+
+Review round 4 left two things, each with an issue in `release: 0.0.3`.
+
+- **A work item directory that is a link is followed, and a link put at the record's path between the read and the rename is written through.** #152.
+- **The commit of a person's word has no time limit, is not retried, and is not made once a working session ends without it.** #150.
