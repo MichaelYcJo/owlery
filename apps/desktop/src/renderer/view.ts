@@ -647,14 +647,16 @@ function saidBy(session: SessionInfo | undefined): string | null {
 /**
  * What the agent of a work item's line says, under its head: the label of
  * the pane's kind and "asks" while the agent waits, "said" otherwise.
- * Nothing where the state carried neither a text nor, for a pane that waits,
- * a tool's name.
+ * `waiting` says that the agent waits for the person, which the card of its
+ * words shows by its edge. Nothing where the state carried neither a text
+ * nor, for a pane that waits, a tool's name.
  */
-export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string } | null {
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean } | null {
   const text = saidBy(session);
   if (!session || text === null) return null;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
-  return { head: `${kind ? kind.label : session.kind} ${session.state === "waiting" ? "asks" : "said"}`, text };
+  const waiting = session.state === "waiting";
+  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting };
 }
 
 /**

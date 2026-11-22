@@ -1,19 +1,20 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { THEMES } from "../src/shared/appearance";
+import { APPEARANCES, appearanceFor, lookChoice, THEMES } from "../src/shared/appearance";
 
-// The rules of the page's look that hold as text: a theme is one block of
-// src/renderer/themes.css, each theme the window can draw in has one, red
-// stands on the seal alone, a theme changes no measure, and the page names no
-// colour and writes no shadow, gradient or corner outside a theme. The files
-// are read as text; no case loads the page.
+// The rules of the page's look that hold as text: a theme in an appearance is
+// one block of src/renderer/themes.css, each theme the window can draw in has
+// one for each appearance, red stands on the seal alone, a theme changes no
+// measure, and the page names no colour, writes no shadow, gradient or corner
+// outside a theme, and names no theme and no appearance. The files are read
+// as text; no case loads the page.
 const renderer = join(__dirname, "..", "src", "renderer");
 const themes = readFileSync(join(renderer, "themes.css"), "utf8");
 const page = readFileSync(join(renderer, "index.html"), "utf8");
 
 const withoutComments = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, "");
-const BLOCK = /:root\[data-theme="([^"]+)"\]\s*\{([^{}]*)\}/g;
+const BLOCK = /:root\[data-theme="([^"]+)"\]\[data-appearance="([^"]+)"\]\s*\{([^{}]*)\}/g;
 
 /** The texts a pattern's first group catches. */
 function caught(text: string, pattern: RegExp): string[] {
@@ -32,10 +33,13 @@ function declarations(body: string): [string, string][] {
     });
 }
 
-/** The theme blocks, each with the properties it defines. */
+/** The theme blocks, each named by its theme and its appearance, with the properties it defines. */
 function themeBlocks(): { theme: string; properties: [string, string][] }[] {
-  return [...withoutComments(themes).matchAll(BLOCK)].map((match) => ({ theme: match[1] ?? "", properties: declarations(match[2] ?? "") }));
+  return [...withoutComments(themes).matchAll(BLOCK)].map((match) => ({ theme: `${match[1] ?? ""} ${match[2] ?? ""}`, properties: declarations(match[3] ?? "") }));
 }
+
+/** Every theme in every appearance, as a block is named, in the order the blocks stand in. */
+const PAIRS = THEMES.flatMap((theme) => APPEARANCES.map((appearance) => `${theme} ${appearance}`));
 
 const HEX = /#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![0-9a-z_-])/gi;
 const FUNCTION = /\b(?:rgba?|hsla?)\(([^)]*)\)/gi;
@@ -78,23 +82,22 @@ function pageParts(): { style: string; markup: string } {
 }
 
 describe("themes.css", () => {
-  it("holds one block for each theme the window can draw in, Night desk and Letter, and nothing else", () => {
-    expect(themeBlocks().map(({ theme }) => theme)).toEqual([...THEMES]);
-    expect([...THEMES]).toEqual(["night-desk", "letter"]);
+  it("holds one block for each theme in each appearance, Night watch, Register and Desk in the dark and the light, and nothing else", () => {
+    expect(themeBlocks().map(({ theme }) => theme)).toEqual(PAIRS);
+    expect(PAIRS).toEqual(["night-watch dark", "night-watch light", "register dark", "register light", "desk dark", "desk light"]);
     expect(withoutComments(themes).replace(BLOCK, "").trim()).toBe("");
   });
 
   it("holds a red in no property but the seal's", () => {
     const reds = themeBlocks().flatMap(({ theme, properties }) => properties.filter(([, value]) => isRed(value)).map(([name]) => `${theme} ${name}`));
-    // The seal's light is a red in both themes, so the reading finds one where there is one.
-    expect(reds).toContain("night-desk --seal-light");
-    expect(reds).toContain("letter --seal-light");
+    // The seal's light is a red in every block, so the reading finds one where there is one.
+    for (const pair of PAIRS) expect(reds).toContain(`${pair} --seal-light`);
     expect(reds.filter((name) => !name.includes(" --seal-"))).toEqual([]);
   });
 
   it("defines the same names in every block", () => {
     const blocks = themeBlocks().map(({ theme, properties }) => ({ theme, names: properties.map(([name]) => name).sort() }));
-    expect(blocks.length).toBe(2);
+    expect(blocks.length).toBe(6);
     const first = blocks[0]?.names ?? [];
     for (const { names } of blocks) expect(new Set(names).size).toBe(names.length);
     for (const other of blocks) expect(other).toEqual({ theme: other.theme, names: first });
@@ -163,5 +166,22 @@ describe("the page", () => {
     expect(read.filter((name) => !own.has(name) && !local.has(name) && !themed(name))).toEqual([]);
     // No theme defines a name the page's own block defines: a measure has one home.
     expect(blocks.flatMap(({ properties }) => properties.map(([name]) => name)).filter((name) => own.has(name))).toEqual([]);
+  });
+
+  it("carries the first run's theme and appearance in its markup, which the preload replaces with the saved choice before the page is drawn", () => {
+    const first = lookChoice(undefined);
+    expect(caught(page, /<html ([^>]*)>/g)).toEqual([`lang="en" data-theme="${first.theme}" data-appearance="${appearanceFor(first.appearance, true)}"`]);
+  });
+
+  it("names no theme and no appearance in a selector of its style or in a module", () => {
+    // A theme is its blocks alone: a rule or a module that named one would draw a difference no block holds.
+    const SELECTOR = /\[data-(?:theme|appearance)/;
+    expect(SELECTOR.test(themes)).toBe(true);
+    expect(SELECTOR.test(pageParts().style)).toBe(false);
+    const modules = readdirSync(renderer).filter((file) => file.endsWith(".ts"));
+    expect(modules.length).toBeGreaterThan(0);
+    const NAMED = new RegExp(`["'\`](?:${[...THEMES, ...APPEARANCES].join("|")})["'\`]`);
+    expect(NAMED.test(`"${THEMES[0]}"`)).toBe(true);
+    expect(modules.filter((file) => SELECTOR.test(readFileSync(join(renderer, file), "utf8")) || NAMED.test(readFileSync(join(renderer, file), "utf8")))).toEqual([]);
   });
 });

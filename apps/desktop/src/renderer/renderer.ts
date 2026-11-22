@@ -10,8 +10,8 @@
 // the hidden ones, the screen of its archived work items and its removal,
 // with its two choices to delete from disk, and the dialog that asks before
 // the daemon ends, for a restart or for a complete quit, at a choice of the
-// application menu. How a menu is drawn is ./menu. The theme
-// and its control are ./theme, and the choice of when the Mac is kept awake
+// application menu. How a menu is drawn is ./menu. The theme, the appearance
+// and their two controls are ./theme, and the choice of when the Mac is kept awake
 // with its control is ./keep-awake. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.

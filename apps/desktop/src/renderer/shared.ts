@@ -275,8 +275,8 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 export function detail(entry: Entry, gained: number): HTMLElement[] {
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
-  // The agent's words are plain text, never markup.
-  if (says) parts.push(section("says", heading(says.head), part("said", says.text)));
+  // The agent's words are plain text, never markup. Where the agent waits for the person the card says so by its class, and the theme gives that card its edge.
+  if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), part("said", says.text)));
   const commits = commitLines(entry.workItem, gained, Date.now());
   if (commits) {
     const lines = commits.lines.map((line) => {
