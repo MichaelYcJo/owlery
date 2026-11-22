@@ -40,6 +40,8 @@ export interface ListedWorkItem {
   id: string;
   pullRequest: number | null;
   decisions: DecisionBlock[];
+  /** Each block of its record the reader refuses, at its 1-based line with the reader's reason, which the list names and cannot list. */
+  refused: KeptRow[];
 }
 
 /** What a settle reads of a folder's records. */
@@ -200,7 +202,10 @@ export function readSettle(folder: string, since?: string): SettleReading {
     const rows = text === null ? rowsAtHead(id) : rowsOf(got);
     if (rows.length > 0) kept.push({ directory, rows });
     for (const notice of got.notices) notices.push({ directory, ...notice });
-    if (!before.has(directory)) release.push({ id, pullRequest: pullRequestOf(folder, `${directory}/routing.md`), decisions: got.decisions });
+    if (!before.has(directory)) {
+      const refused = got.refusals.map((refusal) => ({ line: refusal.line, why: `the reader refuses the line: ${refusal.why}` }));
+      release.push({ id, pullRequest: pullRequestOf(folder, `${directory}/routing.md`), decisions: got.decisions, refused });
+    }
   }
   for (const id of new Set([...head.records.keys(), ...[...head.links].map((link) => link.split("/")[0] ?? link)])) {
     if (standing.includes(id)) continue;
@@ -213,6 +218,11 @@ export function readSettle(folder: string, since?: string): SettleReading {
 
 const counted = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
 
+/** Each block of the release's records the reader refuses, as `<record>:<line>` with the reader's reason, in the order of the directories and the lines. */
+function refusedIn(reading: SettleReading): { at: string; why: string }[] {
+  return reading.release.flatMap((item) => item.refused.map((row) => ({ at: `${reading.root}/threads/${item.id}/${RECORD_FILE}:${row.line}`, why: row.why })));
+}
+
 /** A decision's state as the list gives it: its word, with the person's message where it holds one. */
 function stateOf(decision: DecisionBlock): string {
   const state = decision.state;
@@ -224,12 +234,15 @@ function stateOf(decision: DecisionBlock): string {
 /**
  * The release's decisions made without asking, as Markdown for the release's
  * pull request and its note: one line per kind that occurs, counting its
- * decisions and those the person reversed, then each work item that holds a
- * decision, in the order of the directories' names.
+ * decisions and those the person reversed, and a line counting and naming
+ * each block of the release the reader refuses, which the list cannot list;
+ * then each work item that holds a decision, in the order of the directories'
+ * names.
  */
 export function listMarkdown(reading: SettleReading): string {
   const items = reading.release.filter((item) => item.decisions.length > 0);
-  if (items.length === 0) return "No decision was made without asking in this release.\n";
+  const refused = refusedIn(reading);
+  if (items.length === 0 && refused.length === 0) return "No decision was made without asking in this release.\n";
   const all = items.flatMap((item) => item.decisions);
   const lines: string[] = [];
   for (const kind of KINDS) {
@@ -237,6 +250,7 @@ export function listMarkdown(reading: SettleReading): string {
     if (of.length === 0) continue;
     lines.push(`- \`${kind}\`: ${counted(of.length, "decision")}, ${of.filter((decision) => decision.state.is !== "decided").length} reversed by the person`);
   }
+  if (refused.length > 0) lines.push(`- Not listed: ${counted(refused.length, "block")} the reader cannot read (${refused.map((block) => `\`${block.at}\``).join(", ")})`);
   for (const item of items) {
     lines.push("", `### ${item.id}${item.pullRequest === null ? "" : ` (#${item.pullRequest})`}`, "");
     for (const decision of item.decisions) {
@@ -373,7 +387,9 @@ function settleAndPutBack(top: string, reading: SettleReading, seal: string, rel
  * reads the repository whose top git names there. With no flag it prints each
  * kept directory with its rows, each notice, and then the list, and exits 1
  * where it keeps a directory and 0 where it keeps none. `--list` prints the
- * list alone and exits 0. `--since <ref>` names the previous release.
+ * list alone, names on the error stream each block of the release the reader
+ * refuses, and exits 1 where it names one and 0 otherwise. `--since <ref>`
+ * names the previous release.
  * `--apply` runs AgenticSeal's settle, with `--released-at <ref>` where one is
  * given, and puts back each directory the reading kept. It exits 2 where it
  * cannot read or do what it was asked to.
@@ -415,8 +431,10 @@ export function command(args: readonly string[], cwd: string, print: Printer): n
     return 2;
   }
   if (list) {
+    const refused = refusedIn(reading);
+    for (const block of refused) print.err(`settle: not listed ${block.at}: ${block.why}\n`);
     print.out(listMarkdown(reading));
-    return 0;
+    return refused.length === 0 ? 0 : 1;
   }
   const lines: string[] = [];
   if (reading.root === null) lines.push("The repository holds no records root.");

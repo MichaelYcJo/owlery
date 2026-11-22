@@ -230,7 +230,7 @@ describe("the directories a settle keeps", () => {
     for (const [link, target] of [
       ["seal/threads/1-a/decisions.md", "nowhere.md"],
       ["seal/threads/1-a", "../../elsewhere"],
-    ]) {
+    ] as const) {
       const repo = repository();
       write(repo, "elsewhere/decisions.md", record(REVERSED));
       mkdirSync(dirname(join(repo, link)), { recursive: true });
@@ -337,6 +337,26 @@ describe("the release's decisions made without asking", () => {
       expect([got.code, got.out], args.join(" ")).toEqual([2, ""]);
       expect(got.err, args.join(" ")).toContain("\nusage: settle [--list | --apply [--released-at <ref>]] [--since <ref>]\n");
     }
+  });
+
+  it("names each block of the release the reader refuses in the list's count and on the error stream, and `--list` exits 1 for it", () => {
+    const UNDONE = ["decision: 2 scope", "decided: No push.", "grounds: None asked.", "state: undone"];
+    const WHY = "the reader refuses the line: `state: undone` does not read whole as `state: <value>`: a decision's state is `decided`, `reversed`, `applied <commit>` with 7 to 40 hex digits, or `carried <home>`";
+    const repo = repository();
+    write(repo, "seal/threads/1-a/decisions.md", record(["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"], UNDONE));
+    write(repo, "seal/threads/2-b/decisions.md", record(UNDONE));
+    const reading = readSettle(repo);
+    expect(reading.release.map((item) => [item.id, item.refused])).toEqual([
+      ["1-a", [{ line: 14, why: WHY }]],
+      ["2-b", [{ line: 7, why: WHY }]],
+    ]);
+    const listed = listMarkdown(reading);
+    expect(listed.startsWith("- `route`: 1 decision, 0 reversed by the person\n- Not listed: 2 blocks the reader cannot read (`seal/threads/1-a/decisions.md:14`, `seal/threads/2-b/decisions.md:7`)\n\n### 1-a\n"), listed).toBe(true);
+    const got = run(repo, "--list");
+    expect(got).toEqual({ code: 1, out: listed, err: `settle: not listed seal/threads/1-a/decisions.md:14: ${WHY}\nsettle: not listed seal/threads/2-b/decisions.md:7: ${WHY}\n` });
+    // A release whose only block the reader refuses does not say it holds no decision.
+    rmSync(join(repo, "seal/threads/1-a"), { recursive: true });
+    expect(listMarkdown(readSettle(repo))).toBe("- Not listed: 1 block the reader cannot read (`seal/threads/2-b/decisions.md:7`)\n");
   });
 
   it("says so where the release holds no decision made without asking", () => {
