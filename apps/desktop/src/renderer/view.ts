@@ -1218,7 +1218,7 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
   return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
 }
 
-/** The most panes a work item's view shows at once: the count the 500 MB target is measured at (docs/architecture.md, Memory design). */
+/** The most panes a work item's view shows at once: fixed here at the count the four-terminal reference scene is measured at, until #32 makes it a default read from the person's machine (docs/architecture.md, Memory design). */
 export const STAGE_PANES = 4;
 
 /**
