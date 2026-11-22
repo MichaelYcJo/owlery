@@ -46,6 +46,11 @@ frame/design.md:64 (*Scope* 12), appended after "... no branch is checked out.":
 Where none of the nine holds and git cannot say whether it ignores a record path, no plan is made, and the dialog shows git's words alone, also for a repository that holds every part.
 ```
 
+```seal
+verdict: fixed 35fa77c
+answer: `frame/design.md:411` and *Scope* 12 (`:64`) now say that where none of the nine refusals holds and git cannot say whether it ignores a record path, no plan is made and the dialog shows git's words, as the round's snippet gives them; `frame/plan.md` *Judgments of the run* records why this is folded and not carried.
+```
+
 ## Confirmations
 
 ```seal
