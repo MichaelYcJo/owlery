@@ -69,7 +69,7 @@ function complaint(command: string, result: { code: number | null; stderr: strin
   return result.stderr.split("\n").find((line) => line.trim() !== "")?.trim() ?? `git ${command} ended with ${String(result.code)}`;
 }
 
-/** The program that clones a path: `cp -c` clones each file on APFS, so the copy takes almost no time and no disk. */
+/** The program that clones a path: `cp -c` clones each file on APFS, so the copy writes almost nothing to the disk. */
 export const CLONE = "/bin/cp";
 
 /** Whether `program`, run as `cp -c -R -P`, cloned `source` to `target`: false where it exited with another code than 0 or could not start. */

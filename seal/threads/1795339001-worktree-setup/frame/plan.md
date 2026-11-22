@@ -38,7 +38,7 @@ The tree as read at `6c63736`.
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | *Scope* items 1, 2, 3, 4, 5, 6 and 11, with the plan's fields of item 7 on the daemon's side | `apps/desktop/test/worktree-setup.test.ts` (scenarios 1 to 3), `apps/desktop/test/daemon.test.ts` (scenarios 3 to 10 and 14), `apps/desktop/test/repositories.test.ts` (scenario 8), `apps/desktop/test/hooks.test.ts` (scenario 13), `apps/desktop/test/last-look.test.ts` (scenario 14), each run narrow by the crafter | `bfd6e1e` |
-| 2 | *Scope* items 7, 8, 9 and 10, on the window's side | `apps/desktop/test/view.test.ts` (scenarios 10, 11 and 12), run narrow by the crafter | |
+| 2 | *Scope* items 7, 8, 9 and 10, on the window's side | `apps/desktop/test/view.test.ts` (scenarios 10, 11 and 12), run narrow by the crafter | `bd59188` |
 
 *Scope* item 12 is the frame's own and has no phase: the settle writes it.
 
