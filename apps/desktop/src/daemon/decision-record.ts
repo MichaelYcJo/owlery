@@ -369,15 +369,26 @@ function head(workItem: string): string {
   ].join("\n");
 }
 
+/** The record's text, or null where no file stands at its path. Any other failure to read it throws, so a write never replaces a record it could not read. */
+function recordText(file: string): string | null {
+  try {
+    return readFileSync(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 /**
  * Reads the record of the work item's directory, applies the change and puts
  * the whole file back, then returns the record as it now reads. Where no
- * record stands, the change is given the head of a new one. A change that
+ * record stands, the change is given the head of a new one. A record that
+ * stands and cannot be read throws, and is left as it is. A change that
  * throws leaves the file as it is, and creates none.
  */
 export function writeRecord(directory: string, change: (text: string) => string): DecisionRecord {
   const file = join(directory, RECORD_FILE);
-  const before = textOf(file);
+  const before = recordText(file);
   const after = change(before ?? head(basename(directory)));
   if (after !== before) writeWholeFile(file, after);
   return readDecisionRecord(after);
