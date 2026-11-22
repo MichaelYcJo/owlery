@@ -1552,10 +1552,10 @@ describe("the records place of a repository", () => {
     return made;
   }
 
-  /** A daemon of version 1.2.3 that keeps one repository, number 1, and a client that was told so. */
+  /** A daemon of version 1.2.3 that keeps one repository, number 1, and a client that was told so. Its pass over the branches comes once, at the hello, so an `inbox` a case waits for is the answer's own. */
   async function kept() {
     const made = repository();
-    const { url } = await daemon({ worktreesRoot: made.root, version: "1.2.3" });
+    const { url } = await daemon({ worktreesRoot: made.root, version: "1.2.3", commitPollMs: 60_000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "addRepository", requestId: 1, folder: made.repo });
@@ -1631,6 +1631,17 @@ describe("the records place of a repository", () => {
     expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
     c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
     expect(await c.message("error", (m) => m.requestId === 2)).toMatchObject({ message: "This build of Owlery names no version, so it cannot write the workflow of the pull request check." });
+  });
+
+  it("reads the records place of a repository a creation adds, so the inbox that lists the repository says what it holds", async () => {
+    const made = repository();
+    mkdirSync(join(made.repo, "agentic-seal"));
+    writeFileSync(join(made.repo, "agentic-seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 60_000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "First", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "agentic-seal", check: null, broadGate: null });
   });
 });
 

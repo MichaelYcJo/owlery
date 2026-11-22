@@ -77,7 +77,9 @@ import {
   removalOf,
   renameChoice,
   replayStep,
+  lacksRecords,
   recordsDialog,
+  recordsOf,
   registered,
   repositoryMenu,
   rowButtons,
@@ -2740,6 +2742,16 @@ describe("the dialog of the records place", () => {
     const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
     expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
     expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`.");
+  });
+});
+
+describe("lacksRecords", () => {
+  it("is true of a repository with no root or no workflow, false of one that holds both, and false of a repository of a daemon that sends no records, for which no setup is offered", () => {
+    const holding = (root: string | null, check: string | null): Repository => ({ ...PROJECT, records: { root, check, broadGate: null } });
+    expect([lacksRecords(holding(null, null)), lacksRecords(holding("seal", null)), lacksRecords(holding(null, ".github/workflows/hygiene.yml")), lacksRecords(holding("seal", ".github/workflows/owlery-seal.yml"))]).toEqual([true, true, true, false]);
+    const { records: _, ...earlier } = PROJECT;
+    expect([recordsOf(earlier as Repository), lacksRecords(earlier as Repository)]).toEqual([null, false]);
+    expect(recordsOf(PROJECT)).toEqual({ root: null, check: null, broadGate: null });
   });
 });
 
