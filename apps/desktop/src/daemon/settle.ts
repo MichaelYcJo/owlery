@@ -132,12 +132,46 @@ function pullRequestOf(folder: string, path: string): number | null {
   return number === undefined ? null : Number(number);
 }
 
+/** What `HEAD` holds under `threads`: each work item's record, by its directory's name, as the object git names, and the name of each entry `HEAD` holds there as a link. */
+function headOf(folder: string, threads: string): { records: Map<string, string>; links: Set<string> } {
+  const records = new Map<string, string>();
+  const links = new Set<string>();
+  for (const entry of git(folder, "ls-tree", "-r", "-z", "HEAD", "--", `${threads}/`).split("\0")) {
+    const match = /^([0-7]{6}) [a-z]+ ([0-9a-f]+)\t(.*)$/s.exec(entry);
+    if (match === null) continue;
+    const [, mode, object, path] = match as unknown as [string, string, string, string];
+    const [id, file, ...deeper] = path.slice(threads.length + 1).split("/");
+    if (id === undefined) continue;
+    if (file === undefined && mode === "120000") links.add(id);
+    if (file !== RECORD_FILE || deeper.length > 0) continue;
+    if (mode === "120000") links.add(`${id}/${RECORD_FILE}`);
+    else records.set(id, object);
+  }
+  return { records, links };
+}
+
+/** Each row of the record that keeps its directory, in the record's order. */
+function rowsOf(got: ReturnType<typeof readDecisionRecord>): KeptRow[] {
+  const rows: KeptRow[] = [];
+  for (const decision of got.decisions) {
+    if (decision.state.is === "reversed") rows.push({ line: decision.line, why: `decision ${decision.id} is reversed; decided: ${decision.decided}; reversal: ${decision.state.message}` });
+  }
+  for (const question of got.questions) {
+    if (question.state.is === "open") rows.push({ line: question.line, why: `question ${question.id} is open; asks: ${question.asks}` });
+  }
+  for (const refusal of got.refusals) rows.push({ line: refusal.line, why: `the reader refuses the line: ${refusal.why}` });
+  return rows.sort((a, b) => a.line - b.line);
+}
+
 /**
  * What a settle reads of the folder's records: each directory under
  * `<root>/threads/` in the working tree, committed or not, read with the
- * daemon's reader. `since` names the previous release, by default the newest
- * tag reachable from `HEAD`. Throws where git cannot read `since`, and where a
- * record stands and cannot be read.
+ * daemon's reader. Where the working tree lacks a record that `HEAD` holds,
+ * as an interrupted `--apply` leaves a directory it removed, the record `HEAD`
+ * holds decides whether the directory is kept, and nothing else. `since` names
+ * the previous release, by default the newest tag reachable from `HEAD`.
+ * Throws where git cannot read `since` or `HEAD`, and where a record stands
+ * and cannot be read.
  */
 export function readSettle(folder: string, since?: string): SettleReading {
   const root = rootOf(folder);
@@ -145,27 +179,35 @@ export function readSettle(folder: string, since?: string): SettleReading {
   const threads = `${root}/threads`;
   const from = since ?? newestTag(folder);
   const before = new Set(from === null ? [] : git(folder, "ls-tree", "-z", "--name-only", from, `${threads}/`).split("\0").filter((path) => path !== ""));
+  const head = headOf(folder, threads);
+  const standing = directoriesIn(folder, threads);
 
   const kept: KeptDirectory[] = [];
   const notices: SettleReading["notices"] = [];
   const release: ListedWorkItem[] = [];
-  for (const id of directoriesIn(folder, threads)) {
+  /** The rows the record `HEAD` holds for a directory whose record the working tree lacks. */
+  const rowsAtHead = (id: string): KeptRow[] => {
+    for (const link of [id, `${id}/${RECORD_FILE}`]) {
+      if (head.links.has(link)) throw new Error(`${threads}/${link} is a link in HEAD, and the settle reads a record only where one stands`);
+    }
+    const object = head.records.get(id);
+    return object === undefined ? [] : rowsOf(readDecisionRecord(git(folder, "cat-file", "blob", object)));
+  };
+  for (const id of standing) {
     const directory = `${threads}/${id}`;
     const text = recordText(folder, `${directory}/${RECORD_FILE}`);
     const got = readDecisionRecord(text ?? "");
-    const rows: KeptRow[] = [];
-    for (const decision of got.decisions) {
-      if (decision.state.is === "reversed") rows.push({ line: decision.line, why: `decision ${decision.id} is reversed; decided: ${decision.decided}; reversal: ${decision.state.message}` });
-    }
-    for (const question of got.questions) {
-      if (question.state.is === "open") rows.push({ line: question.line, why: `question ${question.id} is open; asks: ${question.asks}` });
-    }
-    for (const refusal of got.refusals) rows.push({ line: refusal.line, why: `the reader refuses the line: ${refusal.why}` });
-    rows.sort((a, b) => a.line - b.line);
+    const rows = text === null ? rowsAtHead(id) : rowsOf(got);
     if (rows.length > 0) kept.push({ directory, rows });
     for (const notice of got.notices) notices.push({ directory, ...notice });
     if (!before.has(directory)) release.push({ id, pullRequest: pullRequestOf(folder, `${directory}/routing.md`), decisions: got.decisions });
   }
+  for (const id of new Set([...head.records.keys(), ...[...head.links].map((link) => link.split("/")[0] ?? link)])) {
+    if (standing.includes(id)) continue;
+    const rows = rowsAtHead(id);
+    if (rows.length > 0) kept.push({ directory: `${threads}/${id}`, rows });
+  }
+  kept.sort((a, b) => (a.directory < b.directory ? -1 : a.directory > b.directory ? 1 : 0));
   return { root, kept, notices, since: from, release };
 }
 
@@ -255,11 +297,16 @@ function exitOf(ran: SpawnSyncReturns<string>, print: Printer): number {
  * `--apply`: runs AgenticSeal's `seal settle --apply` in the repository's
  * top and puts back from `HEAD` each directory the reading kept. It refuses
  * before anything runs where a kept directory differs from `HEAD`, which the
- * put-back would lose, and where no `seal` on the path can be run. It puts
- * nothing back where `HEAD` moved while the settle ran, and names each kept
- * directory it could not put back and goes on. It exits 2 where it refused or
- * did not put one back, and otherwise with the worse of its own reading and
- * the settle's exit: 2, then 1, then 0.
+ * put-back would lose, and where no `seal` on the path can be run. It names
+ * each kept directory with its rows before the settle runs, so a run that is
+ * killed leaves on the screen what it would have put back, and it holds
+ * SIGINT, SIGTERM and SIGHUP until the put-back ends: a signal from the
+ * terminal reaches AgenticSeal's settle and ends it, and this process stays
+ * to put back. SIGKILL cannot be held. It puts nothing back where `HEAD`
+ * moved while the settle ran, and names each kept directory it could not put
+ * back and goes on. It exits 2 where it refused or did not put one back, and
+ * otherwise with the worse of its own reading and the settle's exit: 2, then
+ * 1, then 0.
  */
 function apply(top: string, reading: SettleReading, releasedAt: string | undefined, print: Printer): number {
   const refusals = reading.kept.filter((kept) => differs(top, kept.directory)).map((kept) => `${kept.directory}/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first`);
@@ -270,7 +317,22 @@ function apply(top: string, reading: SettleReading, releasedAt: string | undefin
     return 2;
   }
   for (const notice of reading.notices) print.out(`notice ${notice.directory}/${RECORD_FILE}:${notice.line}: ${notice.why}\n`);
+  for (const kept of reading.kept) print.out(keptLines(`keeping ${kept.directory}/`, kept));
 
+  const hold = (): void => {};
+  for (const signal of HELD) process.on(signal, hold);
+  try {
+    return settleAndPutBack(top, reading, seal, releasedAt, print);
+  } finally {
+    for (const signal of HELD) process.off(signal, hold);
+  }
+}
+
+/** The signals `--apply` holds while AgenticSeal's settle runs and the put-back after it: those a terminal sends. */
+const HELD: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+
+/** Runs AgenticSeal's settle and puts back each kept directory it removed or changed, as `apply` says. */
+function settleAndPutBack(top: string, reading: SettleReading, seal: string, releasedAt: string | undefined, print: Printer): number {
   const head = git(top, "rev-parse", "HEAD").trim();
   const ran = spawnSync(seal, ["settle", "--apply", ...(releasedAt === undefined ? [] : ["--released-at", releasedAt])], { cwd: top, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (ran.stdout) print.out(ran.stdout);
@@ -284,7 +346,7 @@ function apply(top: string, reading: SettleReading, releasedAt: string | undefin
     now = "a commit git cannot read";
   }
   if (now !== head) {
-    for (const kept of reading.kept) print.err(keptLines(`settle: not put back ${kept.directory}/: HEAD moved from ${head} to ${now} while seal settle --apply ran`, kept));
+    for (const kept of reading.kept) print.err(`settle: not put back ${kept.directory}/: HEAD moved from ${head} to ${now} while seal settle --apply ran\n`);
     print.out("Put back no directory.\n");
     return 2;
   }
@@ -296,11 +358,11 @@ function apply(top: string, reading: SettleReading, releasedAt: string | undefin
       git(top, "checkout", "HEAD", "--", `${kept.directory}/`);
     } catch (error) {
       unput += 1;
-      print.err(keptLines(`settle: not put back ${kept.directory}/: ${(error as Error).message}`, kept));
+      print.err(`settle: not put back ${kept.directory}/: ${(error as Error).message}\n`);
       continue;
     }
     put += 1;
-    print.out(keptLines(`put back ${kept.directory}/`, kept));
+    print.out(`put back ${kept.directory}/\n`);
   }
   print.out(`Put back ${put === 0 ? "no directory" : `${put} ${put === 1 ? "directory" : "directories"}`}.\n`);
   return unput > 0 ? 2 : Math.max(theirs, reading.kept.length === 0 ? 0 : 1);
