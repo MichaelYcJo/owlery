@@ -111,7 +111,7 @@
       /* The sidebar's filter and the foot's three controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
       .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; }
       .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
-      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and a fact where the theme sets its facts in it. */
+      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines, the text of a call a session asks to make and the terminal, and a fact where the theme sets its facts in it. */
       .branch { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
       /* A state's colour, which its icon and its words take, and the shapes of its mark, which are the theme's: a line, a filled part, and for work the faint track and the part that turns. The fill of a wait and of a failure is a colour the theme names beside the state's. */
       .state.waiting { --state: var(--state-waiting); --part-line: var(--shape-waiting); --part-fill: var(--shape-waiting-fill); --part-fill-colour: var(--state-waiting-fill); }
