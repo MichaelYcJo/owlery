@@ -29,5 +29,12 @@ A work item held by questions, and one with decisions made without asking, in Ni
 ![Register dark, inbox](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-dark-inbox.png?raw=true)
 ![Register light, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-light-view.png?raw=true)
 ![Desk light, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/desk-light-view.png?raw=true)
+![Register dark, a work item held by questions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-dark-parked.png?raw=true)
+![Register dark, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-dark-view.png?raw=true)
+![Register light, inbox](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/register-light-inbox.png?raw=true)
+![Desk dark, inbox](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/desk-dark-inbox.png?raw=true)
+![Desk dark, a work item's decisions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/desk-dark-view.png?raw=true)
+![Desk light, inbox](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/desk-light-inbox.png?raw=true)
+![Desk light, a work item held by questions](../blob/d3fef2a1df15be3c808a398afef2e98aea4d5520/seal/threads/1795330500-no-question-holds-the-run/screenshots/desk-light-parked.png?raw=true)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
