@@ -113,7 +113,7 @@ function textOf(file: string): string | null {
 }
 
 /** The root that stands: the first of the two names whose `README.md` opens with the marker, its line end taken off, as `pr-check/lib/optin.py` reads it. Null where neither does. */
-function rootOf(folder: string): string | null {
+export function rootOf(folder: string): string | null {
   return ROOTS.find((name) => textOf(join(folder, name, "README.md"))?.split("\n", 1)[0]?.replace(/\r+$/, "") === MARKER) ?? null;
 }
 
