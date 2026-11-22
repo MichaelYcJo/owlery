@@ -46,7 +46,7 @@ The cases are `test/daemon.test.ts`, which builds a `Daemon` with the fake adapt
 | 1 | `frame/design.md` *Scope* item 21, with its part of *Data & interfaces* and of *Removes* | Scenario 19 | `fcd727f` |
 | 2 | *Scope* items 1 to 5, and items 12, 13 and 15 for `decisions`, with their parts of *Data & interfaces* and of *Removes* | Scenarios 1 to 4, 10 and 18 as cases, each seen red before its code, and the parts of scenarios 9, 12, 14 and 16 that read `decisions` | `ecc27d8` |
 | 3 | *Scope* items 6 to 11, and items 12, 13 and 15 for `asked`, with their parts of *Data & interfaces* and of *Removes* | Scenarios 5 to 8, 11 and 13 as cases, each seen red before its code, and the parts of scenarios 9, 12, 14, 16 and 18 that read `asked` |`b918acb` |
-| 4 | *Scope* item 14, and the case of scenario 17 | Scenario 15 as cases, each seen red before its code, and scenario 17 by its one case in the built app | |
+| 4 | *Scope* item 14, and the case of scenario 17 | Scenario 15 as cases, each seen red before its code, and scenario 17 by its one case in the built app | `642ccd2` |
 
 Phase 1 writes the rule into `docs/` before any code, so the documents state what phases 2 to 4 then build, and the check lines it writes name test files that already stand. Phase 2 can be built and read without phase 3, and phase 3 without phase 2's window: each is a slice from the store to the line. Phase 4 reads both.
 
