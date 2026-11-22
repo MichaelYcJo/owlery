@@ -11,24 +11,34 @@ The window had two looks, Night desk and Letter, and no document said how a part
 
 **An updated window opens in Night watch.** A window that opened in Night desk opens in Night watch's dark appearance, one that opened in Letter in its light appearance. **Desk is the earlier look**: Desk's dark appearance is the earlier Night desk and its light appearance the earlier Letter.
 
-**Two states have new words**: "Needs you" where it said "Waiting for you", and "Asleep" where it said "No agent". **A state's mark is the theme's own, and none is a speech bubble.**
+**The window names the state of a wait "Needs you"** wherever it names it (the inbox's group and head, a view, the summary, the bell, a notification), and a work item with no agent "Asleep". **A state's mark is the theme's own, and none is a speech bubble.**
+
+**Every theme meets WCAG AA**: text 4.5:1 against its ground, a state's mark and a focus ring 3:1, held by cases of the suite. The faint inks of every theme, Desk's among them, were raised to meet it.
 
 **`docs/product.md` now lets a theme change the form of edges, rules and marks**, and never the layout, the words, the seal's drawing or the wax's red.
 
 ### Screenshots
 
-Night watch, dark and light:
+Night watch, the theme a first run opens in, dark and light:
 
-![Night watch dark, inbox](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/night-watch-dark-inbox.png?raw=true)
-![Night watch light, inbox](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/night-watch-light-inbox.png?raw=true)
-![Night watch dark, a work item](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/night-watch-dark-view.png?raw=true)
-![Night watch light, a work item](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/night-watch-light-view.png?raw=true)
+![Night watch dark, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-dark-inbox.png?raw=true)
+![Night watch light, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-light-inbox.png?raw=true)
+![Night watch dark, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-dark-view.png?raw=true)
+![Night watch light, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-light-view.png?raw=true)
+![Night watch dark, a work item's menu](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-dark-menu.png?raw=true)
+![Night watch light, a work item's menu](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-light-menu.png?raw=true)
+![Night watch dark, New work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-dark-dialog.png?raw=true)
+![Night watch light, New work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/night-watch-light-dialog.png?raw=true)
 
 Register and Desk:
 
-![Register dark, inbox](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/register-dark-inbox.png?raw=true)
-![Register light, inbox](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/register-light-inbox.png?raw=true)
-![Desk dark, inbox](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/desk-dark-inbox.png?raw=true)
-![Desk light, inbox](../blob/41b3ab4acbab7ab3db3ab29333dcec517583a964/seal/threads/1795340000-design-system/screenshots/desk-light-inbox.png?raw=true)
+![Register dark, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-dark-inbox.png?raw=true)
+![Register light, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-light-inbox.png?raw=true)
+![Register dark, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-dark-view.png?raw=true)
+![Register light, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/register-light-view.png?raw=true)
+![Desk dark, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/desk-dark-inbox.png?raw=true)
+![Desk light, inbox](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/desk-light-inbox.png?raw=true)
+![Desk dark, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/desk-dark-view.png?raw=true)
+![Desk light, a work item](../blob/e974e843d0ea2567f5f79bd82229d68cf3b562af/seal/threads/1795340000-design-system/screenshots/desk-light-view.png?raw=true)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
