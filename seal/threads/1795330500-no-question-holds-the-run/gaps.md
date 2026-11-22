@@ -71,6 +71,6 @@ Review round 4 left two things, each with an issue in `release: 0.0.3`.
 - **A work item directory that is a link is followed, the write's rename replaces a link put at the record's path between the write's read and its rename, and a link put at the partial file's path `decisions.md.<pid>` is written through.** #152.
 - **The commit of a person's word has no time limit, is not retried, and is not made once a working session ends without it.** #150.
 
-The merge of the base at `0d3c5e0`, which brought the worktree's setup (#155), left two things within reach.
+The merge of the base at `0d3c5e0`, which brought the worktree's setup (#155), left one thing within reach.
 
 - **A line that carries both marks leaves its own text almost no room.** The second row holds the text, then the decisions' mark, then the setup's words, and neither mark shrinks. In the screenshot run at `0d3c5e0` the line of the work item with "2 decisions without asking, 1 reversed" and "Setup failed" shows its agent's question as "Shou…". No document names which of the three gives way. #157 in `release: 0.0.3` holds it.
