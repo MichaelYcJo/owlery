@@ -17,12 +17,12 @@ A new work item's worktree held only what git tracks. It had no `node_modules`, 
 
 The setup in Night watch, dark and light: a work item "Setting up" and one "Setup failed" in the inbox, the work item's "Setup" section, and the form's setup line; and Register light's ruled setup rows.
 
-![Night watch dark, inbox](../blob/14d2d0ef9bfc1a3405ef6e8afe498664f4b2ba1e/seal/threads/1795339001-worktree-setup/screenshots/night-watch-dark-inbox.png?raw=true)
-![Night watch light, inbox](../blob/14d2d0ef9bfc1a3405ef6e8afe498664f4b2ba1e/seal/threads/1795339001-worktree-setup/screenshots/night-watch-light-inbox.png?raw=true)
-![Night watch dark, a work item's Setup section](../blob/14d2d0ef9bfc1a3405ef6e8afe498664f4b2ba1e/seal/threads/1795339001-worktree-setup/screenshots/night-watch-dark-view.png?raw=true)
-![Night watch light, a work item's Setup section](../blob/14d2d0ef9bfc1a3405ef6e8afe498664f4b2ba1e/seal/threads/1795339001-worktree-setup/screenshots/night-watch-light-view.png?raw=true)
-![Night watch dark, the New work item form](../blob/14d2d0ef9bfc1a3405ef6e8afe498664f4b2ba1e/seal/threads/1795339001-worktree-setup/screenshots/night-watch-dark-dialog.png?raw=true)
-![Night watch light, the New work item form](../blob/14d2d0ef9bfc1a3405ef6e8afe498664f4b2ba1e/seal/threads/1795339001-worktree-setup/screenshots/night-watch-light-dialog.png?raw=true)
-![Register light, a work item's Setup section](../blob/14d2d0ef9bfc1a3405ef6e8afe498664f4b2ba1e/seal/threads/1795339001-worktree-setup/screenshots/register-light-view.png?raw=true)
+![Night watch dark, inbox](../blob/613ffd53e5247d906a840b931556b234af76fb9d/seal/threads/1795339001-worktree-setup/screenshots/night-watch-dark-inbox.png?raw=true)
+![Night watch light, inbox](../blob/613ffd53e5247d906a840b931556b234af76fb9d/seal/threads/1795339001-worktree-setup/screenshots/night-watch-light-inbox.png?raw=true)
+![Night watch dark, a work item's Setup section](../blob/613ffd53e5247d906a840b931556b234af76fb9d/seal/threads/1795339001-worktree-setup/screenshots/night-watch-dark-view.png?raw=true)
+![Night watch light, a work item's Setup section](../blob/613ffd53e5247d906a840b931556b234af76fb9d/seal/threads/1795339001-worktree-setup/screenshots/night-watch-light-view.png?raw=true)
+![Night watch dark, the New work item form](../blob/613ffd53e5247d906a840b931556b234af76fb9d/seal/threads/1795339001-worktree-setup/screenshots/night-watch-dark-dialog.png?raw=true)
+![Night watch light, the New work item form](../blob/613ffd53e5247d906a840b931556b234af76fb9d/seal/threads/1795339001-worktree-setup/screenshots/night-watch-light-dialog.png?raw=true)
+![Register light, a work item's Setup section](../blob/613ffd53e5247d906a840b931556b234af76fb9d/seal/threads/1795339001-worktree-setup/screenshots/register-light-view.png?raw=true)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
