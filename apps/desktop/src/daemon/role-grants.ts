@@ -81,14 +81,15 @@ function realLocation(path: string): string | null {
  * drop. Each of the two is read as the system reads it, so a `..` after a
  * link is taken from where the link points, and again with each `..`
  * settled in the text first, as an agent that resolves the path before it
- * writes takes it. A path that opens with `~` names the home folder to such
- * an agent, and a path that holds a null character names what nothing here
- * can read: both are outside.
+ * writes takes it. A path that opens with `~` names a home folder to such
+ * an agent, the person's or another's, and a path that holds a null
+ * character names what nothing here can read: both are outside. A file of
+ * the worktree whose name opens with `~` is inside as `./~name`.
  */
 function insideWorktree(path: string, worktree: string): boolean {
   if (path.includes("\0")) return false;
   const trimmed = path.trim();
-  if (trimmed === "~" || trimmed.startsWith("~/")) return false;
+  if (trimmed.startsWith("~")) return false;
   let root: string;
   try {
     root = realpathSync.native(worktree);

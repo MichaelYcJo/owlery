@@ -3703,6 +3703,10 @@ describe("headless sessions", () => {
       symlinkSync(join(worktree, "src"), join(worktree, "inner"));
       symlinkSync(join(worktree, "src"), join(outside, "in"));
       mkdirSync(join(worktree, "~"));
+      mkdirSync(join(worktree, "deep", "er"), { recursive: true });
+      symlinkSync(outside, join(worktree, "deep", "out"));
+      symlinkSync(join(worktree, "deep", "er"), join(worktree, "hop"));
+      symlinkSync(outside, join(worktree, " out"));
       const write = (path: string | null): FakeAsk => ({ tool: "Write", action: "write", path, text: path ?? "{}" });
       held.asks = [
         // Inside: a path of the worktree, a relative one, a file and a folder that are not there yet, a link that stays inside, a `..` in the part that is there, a link outside that points in, a folder of the worktree named `~`, and a path with a space before it that is inside with the space and without.
@@ -3723,14 +3727,17 @@ describe("headless sessions", () => {
         write("dangling"),
         write(`${worktree}-2/a.txt`),
         write("/app/dist/bundle/skills/core/SKILL.md"),
-        // Outside by one of two readings, each path written as text because `join` would settle its `..`: a `..` in the part that is not there, which climbs back to a link that leads out, relative and whole; a `..` after a link outside that points in, which the text settles to the link's own folder; the home folder as `~` names it, with a space before it too; a path a space hides the root of; and a path cut at a null character, which names the link.
+        // Outside by one reading of several, each path written as text because `join` would settle its `..`: a `..` in the part that is not there, which climbs back to a link that leads out, relative and whole; the same after a link that stays inside, where neither reading follows the link the `..` reaches once the missing folder is made; a `..` after a link outside that points in, which the text settles to the link's own folder; a home folder as `~` names it, the person's and another's, with a space before it too; a path a space hides the root of; a link whose name opens with a space; and a path cut at a null character, which names the link.
         write("missing/../link/a.txt"),
         write(`${worktree}/missing/../link/a.txt`),
+        write("hop/missing/../../out/a.txt"),
         write(`${outside}/in/../c.txt`),
         write("~/a.txt"),
         write("~"),
+        write("~other/a.txt"),
         write(" ~/a.txt"),
         write(` ${outside}/a.txt`),
+        write(" out/a.txt"),
         write("link\u0000/a.txt"),
         write(null),
         SHELL,
@@ -3756,11 +3763,14 @@ describe("headless sessions", () => {
         `refused: Write: ${OUTSIDE("crafter", "/app/dist/bundle/skills/core/SKILL.md")}`,
         `refused: Write: ${OUTSIDE("crafter", "missing/../link/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", `${worktree}/missing/../link/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "hop/missing/../../out/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", `${outside}/in/../c.txt`)}`,
         `refused: Write: ${OUTSIDE("crafter", "~/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", "~")}`,
+        `refused: Write: ${OUTSIDE("crafter", "~other/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", " ~/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", ` ${outside}/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", " out/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", "link\u0000/a.txt")}`,
         `refused: Write: ${NO_CALL("crafter")}`,
         "allowed: Bash",
