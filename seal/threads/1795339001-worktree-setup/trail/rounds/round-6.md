@@ -133,6 +133,11 @@ The snippet replaces *Scope* item 12. The second snippet is a row for the end of
 
 Line 54 ("item 12 the policy documents' text") still holds with the snippet. Finding 2's fix, where it changes two tokens, adds two more cells of `docs/design.md` and of its Korean edition to this item and to the row.
 
+```seal
+verdict: fixed d1be724
+answer: *Scope* 12 now says `docs/design.md` and its Korean edition change in this pull request (Register's cell, the records' row, and the raised `--state-failed`), and *Removes* names those cells.
+```
+
 ## Confirmations
 
 ```seal
