@@ -404,6 +404,14 @@ The crafter writes the Korean link's anchor as `docs/roadmap.ko.md` spells its h
 
 **P12.** *What changes because Owlery is not a plugin* and *플러그인이 아니라서 달라지는 것*, the row "Moving records to another machine": the words in the brackets "(progress, the cost ledger, questions and answers)" become "(progress, the cost ledger, what the person has seen)", and in the Korean edition the words "질문과 답" of that row become "사람이 무엇을 보았는지".
 
+What the build added or narrowed beside the text above, folded by the orchestrator on 2026-11-22 from phase 2:
+
+- `RecordsPlan` carries `proposedBroadGate: string | null`: the daemon proposes the `Broad gate` command from `package.json`'s `check` script (else `test`) with the package manager the lockfile names, and fills it only into a field the person left empty. It is not part of the stamp. It was built under the owner's word of 2026-11-22 to think past the request with what the daemon can do.
+- Where both root names are taken, the plan is `blocked` and lists the workflow line alone, so `files` is in the order README, config, workflow only where the plan writes a root.
+- A plan with nothing to write is not `blocked`: a repository that has every part shows what it has, on a detached head too (*Scope* 12 reads with this).
+- The dialog opens right after registration only where the `inbox` that follows within a second holds the added repository or one at exactly the typed folder; otherwise the person opens it from the repository's menu.
+- `records-place.ts` runs git with its own helper, since it needs `check-ignore`'s exit code and a hook's output.
+
 ## Rule changes
 
 - nothing
