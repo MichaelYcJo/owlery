@@ -196,7 +196,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await leave[shot.view]?.();
     }
 
-    console.log(`${wanted.length} screenshots in ${folder}`);
+    // Written to the run's own output: the suite's runner shows nothing a case hands to `console.log`.
+    process.stdout.write(`\n${wanted.length} screenshots in ${folder}\n`);
     const written = wanted.map((shot) => readFileSync(join(folder, shot.file)));
     expect(written.map(pngSize)).toEqual(wanted.map(() => ({ width: WINDOW_SIZE.width, height: WINDOW_SIZE.height })));
     // A view that was not drawn, or a theme the page did not take, writes the bytes of the file before it.
