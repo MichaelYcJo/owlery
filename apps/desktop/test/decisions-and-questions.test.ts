@@ -1,17 +1,19 @@
 // The decisions made without asking and the questions a work item is parked
 // with, in the built app. No message of the protocol records a decision or
-// parks a work item, so the case writes both before the app starts: the
-// daemon's run folder holds `repositories.json` with two work items of a
-// temporary repository and `record-times.json` with the time the questions
-// were first read at, and each work item's worktree holds its directory with
-// its record: for the first a decision that stands, one a stage applied
-// after its reversal and a block the reader refuses, and for the second the
-// questions it is parked with. The login shell is a script that names no
-// CLI, and the case opens no pane.
+// parks a work item, so the case writes both before the app starts. The
+// daemon's run folder holds `repositories.json` with three work items of a
+// temporary repository, `record-times.json` with the times the blocks were
+// first read at, and `last-look.json` with what the person has seen: one
+// decision of the first work item and the answered question of the third.
+// Each work item's worktree holds its directory with its record: for the
+// first two decisions that stand, one a stage applied after its reversal
+// and a block the reader refuses; for the second the questions it is parked
+// with; for the third an answered question and a refused block alone. The
+// login shell is a script that names no CLI, and the case opens no pane.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withApplied, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
+import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withApplied, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
 import { BuiltApp, buildApp } from "./built-app";
 import { git, temporaryRepository } from "./repositories";
@@ -20,6 +22,10 @@ const DECISION = { kind: "default", decided: "Start the branch from main.", grou
 /** A decision a person reversed before the app started, and a stage then took the reversal in. */
 const APPLIED = { kind: "scope", decided: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3." } as const;
 const EARLIER_MESSAGE = "Keep the phone's screen in.";
+/** A decision made since the person last looked. */
+const LATER = { kind: "route", decided: "Run the review chain.", grounds: "routing.md names it in its Review row." } as const;
+/** The question the third work item was parked with, answered before the person last looked. */
+const SETTLED = { asks: "May the build use the network?", grounds: "Only the person can allow it.", by: "crafter" } as const;
 /** A block the record's reader refuses: a decision with no `decided:` line. */
 const REFUSED = "```seal\ndecision: 9 scope\n```\n";
 const QUESTIONS = [
@@ -37,6 +43,8 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   const directoryOf = (name: string): string => join(made.root, name, "seal", "threads", `1-${name}`);
   /** The record of that work item as its file reads now. */
   const recordOf = (name: string): DecisionRecord => readDecisionRecord(readFileSync(join(directoryOf(name), RECORD_FILE), "utf8"));
+  /** The 1-based line of the refused block's opener in that work item's record. */
+  const refusedAt = (name: string): number => readFileSync(join(directoryOf(name), RECORD_FILE), "utf8").split("\n").indexOf("decision: 9 scope");
   const text = (selector: string): Promise<string | null> => app.evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent ?? null`);
   const texts = (selector: string): Promise<string[]> => app.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].map((element) => element.textContent)`);
   /** Where the keyboard is: the element's id, or its name, class or tag, and for a radio button whether it is the one chosen. */
@@ -77,18 +85,32 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     };
     const first = workItem(1, "Alpha", "alpha");
     const second = workItem(2, "Beta", "beta");
-    writeFileSync(join(directoryOf("alpha"), RECORD_FILE), withApplied(withReversal(withDecision(withDecision("", DECISION), APPLIED), 2, EARLIER_MESSAGE), 2, "abc1234") + REFUSED);
+    const third = workItem(3, "Gamma", "gamma");
+    writeFileSync(join(directoryOf("alpha"), RECORD_FILE), withDecision(withApplied(withReversal(withDecision(withDecision("", DECISION), APPLIED), 2, EARLIER_MESSAGE), 2, "abc1234"), LATER) + REFUSED);
     writeFileSync(join(directoryOf("beta"), RECORD_FILE), QUESTIONS.reduce(withQuestion, ""));
+    writeFileSync(join(directoryOf("gamma"), RECORD_FILE), withAnswer(withQuestion("", SETTLED), 1, "yes") + REFUSED);
     const asked = Date.now() - 5 * 60_000;
-    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60 * 60_000, groups: [], workItems: [first, second] };
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60 * 60_000, groups: [], workItems: [first, second, third] };
+    // A work item as the look holds it: the fields the daemon lists it with, and what the person saw of its record.
+    const seen = (item: typeof first, record: Record<string, unknown>) => ({ ...item, repoId: 1, repo: made.repo, repoName: "repo", aheadOfBase: null, newCommits: null, commits: null, changes: null, decisions: [], questions: [], unread: [], ...record });
+    const look = {
+      at: Date.now() - 30 * 60_000,
+      sessions: [],
+      workItems: [
+        seen(first, { decisions: [{ id: 1, kind: "default", says: DECISION.decided, grounds: DECISION.grounds, by: "orchestrator", state: "decided", reversal: null, landed: null, since: null }, { id: 2, kind: "scope", says: APPLIED.decided, grounds: APPLIED.grounds, by: null, state: "applied", reversal: EARLIER_MESSAGE, landed: "abc1234", since: null }] }),
+        seen(second, {}),
+        seen(third, { questions: [{ id: 1, asks: SETTLED.asks, grounds: SETTLED.grounds, by: "crafter", options: [], default: null, answer: "yes", since: null }] }),
+      ],
+    };
     app = await BuiltApp.start(
       { SHELL: shell, OWLERY_WORKTREES: made.root },
       {
         writeRun: (runDir) => {
-          writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
-          // The daemon read the two questions five minutes ago, as its own file of the times says, the first decision as made an hour ago and the second as applied three minutes ago.
-          const times = { 1: { 1: { state: "decided", since: Date.now() - 60 * 60_000 }, 2: { state: "applied", since: Date.now() - 3 * 60_000 } }, 2: { 1: { state: "open", since: asked }, 2: { state: "open", since: asked } } };
+          writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 4, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
+          // The daemon read the two questions five minutes ago, as its own file of the times says, the first decision as made an hour ago, the second as applied three minutes ago and the third as made twelve minutes ago.
+          const times = { 1: { 1: { state: "decided", since: Date.now() - 60 * 60_000 }, 2: { state: "applied", since: Date.now() - 3 * 60_000 }, 3: { state: "decided", since: Date.now() - 12 * 60_000 } }, 2: { 1: { state: "open", since: asked }, 2: { state: "open", since: asked } } };
           writeFileSync(join(runDir, "record-times.json"), JSON.stringify({ workItems: times }));
+          writeFileSync(join(runDir, "last-look.json"), JSON.stringify(look));
         },
       },
     );
@@ -102,15 +124,21 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     made?.remove();
   }, 30_000);
 
-  it("shows the mark of the decisions and a parked work item's question on their lines, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, and takes the answers of the parked one by the keyboard alone", async () => {
+  it("opens on the summary with the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, and draws no section for a question the look holds as answered", async () => {
+    // The look holds two of the first work item's three decisions and no question of the second, so one decision is new and the parked work item changed.
+    await app.until(`document.getElementById("summary-screen").hidden === false`, "the summary");
+    expect(await text("#summary-sentence")).toBe("1 needs you. 1 decision made without asking.");
+    expect(await texts("#summary-lines button .title")).toEqual(["Beta", "Alpha"]);
     await app.click("#nav-inbox");
-    await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 2`, "the two lines of the inbox");
+    await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 3`, "the three lines of the inbox");
     // The parked work item waits for the person, so its line stands first, under the group's head, and says its first question.
-    expect(await texts("#inbox-lines button[data-work-item] .first .title")).toEqual(["Beta", "Alpha"]);
+    expect(await texts("#inbox-lines button[data-work-item] .first .title")).toEqual(["Beta", "Alpha", "Gamma"]);
     expect(await text("#inbox-summary")).toBe("1 needs you");
     expect(await text(`#inbox-lines button[data-work-item="2"] .second .says`)).toBe("Which base does the branch merge into? (and 1 more question)");
     expect(await text(`#inbox-lines button[data-work-item="2"] .second .decided`)).toBe("");
+    // Two decisions of the first stand as made, and the look holds one of them.
     expect(await text(`#inbox-lines button[data-work-item="1"] .second .decided`)).toBe("1 decision without asking");
+    expect(await text(`#inbox-lines button[data-work-item="3"] .second .decided`)).toBe("");
 
     // The filter's last choice leaves the work item with a decision the person may still act on.
     expect(await texts("#inbox-screen select option")).toEqual(["All", "Needs you", "Working", "Finished", "Asleep", "Decided without asking"]);
@@ -118,18 +146,19 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 1`, "the one line the filter leaves");
     expect(await texts("#inbox-lines button[data-work-item] .first .title")).toEqual(["Alpha"]);
     await app.evaluate(`(() => { const filter = document.querySelector("#inbox-screen select"); filter.value = "all"; filter.dispatchEvent(new Event("change", { bubbles: true })); })()`);
-    await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 2`, "the two lines again");
+    await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 3`, "the three lines again");
 
-    // The view of the first lists both decisions, the last of the record first: the applied one with the commit and the person's message, and the one that stands with who decided and "Reverse".
+    // The view of the first lists every decision, the look's and the new one alike, the last of the record first: the applied one with the commit and the person's message, and each that stands with "Reverse".
     await openView(1, "Alpha");
     expect(await app.evaluate(`document.getElementById("questions").hidden`)).toBe(true);
     expect(await text("#view-detail .decisions h3")).toBe("Decided without asking");
-    expect(await texts("#view-detail .decisions li.decision > .what, #view-detail .decisions li.decision > .grounds")).toEqual(["Leave the phone's screen out.", "Grounds: docs/roadmap.md, Milestones, row 3.", "Start the branch from main.", "Grounds: frame/questions.md Q1 states main as its default."]);
-    expect(await texts("#view-detail .decisions li.decision .row > *")).toEqual(["Scope chosen", "", "3 min", "Default taken", "Decided by orchestrator", "1 h", "Reverse"]);
+    expect(await texts("#view-detail .decisions li.decision > .what, #view-detail .decisions li.decision > .grounds")).toEqual(["Run the review chain.", "Grounds: routing.md names it in its Review row.", "Leave the phone's screen out.", "Grounds: docs/roadmap.md, Milestones, row 3.", "Start the branch from main.", "Grounds: frame/questions.md Q1 states main as its default."]);
+    expect(await texts("#view-detail .decisions li.decision .row > *")).toEqual(["Route", "", "12 min", "Reverse", "Scope chosen", "", "3 min", "Default taken", "Decided by orchestrator", "1 h", "Reverse"]);
     expect(await texts("#view-detail .decisions li.decision.reversed > .reversal, #view-detail .decisions li.decision.reversed > .message")).toEqual(["Applied in abc1234", EARLIER_MESSAGE]);
     // Under the list, the line of the record the reader refused, with the reader's reason.
-    expect(await texts("#view-detail .decisions .unread")).toEqual(["Line 16 of decisions.md was not read: the decision block holds no `decided:` line, and it holds one"]);
-    await app.click("#view-detail .decisions li.decision button");
+    expect(await texts("#view-detail .decisions .unread")).toEqual([`Line ${refusedAt("alpha")} of decisions.md was not read: the decision block holds no \`decided:\` line, and it holds one`]);
+    const before = refusedAt("alpha");
+    await app.click("#view-detail .decisions li.decision:last-child button");
     await app.until(`document.getElementById("reverse-dialog").open`, "the dialog that reverses a decision");
     expect(await text("#reverse-decision")).toBe("Default taken: Start the branch from main.");
     expect((await keyboardOn()).on).toBe("reverse-message");
@@ -138,10 +167,10 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     await app.until(`!document.getElementById("reverse-dialog").open`, "the dialog closed at the daemon's done");
     await app.until(`document.querySelectorAll("#view-detail .decisions li.decision.reversed").length === 2`, "the decision as reversed");
     expect(await texts("#view-detail .decisions li.reversed .reversal, #view-detail .decisions li.reversed .message")).toEqual(["Applied in abc1234", EARLIER_MESSAGE, "Reversed", MESSAGE]);
-    expect(await texts("#view-detail .decisions li.decision button")).toEqual([]);
-    expect(recordOf("alpha")).toMatchObject({ decisions: [{ id: 1, ...DECISION, state: { is: "reversed", message: MESSAGE } }, { id: 2, state: { is: "applied", message: EARLIER_MESSAGE, commit: "abc1234" } }], questions: [], refusals: [{ line: 17 }] });
+    expect(await texts("#view-detail .decisions li.decision button")).toEqual(["Reverse"]);
+    expect(recordOf("alpha")).toMatchObject({ decisions: [{ id: 1, ...DECISION, state: { is: "reversed", message: MESSAGE } }, { id: 2, state: { is: "applied", message: EARLIER_MESSAGE, commit: "abc1234" } }, { id: 3, state: { is: "decided" } }], questions: [], refusals: [{ line: before + 1 }] });
     // The reversal gave the first block a line, so the refused block stands one line lower, and the view names it there.
-    expect(await texts("#view-detail .decisions .unread")).toEqual(["Line 17 of decisions.md was not read: the decision block holds no `decided:` line, and it holds one"]);
+    expect(await texts("#view-detail .decisions .unread")).toEqual([`Line ${before + 1} of decisions.md was not read: the decision block holds no \`decided:\` line, and it holds one`]);
 
     // The view of the second holds the questions, the first one's default chosen.
     await openView(2, "Beta");
@@ -177,11 +206,19 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     expect(await app.evaluate(`document.getElementById("questions-submit").hidden`)).toBe(true);
     expect(recordOf("beta")).toMatchObject({ decisions: [], questions: [{ id: 1, asks: QUESTIONS[0]!.asks, state: { is: "answered", answer: "main" } }, { id: 2, asks: QUESTIONS[1]!.asks, state: { is: "answered", answer: TYPED } }], refusals: [] });
 
-    // Once answered, the line no longer waits and says its question no more, and the other's mark counts the reversal that waits for a stage.
+    // The record of the third holds an answered question that the look holds as answered, so its view draws no section of questions, and a refused block alone, which the view names under the decisions' head with no decision.
+    await openView(3, "Gamma");
+    expect(await app.evaluate(`document.getElementById("questions").hidden`)).toBe(true);
+    expect(recordOf("gamma")).toMatchObject({ questions: [{ id: 1, state: { is: "answered", answer: "yes" } }] });
+    expect(await text("#view-detail .decisions h3")).toBe("Decided without asking");
+    expect(await texts("#view-detail .decisions li.decision")).toEqual([]);
+    expect(await texts("#view-detail .decisions .unread")).toEqual([`Line ${refusedAt("gamma")} of decisions.md was not read: the decision block holds no \`decided:\` line, and it holds one`]);
+
+    // Once answered, the line no longer waits and says its question no more, and the first's mark counts the decision not yet seen and the reversal that waits for a stage.
     await app.click("#nav-inbox");
     await app.until(`document.getElementById("inbox-screen").hidden === false`, "the inbox");
     expect(await text("#inbox-summary")).toBe("");
     expect(await text(`#inbox-lines button[data-work-item="2"] .second .says`)).not.toContain("Which base");
-    expect(await text(`#inbox-lines button[data-work-item="1"] .second .decided`)).toBe("1 reversed");
+    expect(await text(`#inbox-lines button[data-work-item="1"] .second .decided`)).toBe("1 decision without asking, 1 reversed");
   });
 });
