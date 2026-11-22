@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -3707,6 +3707,23 @@ describe("headless sessions", () => {
       symlinkSync(outside, join(worktree, "deep", "out"));
       symlinkSync(join(worktree, "deep", "er"), join(worktree, "hop"));
       symlinkSync(outside, join(worktree, " out"));
+      // A link out under five folders of 200-character names: the path to it is longer than the system reads, as the worktree's own and as the text read from the worktree. No call can make a path that long whole, so the lower three folders are made beside the worktree and moved under the upper two.
+      const names = ["a", "b", "c", "d", "e"].map((letter) => letter.repeat(200));
+      const lower = join(outside, "..", "lower");
+      mkdirSync(join(lower, ...names.slice(2)), { recursive: true });
+      symlinkSync(outside, join(lower, ...names.slice(2), "link"));
+      mkdirSync(join(worktree, names[0]!, names[1]!), { recursive: true });
+      renameSync(join(lower, names[2]!), join(worktree, names[0]!, names[1]!, names[2]!));
+      const deep = `${names.join("/")}/link/a.txt`;
+      // A link out in a folder that cannot be searched, so nothing reads the link.
+      mkdirSync(join(worktree, "closed"));
+      symlinkSync(outside, join(worktree, "closed", "link"));
+      chmodSync(join(worktree, "closed"), 0o600);
+      // The case's folders are removed by their whole paths, so the long path is made short and the closed folder opened first.
+      cleanups.push(() => {
+        renameSync(join(worktree, names[0]!, names[1]!, names[2]!), join(lower, names[2]!));
+        chmodSync(join(worktree, "closed"), 0o700);
+      });
       const write = (path: string | null): FakeAsk => ({ tool: "Write", action: "write", path, text: path ?? "{}" });
       held.asks = [
         // Inside: a path of the worktree, a relative one, a file and a folder that are not there yet, a link that stays inside, a `..` in the part that is there, a link outside that points in, a folder of the worktree named `~`, and a path with a space before it that is inside with the space and without.
@@ -3739,6 +3756,12 @@ describe("headless sessions", () => {
         write(` ${outside}/a.txt`),
         write(" out/a.txt"),
         write("link\u0000/a.txt"),
+        // Outside because the system cannot read a part of the path, so no link past that part is read: a link out under folders deeper than the system reads a path, as text and whole; a link out in a folder that cannot be searched; a file named as a folder; and a path inside the worktree written longer than the system reads.
+        write(deep),
+        write(`${worktree}/${deep}`),
+        write("closed/link/a.txt"),
+        write("README.md/a.txt"),
+        write(`${"./".repeat(600)}src/new.ts`),
         write(null),
         SHELL,
         { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" },
@@ -3772,6 +3795,11 @@ describe("headless sessions", () => {
         `refused: Write: ${OUTSIDE("crafter", ` ${outside}/a.txt`)}`,
         `refused: Write: ${OUTSIDE("crafter", " out/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", "link\u0000/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", deep)}`,
+        `refused: Write: ${OUTSIDE("crafter", `${worktree}/${deep}`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "closed/link/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "README.md/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${"./".repeat(600)}src/new.ts`)}`,
         `refused: Write: ${NO_CALL("crafter")}`,
         "allowed: Bash",
         `refused: Read: ${NO_CALL("crafter")}`,

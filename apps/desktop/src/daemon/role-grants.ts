@@ -46,7 +46,11 @@ export type Verdict = { answer: "allow" } | { answer: "refuse"; reason: string }
  * Where a path really is: the links on the part of it that exists followed,
  * and the rest, which a write would make, appended as it is written. Null
  * where that cannot be read: a link whose target is not there, a link that
- * leads back to itself, or a `..` in the part that is not there.
+ * leads back to itself, a `..` in the part that is not there, or a part the
+ * system cannot read, such as a path longer than it reads, a folder that
+ * cannot be searched or a file named as a folder. Only a name the system
+ * says is not there counts as the part a write would make, so a path inside
+ * the worktree that is written longer than the system reads is null as well.
  */
 function realLocation(path: string): string | null {
   const rest: string[] = [];
@@ -61,8 +65,9 @@ function realLocation(path: string): string | null {
         // It is there and has no real location, so a write through it lands where nothing here read.
         lstatSync(existing);
         return null;
-      } catch {
-        // It is not there: its folder is asked.
+      } catch (error) {
+        // Only a name that is not there is asked of its folder. Any other error leaves the links past this part unread, so where a write lands is not known.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null;
       }
     }
     const parent = dirname(existing);
