@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
-  The mock-ups of the study in ../design.md: three directions of Owlery's style,
-  each in the two themes, on the inbox and on a work item's view.
-  Open as mock.html?d=<register|watch|desk>&t=<night-desk|letter>&s=<inbox|view>.
+  The mock-ups of the study in ../design.md: the three themes of Owlery's window,
+  Night watch (d=watch), Register (d=register) and Desk (d=desk), each in its dark
+  appearance (t=night-desk) and its light one (t=letter), on the inbox and on a
+  work item's view. Open as mock.html?d=<watch|register|desk>&t=<night-desk|letter>&s=<inbox|view>.
   The layout's measures are the built app's (apps/desktop/src/renderer/index.html
   at 0d65470). The work items, commits and terminal lines are invented examples.
   The approval line, a lit seal and a broken seal are drawn here before the app
@@ -222,22 +223,14 @@ main { flex: 1; min-width: 0; display: none; }
 #view-seal .name { font: var(--weight-title) var(--size-head) var(--font-title); color: var(--ink-strong); }
 #view-seal .note { margin-top: 2px; font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
 
-/* Direction A, Register: the forms. */
-:root[data-d="register"] .line { grid-template-columns: 16px minmax(0, 1fr) 30px 28px var(--seal-line); grid-template-rows: auto auto; width: 100%; margin: 0; padding: 0 16px 0 18px; border-bottom: 1px solid var(--rule-soft); }
-:root[data-d="register"] .line .mark { grid-row: 1 / 3; }
-:root[data-d="register"] .line .title { grid-column: 2; grid-row: 1; }
-:root[data-d="register"] .line .branch { grid-column: 2; grid-row: 2; }
-:root[data-d="register"] .line .ahead { display: block; grid-column: 3; grid-row: 1 / 3; justify-self: end; font: var(--size-caption) var(--font-mono); color: var(--ink-muted); }
-:root[data-d="register"] .line .age { grid-column: 4; grid-row: 1 / 3; justify-self: end; font-family: var(--font-mono); }
-:root[data-d="register"] .line .seal { grid-column: 5; grid-row: 1 / 3; }
-:root[data-d="register"] .line.on { box-shadow: inset 2px 0 0 var(--ink-strong); }
-:root[data-d="register"] .group { align-items: center; padding: 0 16px 0 18px; background: var(--ground-side); border-bottom: 1px solid var(--rule); }
-:root[data-d="register"] .group .n { margin-left: auto; font-family: var(--font-mono); }
+/* Register: the forms. Each is a value a theme's block can hold (a corner, an edge drawn as a shadow, a ground, a typeface), so no measure of the layout moves. */
+:root[data-d="register"] .line { box-shadow: 0 1px 0 var(--rule-soft); }
+:root[data-d="register"] .line .age, :root[data-d="register"] .group .n, :root[data-d="register"] .side .count, :root[data-d="register"] .repo .count { font-family: var(--font-mono); }
+:root[data-d="register"] .line.on { box-shadow: inset 2px 0 0 var(--ink-strong), 0 1px 0 var(--rule-soft); }
+:root[data-d="register"] .group { background: var(--ground-side); box-shadow: inset 0 -1px 0 var(--rule), inset 0 1px 0 var(--rule-soft); }
 :root[data-d="register"] .side.on { box-shadow: inset 2px 0 0 var(--ink-strong); }
-:root[data-d="register"] .side { margin: 0; padding: 0 18px; } :root[data-d="register"] .side.item { padding-left: 36px; } :root[data-d="register"] .repo { margin: 0; padding: 0 18px; }
-:root[data-d="register"] .side .count, :root[data-d="register"] .repo .count { font-family: var(--font-mono); }
-:root[data-d="register"] .said { background: none; box-shadow: none; padding: 14px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); border-radius: 0; }
-:root[data-d="register"] .rows li { border-bottom: 1px solid var(--rule-soft); }
+:root[data-d="register"] .said { background: none; box-shadow: 0 1px 0 var(--rule), 0 -1px 0 var(--rule); }
+:root[data-d="register"] .rows li { box-shadow: 0 1px 0 var(--rule-soft); }
 :root[data-d="register"] .stages { gap: 0; align-items: stretch; box-shadow: inset 0 0 0 1px var(--rule); width: max-content; }
 :root[data-d="register"] .stages .sep { display: none; }
 :root[data-d="register"] .stage { flex-direction: column; align-items: stretch; gap: 0; width: 92px; border-right: 1px solid var(--rule); }
@@ -312,12 +305,8 @@ const ICON = {
 };
 const i = (name) => `<svg class="i" viewBox="0 0 16 16">${ICON[name]}</svg>`;
 
-// The words of each direction's voice, on the same facts.
-const VOICE = {
-  desk: { groups: { waiting: "Waiting for you", working: "Working", broken: "Seal broken", sealed: "Sealed", none: "No agent" }, state: { waiting: "Waiting for you", sealed: "Sealed" }, open: "Open the work item", noSeal: "No seal yet", sealed: "Sealed at e4df264", sealNote: "A seal binds to one commit and breaks if another lands after it.", sealedNote: "Judged by a session that did not build it. 2 rounds, and the broad gate passed at e4df264.", foot: "Daemon running, 2 agents", ahead: (n) => `${n} commits ahead of origin/main`, approval: "Approval line" },
-  register: { groups: { waiting: "Waiting for you", working: "Working", broken: "Seal broken", sealed: "Sealed", none: "No agent" }, state: { waiting: "Waiting for you · 1 question", sealed: "Sealed" }, open: "Open the work item", noSeal: "No seal yet", sealed: "Sealed at e4df264", sealNote: "A seal binds to one commit and breaks if another lands after it.", sealedNote: "tree e4df264 · gate e4df264 · rounds 2 · judged by a session that did not build it", foot: "Daemon running · 2 agents", ahead: (n) => `${n} ahead of origin/main`, approval: "Approval line" },
-  watch: { groups: { waiting: "Needs you", working: "Working", broken: "Seal broken", sealed: "Sealed", none: "Asleep" }, state: { waiting: "Needs you", sealed: "Sealed" }, open: "Open the work item", noSeal: "No seal yet", sealed: "Sealed at e4df264", sealNote: "A seal binds to one commit and breaks if another lands after it.", sealedNote: "A session that did not build it judged it. 2 rounds, and the broad gate passed at e4df264.", foot: "2 agents awake", ahead: (n) => `${n} commits ahead of origin/main`, approval: "Approval line" },
-}[D];
+// The window's words, one set for every theme: a theme changes no word (docs/product.md).
+const VOICE = { groups: { waiting: "Needs you", working: "Working", broken: "Seal broken", sealed: "Sealed", none: "Asleep" }, state: { waiting: "Needs you", sealed: "Sealed" }, open: "Open the work item", noSeal: "No seal yet", sealed: "Sealed at e4df264", sealNote: "A seal binds to one commit and breaks if another lands after it.", sealedNote: "Judged by a session that did not build it. 2 rounds, and the broad gate passed at e4df264.", foot: "Daemon running, 2 agents", ahead: (n) => `${n} commits ahead of origin/main`, approval: "Approval line" };
 
 const ITEMS = [
   { id: 1, state: "waiting", title: "Refuse a pane that names no work item", branch: "owlery/refuse-a-pane-that-names-no-work-item", ahead: 3, age: "4m", seal: "none", changed: true },
