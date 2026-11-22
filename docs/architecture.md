@@ -145,7 +145,7 @@ AgenticSeal is a Claude Code plugin, so the means it can use are fixed: markdown
 | Keeping the order | The orchestrator reads the documents that write down the order and follows them | The daemon's code runs the order |
 | Waiting for CI results | The orchestrator calls `seal pr-wait` and reads the exit code | The daemon waits, and when CI finishes, it reports through the UI and a notification. No agent stays running while waiting |
 | Measuring cost | After the work ends, `seal cost` reads the transcript files, computes the cost and leaves it as a comment on the issue | The daemon records the result events of headless mode (`total_cost_usd` and per-model tokens) at each stage as they arrive. The daemon owns the ledger and can also set a budget cap (`--max-budget-usd`). Under a subscription login, this cost is not the actual charge but a value converted at API prices, and the ledger labels it that way |
-| Asking the person | Written in `frame/questions.md`, and the session asks | The app's question screen. It is an input form with choices and defaults, so it can also be shown on a phone once a mobile UI is attached |
+| Asking the person | Written in `frame/questions.md`, and the session asks | The app's question screen. It is an input form with choices and defaults, so it can also be shown on a phone once a mobile UI is attached. A question that arises after the batch parks its one work item, with the question on that work item's inbox line, while the daemon goes on with the others. A decision made in place of asking shows on its work item's line with its grounds |
 | Showing the seal | A hook draws it in the terminal when the session stops | The inbox, the back of the seal, the PR and notifications read the same records and draw it |
 | Moving records to another machine | Exchange a zip with `seal export` and `seal import`, and choose with `seal mode` whether to commit records to the repository (shared) or keep them local only (local) | Records are committed to the repository, so they move with git ([Records are committed to the repository](#records-are-committed-to-the-repository)). There is no command for moving records. The only thing to move between machines is the daemon's state (progress, the cost ledger, questions and answers), and it will later move through sync between machines |
 | Running several work items together | One session runs work items one after another, or a person opens several sessions | The daemon sets the order of several work items and how many run at once, and hands the overlaps between work items in the same release to framer |
@@ -160,7 +160,7 @@ The table means two things.
 | Where | What | Why |
 |---|---|---|
 | The user's repository | All work records, including seal records and their grounds (design, round records, broad gate results) | The PR check and people who do not use the app must read them, and they must be bound to a commit |
-| The daemon | Progress, session events and output, the cost ledger, questions and answers, schedule | They change often, and there is no reason to commit them to the repository |
+| The daemon | Progress, session events and output, the cost ledger, questions and answers, the decisions made in place of asking, schedule | They change often, and there is no reason to commit them to the repository |
 | What is given to the agent | The rules that role and that stage need, and the previous stage's files | An agent starts fresh every time, and every byte it reads costs tokens |
 
 **The daemon keeps repositories, and every work item belongs to one.** A repository is added and removed on its own, and holds its name, its icon, the base its new work items start from, its groups and its work items. The window makes up no repository from a work item's folder. What a person sets on a repository or a work item, an archive among it, is the daemon's state and is written nowhere in the person's repository.
@@ -189,9 +189,14 @@ The orchestrator in a Claude Code session does two things at once today. One is 
 | frame → craft → review rounds → broad gate (gate) → seal → `seal pr-body` → PR → `seal pr-wait` | Which path each work item takes (routing) |
 | | Whether to fold a review finding back into the design (fold) |
 | | Whether the rounds are converging |
-| | Batching everything to ask the person into one set |
+| | Batching everything to ask the person into one set, for every work item a request hands over |
+| | Whether the policy documents, the config, the code or an earlier work item's records already answer a question an issue's text leaves to a person |
+| | Under `agentic`, what to decide in place of asking, and whether a later question takes its default or parks its work item |
 
 We do not make a separate skill for agents to learn how to operate the app. The app owns the order, so such a skill would have nothing to do.
+
+**Under the routing answer `agentic`, the orchestrator asks once for the whole request, and afterwards decides or parks one work item.** Before the first edit of a request it gathers what needs the person from every work item the request hands over, into one batch. A question an issue's text leaves to a person is checked against the policy documents, the config, the code and the earlier work items' records before it enters the batch. Where they answer it, the orchestrator does not ask, and records the answer with the coordinate it stands on. A question that arises after the batch is not put to the person in the middle of the run. Where its record states a default, the orchestrator takes the default and records the decision. Where it states none, the daemon parks that one work item with the question. The daemon's code keeps a park to one work item: a park starts nothing, stops nothing and refuses nothing in any other work item, and the person's answer in the app ends it. The daemon keeps each decision made in place of asking with its grounds, and sends it with its work item.
+check: apps/desktop/test/daemon.test.ts
 
 ## Options for launching Claude Code
 

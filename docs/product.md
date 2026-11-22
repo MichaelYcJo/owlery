@@ -8,6 +8,9 @@
 
 A person answers the questions about one issue once and walks away. Design, implementation, review rounds, the broad gate and the independent verdict then run without the person. At the end, the PR opens only when a party independent of the one that built it gives its verdict. The grounds for that verdict stay in the user's repository.
 
+**Under the routing answer `agentic`, no question holds the run.** `agentic` is the answer by which a person leaves each work item's route to the orchestrator and walks away. What needs the person is asked once, in one batch, before the first edit of the request, for every work item the request hands over. A question that arises after the batch parks the one work item it belongs to, with the question on that work item's line in the inbox, and every other work item goes on. What the orchestrator decides in place of asking shows on the work item's line with its grounds, and the person can reverse it when they come back. A late question would otherwise stop the whole run until the person is back, and that wait is what the promise removes.
+check: apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
+
 ## Who it is for
 
 Individual developers, open-source maintainers and tech leads of teams of 2–10 who already run several Claude Code sessions and work in a terminal. Their bottleneck is rereading the PRs that agents made. Enterprises are not the audience, because we cannot take on security certification, SSO and audit requirements within the first year. Non-developers and people who prefer to work in a chat screen are not the audience either. That is a choice of who we build for: the desktop app has no chat screen ([What we deliberately don't do](#what-we-deliberately-dont-do)).
@@ -28,6 +31,9 @@ Our part sits on top of that. There are two paths to a seal.
 - **Hand over an issue from the start.** Answer the question batch once, and the daemon carries design, implementation, review and the seal through without the person. The promise above describes this path.
 
 Both paths end in the same seal, and a commit that lands after the seal breaks it.
+
+**A work item's line shows the decisions made for it in place of asking, and a parked work item's line shows its question.** A parked work item stands with the work items that wait for the person, and its line says the first question it waits on. A decision holds nothing. The line says how many decisions stand, and the work item's view lists each with its grounds. A person reverses one there with a message, which the daemon keeps for the work item. The summary counts the decisions made since the last look apart from the work items that wait.
+check: apps/desktop/test/view.test.ts apps/desktop/test/daemon.test.ts
 
 ## The seal
 
