@@ -275,6 +275,7 @@ park(workItemId: number, asking: { by: string; questions: { asks: string; option
 
 What the build added beside the sections above, folded by the orchestrator on 2026-11-22:
 
+- `Change` gains `decided`, the decisions a look does not hold, counted by id; `summarySentence` and `summaryHead` take it, and `BuiltApp.start` in the suite takes `writeRun(runDir)`, which writes the run folder before the app starts (phase 4).
 - `Daemon#park` also refuses an empty or non-text `by`, a choice with an empty label, and a field of another type (*Scope* item 8). `answerQuestions` also refuses a message with two answers to one question, a message of another shape, and a work item the daemon does not hold (*Scope* item 9).
 - The questions section stands above the facts of the view's right column, in the page's markup, and is drawn again only when the record changes, so a person typing an answer keeps the keyboard and Korean composition (*Scope* item 11). Its words "Asked by …", "Default" and "Another answer" are the build's.
 - `decisionsChange` is named `keptChange`; `view.ts` adds `parkedWith`, `lineSince`, `askedSection`, `answersFor` and `parkNotifications`; `lineText`'s `says` gains `"question"`.
