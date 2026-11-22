@@ -369,10 +369,14 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     expect(kept.out.endsWith("\nPut back no directory.\n"), kept.out).toBe(true);
   });
 
-  it("refuses, runs nothing and names the directory where a kept directory differs from HEAD, by an edit or by a file not committed", () => {
+  it("refuses, runs nothing and names the directory where a kept directory differs from HEAD, by an edit or by a file not committed, whatever `status.showUntrackedFiles` the repository sets", () => {
     for (const change of [
       (repo: string) => write(repo, "seal/threads/1-a/decisions.md", record(REVERSED, OPEN)),
       (repo: string) => write(repo, "seal/threads/1-a/notes.md", "# Notes\n"),
+      (repo: string) => {
+        git(repo, "config", "status.showUntrackedFiles", "no");
+        write(repo, "seal/threads/1-a/notes.md", "# Notes\n");
+      },
     ]) {
       const repo = settled();
       const seal = standIn(REMOVE_ALL);

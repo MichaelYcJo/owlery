@@ -210,8 +210,8 @@ function onPath(name: string): string | null {
   return null;
 }
 
-/** Whether the directory in the working tree differs from `HEAD`, a file `HEAD` does not hold among it. */
-const differs = (top: string, directory: string): boolean => git(top, "status", "--porcelain", "--", `${directory}/`) !== "";
+/** Whether the directory in the working tree differs from `HEAD`, a file `HEAD` does not hold among it, whatever `status.showUntrackedFiles` the repository sets. */
+const differs = (top: string, directory: string): boolean => git(top, "status", "--porcelain", "--untracked-files=all", "--", `${directory}/`) !== "";
 
 /** The exit AgenticSeal's settle gave, read as 0 or 1 where it gave one of them and as 2 for anything else, with what went wrong named. */
 function exitOf(ran: SpawnSyncReturns<string>, print: Printer): number {
