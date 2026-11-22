@@ -12,7 +12,7 @@ Milestone 2's review rounds, fix passes and seal each run as a role session: the
 | The suite launches a role through the fake adapter | Cases in `role-bundle.test.ts`, `fake-adapter.test.ts` and `daemon.test.ts` |
 | The daemon reads the CLI's version and tells the person to update below a stated minimum | The minimum is 2.1.326, the version `docs/architecture.md` checked the options on. The daemon reads `claude --version` at start and on each window's hello while a notice stands; below it, the status line says so. An older CLI still runs |
 
-**A role session that did not get its role fails.** Claude Code 2.1.330 starts a plain session, with no error, where the bundle's folder or the role's name is wrong. The daemon reads the session's `init` line and stops it where the role is missing or a plugin error is listed.
+**A role session that did not get its role fails.** Claude Code 2.1.330 starts a plain session, with no error, where the bundle's folder or the role's name is wrong. The daemon reads the session's `init` line and stops it where the role is missing, naming the first plugin that did not load where one is listed. A session that holds its role goes on whatever the line lists of the other plugins Claude Code loads beside the bundle.
 
 **Each start of the daemon now runs the login shell once in the background** to find `claude` and read its version. Whether that slows the suite is #38's Q6, read from the broad run's time.
 
