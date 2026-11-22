@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, type MenuItemCons
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { themeChoice } from "../shared/appearance";
+import { lookChoice } from "../shared/appearance";
 import { Channel, type DaemonConnection, type DaemonEnd, type DaemonFailure, type InstalledApp, type PathFound } from "../shared/ipc";
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { closeHides, quitsWithLastWindow, showInBackground, takeBackground } from "./background";
@@ -23,7 +23,7 @@ import { WINDOW_SIZE } from "./window-size";
 // whether it is of another build than the one it would start, stops it where a
 // person chose "Restart Daemon…" or "Quit Owlery Completely…" in the menu
 // and confirmed it in the window, opens the folder
-// dialog the window asks for, and keeps the theme a person chose. It sets
+// dialog the window asks for, and keeps the theme and the appearance a person chose. It sets
 // the app's menu, keeps the one window on Owlery's own page, opens the
 // address of a link a person clicked in a pane outside Owlery, says what
 // stands at a path a pane printed and shows one in Finder, opens a folder in
@@ -115,7 +115,7 @@ function withClicks(entries: readonly MenuEntry[], clicks: Readonly<Record<strin
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    // The size the screens are drawn for, on the ground of the theme the window was left in, so it does not flash another colour before its page is drawn.
+    // The size the screens are drawn for, on the ground of the theme and the appearance the window was left in, so it does not flash another colour before its page is drawn.
     ...WINDOW_SIZE,
     // A start in the background, a test's or an agent's, keeps that size on a smaller screen, such as the 1024 by 768 one of GitHub's macOS runner, so its window shows the screens as they are drawn. A person's window stays inside their screen.
     enableLargerThanScreen: background,
@@ -172,11 +172,11 @@ app.whenReady().then(() => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return pickFolder((options) => (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)));
   });
-  // The saved choice is read from its file at every load, so a window that reloads opens in the theme the person last chose.
+  // The saved choice is read from its file at every load, so a window that reloads opens in the theme and the appearance the person last chose.
   ipcMain.on(Channel.appearance, (event) => {
     event.returnValue = readAppearance(userData);
   });
-  ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, themeChoice(choice)));
+  ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, lookChoice(choice)));
   // The window is told each app's name and kind, and never where its bundle stands.
   ipcMain.handle(Channel.installedApps, (): InstalledApp[] => installedApps(openers.exists, openers.home).map(({ name, kind }) => ({ name, kind })));
   ipcMain.handle(Channel.openFolder, (_event, folder: unknown, name: unknown): Promise<string | null> => openFolder(folder, name, openers));
