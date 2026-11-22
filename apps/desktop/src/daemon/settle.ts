@@ -12,9 +12,10 @@
 // named and keeps nothing. The release's work items are the directories the
 // working tree holds and the previous release's tag does not.
 //
-// `readSettle` reads the working tree and asks git three things alone: the
-// newest release tag, the directories that tag holds, and the subject of the
-// commit that added each directory's `routing.md`. It writes nothing. Only
+// `readSettle` reads the working tree and asks git four things alone: the
+// newest release tag, the directories that tag holds, the subject of the
+// commit that added each directory's `routing.md`, and each record `HEAD`
+// holds that the working tree lacks. It writes nothing. Only
 // `--apply` changes the working tree: AgenticSeal's settle removes, and the
 // put-back writes each kept directory from `HEAD`.
 import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
