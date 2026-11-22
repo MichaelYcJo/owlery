@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RepositoryStore } from "../src/daemon/repositories";
+import type { WorktreeSetup } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
@@ -19,10 +20,12 @@ function runDir(): string {
 /** What a creation hands the store: the repository's folder, and the work item's own fields. */
 const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
 const { repo: _repo, ...OWN } = PLACE;
-/** What a work item holds of the fields a person sets, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
+/** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, groups: [] };
+/** The setup of a work item's worktree, as the daemon records one that ended. */
+const SETUP: WorktreeSetup = { copied: [".env"], copiedCount: 1, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 /** An entry of `work-items.json`, as a build before the repositories wrote it. */
 const OLD = { id: 1, ...PLACE, createdAt: 1 };
 
@@ -116,6 +119,28 @@ describe("RepositoryStore", () => {
     expect(store.workItem(item.id)?.item.archivedAt).toBe(50);
     expect(store.setWorkItem(item.id, { archivedAt: null })).toBe(true);
     expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, pinned: true });
+  });
+
+  it("keeps the setup of a work item's worktree, writes it, and reads a work item written before the setup was recorded with none", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    expect(store.setWorkItem(item.id, { setup: SETUP })).toBe(true);
+    expect(store.setWorkItem(item.id, { setup: store.workItem(item.id)?.item.setup ?? null })).toBe(false);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, setup: SETUP });
+    const { setup: _none, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [before] }] }));
+    expect(new RepositoryStore(dir).workItem(1)?.item).toEqual({ ...before, setup: null });
+  });
+
+  it("reads a setup that was running when the daemon stopped as failed, and says why, and keeps one that ended as it ended", () => {
+    const dir = runDir();
+    const running: WorktreeSetup = { ...SETUP, state: "running", exitCode: null, endedAt: null };
+    const workItems = [{ id: 1, ...OWN, createdAt: 1, ...UNSET, setup: running }, { id: 2, ...OWN, createdAt: 1, ...UNSET, setup: SETUP }];
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems }] }));
+    const store = new RepositoryStore(dir);
+    expect(store.workItem(1)?.item.setup).toEqual({ ...running, state: "failed", failure: "The daemon stopped before the setup command ended." });
+    expect(store.workItem(2)?.item.setup).toEqual(SETUP);
   });
 
   it("adds a group to a repository under an id no group bears, after the groups it has, writes the store, and gives a group's id to no group made after, though its repository was removed", () => {
@@ -269,9 +294,10 @@ describe("RepositoryStore", () => {
 
   it("reads only the fields of the store, whatever else the file's entries carry", () => {
     const dir = runDir();
-    const item = { id: 4, ...OWN, createdAt: 1, ...UNSET, pinned: true, muted: true, groupId: 2, archivedAt: 9 };
+    const item = { id: 4, ...OWN, createdAt: 1, ...UNSET, pinned: true, muted: true, groupId: 2, archivedAt: 9, setup: SETUP };
     const repository = { id: 3, folder: "/r/project", name: "The project", icon: "P", defaultBase: "origin/main", hidden: true, addedAt: 5, groups: [{ id: 2, name: "Later" }], workItems: [item] };
-    writeFileSync(join(dir, "repositories.json"), JSON.stringify([{ ...repository, note: "x", groups: [{ id: 2, name: "Later", colour: "red" }], workItems: [{ ...item, repo: "/r/project" }] }]));
+    const carried = { ...SETUP, extra: 1, failedCopies: [{ ...SETUP.failedCopies[0], code: "EACCES" }] };
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify([{ ...repository, note: "x", groups: [{ id: 2, name: "Later", colour: "red" }], workItems: [{ ...item, repo: "/r/project", setup: carried }] }]));
     expect(new RepositoryStore(dir).repositories()).toEqual([repository]);
   });
 
@@ -294,7 +320,7 @@ describe("RepositoryStore", () => {
     for (const wrong of [{ id: "1" }, { folder: 3 }, { name: 3 }, { icon: 3 }, { defaultBase: 3 }, { hidden: "no" }, { addedAt: "1" }, { groups: {} }, { groups: [{ id: "2", name: "Later" }] }, { groups: [{ id: 2 }] }, { workItems: {} }, { workItems: [null] }]) {
       expect(read([{ ...repository, ...wrong }])).toEqual([]);
     }
-    for (const wrong of [{ id: "1" }, { title: 3 }, { branch: 3 }, { worktree: 3 }, { createdAt: "1" }, { baseCommit: 7 }, { baseBranch: 7 }, { pinned: "no" }, { muted: 1 }, { groupId: "2" }, { archivedAt: "9" }]) {
+    for (const wrong of [{ id: "1" }, { title: 3 }, { branch: 3 }, { worktree: 3 }, { createdAt: "1" }, { baseCommit: 7 }, { baseBranch: 7 }, { pinned: "no" }, { muted: 1 }, { groupId: "2" }, { archivedAt: "9" }, { setup: "running" }, { setup: { ...SETUP, state: "done" } }, { setup: { ...SETUP, copied: [1] } }, { setup: { ...SETUP, failedCopies: [{ path: ".env" }] } }, { setup: { ...SETUP, endedAt: undefined } }]) {
       expect(read([{ ...repository, workItems: [{ ...repository.workItems[0], ...wrong }] }])).toEqual([]);
     }
     for (const absent of ["baseCommit", "baseBranch", "pinned", "muted", "groupId", "archivedAt"]) {

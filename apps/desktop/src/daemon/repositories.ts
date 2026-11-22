@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Group } from "../shared/protocol";
+import type { Group, WorktreeSetup } from "../shared/protocol";
 import { writeWholeFile } from "./whole-file";
+import { DAEMON_STOPPED, isWorktreeSetup, setupOf } from "./worktree-setup";
 import { repositoryOfSync } from "./worktrees";
 
 const FILE = "repositories.json";
@@ -23,6 +24,8 @@ export interface StoredWorkItem {
   groupId: number | null;
   /** When it was archived, or null while it is not. */
   archivedAt: number | null;
+  /** The setup of its worktree, the last one run, or null where its repository named neither file. */
+  setup: WorktreeSetup | null;
 }
 
 /** A repository as the store keeps it, with its work items inside it. */
@@ -58,7 +61,10 @@ function isGroup(value: unknown): value is Group {
   return isRecord(value) && typeof value.id === "number" && typeof value.name === "string";
 }
 
-function isStoredWorkItem(value: unknown): value is StoredWorkItem {
+/** A stored work item as a file holds one: one written before the setup was recorded has none. */
+type WrittenWorkItem = Omit<StoredWorkItem, "setup"> & { setup?: WorktreeSetup | null };
+
+function isStoredWorkItem(value: unknown): value is WrittenWorkItem {
   return (
     isRecord(value) &&
     typeof value.id === "number" &&
@@ -71,11 +77,15 @@ function isStoredWorkItem(value: unknown): value is StoredWorkItem {
     typeof value.pinned === "boolean" &&
     typeof value.muted === "boolean" &&
     isNumberOrNull(value.groupId) &&
-    isNumberOrNull(value.archivedAt)
+    isNumberOrNull(value.archivedAt) &&
+    (value.setup === undefined || value.setup === null || isWorktreeSetup(value.setup))
   );
 }
 
-function isStoredRepository(value: unknown): value is StoredRepository {
+/** A stored repository as a file holds one, its work items as the file holds them. */
+type WrittenRepository = Omit<StoredRepository, "workItems"> & { workItems: WrittenWorkItem[] };
+
+function isStoredRepository(value: unknown): value is WrittenRepository {
   return (
     isRecord(value) &&
     typeof value.id === "number" &&
@@ -118,8 +128,8 @@ function isOldWorkItem(value: unknown): value is OldWorkItem {
   );
 }
 
-/** What a work item holds of the fields a person sets, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
+/** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
 
 /** The next id of each kind the store gives. Each only rises, so no id is given twice though the one that bore it was removed. */
 interface Counts {
@@ -131,13 +141,24 @@ interface Counts {
 /** What `repositories.json` holds: the three counts and the repositories. */
 type Stored = Counts & { repositories: StoredRepository[] };
 
-function isStored(value: unknown): value is Stored {
+function isStored(value: unknown): value is Counts & { repositories: WrittenRepository[] } {
   return isRecord(value) && typeof value.nextWorkItemId === "number" && typeof value.nextRepositoryId === "number" && typeof value.nextGroupId === "number" && Array.isArray(value.repositories) && value.repositories.every(isStoredRepository);
 }
 
 /** One past the highest of the ids, and 1 where there is none. */
 function past(ids: readonly number[]): number {
   return ids.reduce((highest, id) => Math.max(highest, id), 0) + 1;
+}
+
+/**
+ * A setup as the store reads it at the daemon's start: none where the file
+ * held none, and a failed one where it was running, since its pane did not
+ * outlive the daemon that started it.
+ */
+function setupRead(setup: WorktreeSetup | null | undefined): WorktreeSetup | null {
+  if (setup === undefined || setup === null) return null;
+  const read = setupOf(setup);
+  return read.state === "running" ? { ...read, state: "failed", failure: DAEMON_STOPPED } : read;
 }
 
 /** The JSON a file holds, or undefined where no file stands there. A file that cannot be read, and one that is no JSON, gives null. */
@@ -166,6 +187,9 @@ function readJson(file: string): unknown {
  * leaves the store. A file that holds the list of repositories alone, which
  * a build before the counts wrote, is read with each count one past the
  * highest id of its kind. A file that is neither is read as no repository.
+ * A work item written before the setup was recorded is read with none, and
+ * one whose setup was running is read with that setup failed: its pane
+ * ended with the daemon that started it.
  *
  * Where that file does not exist, the store starts from `work-items.json`,
  * the list a build before the repositories wrote: one repository for each
@@ -213,7 +237,7 @@ export class RepositoryStore {
         hidden,
         addedAt,
         groups: groups.map((group) => ({ id: group.id, name: group.name })),
-        workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt })),
+        workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup) })),
       });
     }
     // A file with no counts, and one whose counts stand below an id it holds, gives no id twice either.
@@ -284,17 +308,18 @@ export class RepositoryStore {
    * Sets on a work item the fields given, of those a person sets: its pin,
    * its mute, its title, its branch, its group, which is a group's id or
    * null for a work item in none, and its archive, which is the time it was
-   * archived, or null for a work item that is restored. It answers whether
+   * archived, or null for a work item that is restored; and the setup of its
+   * worktree, which the daemon sets. It answers whether
    * the work item is another than it was, and writes the store only where
    * it is. Undefined where no work item has the id. Whether a group is one
    * of the work item's repository is the caller's to hold.
    */
-  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch" | "groupId" | "archivedAt">>): boolean | undefined {
+  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch" | "groupId" | "archivedAt" | "setup">>): boolean | undefined {
     const item = this.workItem(id)?.item;
     if (!item) return undefined;
-    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch, groupId = item.groupId, archivedAt = item.archivedAt } = fields;
-    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch && groupId === item.groupId && archivedAt === item.archivedAt) return false;
-    Object.assign(item, { pinned, muted, title, branch, groupId, archivedAt });
+    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch, groupId = item.groupId, archivedAt = item.archivedAt, setup = item.setup } = fields;
+    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch && groupId === item.groupId && archivedAt === item.archivedAt && setup === item.setup) return false;
+    Object.assign(item, { pinned, muted, title, branch, groupId, archivedAt, setup });
     this.write();
     return true;
   }
