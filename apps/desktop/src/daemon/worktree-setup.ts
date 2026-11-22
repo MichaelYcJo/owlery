@@ -6,9 +6,9 @@
 // patterns match, never Owlery's own reading of them, and git runs with
 // arguments, never through a shell.
 import { spawn } from "node:child_process";
-import { cp, lstat, readFile, rm, stat } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { constants } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { WorktreeSetup } from "../shared/protocol";
 
 export const INCLUDE_FILE = ".worktreeinclude";
@@ -81,6 +81,27 @@ function cloned(program: string, source: string, target: string): Promise<boolea
   });
 }
 
+/** Why a path is not copied where a link of the worktree leads the folder it would be written in out of the worktree. */
+export const LEADS_OUT = "a link in the worktree leads its folder out of the worktree";
+
+/**
+ * Whether the nearest folder of `target` that stands lies inside `root` once
+ * each link is read: a link the worktree's branch tracks can lead a path out
+ * of the worktree, and a write follows it. A folder that stands and cannot
+ * be read through, as a link to nothing, leads nowhere a write may go.
+ * `root` is a real path.
+ */
+async function staysInside(root: string, target: string): Promise<boolean> {
+  for (let folder = dirname(target); ; folder = dirname(folder)) {
+    try {
+      const inside = relative(root, await realpath(folder));
+      return inside === "" || (inside !== ".." && !inside.startsWith(`..${sep}`) && !isAbsolute(inside));
+    } catch {
+      if ((await lstat(folder).then(() => true, () => false)) || dirname(folder) === folder) return false;
+    }
+  }
+}
+
 /**
  * Copies into `worktree` each path of the main checkout `repo` that a
  * pattern of its `.worktreeinclude` matches and git ignores. The paths are
@@ -89,11 +110,14 @@ function cloned(program: string, source: string, target: string): Promise<boolea
  * a tracked file and an untracked file git does not ignore are never
  * copied. A folder is copied whole, a link as a link with its target as it
  * reads, and a path that already stands in the worktree is neither written
- * over nor listed. Each path is cloned with `clone` run as `cp -c -R -P`,
- * and where that fails, as on a volume that is not APFS, what it left is
- * removed and Node's copy writes the path. A path that fails to copy is
- * listed with its error and the others go on. Where either git command
- * fails, nothing is copied and `failure` says why; nothing is thrown.
+ * over nor listed. A path whose folder a link of the worktree leads out of
+ * it is listed as not copied, and nothing is written there. The folders the
+ * worktree lacks above a path are made, then the path is cloned with
+ * `clone` run as `cp -c -R -P`, and where that fails, as on a volume that is
+ * not APFS, what it left is removed and Node's copy writes the path. A path
+ * that fails to copy is listed with its error and the others go on. Where
+ * either git command fails, nothing is copied and `failure` says why;
+ * nothing is thrown.
  */
 export async function copyIncluded(repo: string, worktree: string, clone = CLONE): Promise<{ copied: string[]; copiedCount: number; failed: { path: string; why: string }[]; failure: string | null }> {
   const none = { copied: [], copiedCount: 0, failed: [] };
@@ -103,17 +127,36 @@ export async function copyIncluded(repo: string, worktree: string, clone = CLONE
   const ignored = await gitWith(repo, ["check-ignore", "--stdin", "-z"], listed.stdout);
   // `check-ignore` exits 1 where it prints nothing: none of the paths is ignored.
   if (ignored.code !== 0 && !(ignored.code === 1 && ignored.stdout === "")) return { ...none, failure: complaint("check-ignore", ignored) };
+  let root: string;
+  try {
+    // macOS reaches its temporary folders through a link, so the worktree is compared by its real path.
+    root = await realpath(worktree);
+  } catch (error) {
+    return { ...none, failure: `the worktree could not be read: ${error instanceof Error ? error.message : String(error)}` };
+  }
   const copied: string[] = [];
   const failed: { path: string; why: string }[] = [];
   for (const path of ignored.stdout.split("\0").filter((entry) => entry !== "")) {
     // A folder is listed with a slash at its end, and stands in the worktree without it. `cp` given a folder with the slash would copy what it holds.
     const source = join(repo, path.replace(/\/$/, ""));
     const target = join(worktree, path.replace(/\/$/, ""));
+    // Before any read or write of the target, each of which follows the links above it.
+    if (!(await staysInside(root, target))) {
+      failed.push({ path, why: LEADS_OUT });
+      continue;
+    }
     try {
       await lstat(target);
       continue;
     } catch {
       // Nothing stands there, so the path is copied.
+    }
+    try {
+      // `cp` makes none of the folders above its target, which the check above holds inside the worktree.
+      await mkdir(dirname(target), { recursive: true });
+    } catch (error) {
+      failed.push({ path, why: error instanceof Error ? error.message : String(error) });
+      continue;
     }
     if (await cloned(clone, source, target)) {
       copied.push(path);

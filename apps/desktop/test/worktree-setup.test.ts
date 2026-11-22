@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { beginSetup, copyIncluded, endedSetup, readSetup } from "../src/daemon/worktree-setup";
@@ -106,6 +106,25 @@ describe("copyIncluded", () => {
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=worktree\n");
   });
 
+  it("writes nothing through a link the worktree's branch tracks out of the worktree, and lists the path as not copied", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    const outside = join(base, "outside");
+    mkdirSync(outside);
+    // The worktree's branch tracks `apps` as a link to a folder outside both checkouts, where the main checkout holds `apps/web/.env.local`.
+    symlinkSync(outside, join(worktree, "apps"));
+    git(worktree, "add", "apps");
+    git(worktree, "commit", "--quiet", "-m", "link");
+    writeFileSync(join(repo, ".worktreeinclude"), "**/.env.local\n");
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: [], copiedCount: 0, failed: [{ path: "apps/web/.env.local", why: "a link in the worktree leads its folder out of the worktree" }], failure: null });
+    expect(readdirSync(outside)).toEqual([]);
+    // A link to a folder that does not stand leads nowhere a write may go, and no folder is made where it points.
+    const other = join(base, "other");
+    git(repo, "worktree", "add", "--quiet", "-b", "owlery/other", other);
+    symlinkSync(join(base, "nowhere"), join(other, "apps"));
+    expect(await copyIncluded(repo, other)).toEqual({ copied: [], copiedCount: 0, failed: [{ path: "apps/web/.env.local", why: "a link in the worktree leads its folder out of the worktree" }], failure: null });
+    expect(existsSync(join(base, "nowhere"))).toBe(false);
+  });
+
   /** A program in the place of `/bin/cp` that writes each call's arguments to `log`, then runs `body`. */
   function clonedBy(base: string, body: string) {
     const log = join(base, "clone.log");
@@ -126,6 +145,17 @@ describe("copyIncluded", () => {
     for (const path of ["apps/web/.env.local", "node_modules/pkg/index.js"]) expect(readFileSync(join(worktree, path), "utf8")).toBe(readFileSync(join(repo, path), "utf8"));
     expect(readlinkSync(join(worktree, "node_modules", ".bin", "tool"))).toBe("../pkg/index.js");
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=worktree\n");
+  });
+
+  it("clones a path whose folders the worktree lacks, once it made them", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    writeFileSync(join(repo, ".worktreeinclude"), "**/.env.local\n");
+    // The worktree's branch holds no `apps/web`, and a clone that fails leaves a mark, so the copy of the bytes is told apart from it.
+    const failedClone = join(base, "clone-failed");
+    const clone = clonedBy(base, `/bin/cp "$@" || { touch "${failedClone}"; exit 1; }`);
+    expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: ["apps/web/.env.local"], copiedCount: 1, failed: [], failure: null });
+    expect(existsSync(failedClone)).toBe(false);
+    expect(readFileSync(join(worktree, "apps", "web", ".env.local"), "utf8")).toBe("WEB=main\n");
   });
 
   it("copies a path with Node's copy where its clone fails, in place of what the failed clone left, and where no cp can start", async () => {
