@@ -1,11 +1,14 @@
 // The screenshot command: `pnpm run screenshots` sets `OWLERY_SCREENSHOTS`
 // and this file then starts the built app in the background, on a temporary
-// repository with four work items, one in each state a work item has, and
-// writes one PNG file for each view (the inbox, a work item's view, a work
-// item's menu and the "New work item" form) in each appearance of the theme
-// a first run opens in. No agent runs: a pane's process is a fixture, a
-// state is what the daemon's hook socket is fed, and the prompt asked in the
-// view fails at a stand-in for the CLI. With
+// repository with five work items, one in each state a work item has and one
+// parked with questions, and writes one PNG file for each view (the inbox, a
+// work item's view, the view of the parked work item, a work item's menu and
+// the "New work item" form) in each appearance of the theme a first run
+// opens in. No agent runs: a pane's process is a fixture, a state is what
+// the daemon's hook socket is fed, and the prompt asked in the view fails at
+// a stand-in for the CLI. No stage runs either: the decisions made without
+// asking and the questions are blocks the run writes into the two work
+// items' records, which the daemon reads in their worktrees. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -17,6 +20,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { RECORD_FILE, withApplied, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
+import { MARKER } from "../src/daemon/records-place";
 import { WINDOW_SIZE } from "../src/main/window-size";
 import type { ServerMessage, SessionInfo, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
@@ -38,6 +43,7 @@ const SAMPLE_PANE = join(__dirname, "fixtures", "sample-pane.sh");
  * and menu are captured, and it is the one that needs the person.
  */
 const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[] }[] = [
+  { title: "Choose the base of the hotfix", kind: "shell", events: [] },
   { title: "Rename the settings file", kind: "shell", events: [] },
   { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }] },
   { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }] },
@@ -45,6 +51,29 @@ const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<stri
 ];
 /** The last work item made. */
 const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
+/** The first work item made, which the run parks with `QUESTIONS`. Its view is the view "parked". */
+const PARKED = WORK_ITEMS[0]?.title ?? "";
+/**
+ * The decisions made without asking that the run writes into the shown work
+ * item's record, in the record's order: one that stands and says who decided,
+ * one the person reversed, with the message, one a stage applied after its
+ * reversal, and one that stands and names no one.
+ */
+const DECISIONS = [
+  { kind: "route", decided: "Build it with no framer.", grounds: "The issue names one file, src/redirect.ts.", by: "orchestrator" },
+  { kind: "default", decided: "Start the branch from main.", grounds: "frame/questions.md Q1 states main as its default." },
+  { kind: "scope", decided: "Leave the sign-up page's redirect out.", grounds: "The issue names the login page alone." },
+  { kind: "answered", decided: "The redirect is a 303.", grounds: "docs/architecture.md, Redirects, names the status." },
+] as const;
+const REVERSAL = "Start it from release/v0.0.2: the fix ships with this release.";
+const TAKEN_IN = "Keep the sign-up page in: it shares the redirect.";
+/** A block the record's reader refuses, a decision with no `decided:` line, which the view names as a line that was not read. */
+const REFUSED = "```seal\ndecision: 9 scope\n```\n";
+/** The questions the parked work item waits on. */
+const QUESTIONS = [
+  { asks: "Which base does the hotfix merge into?", grounds: "No document names the base of a hotfix, and the choice decides which release ships it.", by: "sealer", options: [{ label: "main", implies: "It waits for the next release." }, { label: "release/v0.0.2", implies: "It ships with this release." }], default: "release/v0.0.2" },
+  { asks: "May the run push the branch to the remote?", grounds: "A push needs the person's approval.", by: "sealer", options: [{ label: "Yes", implies: "The branch is pushed once the seal is given." }, { label: "No", implies: "The branch stays on this Mac." }] },
+];
 /** The prompt the run asks in the shown work item's view. The stand-in for the CLI fails it at once. */
 const ASKED = "Which file holds the redirect?";
 
@@ -69,17 +98,19 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
     expect(shots(["night-watch"]).map((shot) => shot.file)).toEqual([
       "night-watch-dark-inbox.png",
       "night-watch-dark-view.png",
+      "night-watch-dark-parked.png",
       "night-watch-dark-menu.png",
       "night-watch-dark-dialog.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
+      "night-watch-light-parked.png",
       "night-watch-light-menu.png",
       "night-watch-light-dialog.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(24);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(24);
-    expect(all[23]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
+    expect(all).toHaveLength(30);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(30);
+    expect(all[29]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -109,6 +140,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   let made: ReturnType<typeof temporaryRepository>;
 
   const SIDEBAR_LINE = `#repositories button[data-work-item="${WORK_ITEMS.length}"]`;
+  const PARKED_LINE = `#repositories button[data-work-item="1"]`;
   const MENU = `[role="menu"]`;
 
   /** The work items and the sessions the daemon lists, read as a second client of it. */
@@ -178,6 +210,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click(SIDEBAR_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element")`, "the work item's view with its terminal");
     },
+    parked: async () => {
+      await app.click(PARKED_LINE);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${QUESTIONS.length}`, "the parked work item's view with its questions");
+    },
     menu: async () => {
       await show.inbox();
       const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector(${JSON.stringify(SIDEBAR_LINE)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
@@ -236,6 +272,22 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitFile(shown.worktree, "redirect.ts");
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
+
+    // The records of two work items, written into their worktrees as a stage would write them: the directory with the routing that names the branch, and the record. The daemon reads each at its next pass.
+    const record = (title: string, text: string): void => {
+      const item = planted.find((workItem) => workItem.title === title);
+      if (!item) throw new Error(`the daemon lists no work item ${title}`);
+      const directory = join(item.worktree, "seal", "threads", `1-${item.branch.replace(/^.*\//, "")}`);
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(item.worktree, "seal", "README.md"), `${MARKER}\n`);
+      writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${item.branch} |\n`);
+      writeFileSync(join(directory, RECORD_FILE), text);
+    };
+    const planted = (await listed()).workItems;
+    record(SHOWN, withApplied(withReversal(withReversal(DECISIONS.reduce(withDecision, ""), 2, REVERSAL), 3, TAKEN_IN), 3, "4c1e9a2") + REFUSED);
+    record(PARKED, QUESTIONS.reduce(withQuestion, ""));
+    await app.until(`document.querySelectorAll("#view-detail .decision").length === ${DECISIONS.length} && document.querySelector("#view-detail .decisions .unread")`, "the decisions and the line that was not read", 15_000);
+    await app.until(`document.querySelector('${PARKED_LINE} .state-icon.waiting')`, "the parked work item as one that needs the person", 15_000);
 
     // A prompt asked in the view, which the stand-in for the CLI fails.
     await app.click("#ask-prompt");
