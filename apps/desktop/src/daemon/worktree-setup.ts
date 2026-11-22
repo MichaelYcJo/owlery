@@ -145,12 +145,30 @@ const STAGING_NAME = /^\.owlery-copy-[A-Za-z0-9]{6}$/;
 /** What the `.gitignore` of a staging folder holds, so git sees nothing in the folder. */
 const UNSEEN = "*\n";
 
+/** The folder of a staging folder that holds the copy, beside its `.gitignore`. */
+const COPY = "copy";
+
+/**
+ * Removes the staging folder `staging`, the copy in it before its
+ * `.gitignore`, and throws where either removal fails. A `cp` that a stopped
+ * daemon started may still write in the copy, and a removal it defeats, or
+ * one the daemon's stop cuts short, then leaves the folder with its
+ * `.gitignore`, so git still sees nothing in it and a later setup removes
+ * it. Once the copy is gone, such a `cp` makes nothing there again, since it
+ * makes no folder above its target.
+ */
+async function removeStaging(staging: string): Promise<void> {
+  await rm(join(staging, COPY), { recursive: true, force: true });
+  await rm(staging, { recursive: true, force: true });
+}
+
 /**
  * Removes from `folder` each staging folder a copy left, as where the daemon
  * stopped during the copy and `copyPath` never removed its own: a folder of
- * the staging folder's name that is empty or holds the `.gitignore`
- * `copyPath` writes. Nothing else in `folder` is touched, and a `folder`
- * that does not stand holds none.
+ * the staging folder's name that is empty, or that holds the `.gitignore`
+ * `copyPath` writes, with all else it holds, by `removeStaging`. One whose
+ * copy something still writes in stays, as git ignores it. Nothing else in
+ * `folder` is touched, and a `folder` that does not stand holds none.
  */
 async function removeLeftCopies(folder: string): Promise<void> {
   const names = await readdir(folder).catch(() => [] as string[]);
@@ -159,7 +177,7 @@ async function removeLeftCopies(folder: string): Promise<void> {
     const left = join(folder, name);
     // A copy stopped before it wrote the `.gitignore` left the folder empty.
     if (await rmdir(left).then(() => true, () => false)) continue;
-    if ((await readFile(join(left, ".gitignore"), "utf8").catch(() => null)) === UNSEEN) await rm(left, { recursive: true, force: true }).catch(() => {});
+    if ((await readFile(join(left, ".gitignore"), "utf8").catch(() => null)) === UNSEEN) await removeStaging(left).catch(() => {});
   }
 }
 
@@ -171,7 +189,8 @@ async function removeLeftCopies(folder: string): Promise<void> {
  * folder, which holds a `.gitignore` of `*` and the copy one folder further
  * down, so a command in the person's pane neither lists nor adds the copy
  * before it stands in its place, nor a folder a stopped daemon left. The
- * folder goes in every case, with whatever a failed copy left in it.
+ * folder goes in every case, with whatever a failed copy left in it, by
+ * `removeStaging`.
  */
 async function copyPath(clone: string, source: string, target: string): Promise<void> {
   const staging = await mkdtemp(join(dirname(target), STAGING));
@@ -179,7 +198,7 @@ async function copyPath(clone: string, source: string, target: string): Promise<
     // The repository's patterns may be anchored at its top, which this folder may stand below, so the folder says itself what git ignores in it.
     await writeFile(join(staging, ".gitignore"), UNSEEN);
     // One folder further down, so an included path named `.gitignore` is not that file.
-    const stage = join(staging, "copy", basename(target));
+    const stage = join(staging, COPY, basename(target));
     await mkdir(dirname(stage));
     if (!(await cloned(clone, source, stage))) {
       await rm(stage, { recursive: true, force: true });
@@ -187,7 +206,7 @@ async function copyPath(clone: string, source: string, target: string): Promise<
     }
     await place(stage, target);
   } finally {
-    await rm(staging, { recursive: true, force: true }).catch(() => {});
+    await removeStaging(staging).catch(() => {});
   }
 }
 
@@ -202,8 +221,9 @@ async function copyPath(clone: string, source: string, target: string): Promise<
  * over nor listed. A path whose folder a link of the worktree leads out of
  * it is listed as not copied, and nothing is written there. In each other
  * path's folder, whether the path stands or not, a staging folder a stopped
- * copy left is removed (`removeLeftCopies`). The folders the worktree lacks
- * above a path are made, then the path is cloned beside its place with
+ * copy left is removed once nothing writes in it (`removeLeftCopies`). The
+ * folders the worktree lacks above a path are made, then the path is cloned
+ * beside its place with
  * `clone` run as `cp -c -R -P`, which copies the bytes itself where no clone
  * can be made, as on a volume that is not APFS or across volumes. Where that
  * process fails, as on a file it cannot read, or cannot start, Node's copy

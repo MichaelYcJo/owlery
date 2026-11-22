@@ -1,14 +1,14 @@
 import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
-import { link } from "node:fs/promises";
+import { link, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { beginSetup, copyIncluded, endedSetup, readSetup } from "../src/daemon/worktree-setup";
 import { git, temporaryRepository } from "./repositories";
 
-// No volume the suite runs on refuses a hard link, so a case swaps in the refusal; every other case links as the system does.
+// No volume the suite runs on refuses a hard link, and nothing else writes in a staging folder while it is removed, so a case swaps in the refusal or the writer; every other case links and removes as the system does.
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, link: vi.fn(actual.link) };
+  return { ...actual, link: vi.fn(actual.link), rm: vi.fn(actual.rm) };
 });
 
 const cleanups: (() => void)[] = [];
@@ -254,6 +254,40 @@ describe("copyIncluded", () => {
     expect(readdirSync(worktree).sort()).toEqual([".env", ".env.example", ".git", ".gitignore", ".owlery-copy-person", "README.md", "apps", "logs"]);
     expect(readdirSync(join(worktree, "apps", "web"))).toEqual([".env.local"]);
     expect(readFileSync(join(worktree, ".owlery-copy-person", "notes.txt"), "utf8")).toBe("mine\n");
+  });
+
+  it("removes the copy in a staging folder before its .gitignore, so a folder whose copy something still writes stays as git ignores it, and a later setup removes it", async () => {
+    const { repo, worktree } = repositoryWithIgnoredFiles();
+    const { rm: removed } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    cleanups.push(() => vi.mocked(rm).mockImplementation(removed));
+    for (const checkout of [repo, worktree]) writeFileSync(join(checkout, ".gitignore"), "/.env\n/node_modules/\n");
+    git(worktree, "commit", "--quiet", "-am", "anchored");
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\n");
+    const left = join(worktree, ".owlery-copy-Ab12Cd");
+    mkdirSync(join(left, "copy", "node_modules"), { recursive: true });
+    writeFileSync(join(left, ".gitignore"), "*\n");
+    writeFileSync(join(left, "copy", "node_modules", "index.js"), "module.exports = 1;\n");
+    // A `cp` a stopped daemon started still writes in the `copy/` of each staging folder, so a removal of that folder fails, and a removal of the staging folder takes all else it holds, then fails.
+    const notEmpty = (path: string) => Object.assign(new Error(`ENOTEMPTY: directory not empty, rmdir '${path}'`), { code: "ENOTEMPTY" });
+    vi.mocked(rm).mockImplementation(async (path, options) => {
+      const at = String(path);
+      if (basename(at) === "copy" && basename(dirname(at)).startsWith(".owlery-copy-")) throw notEmpty(at);
+      if (basename(at).startsWith(".owlery-copy-") && existsSync(join(at, "copy"))) {
+        for (const name of readdirSync(at)) if (name !== "copy") await removed(join(at, name), options);
+        throw notEmpty(at);
+      }
+      return removed(path, options);
+    });
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: [".env"], copiedCount: 1, failed: [], failure: null });
+    const staging = readdirSync(worktree).filter((name) => name.startsWith(".owlery-copy-"));
+    // The folder the stopped copy left, and the one this copy wrote, whose own removal the writer defeats too.
+    expect(staging).toHaveLength(2);
+    for (const name of staging) expect(readFileSync(join(worktree, name, ".gitignore"), "utf8")).toBe("*\n");
+    expect(git(worktree, "status", "--porcelain", "--untracked-files=all")).toBe("");
+    // The `cp` has ended.
+    vi.mocked(rm).mockImplementation(removed);
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: [], copiedCount: 0, failed: [], failure: null });
+    expect(readdirSync(worktree).filter((name) => name.startsWith(".owlery-copy-"))).toEqual([]);
   });
 
   it("leaves a path that came to stand in the worktree during its copy as it is, and lists it as not copied", async () => {
