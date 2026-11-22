@@ -64,6 +64,8 @@ describe("AskedStore", () => {
     expect(store.answer(9, ANSWERS, 250)).toBeUndefined();
     expect(store.answer(7, new Map([[1, "main"]]), 250)).toBeUndefined();
     expect(store.answer(7, new Map([...ANSWERS, [3, "a third"]]), 250)).toBeUndefined();
+    // As many answers as questions, one of them to a question the record does not hold.
+    expect(store.answer(7, new Map([[1, "main"], [3, "a third"]]), 250)).toBeUndefined();
     expect(store.answer(8, ANSWERS, 250)).toBeUndefined();
     expect([store.of(7), store.of(8)]).toEqual([PARKED, ONE]);
     expect(file(dir)).toEqual({ workItems: { 7: PARKED, 8: ONE } });
