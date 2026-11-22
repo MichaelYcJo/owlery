@@ -1,0 +1,72 @@
+# Implementation Plan: 1795330500-no-question-holds-the-run
+
+## Technical context
+
+The tree as read at `bc80b89`.
+
+`apps/desktop`. The protocol is `src/shared/protocol.ts`: `WorkItem` (136-174), `Look` (197-201), `ClientMessage` (259-306) and `ServerMessage` (308-338). The daemon is `src/daemon/daemon.ts`: `DaemonOptions` (75-116), `agentEvent` (208), which is the one method the daemon's own code calls from outside a client's message today, `handle` (301), whose `setWorkItem` case (483) is the shape of a request that sets something on a work item and answers `done`, `dropWorkItems` (773), `lists` (1002), `workItemOf` (1017) and `broadcastInbox` (1032). The daemon's state in the run folder is one module and one file for each kind: `src/daemon/repositories.ts`, `src/daemon/last-look.ts` and `src/daemon/keep-awake.ts`, each written through `src/daemon/whole-file.ts`. `src/daemon/last-look.ts` reads a look's file strictly, with one set of fields it tolerates the absence of (`SinceRepositories`, line 41).
+
+The window's words come from pure functions of `src/renderer/view.ts`: `inboxLine` (73), `inboxSummary` (107), `inboxGroups` (132), `changesSince` (520), `summarySentence` (542), `summaryControls` (572), `lineText` (655), `lineBadge` (676) and `notificationFor` (1394). `src/renderer/list.ts` draws a line and the preview (`lineElement`, `showPreview`), `src/renderer/shared.ts#detail` (273) the preview's detail, `src/renderer/work-item-view.ts` the view, `src/renderer/summary.ts` the summary, and `src/renderer/renderer.ts` takes `ready` (1228) and `inbox` (1254) and raises the notifications (1045).
+
+The cases are `test/daemon.test.ts`, which builds a `Daemon` with the fake adapter and reads what a client receives (its helper `daemon` at line 35), `test/view.test.ts` over the pure functions, `test/last-look.test.ts`, and the files that start the built app through `test/built-app.ts`, which run one at a time in the `app` project of `vitest.config.ts`.
+
+**The failure scenario of the chosen approach.** In six months the daemon's list of decisions and the work item's records in the repository say different things. The orchestrator session that #51 builds writes a route into the work item's routing record and also calls `Daemon#decided`, and one of the two is changed without the other. The inbox then shows grounds the record no longer holds. The design bounds this by what a decision is: a line for the inbox whose grounds name the record it stands on, never the source the next stage reads. The second failure: #41 and #42 design a role's result that carries questions in a shape `AskedQuestion` does not hold, such as a question with several answers at once, and `Daemon#park` has to change with its two messages. The third: a work item gathers hundreds of decisions, and every `inbox` carries all of them to every client at each change of any list. The store then needs a bound, as the daemon's list of headless sessions got one in #26.
+
+## Alternatives considered
+
+| Approach | Failure scenario | Verdict |
+|---|---|---|
+| State the rule in `frame/design.md` *Rule changes*, for the settle to write into `docs/` (chosen) | Until the settle of release 0.0.2 the documents' text does not hold the rule, and a reader of `docs/` alone misses it | Chosen. This work's subject is the daemon's protocol and the inbox, and `skills/implement/SKILL.md` *Document layout — two roots, three lifetimes* has such a work item state its rules for the settle, so that work items running side by side do not each rewrite a section. The rule is in force from the merge, and the first line of the issue's *Done when* is met in the documents' text at the settle, inside the same release |
+| Edit `docs/` directly in this pull request | A second work item of the release that changes *Code runs the order, the orchestrator judges*, as #41 may, meets an edited section and an unsettled operation on it at once | Rejected for the rule above. The spawn listed the documents' text among what is built first, and the frame's commit is where the rule first stands |
+| Keep the decisions in the daemon's state, recorded through one method (chosen) | The first failure of *Technical context* | Chosen. `docs/architecture.md` *State lives in three places* gives the daemon the questions and the answers, and a decision is shown the same way. The inbox reads no record's file |
+| Read the decisions from the work item's records in its worktree (`routing.md` *Why this way*, the defaults of `frame/questions.md`, `frame/plan.md` *Judgments of the run*) | The daemon parses prose and three tables whose place and form #40 and #51 have not decided, and a work item names no directory of records today | Rejected. A record's sentence is read by an agent, and a parser of it would decide by a spelling |
+| A new record file of decisions, committed in the user's repository | A format added before #40 decides the place of records, and a commit made by the daemon in a worktree an agent is changing | Rejected. The records that hold a decision's grounds already exist in the format Owlery starts from |
+| `Daemon#decided` and `Daemon#park` as methods of the daemon's code (chosen) | Nothing in the built app reaches them until #41 and #42, so only the cases call them | Chosen. Every caller the issues name is the daemon's own code: the chain of #41 and #42, and an orchestrator session's tool that the daemon serves. `Daemon#agentEvent` is the same kind of entry |
+| Client messages that record a decision and park a work item | Any client can put a decision or a question in front of the person, and the phone would inherit an entry no person's act uses | Rejected. #38 added a role to `ask` for a real run it needed, and no run needs these |
+| A `RoleEvent` that carries a session's questions, so today's headless session parks its work item | The shape of a role's result is #41's and #42's to design, and `src/daemon/adapters/adapter.ts` is rewritten by #26 and by #38 at the same time | Rejected for item 16 of `frame/design.md` *Scope* |
+| A parked work item's line takes the state `waiting` (keeps `AgentState` as the line's state) | A person cannot tell a work item parked with a question from one whose pane asks a permission by the group alone | Kept. The premise is that both need the same act, the person's answer, and that the line's second row says which: checked in `inboxGroups`, which orders the groups by "the order a person must act on them", and in `summaryControls`, whose main control opens the first that waits |
+| Replace the line's state with the product's own states (waiting for answers, in progress, sealed, broken) | The line's state, its groups, the filter, the history and the summary are rewritten here and again by #56, which builds those states in release 0.0.3 with the seal to read | Rejected for the premise above. #56 owns that replacement |
+| `decisions` and `asked` as fields of `WorkItem` (keeps the `inbox` as the whole of the lists) | The third failure of *Technical context* | Kept. The premise is that an `inbox` is sent only when a list changes and that a look must hold what the summary compares: checked in `broadcastInbox`'s callers and in `changesSince`, which reads the look's work items |
+| A list of their own with a message of its own, as the headless sessions have | The look does not hold the list, so the summary cannot say which decisions are new, and a client joins two lists by id on every draw | Rejected for the premise above |
+| A file for each store, `decisions.json` and `asked.json` (keeps one file for each kind of state) | A work item's removal has to reach three files | Kept. The premise is that `repositories.json` is read strictly and by earlier builds: checked in `isStoredWorkItem`, which a build before the new fields would still pass, and in `RepositoryStore`'s docstring, which reads a file of another shape as no repository |
+| Put both on `StoredWorkItem` in `repositories.json` | A file this build wrote, read after a field's type changed, is "read as no repository", and the person's whole list is gone | Rejected for the premise above |
+| A new decision is told from the look by its id (chosen) | A look written by a build before this one holds no decision, so every decision counts as new once | Chosen. `changesSince` compares the look's lists with the present ones and reads no clock |
+| A new decision is one recorded after the look's time | The look need not hold the decisions, and the summary compares two times of the daemon's clock | Rejected: the look already has to hold `asked`, for the line's state |
+| The questions are answered in a section of the work item's view (chosen) | #53 builds a question screen, and the section is drawn twice | Chosen. The issue asks for the answer in the app, and a park with no place to answer holds its work item for good. *Scope* item 19 gives #53 the place |
+| Wait for #53's screen | The park cannot be ended in release 0.0.2, where #42's sealer can already ask | Rejected |
+| A reversal is kept on its decision for the next stage to read (chosen) | Until #41 hands it over, a person who reverses a decision sees it reversed and nothing acts on it | Chosen, with the delivery named for #41 in *Scope* item 16. No stage runs today that could act |
+| Type the reversal into the work item's pane, or start a headless session with it | The daemon types into a person's terminal, which `docs/product.md` *The phone: the same session as a chat* keeps for v0.2 and only while the terminal waits for input, or it spends the person's usage on a session they did not start | Rejected |
+
+## Phases
+
+| Phase | Delivers | Verified by | Status |
+|---|---|---|---|
+| 1 | `frame/design.md` *Scope* items 1 to 5, and items 12, 13 and 15 for `decisions`, with their parts of *Data & interfaces* and of *Removes* | Scenarios 1 to 4, 10 and 18 as cases, each seen red before its code, and the parts of scenarios 9, 12, 14 and 16 that read `decisions` | |
+| 2 | *Scope* items 6 to 11, and items 12, 13 and 15 for `asked`, with their parts of *Data & interfaces* and of *Removes* | Scenarios 5 to 8, 11 and 13 as cases, each seen red before its code, and the parts of scenarios 9, 12, 14, 16 and 18 that read `asked` | |
+| 3 | *Scope* item 14, and the case of scenario 17 | Scenario 15 as cases, each seen red before its code, and scenario 17 by its one case in the built app | |
+
+Phase 1 can be built and read without phase 2, and phase 2 without phase 1's window: each is a slice from the store to the line. Phase 3 reads both. The rule of *Rule changes* is no phase: it stands with the frame's commit.
+
+## Overlap with the release
+
+The spawn names #53, #51, #22, #41, #42 and #38, and the worktrees of #26, #117 and #38. #51 and #53 are in release 0.0.3 and are read as issues. #117 changes built-app cases and their waits, and this work adds a test file of its own to the `app` project and changes none of #117's: it does not meet this work.
+
+| Work item | Where both change | Merges first | Grounds |
+|---|---|---|---|
+| #26, `1795268972-headless-failure-and-limit` | `apps/desktop/src/shared/protocol.ts`, `src/daemon/daemon.ts`, `src/renderer/view.ts`, `work-item-view.ts`, `renderer.ts`, `shared.ts` and `index.html`, `test/daemon.test.ts` and `test/view.test.ts`. No rule and no section of `docs/` | #26 | Its guarantee is written on its branch, so it is sealed first. This work's build merges `release/v0.0.2` once #26 is there, before phase 1 where it can |
+| #38, `1795329620-role-bundle` | `src/shared/protocol.ts` (`ask`, `HeadlessInfo`, `ready`), `src/daemon/daemon.ts`, `test/daemon.test.ts`, and the window's status line. Both designs change `docs/architecture.md`, in sections that differ | #38 | #39, #41 and #42 wait on #38, so it does not wait for this work. This work calls nothing of #38's and reads no fact it changes, and its later phases take the merge inside commits they make anyway |
+| #41, review rounds and fix passes | `src/daemon/daemon.ts`: its chain calls `Daemon#park` and `Daemon#decided` and reads an answered record and the reversals (`frame/design.md` *Scope* item 16). `docs/architecture.md` *Code runs the order, the orchestrator judges*, where its design may state the order it builds | #119 | #41 has no frame yet. It builds on the methods and on the rule, so it reads them merged |
+| #42, the gate and the sealer | `src/daemon/daemon.ts`: a sealer's `undecided` verdict calls `Daemon#park`, and the answer starts the sealer again | #119 | #42 depends on #41 |
+| #22, the summary of sealed and broken work items | `src/renderer/view.ts` (`changesSince`, `summarySentence`, `summaryHead`, `summaryControls`), `src/renderer/summary.ts`, `test/view.test.ts`, and `docs/product.md` *Foundation* | #119 | #22 needs the seals of #42 to #44 and has no branch. It adds its counts beside the sentence of *Scope* item 14 |
+| #53, the question screen (release 0.0.3) | `AskedQuestion` and `Asked` in `src/shared/protocol.ts`, the section of *Scope* item 11 in `src/renderer/work-item-view.ts`, and `docs/architecture.md` *What changes because Owlery is not a plugin*, the row "Asking the person" | #119 | Release 0.0.2 merges before 0.0.3 opens its work. #53 builds its screen on the shapes this work ships and may replace the section |
+| #51, the depth judgment (release 0.0.3) | `Daemon#decided`, which its orchestrator session calls for the route it chose, and `docs/architecture.md` *Code runs the order, the orchestrator judges* | #119 | The same order of releases |
+
+## Operational impact
+
+No dependency and no environment variable is added. The daemon's run folder gains `decisions.json` and `asked.json`, readable by the user alone, and a daemon of an earlier build ignores both. The protocol gains the fields `decisions` and `asked` on a work item, in `ready`, `inbox` and the look, and the client messages `reverseDecision` and `answerQuestions`. A window of this build reads a work item without the fields as one with no decision and no record. A `last-look.json` written before this build is still read. The version does not move: `apps/desktop/package.json` reads `0.0.2`.
+
+## Judgments of the run
+
+| Date | Judgment | Grounds | Judged against |
+|---|---|---|---|
+| | | | |
