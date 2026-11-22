@@ -3869,6 +3869,21 @@ describe("the commit of a person's word", () => {
     expect(recordIn(directory)?.decisions.map(({ state }) => state)).toEqual([1, 2].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
   });
 
+  it("takes the words of one worktree in the order they came: twelve reversals sent one behind another are each answered `done` in that order, though git is asked where the worktree stands for each", async () => {
+    const { d, c, workItems } = await withWorkItems(["In order"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const ids = Array.from({ length: 12 }, (_, index) => index + 1);
+    for (const id of ids) d.decided(a.id, { ...DEFAULT, says: `Decision ${String(id)}.` });
+    await settled(c);
+    const before = c.messages.length;
+    for (const id of ids) c.send({ type: "reverseDecision", requestId: id, workItemId: a.id, decisionId: id, message: `Not ${String(id)}.` });
+    await c.until(() => (c.messages.filter((m) => m.type === "done").length === ids.length ? true : undefined), 10000);
+    expect(c.messages.slice(before).flatMap((m) => (m.type === "done" ? [m.requestId] : []))).toEqual(ids);
+    await d.close();
+    expect(recordIn(directory)?.decisions.map(({ state }) => state)).toEqual(ids.map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+  });
+
   it("waits at its close for a word whose worktree is still being read: a reversal sent just before the close is written and committed when the close has ended", async () => {
     const { d, c, workItems } = await withWorkItems(["Closing"]);
     const a = workItems[0]!;
