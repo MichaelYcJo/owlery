@@ -7,6 +7,8 @@
 | The whole suite and the typecheck of the package at the head of the branch, after the merge of `origin/release/v0.0.2` (`9e415bd`), which brought #40's changes into this branch | The orchestrator's broad gate, after the review rounds |
 | The list's Markdown as GitHub renders it in a pull request's body and a release's note: the cases compare the text, and no case renders it | #49, which places the list |
 | `--apply` with AgenticSeal's own `seal settle --apply`: the cases run a stand-in that removes in the working tree and writes nothing to git, as the frame's probe of plugin 0.38.4 found (`frame/design.md` *Grounding*), and no run of this work started the plugin's settle | The release's settling session (#49), whose `settle --apply` is the first run against the plugin |
+| The broad gate's heading and table counts over every pair of `docs/` and the READMEs, and its search for `도장`: phase 3 ran them over the four policy files it changed alone (`trail/phases/phase-3.md`) | The orchestrator's broad gate, after the review rounds |
+| The links R1 and R2 add, in both editions, as GitHub resolves their anchors: they were read against the headings' text and not rendered | The proofer, at the first round |
 
 ## Not done
 
