@@ -187,16 +187,6 @@ What the build added beside the sections above, folded by the orchestrator on 20
   file: docs/architecture.ko.md
   section: 역할 세션은 사용자 환경에서 떼어 띄웁니다
   to: **역할 세션은 아무것도 설치하지 않습니다. 묶음은 그 세션에만 실리고, Owlery는 사용자의 설정 파일과 플러그인 목록을 쓰지 않습니다.** Claude Code는 세션이 실은 플러그인의 횟수를 자기 상태 파일 `~/.claude.json`의 `pluginUsage`에 적고, 역할 세션은 거기에 `owlery@inline` 항목을 더합니다(2026-11-22 실험, 2.1.330). 이 파일은 CLI 세션이 뜰 때마다 다시 쓰는 파일이고, 설정 파일이 아닙니다. 데몬이 시작할 때 실행하는 `claude --version`은 이 파일에 아무것도 쓰지 않습니다. 같은 실행에서 `settings.json`, `installed_plugins.json`, `known_marketplaces.json`은 쓰이지 않았습니다.
-- add
-  file: docs/architecture.md
-  section: Taking in AgenticSeal's changes
-  to: **The bundle's files stand at the paths they have in AgenticSeal, and the bundle's `README.md` names the release they were taken at and every change Owlery made to them.** The first bundle is taken at AgenticSeal 0.38.4. A file compared with the same path at that release's tag shows what Owlery changed, so a later release is carried over file by file. AgenticSeal's licence text is the bundle's `LICENSE`, beside the files it covers. The bundle holds documents only: no hook, no script and no drawing.
-    check: apps/desktop/test/role-bundle.test.ts
-- add
-  file: docs/architecture.ko.md
-  section: AgenticSeal의 변경을 가져오는 법
-  to: **묶음의 파일은 AgenticSeal에서의 경로 그대로 두고, 가져온 릴리스와 Owlery가 고친 곳은 묶음의 `README.md`가 모두 밝힙니다.** 첫 묶음은 AgenticSeal 0.38.4에서 가져옵니다. 파일을 그 릴리스 태그의 같은 경로와 비교하면 Owlery가 고친 곳이 보이므로, 다음 릴리스는 파일 단위로 옮깁니다. AgenticSeal의 라이선스 전문은 묶음의 `LICENSE`로, 그 라이선스가 걸린 파일 곁에 둡니다. 묶음에는 문서만 있습니다. 훅도, 스크립트도, 그림도 없습니다.
-    check: apps/desktop/test/role-bundle.test.ts
 
 ## Removes
 

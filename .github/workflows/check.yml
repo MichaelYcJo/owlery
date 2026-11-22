@@ -33,6 +33,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # The suite runs the pull request check of `pr-check/` with `python3`,
+      # and the check needs Python 3.12 or newer.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       # The desktop app's postinstall rebuilds node-pty for Electron.
       - name: install
         run: pnpm install --frozen-lockfile
