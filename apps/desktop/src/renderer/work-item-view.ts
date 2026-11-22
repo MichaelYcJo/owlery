@@ -2,7 +2,8 @@
 // on the stage and the strip under them, and its right column, which says what the
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
-// above the "Ask" section and the seal's place. The pool of terminal screens the window holds lives here, and so
+// above the "Ask" section, where the calls its headless sessions ask the
+// person to allow are answered, and the seal's place. The pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -19,6 +20,7 @@ import {
   cardStaysAt,
   closeAsks,
   droppedText,
+  headlessKey,
   headlessLines,
   type LinkAct,
   linkCard,
@@ -79,6 +81,8 @@ let askingIn: number | undefined;
 let askRequest: number | undefined;
 // The key of the section of questions as it is drawn (./view, `askedSection`). The section is drawn again only where the key differs, so what a person chose and typed in it stays through the lists the daemon sends meanwhile.
 let questionsDrawn: string | undefined;
+// The key of the "Ask" section's lines as they are drawn (./view, `headlessKey`). They are drawn again only where the key differs, so a button the keyboard is on stays through the lists the daemon sends meanwhile.
+let askDrawn: string | undefined;
 // The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
 let answersRequest: number | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
@@ -636,20 +640,46 @@ function showAsk(workItem: WorkItem): void {
   askSubmit.title = button.title;
 }
 
+/** One of the two buttons of a call a session asks the person to allow, which sends the person's answer to the request `id` of the work item. `data-answer` names the request and the answer, so a redraw finds the same button again. */
+function answerButton(workItemId: number, id: number, allow: boolean): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = "quiet";
+  button.textContent = allow ? "Allow" : "Refuse";
+  button.title = allow ? "Allow this one call" : "Refuse this call: the agent is told the person refused it";
+  button.dataset.answer = `${id}:${allow ? "allow" : "refuse"}`;
+  button.addEventListener("click", () => send({ type: "answerPermission", requestId: request(), workItemId, id, allow }));
+  return button;
+}
+
 /**
  * Draws the "Ask" section of the view on screen: the button as the field
  * stands, and the work item's headless sessions. The line of a working
  * session offers "Stop", which asks the daemon to stop it; the daemon answers
- * `done`, and the `headless` that follows carries the session as failed.
+ * `done`, and the `headless` that follows carries the session as failed. A
+ * session that waits for the person to allow a call says "Needs you" with
+ * the waiting mark, and shows each call it waits on as a card with "Allow"
+ * and "Refuse"; the daemon answers `done`, and the `inbox` that follows
+ * carries the work item without the request. The lines are drawn again only
+ * where the section's key is another (./view, `headlessKey`), so every
+ * `inbox` that changes nothing they show leaves them, and the keyboard, as
+ * they are. Where they are drawn again while the keyboard is on a request's
+ * button, the same button of the same request takes it back, where it is
+ * still drawn.
  */
 function showAskSection(): void {
   const workItem = viewed();
   if (!workItem) return;
   showAsk(workItem);
+  const lines = headlessLines(held.headless, workItem);
+  const key = headlessKey(workItem.id, lines);
+  if (key === askDrawn) return;
+  askDrawn = key;
+  const focused = document.activeElement;
+  const kept = focused instanceof HTMLElement && headlessList.contains(focused) ? focused.dataset.answer : undefined;
   headlessList.replaceChildren(
-    ...headlessLines(held.headless, workItem.id).map((line) => {
+    ...lines.map((line) => {
       const item = document.createElement("li");
-      const head = row(headlessIcon(line.state), part("prompt", line.prompt), part(`state ${line.state}`, line.state));
+      const head = row(headlessIcon(line.mark, line.words), part("prompt", line.prompt), part(`state ${line.mark}`, line.words));
       if (line.stop) {
         const stop = document.createElement("button");
         stop.className = "quiet";
@@ -658,12 +688,25 @@ function showAskSection(): void {
         stop.addEventListener("click", () => send({ type: "stopHeadless", requestId: request(), id: line.id }));
         head.append(stop);
       }
+      item.append(head);
+      for (const ask of line.asks) {
+        const card = document.createElement("section");
+        card.className = "permission";
+        const asks = document.createElement("h3");
+        asks.textContent = ask.head;
+        const answers = part("answers", "");
+        answers.append(answerButton(workItem.id, ask.id, true), answerButton(workItem.id, ask.id, false));
+        // The call's text is plain text, never markup, whole, with its line breaks kept by the style.
+        card.append(asks, part("call", ask.text), answers);
+        item.append(card);
+      }
       // The answer and the error output are plain text, never markup, and their line breaks are kept by the style.
-      item.append(head, part("answer", line.text));
+      item.append(part("answer", line.text));
       if (line.errorOutput) item.append(part("error-output", line.errorOutput));
       return item;
     }),
   );
+  if (kept !== undefined) headlessList.querySelector<HTMLElement>(`button[data-answer="${kept}"]`)?.focus();
 }
 
 /**

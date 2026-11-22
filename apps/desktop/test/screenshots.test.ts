@@ -5,8 +5,12 @@
 // work item's view, the view of the parked work item, a work item's menu and
 // the "New work item" form) in each appearance of the theme a first run
 // opens in. No agent runs: a pane's process is a fixture, a state is what
-// the daemon's hook socket is fed, and the prompt asked in the view fails at
-// a stand-in for the CLI. No stage runs either: the decisions made without
+// the daemon's hook socket is fed, and the view's work item is asked two
+// prompts, which a stand-in for the CLI answers. It fails the first at once,
+// and holds the second, whose session asks the person to allow a command and
+// gets no answer, so the work item's line says the request and the view's
+// "Ask" section shows its card. The run waits until the section shows that
+// request before its first shot. No stage runs either: the decisions made without
 // asking and the questions are blocks the run writes into the two work
 // items' records, which the daemon reads in their worktrees. The repository
 // names a setup once three work items stand, so the one at work shows its
@@ -100,8 +104,10 @@ const QUESTIONS = [
   { asks: "Which base does the hotfix merge into?", grounds: "No document names the base of a hotfix, and the choice decides which release ships it.", by: "sealer", options: [{ label: "main", implies: "It waits for the next release." }, { label: "release/v0.0.2", implies: "It ships with this release." }], default: "release/v0.0.2" },
   { asks: "May the run push the branch to the remote?", grounds: "A push needs the person's approval.", by: "sealer", options: [{ label: "Yes", implies: "The branch is pushed once the seal is given." }, { label: "No", implies: "The branch stays on this Mac." }] },
 ];
-/** The prompt the run asks in the shown work item's view. The stand-in for the CLI fails it at once. */
+/** The prompt the run asks first in the shown work item's view. The stand-in for the CLI fails it at once. */
 const ASKED = "Which file holds the redirect?";
+/** The prompt the run asks second there. The stand-in holds it, and its session asks the person to allow a command (fixtures/sample-cli.sh). */
+const ASKED_TO_ALLOW = "Run the tests of the redirect.";
 
 describe.skipIf(RUN)("the screenshot command, without the app", () => {
   it("captures the theme a first run opens in where no theme is asked for", () => {
@@ -373,6 +379,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     await app.cdp("Input.insertText", { text: ASKED });
     await app.click("#ask-submit");
     await app.until(`document.querySelector("#headless li .state.failed") && document.querySelector("#headless li .error-output")`, "the asked prompt as failed", 15_000);
+    // A second prompt, whose session waits for the person to allow a command.
+    await app.click("#ask-prompt");
+    await app.cdp("Input.insertText", { text: ASKED_TO_ALLOW });
+    await app.click("#ask-submit");
+    await app.until(`document.querySelector("#headless li .permission .call")?.textContent === "pnpm test -- redirect.test.ts"`, "the second prompt's request in the view", 15_000);
   }, 120_000);
 
   afterAll(async () => {

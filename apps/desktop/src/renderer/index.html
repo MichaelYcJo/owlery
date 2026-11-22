@@ -412,6 +412,11 @@
       #headless .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
       #headless .state { font-size: var(--size-caption); }
       #headless .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* A call the session asks the person to allow, in the form of what an agent says with the edge of what needs the person: its head names the tool, the call's text stands whole in the fixed-width face, and "Allow" and "Refuse" stand at its right foot, neither of them the main button. */
+      #headless .permission { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-5) var(--space-6); border-radius: var(--radius-said); background: var(--said-ground); box-shadow: var(--said-edge-waiting); }
+      #headless .permission h3 { font-weight: 500; color: var(--ink); }
+      #headless .call { font-family: var(--font-mono); font-size: var(--size-second); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #headless .answers { display: flex; justify-content: flex-end; gap: var(--space-3); }
       /* What a failed session's process printed on its error stream, under its error, as the process printed it. */
       #headless .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }

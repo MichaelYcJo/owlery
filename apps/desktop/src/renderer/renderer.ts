@@ -51,6 +51,7 @@ import {
   menuTarget,
   notificationFor,
   parkNotifications,
+  permissionNotifications,
   notificationOpens,
   PLAN_AWAITED,
   planAnswer,
@@ -1204,7 +1205,7 @@ function onNotificationClick(session: Pick<SessionInfo, "id" | "workItemId">): v
   if (opens) openView(opens.workItemId, opens.pane ?? undefined);
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed and of each work item that was parked with questions, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions and of each call a headless session began to wait for the person to allow, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   const heldBefore = [...held.workItems, ...held.archived];
@@ -1218,11 +1219,12 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     if (!notification) continue;
     new Notification(notification.title, { body: notification.body }).onclick = () => onNotificationClick(session);
   }
-  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification brings the window forward and opens the work item's view, where its questions are answered, where the lists still hold it.
-  for (const parked of parkNotifications(heldBefore, held.workItems, front === "view" && document.hasFocus() ? held.viewing : undefined)) {
-    new Notification(parked.title, { body: parked.body }).onclick = () => {
+  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, or on a request's, brings the window forward and opens the work item's view, where its questions and its requests are answered, where the lists still hold it.
+  const looking = front === "view" && document.hasFocus() ? held.viewing : undefined;
+  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...permissionNotifications(heldBefore, held.workItems, looking)]) {
+    new Notification(told.title, { body: told.body }).onclick = () => {
       void window.owlery.comeForward();
-      if (held.workItems.some((workItem) => workItem.id === parked.workItemId)) openView(parked.workItemId);
+      if (held.workItems.some((workItem) => workItem.id === told.workItemId)) openView(told.workItemId);
     };
   }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
