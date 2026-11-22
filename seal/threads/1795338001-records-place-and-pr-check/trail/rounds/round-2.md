@@ -146,6 +146,12 @@ frame/design.md:403:
 > 진행 상태, 세션 이벤트와 출력, 칸마다 그 대화의 ID를 담은 기록, 비용 장부, 사람이 무엇을 보았는지, 일정
 ```
 
+```seal
+verdict: fixed 09a8f96
+location: `seal/threads/1795338001-records-place-and-pr-check/frame/design.md:401`, `seal/threads/1795338001-records-place-and-pr-check/frame/design.md:403`
+answer: The finding holds. The two lines of P11 now quote the daemon's cell as `docs/architecture.md:191` and `docs/architecture.ko.md:191` hold it, with "each pane's record with the id of its conversation" and "칸마다 그 대화의 ID를 담은 기록". The same fold rewrote the lines the round's findings 1 to 3 left to the frame: `frame/design.md:62`, `:64`, `:160`, `:161`, `:359`, `:362` and `:411`.
+```
+
 ## Confirmations
 
 ```seal
