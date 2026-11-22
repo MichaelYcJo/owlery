@@ -10,8 +10,8 @@
 // the hidden ones, the screen of its archived work items and its removal,
 // with its two choices to delete from disk, and the dialog that asks before
 // the daemon ends, for a restart or for a complete quit, at a choice of the
-// application menu. How a menu is drawn is ./menu. The theme
-// and its control are ./theme, and the choice of when the Mac is kept awake
+// application menu. How a menu is drawn is ./menu. The theme, the appearance
+// and their two controls are ./theme, and the choice of when the Mac is kept awake
 // with its control is ./keep-awake. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
@@ -44,6 +44,7 @@ import {
   hiddenRepositories,
   inboxKey,
   lateSays,
+  lacksRecords,
   lossSections,
   menuKey,
   menuTarget,
@@ -53,6 +54,9 @@ import {
   planAnswer,
   planLine,
   REGISTER_ONLY_SAYS,
+  recordsDialog,
+  recordsOf,
+  registered,
   registerFields,
   removalChoice,
   removalOf,
@@ -70,6 +74,7 @@ import {
   type FormPlan,
   type MenuAction,
   type PlanAnswered,
+  type RecordsPlanned,
   type Removal,
   type RenamePlanned,
   type StateFilter,
@@ -163,6 +168,8 @@ const deleteForce = byId<HTMLInputElement>("delete-force");
 const removeDelete = byId<HTMLInputElement>("remove-delete");
 const removeForce = byId<HTMLInputElement>("remove-force");
 const removeTrash = byId<HTMLInputElement>("remove-trash");
+const recordsPlaceDialog = byId<HTMLDialogElement>("records-dialog");
+const recordsGate = byId<HTMLInputElement>("records-gate");
 
 /** A dialog that waits on the daemon's answer to one request: where its refusal is shown, and the button that sent it. */
 interface Asking {
@@ -177,6 +184,7 @@ const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button:
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
+const RECORDS: Asking = { dialog: recordsPlaceDialog, error: byId("records-error"), button: byId<HTMLButtonElement>("records-submit") };
 // The dialog that asks before the daemon ends waits on the main process's answer, not on the daemon's: the main process is the one that stops the daemon.
 const DAEMON: Asking = { dialog: daemonDialog, error: byId("daemon-error"), button: byId<HTMLButtonElement>("daemon-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
@@ -201,6 +209,23 @@ let deleting: number | undefined;
 let deleteLoss: WorkItemLoss | null = null;
 let deleteLossRequest: number | undefined;
 let deletion: ReturnType<typeof archivalOf> | undefined;
+// The repository the dialog of the records place is open on, and the broad gate command the person typed or the daemon proposed, which the field shows while a setup would write a `config.json`.
+let recordsRepository: number | undefined;
+let recordsCommand = "";
+// Whether the person typed in the field since the dialog opened: a command the daemon proposes fills only a field nobody typed in.
+let recordsTyped = false;
+// The dialog's latest plan: its request and the command it was asked for, what the daemon answered, or null until it answers, and the command that answer is of. The plan the files were last drawn from is kept, so a key in the field redraws none of them.
+let recordsPlanRequest: number | undefined;
+let recordsAskedFor = "";
+let recordsPlan: RecordsPlanned | null = null;
+let recordsPlannedFor: string | null = null;
+let recordsDrawn: RecordsPlanned | null | undefined;
+let recordsPlanTimer: ReturnType<typeof setTimeout> | undefined;
+// The registration the form waits on, with the folder it named, and the registration whose repository the lists did not hold when it was answered, with the repositories they held then and the time until which the `inbox` that follows the answer is awaited: that `inbox` lists the repository, and an answer that changed nothing is followed by none.
+let registering: { requestId: number; folder: string } | undefined;
+let registeredLate: { folder: string; before: readonly Repository[]; until: number } | undefined;
+// How long after a registration's answer an `inbox` is read as the one that follows it. The daemon sends the two one after the other.
+const REGISTERED_WAIT_MS = 1000;
 // What the dialog that asks before the daemon ends is open for: a restart, or a complete quit.
 let ending: DaemonEnd | undefined;
 // The plan the settings dialog asked for, to list the repository's bases: its request, and what the daemon answered.
@@ -455,6 +480,9 @@ function pressMenu(action: MenuAction): void {
       return;
     case "icon":
       openIcon(action.id);
+      return;
+    case "records":
+      openRecords(action.id);
       return;
     case "hide":
       send({ type: "setRepository", requestId: request(), id: action.id, hidden: true });
@@ -895,8 +923,125 @@ function deleteNamed(): void {
   ask(DELETE, (requestId) => ({ type: "deleteWorkItem", requestId, id, stamp: loss.stamp, force, running: told.running }));
 }
 
-/** After a refusal of what a dialog sent: the delete dialog and the removal's dialog each read anew what a delete would lose, since a refusal says the loss the person read may no longer stand. */
+/**
+ * Draws the dialog of the records place, from the daemon's lists as they are
+ * now and from the plan the daemon answered with, in the words of ./view's
+ * `recordsDialog`: what is out of scope, the commit, each file with its
+ * text, the field of the broad gate command, and the buttons. It closes the
+ * dialog where the window's lists no longer hold the repository.
+ */
+function showRecords(): void {
+  const repository = repositoryOf(recordsRepository);
+  if (!repository) {
+    if (recordsPlaceDialog.open) recordsPlaceDialog.close();
+    return;
+  }
+  const words = recordsDialog(repository, recordsPlan, recordsCommand, recordsPlannedFor);
+  const say = (id: string, text: string): void => {
+    byId(id).textContent = text;
+    byId(id).hidden = text === "";
+  };
+  byId("records-head").textContent = words.head;
+  byId("records-scope").textContent = words.scope;
+  say("records-commit", words.commit);
+  say("records-blocked", words.blocked);
+  byId("records-holds").hidden = words.holds.length === 0;
+  byId("records-holds").querySelector("ul")?.replaceWith(namedLines(words.holds, true));
+  if (recordsDrawn !== recordsPlan) {
+    recordsDrawn = recordsPlan;
+    byId("records-files").replaceChildren(
+      ...words.files.map((file) => {
+        const part = document.createElement(file.text === null ? "p" : "section");
+        if (file.text === null) {
+          part.className = "says";
+          part.textContent = file.says;
+          return part;
+        }
+        const path = document.createElement("span");
+        path.className = "path";
+        path.textContent = file.path;
+        const text = document.createElement("pre");
+        text.textContent = file.text;
+        part.append(path, text);
+        return part;
+      }),
+    );
+  }
+  byId("records-gate-label").hidden = !words.gate.shown;
+  byId("records-gate-name").textContent = words.gate.label;
+  recordsGate.disabled = !words.gate.enabled;
+  // The field keeps what the person types, and shows the key's own value where the file stands.
+  if (recordsGate.value !== words.gate.value) recordsGate.value = words.gate.value;
+  say("records-gate-says", words.gate.shown ? words.gate.says : "");
+  RECORDS.button.hidden = !words.submit.shown;
+  RECORDS.button.textContent = words.submit.label;
+  RECORDS.button.disabled = !words.submit.enabled || waiting(RECORDS);
+  byId("records-cancel").textContent = words.cancel;
+}
+
+/** Asks the daemon what a setup of the dialog's repository would write, with the command the dialog holds. Until it answers, the plan the dialog shows is of another command, and its button is off. */
+function askRecordsPlan(): void {
+  const id = recordsRepository;
+  if (id === undefined) return;
+  recordsPlanRequest = request();
+  recordsAskedFor = recordsCommand;
+  send({ type: "planRecords", requestId: recordsPlanRequest, id, broadGate: recordsCommand });
+}
+
+/**
+ * Takes the daemon's answer to the plan the dialog of the records place
+ * waits on: a plan, which the dialog then shows, or a refusal. A command the
+ * daemon proposes fills the field where the person typed none, and the plan
+ * is asked again for it. It answers whether the plan was the dialog's.
+ */
+function takeRecordsPlan(requestId: number, answered: RecordsPlanned): boolean {
+  if (requestId !== recordsPlanRequest) return false;
+  recordsPlanRequest = undefined;
+  if (!recordsPlaceDialog.open) return true;
+  recordsPlan = answered;
+  recordsPlannedFor = recordsAskedFor;
+  if (!("error" in answered) && answered.proposedBroadGate !== null && !recordsTyped && recordsCommand === "") {
+    recordsCommand = answered.proposedBroadGate;
+    askRecordsPlan();
+  }
+  showRecords();
+  return true;
+}
+
+/** Opens the dialog of the records place on a repository, with the keyboard on the button that writes nothing, and asks the daemon for the plan. A repository of a daemon of an earlier build has no such dialog. */
+function openRecords(repositoryId: number): void {
+  const repository = repositoryOf(repositoryId);
+  if (!repository || recordsOf(repository) === null || !opened(RECORDS)) return;
+  recordsRepository = repositoryId;
+  recordsCommand = "";
+  recordsTyped = false;
+  recordsPlan = null;
+  recordsPlannedFor = null;
+  recordsDrawn = undefined;
+  askRecordsPlan();
+  showRecords();
+  byId("records-cancel").focus();
+}
+
+/** Sends the setup the dialog holds, with the stamp of the plan it shows, so the daemon writes what the person read and nothing else. */
+function setUpRecordsPlace(): void {
+  const repository = repositoryOf(recordsRepository);
+  const plan = recordsPlan;
+  if (!repository || plan === null || "error" in plan || !recordsDialog(repository, plan, recordsCommand, recordsPlannedFor).submit.enabled) return;
+  const command = recordsCommand;
+  ask(RECORDS, (requestId) => ({ type: "setUpRecords", requestId, id: repository.id, broadGate: command, stamp: plan.stamp }));
+}
+
+/** Opens the dialog of the records place for the repository a registration was answered for, where it lacks a part of the place. Where the lists hold no repository at the folder typed, the `inbox` that follows the answer lists the one the daemon added, and `takeLists` opens the dialog then. */
+function afterRegistration(folder: string): void {
+  const found = registered(folder, held.repositories, held.repositories);
+  if (!found) registeredLate = { folder, before: held.repositories, until: Date.now() + REGISTERED_WAIT_MS };
+  else if (lacksRecords(found)) openRecords(found.id);
+}
+
+/** After a refusal of what a dialog sent: the delete dialog and the removal's dialog each read anew what a delete would lose, since a refusal says the loss the person read may no longer stand. The dialog of the records place asks for its plan anew, for the same reason. */
 function readAgain(): void {
+  if (recordsPlaceDialog.open) askRecordsPlan();
   if (deleteDialog.open) readDeleteLoss();
   if (removeDialog.open) {
     forgetRemoveLosses();
@@ -1061,6 +1206,14 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   if (sessionsDialog.open) showArchive();
   if (deleteDialog.open) showDelete();
   if (daemonDialog.open) showDaemonEnding();
+  if (recordsPlaceDialog.open) showRecords();
+  // The repository a registration added is in these lists, and not in the ones its answer found.
+  const late = registeredLate;
+  registeredLate = undefined;
+  if (late && Date.now() <= late.until) {
+    const found = registered(late.folder, late.before, held.repositories);
+    if (found && lacksRecords(found)) openRecords(found.id);
+  }
 }
 
 /** Draws the form as its choice "Register the repository only" has it: with the choice taken, the name, the base and the kind of pane are off, the form shows no plan, and its button reads "Register". */
@@ -1231,7 +1384,10 @@ function registerRepository(): void {
     formError.textContent = fields.error;
     return;
   }
-  ask(FORM, (requestId) => ({ type: "addRepository", requestId, folder: fields.folder }));
+  ask(FORM, (requestId) => {
+    registering = { requestId, folder: fields.folder };
+    return { type: "addRepository", requestId, folder: fields.folder };
+  });
 }
 
 function onMessage(message: ServerMessage): void {
@@ -1312,6 +1468,9 @@ function onMessage(message: ServerMessage): void {
     case "renamePlan":
       takeRenamePlan(message.requestId, { branch: message.branch, blocked: message.blocked });
       return;
+    case "recordsPlan":
+      takeRecordsPlan(message.requestId, message.plan);
+      return;
     case "workItemLoss":
       if (!takeDeleteLoss(message.requestId, { loss: message.loss })) takeRemoveLoss(message.requestId, { loss: message.loss });
       return;
@@ -1325,6 +1484,13 @@ function onMessage(message: ServerMessage): void {
         void window.owlery.trashFolder(folder).then((failure) => {
           if (failure !== null) tell(failure);
         });
+      }
+      if (registering?.requestId === message.requestId) {
+        // The form closes first, and the dialog of the records place then opens for a repository that lacks a part of it.
+        const { folder } = registering;
+        registering = undefined;
+        if (answered(message.requestId, null)) afterRegistration(folder);
+        return;
       }
       if (answered(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
@@ -1355,6 +1521,9 @@ function onMessage(message: ServerMessage): void {
       if (takeSettingsPlan(message.requestId, { error: message.message })) return;
       // A read of a loss that was refused is its dialog's to show.
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
+      // A refused plan of the records place is its dialog's to show.
+      if (takeRecordsPlan(message.requestId, { error: message.message })) return;
+      if (registering?.requestId === message.requestId) registering = undefined;
       // A removal that was refused moves no folder to the Trash.
       if (trashing?.requestId === message.requestId) trashing = undefined;
       if (answered(message.requestId, message.message)) {
@@ -1554,6 +1723,25 @@ deleteForce.addEventListener("change", showDelete);
 byId<HTMLFormElement>("delete-form").addEventListener("submit", (event) => {
   event.preventDefault();
   deleteNamed();
+});
+byId("records-cancel").addEventListener("click", () => recordsPlaceDialog.close());
+recordsGate.addEventListener("input", () => {
+  recordsCommand = recordsGate.value;
+  recordsTyped = true;
+  showRecords();
+  // Keys closer together than the wait ask once, after the last of them, as the form's plan does.
+  clearTimeout(recordsPlanTimer);
+  recordsPlanTimer = setTimeout(askRecordsPlan, PLAN_WAIT_MS);
+});
+recordsPlaceDialog.addEventListener("close", () => {
+  if (recordsPlaceDialog.open) return;
+  clearTimeout(recordsPlanTimer);
+  recordsRepository = undefined;
+  recordsPlanRequest = undefined;
+});
+byId<HTMLFormElement>("records-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  setUpRecordsPlace();
 });
 byId("sessions-cancel").addEventListener("click", () => sessionsDialog.close());
 byId<HTMLFormElement>("sessions-form").addEventListener("submit", (event) => {

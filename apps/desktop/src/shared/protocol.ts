@@ -64,6 +64,32 @@ export interface Group {
   name: string;
 }
 
+/** What a repository's main checkout holds of the place for work records, as the daemon last read its working tree. */
+export interface RecordsPlace {
+  /** The root's folder from the top of the repository, `seal` or `agentic-seal`, or null where none stands. */
+  root: string | null;
+  /** The path of the workflow that runs the check, or null where none stands. */
+  check: string | null;
+  /** The value of the `Broad gate` key of the root's `config.json`, or null where there is no root, no file, or no such key. */
+  broadGate: string | null;
+}
+
+/** What a setup of the records place would do. */
+export interface RecordsPlan {
+  /** The branch the commit lands on, or null where the checkout stands on none. */
+  branch: string | null;
+  /** The commit's subject. */
+  subject: string;
+  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file the commit holds, which is kept. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
+  files: { path: string; text: string | null }[];
+  /** Why the setup cannot run, as a sentence the window shows as it is, or null. */
+  blocked: string | null;
+  /** A command the daemon read from the repository as its likely broad gate, for the window to put in the field before the person types, or null where it read none. It is no part of the stamp. */
+  proposedBroadGate: string | null;
+  /** A text that differs wherever the commit the checkout stands at, the branch or a file above differs. A setup carries the stamp of the plan the person read. */
+  stamp: string;
+}
+
 /**
  * A repository the daemon keeps. It is added and removed on its own, and its
  * work items name it by its id. A repository with no work item is one.
@@ -84,6 +110,8 @@ export interface Repository {
   hidden: boolean;
   /** In the order they were made. */
   groups: Group[];
+  /** What the main checkout holds of the records place. A daemon of an earlier build sends none, and a client reads its absence as a repository it offers no setup for. */
+  records: RecordsPlace;
 }
 
 /** The running sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that are working, each by its id. */
@@ -330,6 +358,10 @@ export type ClientMessage =
   | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean }
   // Takes a repository and its work items, the archived among them, off the daemon's lists. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Without `delete` it removes nothing on disk: the repository, each worktree's folder and each branch stay. It ends the sessions named, and refuses where a pane's process has not exited within its wait. With `delete`, which the person chose, it deletes each work item from disk first, one after another, as a `deleteWorkItem` does with the stamp `stamps` holds under that work item's id and with `force`. It refuses before the first delete, and ends nothing, where `stamps` holds no stamp for a work item, where a session runs that the message does not name, and while an archive is ending the sessions of one of the work items. Where one delete is refused or fails, the removal stops there: the refusal opens with that work item's title, the work items deleted before it are gone, and the repository and the others stay. The repository's own folder is never touched. The daemon answers with `done`.
   | { type: "removeRepository"; requestId: number; id: number; workItems: number[]; running: Running; delete?: { stamps: Record<number, string>; force: boolean } }
+  // Asks what a setup of the records place in the repository `id` would write and commit, with `broadGate` as the command a new `config.json` holds. The daemon writes nothing, and answers with a `recordsPlan`.
+  | { type: "planRecords"; requestId: number; id: number; broadGate: string }
+  // Sets up the records place of the repository `id`: the daemon makes the plan again, and refuses where its stamp is not `stamp`, where it is `blocked`, and where it writes a `config.json` and `broadGate` is empty. It creates each file of the plan only where nothing stands at its path, stages those paths alone and commits those paths alone, on the branch the main checkout stands on, with the person's git identity and the repository's hooks, and pushes nothing. Where the commit fails, it unstages those paths, removes the files and the folders this request created, and answers with git's words. A plan that writes no file is answered with no commit. It waits behind the creations, the renames of a branch and the deletes. The daemon answers with `done`.
+  | { type: "setUpRecords"; requestId: number; id: number; broadGate: string; stamp: string }
   // Adds a group to a repository, after the groups it has, under `name` without the white space at its ends. An empty name is refused. The daemon answers with `done`.
   | { type: "addGroup"; requestId: number; repoId: number; name: string }
   // Sets a work item's pin, its mute, its group, or several of them: a field that is absent is left as it is. `groupId` is the id of a group of the work item's repository, or null, which takes the work item out of its group. A group of another repository, or one no repository holds, is refused, and nothing of the message is then set. The daemon answers with `done`.
@@ -383,6 +415,8 @@ export type ServerMessage =
   | { type: "renamePlan"; requestId: number; branch: string | null; blocked: string | null }
   // Answers a `readLoss` with what a delete of the work item `id` would remove.
   | { type: "workItemLoss"; requestId: number; id: number; loss: WorkItemLoss }
+  // Answers a `planRecords` with what a setup of the repository `id` would do.
+  | { type: "recordsPlan"; requestId: number; id: number; plan: RecordsPlan }
   // Answers an `ask` with the headless session it started.
   | { type: "asked"; requestId: number; headless: HeadlessInfo }
   // One headless session whole, sent to every client whenever it changes.

@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -145,25 +145,30 @@ export function workItemEntries(workItems: readonly WorkItem[], sessions: readon
 /** The agent states in the order a person must act on them, which is the order of the inbox's sentence and of its groups. */
 const STATES_BY_URGENCY: readonly AgentState[] = ["waiting", "working", "finished"];
 
-/** Each agent state as the inbox's sentence says it, after its count. */
-const STATE_IN_SENTENCE: Record<AgentState, string> = { waiting: "waiting for you", working: "working", finished: "finished" };
+/** The waiting state's own words, "Needs you", as they follow a count: one work item needs the person, and two need the person. */
+function needsYou(count: number): string {
+  return count === 1 ? "needs you" : "need you";
+}
+
+/** Each agent state as the inbox's sentence says it, after its count: the state's own words, which agree with the count where the state's words are a verb. */
+const STATE_IN_SENTENCE: Record<AgentState, (count: number) => string> = { waiting: needsYou, working: () => "working", finished: () => "finished" };
 
 /**
  * The inbox's sentence: how many work items are in each agent state, as in
- * "1 waiting for you, 2 working". A state no line is in is left out, and the
+ * "1 needs you, 2 working". A state no line is in is left out, and the
  * sentence is empty where no line has a state.
  */
 export function inboxSummary(lines: readonly InboxLine[]): string {
   return STATES_BY_URGENCY.map((state) => ({ state, count: lines.filter((line) => line.state === state).length }))
     .filter(({ count }) => count > 0)
-    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state]}`)
+    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state](count)}`)
     .join(", ");
 }
 
 /** A line's state in words: the heading of its group in the inbox, which the preview and a view say as well, with the state's age. */
 export function stateHeading(state: AgentState | null): string {
-  if (state === null) return "No agent";
-  return { waiting: "Waiting for you", working: "Working", finished: "Finished" }[state];
+  if (state === null) return "Asleep";
+  return { waiting: "Needs you", working: "Working", finished: "Finished" }[state];
 }
 
 export interface InboxGroup<Entry> {
@@ -566,7 +571,7 @@ export interface Change {
 }
 
 /** Each agent state as a change's sentence opens with it. */
-const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Waits for you.", working: "Is working.", finished: "Finished." };
+const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Needs you.", working: "Is working.", finished: "Finished." };
 
 /**
  * The work items that changed since the person last looked, in the order of
@@ -612,6 +617,11 @@ export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLin
   return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
 }
 
+/** What the sidebar's bell says to a pointer and to a screen reader: how many work items need the person, in the waiting state's own words, and that a press shows them alone. */
+export function bellSays(waiting: number): string {
+  return waiting > 0 ? `${waiting} ${needsYou(waiting)}. Show them alone.` : "Show the work items that need you alone.";
+}
+
 /** How many work items changed, as the sidebar says it beside "Summary": nothing where none did. */
 export function summaryCount(changed: number): string {
   return changed > 0 ? `${changed} new` : "";
@@ -633,7 +643,7 @@ export function summaryControls(changes: readonly { workItem: WorkItem; line: In
   const inbox = { label: "Open the inbox", opens: "inbox" as const };
   const waits = changes.find((change) => change.line.state === "waiting");
   if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
-  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that waits." };
+  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
 }
 
 /** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */
@@ -680,7 +690,7 @@ export function lastHere(at: number, now: number): string {
   return `You were last here ${ageOf(at, now)} ago.`;
 }
 
-/** A state in its heading's words and how long it has lasted, as in "Waiting for you, 12 min": the state alone where it has no time. */
+/** A state in its heading's words and how long it has lasted, as in "Needs you, 12 min": the state alone where it has no time. */
 export function stateWithAge(state: AgentState | null, since: number | null | undefined, now: number): string {
   const age = ageOf(since, now);
   return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
@@ -696,14 +706,16 @@ function saidBy(session: SessionInfo | undefined): string | null {
 /**
  * What the agent of a work item's line says, under its head: the label of
  * the pane's kind and "asks" while the agent waits, "said" otherwise.
- * Nothing where the state carried neither a text nor, for a pane that waits,
- * a tool's name.
+ * `waiting` says that the agent waits for the person, which the card of its
+ * words shows by its edge. Nothing where the state carried neither a text
+ * nor, for a pane that waits, a tool's name.
  */
-export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string } | null {
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean } | null {
   const text = saidBy(session);
   if (!session || text === null) return null;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
-  return { head: `${kind ? kind.label : session.kind} ${session.state === "waiting" ? "asks" : "said"}`, text };
+  const waiting = session.state === "waiting";
+  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting };
 }
 
 /**
@@ -1123,7 +1135,7 @@ export type MenuAction =
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
-  | { do: "settings" | "icon" | "archived" | "group" | "hide" | "remove"; id: number };
+  | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -1213,16 +1225,20 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
 }
 
 /**
- * A repository's menu, in its order: Settings and Change icon; Show archived
- * work items and New group; "Open in", whose submenu lists Finder and each
- * installed editor and terminal; Copy path; Hide from sidebar and Remove.
- * The folder that is opened and copied is the repository's.
+ * A repository's menu, in its order: Settings, Change icon and "Records and
+ * check…", which a repository of a daemon of an earlier build, one that
+ * sends no `records`, does not have; Show archived work items and New group;
+ * "Open in", whose submenu lists Finder and each installed editor and
+ * terminal; Copy path; Hide from sidebar and Remove. The folder that is
+ * opened and copied is the repository's.
  */
 export function repositoryMenu(repository: Repository, apps: readonly InstalledApp[]): MenuEntry[] {
   const { id, folder } = repository;
+  const records: MenuItem[] = recordsOf(repository) === null ? [] : [{ label: "Records and check…", description: "See the place for work records and the pull request check of this repository, and set them up where it lacks one.", action: { do: "records", id }, divides: false }];
   return [
     { label: "Settings", description: "Change the name the sidebar shows and the branch new work items start from.", action: { do: "settings", id }, divides: false },
     { label: "Change icon", description: "Choose one character to show before the repository's name.", action: { do: "icon", id }, divides: false },
+    ...records,
     { label: "Show archived work items", description: "List the work items of this repository that were archived.", action: { do: "archived", id }, divides: true },
     { label: "New group", description: "Make a heading to gather some of this repository's work items under.", action: { do: "group", id }, divides: false },
     openEntries(folder, "the repository's", apps),
@@ -1230,6 +1246,113 @@ export function repositoryMenu(repository: Repository, apps: readonly InstalledA
     { label: "Hide from sidebar", description: "Take the repository out of the sidebar. Its work items stay in the inbox.", action: { do: "hide", id }, divides: true },
     { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed unless you choose it in the dialog.", action: { do: "remove", id }, divides: false },
   ];
+}
+
+/** What a repository holds of the records place, or null for a repository of a daemon of an earlier build, which sends none: the window then offers no setup for it. */
+export function recordsOf(repository: Repository): RecordsPlace | null {
+  return (repository as { records?: RecordsPlace }).records ?? null;
+}
+
+/** Whether a repository lacks a part of the records place a setup would write: its root or its check's workflow. A registration of such a repository opens the dialog of the records place. */
+export function lacksRecords(repository: Repository): boolean {
+  const records = recordsOf(repository);
+  return records !== null && (records.root === null || records.check === null);
+}
+
+/**
+ * The repository a registration of `folder` was answered for, given the
+ * repositories the window held when the answer arrived and the ones it holds
+ * now: the one the lists gained, and where they gained none, the repository
+ * whose folder is the one typed. None otherwise: a folder inside a
+ * repository names it only to the daemon, which may read another
+ * repository there than the one the lists hold above it.
+ */
+export function registered(folder: string, before: readonly Repository[], now: readonly Repository[]): Repository | undefined {
+  const gained = now.filter((repository) => !before.some((known) => known.id === repository.id));
+  if (gained.length === 1) return gained[0];
+  const typed = folder.replace(/\/+$/, "");
+  return now.find((repository) => repository.folder === typed);
+}
+
+/** What the daemon answered a plan of the records place with: the plan, or the error it refused the plan with. */
+export type RecordsPlanned = RecordsPlan | { error: string };
+
+/** The words of the dialog of the records place, and the state of its field and of its buttons. */
+export interface RecordsWords {
+  head: string;
+  /** What Owlery does in the repository and what is out of scope, said whatever the plan holds. */
+  scope: string;
+  /** The branch and the subject of the commit a setup makes, or empty where it makes none. */
+  commit: string;
+  /** Why the setup cannot run, or the daemon's refusal of the plan, or empty. */
+  blocked: string;
+  /** Each file of a plan that writes one: a file the setup writes with its whole text, and a file that stands with the sentence that it is kept. */
+  files: { path: string; text: string | null; says: string }[];
+  /** For a repository that holds every part: its root, its workflow and its broad gate command. */
+  holds: string[];
+  /** The field of the broad gate command: off where `config.json` stands, with the key's value. */
+  gate: { shown: boolean; enabled: boolean; label: string; value: string; says: string };
+  submit: { shown: boolean; enabled: boolean; label: string };
+  cancel: string;
+}
+
+/**
+ * What the dialog of the records place says of a repository, given the plan
+ * the daemon answered with, or null until it answers, the command the field
+ * holds, and the command the plan was asked for. The scope's sentence
+ * stands before anything is written, whatever the plan holds. A plan that
+ * writes a file is shown whole, and the button that commits is on only
+ * where the plan is of the command the field holds, is not blocked, and
+ * writes no `config.json` with an empty command. A plan that writes none
+ * and is not blocked is a repository that holds every part: the dialog
+ * shows what it holds, and no button to commit. One that writes none and is
+ * blocked is shown as a plan that writes a file is, with the refusal: the
+ * repository has no folder for a root, git ignores where a work item's
+ * records go below its root, something other than a folder stands there,
+ * or its checkout does not hold a file of the place as its commit does.
+ */
+export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
+  const head = `Records and check: ${repository.name}`;
+  const scope = "Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.";
+  const label = "Broad gate command";
+  const off = { shown: true, enabled: false, label: "Set up and commit" };
+  const unplanned = { head, scope, commit: "", files: [], holds: [], gate: { shown: false, enabled: false, label, value: "", says: "" }, cancel: "Not now" };
+  if (plan === null) return { ...unplanned, blocked: "", submit: off };
+  if ("error" in plan) return { ...unplanned, blocked: plan.error, submit: off };
+  const held = recordsOf(repository);
+  const config = plan.files.find((file) => file.path.endsWith("/config.json"));
+  // The key's place and its value, as the daemon last read them.
+  const kept = config === undefined ? "" : held?.broadGate == null ? `No \`Broad gate\` key in \`${config.path}\`.` : `Kept in \`${config.path}\`, under \`Broad gate\`.`;
+  if (plan.blocked === null && plan.files.every((file) => file.text === null)) {
+    const [readme, , workflow] = plan.files;
+    const gate = config === undefined || held?.broadGate == null ? kept : `Broad gate: \`${held.broadGate}\`, kept in \`${config.path}\` under \`Broad gate\``;
+    return {
+      ...unplanned,
+      blocked: "",
+      holds: [`Records: \`${readme?.path.replace(/README\.md$/, "") ?? ""}\``, `Check: \`${workflow?.path ?? ""}\``, gate],
+      submit: { ...off, shown: false },
+      cancel: "Close",
+    };
+  }
+  const writesConfig = config !== undefined && config.text !== null;
+  const proposed = writesConfig && plan.proposedBroadGate !== null && command === plan.proposedBroadGate;
+  return {
+    head,
+    scope,
+    commit: plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "",
+    blocked: plan.blocked ?? "",
+    files: plan.files.map((file) => ({ ...file, says: file.text === null ? `\`${file.path}\` stands and is kept.` : "" })),
+    holds: [],
+    gate: {
+      shown: config !== undefined,
+      enabled: writesConfig,
+      label,
+      value: writesConfig ? command : (held?.broadGate ?? ""),
+      says: writesConfig ? `Kept in \`${config.path}\`, under \`Broad gate\`.${proposed ? " Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another." : ""}` : kept,
+    },
+    submit: { ...off, enabled: plan.blocked === null && plannedFor === command && (!writesConfig || command.trim() !== "") },
+    cancel: "Not now",
+  };
 }
 
 /** What a pointer over the "+" button at the sidebar's top is told: it creates a work item, and its form is where a repository is registered alone. */
@@ -1469,7 +1592,7 @@ export function notificationFor(
   if (workItem?.muted || archived.some((item) => item.id === session.workItemId)) return null;
   return {
     title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
-    body: session.state === "waiting" ? "Waiting for you" : "Finished",
+    body: session.state === "waiting" ? stateHeading("waiting") : stateHeading("finished"),
   };
 }
 

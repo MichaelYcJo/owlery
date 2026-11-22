@@ -5,7 +5,7 @@ import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -13,6 +13,7 @@ import { OutputBuffer } from "./buffer";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
+import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
@@ -102,6 +103,8 @@ export interface DaemonOptions {
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
+  /** The version of Owlery this daemon is, which the workflow a setup of the records place writes fetches the check at. A daemon given none plans and sets up no records place. */
+  version?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
   /** The source of randomness a work item nobody named is named from; `Math.random` when absent. */
@@ -188,6 +191,8 @@ export class Daemon {
   private readonly aheadCounts = new Map<number, number | null>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
+  /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
+  private readonly records = new Map<number, RecordsPlace>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
   // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
@@ -371,6 +376,8 @@ export class Daemon {
             const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now, shownCommand(message));
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
+            // A creation is also how a repository is added, so the inbox below says what it holds of the records place.
+            this.readRecords(stored.repository);
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.item.id, 0);
             if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, 0);
@@ -425,10 +432,12 @@ export class Daemon {
           try {
             // A folder that is not absolute, the empty one among them, would have git answer for the folder the daemon itself runs in.
             if (typeof message.folder !== "string" || !isAbsolute(message.folder)) throw new Error("a repository is added by a folder inside it");
-            const { changed } = this.store.addRepository(await repositoryOf(message.folder));
+            const { repository, changed } = this.store.addRepository(await repositoryOf(message.folder));
+            // Read at the addition, so the inbox that lists the repository says what it holds of the records place.
+            const read = this.readRecords(repository);
             // The answer first, so the client that asked knows its request was carried out when the inbox lists the repository.
             this.send(socket, { type: "done", requestId: message.requestId });
-            if (changed) this.broadcastInbox();
+            if (changed || read) this.broadcastInbox();
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -497,6 +506,7 @@ export class Daemon {
             }
             // The repository's own folder is not touched here, whatever was chosen.
             this.store.removeRepository(repository.id);
+            this.records.delete(repository.id);
             // The answer first, so the client that asked knows its request was carried out when the inbox carries the removal.
             this.send(socket, { type: "done", requestId: message.requestId });
             this.broadcastInbox();
@@ -511,6 +521,41 @@ export class Daemon {
           }
         };
         this.changing = this.changing.then(remove);
+        return;
+      }
+      case "planRecords": {
+        const plan = async (): Promise<void> => {
+          try {
+            const repository = this.store.repository(message.id);
+            if (!repository) throw new Error(`no repository ${String(message.id)}`);
+            if (typeof message.broadGate !== "string") throw new Error("a plan of the records place names the broad gate command, which may be empty");
+            this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: await planRecords(repository.folder, message.broadGate, this.version()) });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A plan writes nothing, so it is answered while a creation or a delete is under way.
+        void plan();
+        return;
+      }
+      case "setUpRecords": {
+        const setUp = async (): Promise<void> => {
+          try {
+            const repository = this.store.repository(message.id);
+            if (!repository) throw new Error(`no repository ${String(message.id)}`);
+            const { broadGate, stamp } = message as { broadGate: unknown; stamp: unknown };
+            if (typeof broadGate !== "string" || typeof stamp !== "string") throw new Error("a setup of the records place names the broad gate command and the stamp of the plan the person read");
+            await setUpRecords(repository.folder, broadGate, this.version(), stamp);
+            const read = this.readRecords(repository);
+            // The answer first, so the client that asked knows its request was carried out when the inbox carries what the repository holds now.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            if (read) this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // A setup commits in the main checkout, so it waits behind the creations, the renames of a branch and the deletes.
+        this.changing = this.changing.then(setUp);
         return;
       }
       case "addGroup": {
@@ -1203,7 +1248,21 @@ export class Daemon {
 
   /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
   private repositoryOf({ id, folder, name, icon, defaultBase, hidden, groups }: StoredRepository): Repository {
-    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })) };
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null } };
+  }
+
+  /** Reads what a repository's main checkout holds of the records place, from its working tree, and answers whether it is another than was last read. */
+  private readRecords({ id, folder }: StoredRepository): boolean {
+    const read = readRecordsPlace(folder);
+    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null };
+    this.records.set(id, read);
+    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate;
+  }
+
+  /** The version the workflow of a setup fetches the check at. A daemon given none refuses the plan and the setup. */
+  private version(): string {
+    if (this.options.version === undefined) throw new Error("This build of Owlery names no version, so it cannot write the workflow of the pull request check.");
+    return this.options.version;
   }
 
   /** A work item as a client is sent it: with its repository's id, folder and name, and with what was last read of its branch. */
@@ -1303,8 +1362,10 @@ export class Daemon {
 
   /**
    * Reads from git the new commits of each work item that is not archived,
-   * and tells every client where a count changed or a branch's head moved.
-   * An archived work item keeps what was last read of its branch.
+   * and from each repository's working tree what it holds of the records
+   * place, and tells every client where a count changed, a branch's head
+   * moved or a repository's records place is another. An archived work item
+   * keeps what was last read of its branch.
    */
   private async readCommits(): Promise<void> {
     const moved = await Promise.all(
@@ -1313,7 +1374,9 @@ export class Daemon {
         .filter(({ item }) => item.archivedAt === null)
         .map((held) => this.readBranch(held)),
     );
-    if (moved.includes(true)) this.broadcastInbox();
+    // Every repository is read, so `some` is not what gathers the answers: it would stop at the first that changed.
+    const placed = this.store.repositories().map((repository) => this.readRecords(repository));
+    if (moved.includes(true) || placed.includes(true)) this.broadcastInbox();
   }
 
   /**
