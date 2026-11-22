@@ -6,7 +6,7 @@
 // patterns match, never Owlery's own reading of them, and git runs with
 // arguments, never through a shell.
 import { spawn } from "node:child_process";
-import { constants as files } from "node:fs";
+import { constants as files, type Dirent } from "node:fs";
 import { copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises";
 import { constants } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
@@ -150,12 +150,14 @@ const COPY = "copy";
 
 /**
  * Removes the staging folder `staging`, the copy in it before its
- * `.gitignore`, and throws where either removal fails. A `cp` that a stopped
- * daemon started may still write in the copy, and a removal it defeats, or
- * one the daemon's stop cuts short, then leaves the folder with its
- * `.gitignore`, so git still sees nothing in it and a later setup removes
- * it. Once the copy is gone, such a `cp` makes nothing there again, since it
- * makes no folder above its target.
+ * `.gitignore`, and throws where either removal fails. `staging` is a
+ * folder, never a link, since the removal of the copy resolves the folder's
+ * name: `copyPath` made it, and `removeLeftCopies` passes over a link. A
+ * `cp` that a stopped daemon started may still write in the copy, and a
+ * removal it defeats, or one the daemon's stop cuts short, then leaves the
+ * folder with its `.gitignore`, so git still sees nothing in it and a later
+ * setup removes it. Once the copy is gone, such a `cp` makes nothing there
+ * again, since it makes no folder above its target.
  */
 async function removeStaging(staging: string): Promise<void> {
   await rm(join(staging, COPY), { recursive: true, force: true });
@@ -167,14 +169,17 @@ async function removeStaging(staging: string): Promise<void> {
  * stopped during the copy and `copyPath` never removed its own: a folder of
  * the staging folder's name that is empty, or that holds the `.gitignore`
  * `copyPath` writes, with all else it holds, by `removeStaging`. One whose
- * copy something still writes in stays, as git ignores it. Nothing else in
- * `folder` is touched, and a `folder` that does not stand holds none.
+ * copy something still writes in stays, as git ignores it. A link of that
+ * name stays too: no copy made it, and a removal inside it would follow it
+ * out of `folder`. Nothing else in `folder` is touched, and a `folder` that
+ * does not stand holds none.
  */
 async function removeLeftCopies(folder: string): Promise<void> {
-  const names = await readdir(folder).catch(() => [] as string[]);
-  for (const name of names) {
-    if (!STAGING_NAME.test(name)) continue;
-    const left = join(folder, name);
+  const entries = await readdir(folder, { withFileTypes: true }).catch(() => [] as Dirent[]);
+  for (const entry of entries) {
+    // `readdir` reads each entry without following it, so a link is no folder here.
+    if (!entry.isDirectory() || !STAGING_NAME.test(entry.name)) continue;
+    const left = join(folder, entry.name);
     // A copy stopped before it wrote the `.gitignore` left the folder empty.
     if (await rmdir(left).then(() => true, () => false)) continue;
     if ((await readFile(join(left, ".gitignore"), "utf8").catch(() => null)) === UNSEEN) await removeStaging(left).catch(() => {});

@@ -256,6 +256,23 @@ describe("copyIncluded", () => {
     expect(readFileSync(join(worktree, ".owlery-copy-person", "notes.txt"), "utf8")).toBe("mine\n");
   });
 
+  it("leaves a link of a staging folder's name as it is, and removes nothing in the folder it leads to", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\n");
+    // A folder outside the worktree that holds what a staging folder holds, which a link the branch tracks could lead to.
+    const outside = join(base, "outside");
+    mkdirSync(join(outside, "copy", "deep"), { recursive: true });
+    writeFileSync(join(outside, ".gitignore"), "*\n");
+    writeFileSync(join(outside, "copy", "notes.txt"), "mine\n");
+    writeFileSync(join(outside, "copy", "deep", "work.txt"), "work\n");
+    symlinkSync(outside, join(worktree, ".owlery-copy-Zz99Yy"));
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: [".env"], copiedCount: 1, failed: [], failure: null });
+    expect(readFileSync(join(outside, "copy", "notes.txt"), "utf8")).toBe("mine\n");
+    expect(readFileSync(join(outside, "copy", "deep", "work.txt"), "utf8")).toBe("work\n");
+    expect(readFileSync(join(outside, ".gitignore"), "utf8")).toBe("*\n");
+    expect(readlinkSync(join(worktree, ".owlery-copy-Zz99Yy"))).toBe(outside);
+  });
+
   it("removes the copy in a staging folder before its .gitignore, so a folder whose copy something still writes stays as git ignores it, and a later setup removes it", async () => {
     const { repo, worktree } = repositoryWithIgnoredFiles();
     const { rm: removed } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
