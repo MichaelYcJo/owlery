@@ -266,7 +266,7 @@ export function askedSection(workItem: WorkItem, now: number): AskedSection | nu
       asks,
       options: parked ? options.map(({ label, implies }, index) => ({ label, implies, mark: index === taken ? "Default" : "" })) : [],
       chosen: parked ? taken : null,
-      answer: parked ? null : answer,
+      answer,
     })),
   };
 }
