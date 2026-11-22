@@ -1,5 +1,5 @@
 import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { beginSetup, copyIncluded, endedSetup, readSetup } from "../src/daemon/worktree-setup";
 import { git, temporaryRepository } from "./repositories";
@@ -96,13 +96,16 @@ describe("copyIncluded", () => {
     const { repo, worktree } = repositoryWithIgnoredFiles();
     mkdirSync(join(repo, "node_modules", ".bin"));
     symlinkSync("../pkg/index.js", join(repo, "node_modules", ".bin", "tool"));
-    writeFileSync(join(repo, ".worktreeinclude"), ".env\nnode_modules/\n");
+    // A path that is itself a link, and is moved into its place as one.
+    symlinkSync("apps/web/.env.local", join(repo, ".env.web"));
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\n.env.web\nnode_modules/\n");
     writeFileSync(join(worktree, ".env"), "KEY=worktree\n");
     const copy = await copyIncluded(repo, worktree);
-    expect(copy.copied).toEqual(["node_modules/"]);
-    const link = join(worktree, "node_modules", ".bin", "tool");
-    expect(lstatSync(link).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(link)).toBe("../pkg/index.js");
+    expect(copy.copied).toEqual([".env.web", "node_modules/"]);
+    for (const [link, target] of [[join(worktree, "node_modules", ".bin", "tool"), "../pkg/index.js"], [join(worktree, ".env.web"), "apps/web/.env.local"]] as const) {
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(link)).toBe(target);
+    }
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=worktree\n");
   });
 
@@ -141,7 +144,10 @@ describe("copyIncluded", () => {
     writeFileSync(join(worktree, ".env"), "KEY=worktree\n");
     const clone = clonedBy(base, 'exec /bin/cp "$@"');
     expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: ["apps/web/.env.local", "node_modules/"], copiedCount: 2, failed: [], failure: null });
-    expect(clone.calls()).toEqual([`-c -R -P ${join(repo, "apps/web/.env.local")} ${join(worktree, "apps/web/.env.local")}`, `-c -R -P ${join(repo, "node_modules")} ${join(worktree, "node_modules")}`]);
+    // Each path is cloned into a folder of its own beside its place, then moved into it.
+    const beside = (path: string) => expect.stringMatching(new RegExp(`^-c -R -P ${join(repo, path)} ${join(worktree, dirname(path), ".owlery-copy-[^/]+", basename(path))}$`));
+    expect(clone.calls()).toEqual([beside("apps/web/.env.local"), beside("node_modules")]);
+    expect(readdirSync(worktree).filter((name) => name.startsWith(".owlery-copy-"))).toEqual([]);
     for (const path of ["apps/web/.env.local", "node_modules/pkg/index.js"]) expect(readFileSync(join(worktree, path), "utf8")).toBe(readFileSync(join(repo, path), "utf8"));
     expect(readlinkSync(join(worktree, "node_modules", ".bin", "tool"))).toBe("../pkg/index.js");
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=worktree\n");
@@ -189,6 +195,36 @@ describe("copyIncluded", () => {
     expect(copy.failed).toEqual([{ path: ".env.secret", why: expect.stringContaining("EACCES") }]);
     expect(copy.failure).toBeNull();
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=main\n");
+  });
+
+  it("leaves nothing of a path it could not copy, the folders it made for it among them, so a copy again copies the path whole", async () => {
+    const { repo, worktree } = repositoryWithIgnoredFiles();
+    for (const name of ["a.js", "m.js", "z.js"]) writeFileSync(join(repo, "node_modules", "pkg", name), `${name}\n`);
+    const unreadable = [join(repo, "node_modules", "pkg", "m.js"), join(repo, "apps", "web", ".env.local")];
+    for (const file of unreadable) chmodSync(file, 0o000);
+    cleanups.push(() => {
+      for (const file of unreadable) chmodSync(file, 0o600);
+    });
+    writeFileSync(join(repo, ".worktreeinclude"), "**/.env.local\nnode_modules/\n");
+    const copy = await copyIncluded(repo, worktree);
+    expect([copy.copied, copy.failed]).toEqual([[], [{ path: "apps/web/.env.local", why: expect.stringContaining("EACCES") }, { path: "node_modules/", why: expect.stringContaining("EACCES") }]]);
+    expect(readdirSync(worktree).sort()).toEqual([".env.example", ".git", ".gitignore", "README.md"]);
+    for (const file of unreadable) chmodSync(file, 0o600);
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: ["apps/web/.env.local", "node_modules/"], copiedCount: 2, failed: [], failure: null });
+    expect(readdirSync(join(worktree, "node_modules", "pkg")).sort()).toEqual(["a.js", "index.js", "m.js", "z.js"]);
+  });
+
+  it("leaves a path that came to stand in the worktree during its copy as it is, and lists it as not copied", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\nnode_modules/\n");
+    // A clone during which the person's command makes the path in the worktree, then fails, so Node's copy runs after it.
+    const clone = clonedBy(base, `case "$5" in\n*/.env) echo PERSON=1 > "${join(worktree, ".env")}" ;;\n*/node_modules) mkdir -p "${join(worktree, "node_modules", "made")}" && echo person > "${join(worktree, "node_modules", "made", "file")}" ;;\nesac\nexit 1`);
+    const appeared = "it came to stand in the worktree during the copy, and was left as it is";
+    expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: [], copiedCount: 0, failed: [{ path: ".env", why: appeared }, { path: "node_modules/", why: appeared }], failure: null });
+    expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("PERSON=1\n");
+    expect(readdirSync(join(worktree, "node_modules"))).toEqual(["made"]);
+    expect(readFileSync(join(worktree, "node_modules", "made", "file"), "utf8")).toBe("person\n");
+    expect(readdirSync(worktree).sort()).toEqual([".env", ".env.example", ".git", ".gitignore", "README.md", "node_modules"]);
   });
 
   it("gives the failure of git's command as the copy's, and copies nothing", async () => {

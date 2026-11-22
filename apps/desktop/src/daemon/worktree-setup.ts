@@ -6,9 +6,9 @@
 // patterns match, never Owlery's own reading of them, and git runs with
 // arguments, never through a shell.
 import { spawn } from "node:child_process";
-import { cp, lstat, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { cp, link, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rename, rm, rmdir, stat, symlink } from "node:fs/promises";
 import { constants } from "node:os";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { WorktreeSetup } from "../shared/protocol";
 
 export const INCLUDE_FILE = ".worktreeinclude";
@@ -102,6 +102,52 @@ async function staysInside(root: string, target: string): Promise<boolean> {
   }
 }
 
+/** Why a path is not copied where it came to stand in the worktree while it was copied, as by a command in the person's pane: the copy is not moved over it. */
+export const APPEARED = "it came to stand in the worktree during the copy, and was left as it is";
+
+/** The errors with which a move refuses a target that stands. */
+const STANDS = new Set(["EEXIST", "ENOTEMPTY", "ENOTDIR", "EISDIR"]);
+
+/**
+ * Moves the copy at `stage` to `target`, and throws `APPEARED` where
+ * anything stands at `target`, with no write over it: a folder by `rename`,
+ * which refuses a file and a folder that is not empty, a link by making it
+ * again, and anything else by a hard link, each of which refuses whatever
+ * stands. An empty folder is the one thing a move takes the place of.
+ */
+async function place(stage: string, target: string): Promise<void> {
+  const kind = await lstat(stage);
+  try {
+    if (kind.isDirectory()) await rename(stage, target);
+    // A hard link of a link is, on macOS, a hard link of the file it names.
+    else if (kind.isSymbolicLink()) await symlink(await readlink(stage), target);
+    else await link(stage, target);
+  } catch (error) {
+    throw STANDS.has((error as NodeJS.ErrnoException).code ?? "") ? new Error(APPEARED) : error;
+  }
+}
+
+/**
+ * Copies `source` to `target` through a folder of its own beside the
+ * target, so nothing stands at the target until the copy is whole: clones it
+ * with `clone` run as `cp -c -R -P`, copies it with Node's copy in place of
+ * what a failed clone left, then `place`s it. The folder goes in every case,
+ * with whatever a failed copy left in it.
+ */
+async function copyPath(clone: string, source: string, target: string): Promise<void> {
+  const staging = await mkdtemp(join(dirname(target), ".owlery-copy-"));
+  try {
+    const stage = join(staging, basename(target));
+    if (!(await cloned(clone, source, stage))) {
+      await rm(stage, { recursive: true, force: true });
+      await cp(source, stage, { recursive: true, verbatimSymlinks: true, force: false, errorOnExist: false });
+    }
+    await place(stage, target);
+  } finally {
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 /**
  * Copies into `worktree` each path of the main checkout `repo` that a
  * pattern of its `.worktreeinclude` matches and git ignores. The paths are
@@ -112,10 +158,13 @@ async function staysInside(root: string, target: string): Promise<boolean> {
  * reads, and a path that already stands in the worktree is neither written
  * over nor listed. A path whose folder a link of the worktree leads out of
  * it is listed as not copied, and nothing is written there. The folders the
- * worktree lacks above a path are made, then the path is cloned with
- * `clone` run as `cp -c -R -P`, and where that fails, as on a volume that is
- * not APFS, what it left is removed and Node's copy writes the path. A path
- * that fails to copy is listed with its error and the others go on. Where
+ * worktree lacks above a path are made, then the path is cloned beside its
+ * place with `clone` run as `cp -c -R -P`, and where that fails, as on a
+ * volume that is not APFS, Node's copy writes it there instead; the copy
+ * then moves into its place whole. A path that came to stand in the
+ * worktree meanwhile is left as it is and listed as not copied. A path that
+ * fails to copy is listed with its error, nothing of it is left in the
+ * worktree, the folders made for it among them, and the others go on. Where
  * either git command fails, nothing is copied and `failure` says why;
  * nothing is thrown.
  */
@@ -151,24 +200,18 @@ export async function copyIncluded(repo: string, worktree: string, clone = CLONE
     } catch {
       // Nothing stands there, so the path is copied.
     }
+    let made: string | undefined;
     try {
       // `cp` makes none of the folders above its target, which the check above holds inside the worktree.
-      await mkdir(dirname(target), { recursive: true });
-    } catch (error) {
-      failed.push({ path, why: error instanceof Error ? error.message : String(error) });
-      continue;
-    }
-    if (await cloned(clone, source, target)) {
-      copied.push(path);
-      continue;
-    }
-    try {
-      // Nothing stood at the target before the clone, so what a failed clone left there is its own.
-      await rm(target, { recursive: true, force: true });
-      await cp(source, target, { recursive: true, verbatimSymlinks: true, force: false, errorOnExist: false });
+      made = await mkdir(dirname(target), { recursive: true });
+      await copyPath(clone, source, target);
       copied.push(path);
     } catch (error) {
       failed.push({ path, why: error instanceof Error ? error.message : String(error) });
+      // The folders made for the path go with it, each where nothing else came to stand in it, so a run again finds the path missing.
+      for (let folder = dirname(target); made !== undefined && folder.startsWith(made); folder = dirname(folder)) {
+        if (!(await rmdir(folder).then(() => true, () => false))) break;
+      }
     }
   }
   return { copied: copied.slice(0, COPIES_LISTED), copiedCount: copied.length, failed: failed.slice(0, COPIES_LISTED), failure: null };
