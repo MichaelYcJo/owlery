@@ -34,7 +34,7 @@ What the work builds on:
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 4, with the module and the command of *Data & interfaces* | Scenarios 1 to 6 as cases of `test/settle.test.ts`, each seen red before its code, and scenario 12 run once at the phase's head | `92856b2` |
-| 2 | *Scope* items 5 and 6 | Scenarios 7 to 10 as cases of `test/settle.test.ts`, each seen red before its code | |
+| 2 | *Scope* items 5 and 6 | Scenarios 7 to 10 as cases of `test/settle.test.ts`, each seen red before its code | `c35d719` |
 | 3 | *Scope* items 7 and 8, with entries R1 and R2 and the rows of `frame/design.md` `## Removes` | The search of scenario 11 printing nothing, run at the phase's head; the broad gate is the orchestrator's | |
 
 ## Overlap with the release
