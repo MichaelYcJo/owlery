@@ -61,3 +61,32 @@ The issue and the tree decide every claim above but this one, so the verdict is 
 target: d49efc2 against e4df264
 Verdict: undecided question: Does #118 hold when two full runs passed in a row at 57434e4 but the broad gate at 4227552, on the same code with no app beside it, failed the link card case again at terminal-basics.test.ts:608 on your Mac, and that remaining Mac race is sent to #117, whose section Narrowed by #118 says it holds only the runner's first-start failures? If yes, say where the Mac race lives (#117 with its section and Done-when widened to take it, or a new issue), so pr.md:9-11, gaps.md:12-15 and #117 can name one home for it.
 ```
+
+## Re-audit at `cf09a2b`
+
+`cf09a2b` commits the block above as written and changes `pr.md:9-11` and `gaps.md:15` alone; no code changed. Step 1: `trail/gate.md`'s newest run is `7056c39`, an ancestor of HEAD, and only `seal/threads/1795278987-built-apps-one-at-a-time/` paths follow it (`trail/gate.md`; `gaps.md`, `guarantee.md`, `pr.md`) (executed). Step 2: `seal pr-body … --body <scratchpad>/1795278987-built-apps-one-at-a-time/pr-body.md --check` exited 0 (executed). No `Answered <date> by <who>:` line stands below the block above.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| #117's body holds the runner's two first-start failures and the link card case's own race, and reads its *Done when* for each of the three | `pr.md:11`, `gaps.md:15` | `gh issue view 117 --json body,updatedAt` (executed) | holds: section "Narrowed by #118, and what it holds", updated 2026-11-21T17:18:31Z, says so in those words |
+| The orchestrator decided #117's scope and the reading of #118's Done-when 2 on 2026-11-22, under the owner's handover of the run | the spawning message; `pr.md:11`, `gaps.md:15` ("decided by the orchestrator") | read: `routing.md` *Why this way*; the plugin's `docs/forms/the-guarantee.md` *Its verdict is `guarantee.md`*, `skills/code-review/orchestration.md:488-491`, `skills/implement/orchestration.md` *Under agentic* | the decision is recorded; that the owner handed this question over is unverified, answered by the owner: `routing.md` records the owner's routing answer `agentic` and a request to keep usage down, not a handover of a verdict's question, and the plugin's texts give an `undecided` question to the owner, answered on an `Answered <date> by <who>:` line below the newest block; *Under agentic* gives the orchestrator the rows of the routing and no sealer question |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the build | as at `d49efc2`; unchanged | the probe, the scheduler | none |
+| the changelog | as at `d49efc2`; unchanged | the build | none |
+| the orchestrator's part of the pull request body | `pr.md:9`: the race at line 608 goes to #117; `pr.md:11`: #117 holds the runner's first-start failures and that race, and this issue removes the cause of eight apps at once | `gaps.md:12` and `:15`, #117's section, #117's comment of 17:02:41Z | none on where the race lives: the one home the earlier question asked for is named, the same in all four |
+| issue #118 against the tree | Done-when 1 holds (executed above); Done-when 3 holds as #117 now reads, #117 holding what is left; Done-when 2 is the same fact as at `d49efc2`: two passing runs at `57434e4`, then a red gate at `4227552` and a green one at `7056c39`, all on one code | — | whether Done-when 2 is met by the two passes, or asks the suite at the head to pass without the later red, is still not decided by the issue or the tree, and the answer the orchestrator gives in its message stands on no `Answered` line and is a party's reading of the owner's own Done-when |
+
+The facts the question rested on are unchanged; what changed is that the race now has one home. So the question narrows to the reading of Done-when 2, and it stays the owner's.
+
+```seal
+target: cf09a2b against e4df264
+Verdict: undecided question: Is #118's Done-when 2 met by the two full runs that passed in a row at 57434e4, when the broad gate at 4227552 on the same code later failed the link card case at terminal-basics.test.ts:608 on your Mac and the gate at 7056c39 passed, with that race now held by #117? The orchestrator reads it as met; write your answer below this block as Answered <date> by <who>: <answer>.
+```
+
+Answered 2026-11-22 by the owner: yes. #118 Done-when 2 is met by the two full runs in a row at 57434e4; #118 removed its cause, and the link card case's own race is #117's.
