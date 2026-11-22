@@ -2,9 +2,10 @@
 // background, on a temporary clone, and drives the form through Electron's
 // debugging port: the name the window generates, the branch and the base the
 // daemon's plan gives, what the form says of the fetch of a remote's branch,
-// and a creation from a base the person chose. Its remote is a folder beside
-// the clone, and then a stand-in that never answers, so nothing reaches the
-// network.
+// a creation from a base the person chose, and the folder the Browse button
+// asks for, which a background start answers with none. Its remote is a
+// folder beside the clone, and then a stand-in that never answers, so nothing
+// reaches the network.
 import { renameSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -57,8 +58,8 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     git(clone.repo, "checkout", "--quiet", "-b", "feature");
     featureCommit = commitFile(clone.repo, "feature.txt");
     remoteCommit = commitFile(clone.origin, "moved.txt");
-    // The pane's process is the receiver, so no shell of the person's and no agent starts.
-    app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") });
+    // The pane's process is the receiver, so no shell of the person's and no agent starts. The main process's inspector is open for the case of the folder dialog.
+    app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") }, { inspectMain: true });
     // The app starts in the background, and the page of a window without the system's focus reports none.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
@@ -182,5 +183,14 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(status.startsWith(`origin/main could not be fetched (origin did not answer in 10 seconds). It starts as last fetched, at ${laterCommit.slice(0, 7)}, which the clone has held for `)).toBe(true);
     expect(await app.evaluate<boolean>(`document.getElementById("status").classList.contains("notice")`)).toBe(true);
     expect(unanswering.started()).toHaveLength(1);
+  });
+
+  it("answers Browse with no folder in the background, and opens no dialog", async () => {
+    // The system's dialog is replaced in the main process, so a handler that opened it would answer a folder and draw no sheet on the screen.
+    await app.evaluateMain(
+      `(electron.dialog.showOpenDialog = async () => { globalThis.owleryDialogsOpened = (globalThis.owleryDialogsOpened ?? 0) + 1; return { canceled: false, filePaths: ["/r/project"] }; }, true)`,
+    );
+    expect(await app.evaluate<string | null>("window.owlery.pickFolder()")).toBeNull();
+    expect(await app.evaluateMain<number>("globalThis.owleryDialogsOpened ?? 0")).toBe(0);
   });
 });
