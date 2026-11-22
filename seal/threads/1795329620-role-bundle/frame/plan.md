@@ -43,7 +43,7 @@ The source of the bundle is AgenticSeal at the tag `v0.38.4`, commit `0eca6e7`, 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 10 and 13, with their parts of *Data & interfaces* | Scenarios 1 to 8 as cases, each seen red before its code. Scenario 12, by the one run of `role:run` under Q1's default, its result in the phase record. The comparison of scenario 2 with the tag, made by the builder and named in the phase record | f56fb32 |
-| 2 | *Scope* items 11 and 12, with their parts of *Data & interfaces* | Scenarios 9 to 11 as cases, each seen red before its code, and the one drive of the built app that reads the status line | |
+| 2 | *Scope* items 11 and 12, with their parts of *Data & interfaces* | Scenarios 9 to 11 as cases, each seen red before its code, and the one drive of the built app that reads the status line | dda75fe |
 
 ## Overlap with the release
 
