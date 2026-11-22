@@ -227,14 +227,20 @@ describe("the directories a settle keeps", () => {
       expect(got.code, removed).toBe(1);
       expect(got.out, removed).toContain("kept seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; ");
     }
-    const repo = repository();
-    write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
-    symlinkSync("nowhere.md", join(repo, "seal/threads/1-a/decisions.md"));
-    commit(repo, "chore: a record that is a link");
-    rmSync(join(repo, "seal/threads/1-a"), { recursive: true });
-    const said = "seal/threads/1-a/decisions.md is a link in HEAD, and the settle reads a record only where one stands";
-    expect(() => readSettle(repo)).toThrow(said);
-    expect(run(repo)).toEqual({ code: 2, out: "", err: `settle: ${said}\n` });
+    for (const [link, target] of [
+      ["seal/threads/1-a/decisions.md", "nowhere.md"],
+      ["seal/threads/1-a", "../../elsewhere"],
+    ]) {
+      const repo = repository();
+      write(repo, "elsewhere/decisions.md", record(REVERSED));
+      mkdirSync(dirname(join(repo, link)), { recursive: true });
+      symlinkSync(target, join(repo, link));
+      commit(repo, "chore: a work item that is a link");
+      rmSync(join(repo, "seal/threads/1-a"), { recursive: true });
+      const said = `${link} is a link in HEAD, and the settle reads a record only where one stands`;
+      expect(() => readSettle(repo), link).toThrow(said);
+      expect(run(repo), link).toEqual({ code: 2, out: "", err: `settle: ${said}\n` });
+    }
   });
 
   it("reads nothing and keeps nothing in a repository that holds no records root, and says so", () => {
