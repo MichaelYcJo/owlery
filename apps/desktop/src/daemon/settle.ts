@@ -7,8 +7,10 @@
 // question or a block the reader refuses: a record that cannot be read is not
 // a record with nothing open, and a `decisions.md` that stands and cannot be
 // opened stops the reading. So does a link where a work item's directory
-// stands, and a `decisions.md` or a `threads/` that links to nothing: a record
-// may stand behind each, so none is read as nothing. A notice of the reader is
+// stands, a `decisions.md` or a `threads/` that links to nothing, and a
+// directory or a `decisions.md` that `HEAD` holds as a link where the working
+// tree lacks the record: a record may stand behind each, so none is read as
+// nothing. A notice of the reader is
 // named and keeps nothing. The release's work items are the directories the
 // working tree holds and the previous release's tag does not.
 //
