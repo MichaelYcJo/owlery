@@ -4,7 +4,7 @@
 
 | Item | Who must answer |
 |---|---|
-| The whole suite, the typecheck and the whole `Broad gate` command. Phase 1 ran the command's two document loops and its word search alone. Phase 2 ran 17 of the 38 test files of `apps/desktop/test`, which `trail/phases/phase-2.md` *Runs* names, and the compiler over the package before each commit. Phase 3 ran one test file, `themes.test.ts`, which `trail/phases/phase-3.md` *Runs* names. | the orchestrator, at the broad gate |
+| The whole suite, the typecheck and the whole `Broad gate` command. Phase 1 ran the command's two document loops and its word search alone. Phase 2 ran 17 of the 38 test files of `apps/desktop/test`, which `trail/phases/phase-2.md` *Runs* names, and the compiler over the package before each commit. Phase 3 ran one test file, `themes.test.ts`, which `trail/phases/phase-3.md` *Runs* names. Phase 4 ran three test files and the screenshot command, which `trail/phases/phase-4.md` *Runs* names. | the orchestrator, at the broad gate |
 | The values `docs/design.md` gives Night watch and Register for properties `frame/images/mock.html` does not hold, which `trail/phases/phase-1.md` *Decisions* lists. No screen was drawn with them. | phase 5's screenshots, read by the proofer |
 | Whether Night watch's focus ring shows on its main button. `--focus` and `--main` are the same colour in each appearance, and the ring is drawn inside the button's edge. | phase 5's screenshots, read by the proofer |
 | The twelve shapes of each theme as paths. Phase 1 wrote each circle and box of the mock-up as a path by hand and drew none. | phase 5, whose case reads the shapes and whose screenshots show them |
@@ -14,10 +14,16 @@
 | How each theme looks on screen in each appearance. Phase 2 read attributes and resolved styles and made no image. | phase 5's screenshots, read by the proofer |
 | A file of the earlier form in the running app. `BuiltApp.start` makes the user data folder itself, so no case starts the app on such a file. The cases of `apps/desktop/test/appearance.test.ts` read the file through `readAppearance`, which is what the main process calls. | the proofer, reading the two calls of `readAppearance` in `apps/desktop/src/main/main.ts` |
 | The Korean edition's wording. Its headings, table lines and token rows were compared with the English edition's by a script, and its sentences were read by their writer alone. | the proofer |
+| Whether GitHub draws an image linked as `docs/design.md` *A pull request that changes the window carries its screenshots* states, `../blob/<commit>/<path>?raw=true`, in this repository's pull request. The form was read in GitHub's documentation, and no pull request is open. | the orchestrator, looking at the pull request's body once it is open |
+| Whether such an image is still drawn after the pull request is merged by squash and its branch deleted, and after the settle removes the work item's directory. Nothing phase 4 opened says what GitHub keeps of a squashed branch's commits, and `docs/design.md` does not claim it. | the orchestrator, looking at the merged pull request's body after the branch is deleted |
+| The screenshot command on a screen whose density is 1. Phase 4 ran it on one Mac, whose density is 2, where the capture's scale is one half. | the proofer, reading `capture` in `apps/desktop/test/screenshots.test.ts` |
 
 ## Not done
 
 - The token case compares a value as text and does not hold the order of a table's rows or the words of its header. `trail/phases/phase-3.md` *Decisions* gives the grounds of each.
-- `docs/design.md` *A pull request that changes the window carries its screenshots* names no command. The command is phase 4's.
+- The screenshot command draws one menu, a work item's from the sidebar, and one dialog, the "New work item" form. A pull request that changes another menu or dialog gets no file of it from the command as it stands. `frame/design.md` *Scope* item 9 names a menu and a dialog.
+- Every work item of the command's screens has no agent, so the screens show one state's mark and words, and no commit and no changed file. Bringing a working, a waiting, a finished and a failed agent onto them needs an agent's process or a stand-in for one, which the plan's row for phase 4 does not ask for. `trail/phases/phase-4.md` *What the next phases need* hands it to phase 5.
+- The suite does not start the screenshot command. Its run is skipped without `OWLERY_SCREENSHOTS`, as `frame/plan.md` *Alternatives considered* chose for it, so CI runs the six cases of the run's own functions and never the run. A change that breaks the run shows at the next pull request that makes screenshots.
+- The screenshots show the path of the system's temporary folder in a view's facts and in the form. The app shows a worktree's real path, and the command gives it no other.
 - The notice "The theme could not be saved." stands as it is, and is also what the window says where the choice of an appearance was not saved. `frame/design.md` *The words* changes two texts and keeps every other sentence of the window.
 - The two comments that name a speech mark stand, over `STATE_SHAPES` in `apps/desktop/src/renderer/shared.ts` and over `.state-icon` in the page's style. They are phase 5's, with the mark they describe.
