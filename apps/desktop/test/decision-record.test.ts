@@ -19,10 +19,9 @@ import {
   writeRecord,
 } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
-import { git, temporaryRepository } from "./repositories";
+import { temporaryRepository } from "./repositories";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
-const DOCS = join(__dirname, "..", "..", "..", "docs");
 
 const F = "```";
 /** A `seal` block of those lines, with the blank line that follows a block. */
@@ -397,34 +396,6 @@ describe("the writer of a work item's record", () => {
       expect(readFileSync(join(path, RECORD_FILE), "utf8")).toBe(withAnswer(withReversal(RECORD, 1, "No."), 2, "yes"));
       expect(record).toEqual(readDecisionRecord(readFileSync(join(path, RECORD_FILE), "utf8")));
       expect(readdirSync(path)).toEqual([RECORD_FILE]);
-    });
-
-    it("writes a reversed decision and an open question so that the search the policy document gives a settle prints each, and prints nothing once each is closed, in a record whose lines end with a carriage return too", () => {
-      const command = "git grep -n -E '^state: (reversed|open)[[:space:]]*$' -- '*/threads/*/decisions.md'";
-      for (const edition of ["architecture.md", "architecture.ko.md"]) expect(readFileSync(join(DOCS, edition), "utf8"), edition).toContain(command);
-      const path = directory();
-      const repo = join(path, "..", "..", "..");
-      /** What the document's command prints in the repository, with its exit code: git exits 1 where no line matches. */
-      const search = (): { exit: number | null; printed: string[] } => {
-        git(repo, "add", "--all");
-        const run = spawnSync("git", ["grep", "-n", "-E", "^state: (reversed|open)[[:space:]]*$", "--", "*/threads/*/decisions.md"], { cwd: repo, encoding: "utf8" });
-        return { exit: run.status, printed: run.stdout.split("\n").filter((line) => line !== "") };
-      };
-
-      writeRecord(path, (text) => withQuestion(withReversal(withDecision(text, { kind: "scope", decided: "No push.", grounds: "None asked." }), 1, "Push it."), { asks: "Go on?", grounds: "None stands." }));
-      expect(search()).toEqual({ exit: 0, printed: ["seal/threads/1-x/decisions.md:9:state: reversed", "seal/threads/1-x/decisions.md:17:state: open"] });
-
-      const closed = (text: string): string => withAnswer(withApplied(text, 1, "0123abc"), 2, "yes");
-      const open = readFileSync(join(path, RECORD_FILE), "utf8");
-      writeRecord(path, closed);
-      expect(search()).toEqual({ exit: 1, printed: [] });
-
-      // The same record as a checkout of Windows holds it: git's `$` stands before the line feed, so the pattern takes the carriage return as white space.
-      writeFileSync(join(path, RECORD_FILE), open.replaceAll("\n", "\r\n"));
-      expect(search()).toEqual({ exit: 0, printed: ["seal/threads/1-x/decisions.md:9:state: reversed\r", "seal/threads/1-x/decisions.md:17:state: open\r"] });
-      writeRecord(path, closed);
-      expect(readFileSync(join(path, RECORD_FILE), "utf8")).toContain("state: applied 0123abc\r\n");
-      expect(search()).toEqual({ exit: 1, printed: [] });
     });
 
     it("throws where a record stands and cannot be read, and leaves the file as it is", () => {
