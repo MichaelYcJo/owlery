@@ -131,7 +131,7 @@ export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
   return place;
 }
 
-/** The class that gives a state its colour. */
+/** The class that gives a state its colour and its mark the theme's shapes. */
 export function stateClass(state: AgentState | null): AgentState | "no-agent" {
   return state ?? "no-agent";
 }

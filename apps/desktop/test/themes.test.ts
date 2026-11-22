@@ -6,8 +6,10 @@ import { APPEARANCES, appearanceFor, lookChoice, THEME_CHOICES, THEMES } from ".
 // The rules of the page's look that hold as text: a theme in an appearance is
 // one block of src/renderer/themes.css, each theme the window can draw in has
 // one for each appearance, red stands on the seal alone, a theme changes no
-// measure, and the page names no colour, writes no shadow, gradient or corner
-// outside a theme, and names no theme and no appearance. The values are the
+// measure, a block holds a mark for every state and the page draws a mark
+// from the block's shapes, and the page names no colour, writes no shadow,
+// gradient or corner outside a theme, and names no theme and no appearance.
+// The values are the
 // ones docs/design.md states, in both its editions: a block and the page's
 // `:root` hold what its tables of tokens name, and nothing else. The files
 // are read as text; no case loads the page.
