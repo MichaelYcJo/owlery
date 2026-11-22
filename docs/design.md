@@ -16,6 +16,7 @@ A change to the window holds each of these, or changes this document in the same
 6. **The window spends no memory on its look.** The typefaces are the system's. No theme loads a typeface, an illustration or an image behind a panel, and no theme blurs what is behind a panel.
 7. **Corners are small, and a circle is for what is round.** A theme states one scale of four corners, none above 8px. A full circle draws the seal, a state's mark and the bell's dot, and never a button, a field, a chip or a picture of a person.
 8. **Every form is stated here.** A line, a button, a menu and a dialog each have one form for each theme, in *Components and their states*. A change that needs a form this document does not state adds it here first, so that no work item draws its own.
+9. **Words and marks stand apart from their ground.** Words stand at 4.5 to 1 or more against the ground under them, and at 3 to 1 where they are 24px or more, or 18.66px or more in a bold weight: the AA level of WCAG 2.2. A state's mark and the ring of the keyboard's focus stand at 3 to 1 or more against the ground around them. The ground is the one drawn there: a selected line's, and one under the pointer, as much as the window's own. A value that falls under a floor changes, in every theme, and no theme keeps a value because it had it. A part that takes no press is held to no floor.
 
 check: apps/desktop/test/themes.test.ts
 
@@ -40,14 +41,14 @@ The window has three themes: Night watch, Register and Desk. A first run opens i
 
 | | Night watch | Register | Desk |
 |---|---|---|---|
-| The idea | The window is drawn from the emblem, a white owl on black, and the owl's yellow eye is the one colour that says a work item needs the person. | The window is the register where sealed work is entered, so it is drawn as a ruled book of records, and the seal is the one thing on it that is not ink. | A warm desk at night and a sheet of letter paper: the window as it stood before it had themes. |
+| The idea | The window is drawn from the emblem, a white owl on black, and the owl's yellow eye is the one colour that says a work item needs the person. | The window is the register where sealed work is entered, so it is drawn as a ruled book of records, and the seal is the one thing on it that is not ink. | A warm desk at night and a sheet of letter paper: the window as it stood before it had themes, with its inks raised to the floors of *Principles*. |
 | The signal | The eye's yellow, on what needs the person: a waiting mark and its words, the edge of what an agent asks, and a failure. | The strong ink for a wait, and the ochre for a failure. | The strong ink for a wait, and the ochre for a failure. |
 | Type | The sans alone, and the fixed-width face for a branch and a commit. No serif: what an agent says is set in the sans. | The sans for words, and the fixed-width face for every fact a person compares down a list: a branch, a commit, an age, a count. The serif stands where Desk has it. | The sans, the fixed-width face for a branch and a commit, and the serif for what an agent says and the summary's sentence. In the light appearance the serif sets the titles too. |
 | Corners | 8, 6, 6 and 4px for a card, a control, a line and a chip, in both appearances. | 2, 2, 0 and 0. | Dark 8, 6, 6 and 4px. Light 4, 5, 5 and 3px. |
 | Edges and rules | A line is a tile with no edge. What an agent says is a raised card, with an edge of the signal at its left where the work item needs the person. | A rule under each line of the inbox and under each row of a list of records: a work item's commits, its changed files and its facts. An item of the sidebar is navigation and carries no rule. A group's head is a ruled band on the sidebar's ground. A button is drawn by its edge with no fill. What an agent says stands between two rules. The tab in front carries a rule along its top. | A line is a tile with no edge. What an agent says is a raised card. |
 | Selected | A tinted tile. | A 2px rule of the strong ink at the left edge, over a faint ground. | A tinted tile. |
 | Texture | None, in both appearances. | None in the dark appearance. The ruled paper in the light one's right column. | None in the dark appearance. The ruled paper in the light one's right column. |
-| A state's marks | The owl's eye. An open eye with its pupil needs the person. A ring that turns is at work. A closed eye is finished. A crescent is asleep. A filled triangle is a failure. | A form's boxes. A filled box needs the person. A half-filled box is at work. A ticked box is finished. An empty box is asleep. The triangle with its stroke is a failure. | A filled disc needs the person. A ring that turns is at work. A ticked circle is finished. A crescent is asleep. The triangle with its stroke is a failure. |
+| A state's marks | The owl's eye. An open eye with its pupil needs the person. A ring that turns is at work. A closed eye is finished. A crescent is asleep. A filled triangle is a failure, and in the light appearance a line of the darkened yellow stands around it, because the bright fill alone does not stand apart from the ground. | A form's boxes. A filled box needs the person. A half-filled box is at work. A ticked box is finished. An empty box is asleep. The triangle with its stroke is a failure. | A filled disc needs the person. A ring that turns is at work. A ticked circle is finished. A crescent is asleep. The triangle with its stroke is a failure. |
 | The approval line | The four roles' names in a row, each after its mark, joined by rules. | A ruled block of four boxes, one for each of framer, crafter, proofer and sealer. The sealer's box holds the seal. | The four roles' names in a row, each after its mark, joined by short rules. |
 | What it costs | Yellow is the colour most tools use for a warning, so a work item that needs the person may read as a fault. | It reads colder than Desk. The serif of what an agent says is what keeps it from reading as a spreadsheet. | It is the nearest of the three to its neighbours: a warm dark ground with cream ink, and in the light appearance a serif title. |
 
@@ -152,8 +153,8 @@ No theme changes these. They stand in the page's `:root`.
 | `--texture` | `none` | `none` |
 | `--ink-strong` | `#f3efe6` | `#0f0f10` |
 | `--ink` | `#dcd9d1` | `#26262a` |
-| `--ink-muted` | `#9a978f` | `#5f5d58` |
-| `--ink-faint` | `#6b6963` | `#85827b` |
+| `--ink-muted` | `#a3a097` | `#53514d` |
+| `--ink-faint` | `#908e87` | `#62605c` |
 | `--rule` | `rgba(243, 239, 230, 0.1)` | `#d5d0c4` |
 | `--rule-soft` | `rgba(243, 239, 230, 0.055)` | `#e2ded3` |
 | `--hover` | `rgba(243, 239, 230, 0.05)` | `rgba(15, 15, 16, 0.045)` |
@@ -176,15 +177,15 @@ No theme changes these. They stand in the page's `:root`.
 | `--mark` | `rgba(243, 239, 230, 0.22)` | `rgba(15, 15, 16, 0.14)` |
 | `--badge` | `rgba(243, 239, 230, 0.12)` | `rgba(15, 15, 16, 0.1)` |
 | `--badge-ink` | `#f3efe6` | `#26262a` |
-| `--state-waiting` | `#f2c033` | `#8a6400` |
+| `--state-waiting` | `#f2c033` | `#846000` |
 | `--state-waiting-fill` | `var(--state-waiting)` | `#e9b61a` |
 | `--state-working` | `#dcd9d1` | `#26262a` |
-| `--state-finished` | `#6b6963` | `#85827b` |
-| `--state-no-agent` | `#6b6963` | `#85827b` |
-| `--state-failed` | `#f2c033` | `#8a6400` |
+| `--state-finished` | `#908e87` | `#62605c` |
+| `--state-no-agent` | `#908e87` | `#62605c` |
+| `--state-failed` | `#f2c033` | `#846000` |
 | `--state-failed-fill` | `var(--state-failed)` | `#e9b61a` |
 | `--added` | `#a9b88a` | `#4f6b2a` |
-| `--removed` | `#9a978f` | `#5f5d58` |
+| `--removed` | `#a3a097` | `#53514d` |
 | `--terminal-ground` | `#070708` | `#0f0f10` |
 | `--terminal-ink` | `#cfccc4` | `#cfccc4` |
 | `--terminal-strong` | `#f3efe6` | `#f3efe6` |
@@ -222,7 +223,7 @@ No theme changes these. They stand in the page's `:root`.
 | `--shape-finished-fill` | `none` | `none` |
 | `--shape-no-agent` | `path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z")` | `path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z")` |
 | `--shape-no-agent-fill` | `none` | `none` |
-| `--shape-failed` | `none` | `none` |
+| `--shape-failed` | `none` | `path("M8 2.3l6 10.5H2z")` |
 | `--shape-failed-fill` | `path("M8 2.3l6 10.5H2z")` | `path("M8 2.3l6 10.5H2z")` |
 
 ### Register
@@ -247,8 +248,8 @@ No theme changes these. They stand in the page's `:root`.
 | `--texture` | `none` | `repeating-linear-gradient(0deg, rgba(120, 95, 60, 0.028) 0 1px, transparent 1px 3px)` |
 | `--ink-strong` | `#f6ecd8` | `#1a1613` |
 | `--ink` | `#e4ddcf` | `#2e2924` |
-| `--ink-muted` | `#a39b8d` | `#665c50` |
-| `--ink-faint` | `#756e63` | `#857a6b` |
+| `--ink-muted` | `#aea697` | `#564d43` |
+| `--ink-faint` | `#9b9385` | `#655c51` |
 | `--rule` | `rgba(246, 236, 216, 0.13)` | `#d6cab2` |
 | `--rule-soft` | `rgba(246, 236, 216, 0.07)` | `#e3d9c4` |
 | `--hover` | `rgba(246, 236, 216, 0.045)` | `rgba(46, 41, 36, 0.045)` |
@@ -273,13 +274,13 @@ No theme changes these. They stand in the page's `:root`.
 | `--badge-ink` | `#f6ecd8` | `#2e2924` |
 | `--state-waiting` | `#f6ecd8` | `#1a1613` |
 | `--state-waiting-fill` | `var(--state-waiting)` | `var(--state-waiting)` |
-| `--state-working` | `#bdb5a5` | `#665c50` |
-| `--state-finished` | `#7d766a` | `#857a6b` |
-| `--state-no-agent` | `#756e63` | `#857a6b` |
-| `--state-failed` | `#dba545` | `#a2600a` |
+| `--state-working` | `#bdb5a5` | `#564d43` |
+| `--state-finished` | `#a39b8c` | `#655c51` |
+| `--state-no-agent` | `#9b9385` | `#655c51` |
+| `--state-failed` | `#dba545` | `#8f550b` |
 | `--state-failed-fill` | `var(--state-failed)` | `var(--state-failed)` |
 | `--added` | `#a3b47c` | `#4f6b2a` |
-| `--removed` | `#a39b8d` | `#665c50` |
+| `--removed` | `#aea697` | `#564d43` |
 | `--terminal-ground` | `#151312` | `#1c1815` |
 | `--terminal-ink` | `#d6cfc1` | `#d8cfbd` |
 | `--terminal-strong` | `#f6ecd8` | `#f6ecd8` |
@@ -342,8 +343,8 @@ No theme changes these. They stand in the page's `:root`.
 | `--texture` | `none` | `repeating-linear-gradient(0deg, rgba(120, 95, 60, 0.028) 0 1px, transparent 1px 3px)` |
 | `--ink-strong` | `#f6ecd8` | `#1a1613` |
 | `--ink` | `#e4ddcf` | `#2e2924` |
-| `--ink-muted` | `#a39b8d` | `#665c50` |
-| `--ink-faint` | `#756e63` | `#857a6b` |
+| `--ink-muted` | `#aea697` | `#564d43` |
+| `--ink-faint` | `#9b9385` | `#655c51` |
 | `--rule` | `rgba(246, 236, 216, 0.09)` | `#d6cab2` |
 | `--rule-soft` | `rgba(246, 236, 216, 0.05)` | `#e3d9c4` |
 | `--hover` | `rgba(246, 236, 216, 0.045)` | `rgba(46, 41, 36, 0.045)` |
@@ -368,13 +369,13 @@ No theme changes these. They stand in the page's `:root`.
 | `--badge-ink` | `#f6ecd8` | `#2e2924` |
 | `--state-waiting` | `#f6ecd8` | `#1a1613` |
 | `--state-waiting-fill` | `var(--state-waiting)` | `var(--state-waiting)` |
-| `--state-working` | `#bdb5a5` | `#665c50` |
-| `--state-finished` | `#7d766a` | `#857a6b` |
-| `--state-no-agent` | `#756e63` | `#857a6b` |
-| `--state-failed` | `#dba545` | `#a2600a` |
+| `--state-working` | `#bdb5a5` | `#564d43` |
+| `--state-finished` | `#a39b8c` | `#655c51` |
+| `--state-no-agent` | `#9b9385` | `#655c51` |
+| `--state-failed` | `#dba545` | `#8f550b` |
 | `--state-failed-fill` | `var(--state-failed)` | `var(--state-failed)` |
 | `--added` | `#a3b47c` | `#4f6b2a` |
-| `--removed` | `#a39b8d` | `#665c50` |
+| `--removed` | `#aea697` | `#564d43` |
 | `--terminal-ground` | `#151312` | `#1c1815` |
 | `--terminal-ink` | `#d6cfc1` | `#d8cfbd` |
 | `--terminal-strong` | `#f6ecd8` | `#f6ecd8` |
@@ -421,17 +422,18 @@ Each part's form is the same in every theme, drawn with the theme's tokens. A gr
 
 | Part | At rest | Under the pointer | Pressed | Selected | Focused by the keyboard | Disabled |
 |---|---|---|---|---|---|---|
-| The main button | `--main` under words in `--on-main`, with `--radius-control` and `--control-edge`. A dialog and a foot hold one at most. | `--main-hover` | `--main-pressed` | — | A ring of 2px in `--focus`, inside its edge. | 45% of its strength, and no answer to the pointer. |
-| A button | `--control` with `--control-edge` and `--radius-control`. | `--control-hover` | `--control-pressed` | — | The ring. | 45% of its strength. |
+| The main button | `--main` under words in `--on-main`, with `--radius-control` and `--control-edge`. A dialog and a foot hold one at most. | `--main-hover` | `--main-pressed` | — | A ring of 2px in `--focus`, 2px outside its edge, on the ground around the button: its fill would hide a ring inside it. | 45% of its strength, and no answer to the pointer. |
+| A button | `--control` with `--control-edge` and `--radius-control`. | `--control-hover` | `--control-pressed` | — | A ring of 2px in `--focus`, inside its edge. The rows below call it the ring. | 45% of its strength. |
 | An icon's button | The icon in `--ink-muted` on no ground. | `--hover` under the icon in `--ink`. | `--pressed` | The icon in `--ink-strong` where what it turns on is on. | The ring. | 45% of its strength. |
-| A line of the inbox | No ground, `--radius-line` and `--line-edge`. The title is in `--ink`, and in `--ink-strong` at the heavier weight where the work item changed since the person last looked. An age and a count are in `--font-fact`. | `--hover`, and nothing is selected. | `--pressed` | `--selected` with `--line-edge-selected`. It keeps its ground under the pointer. | The ring. | — |
-| An item of the sidebar | No ground and `--radius-line`. | `--hover` | `--pressed` | `--selected` with `--selected-edge`, on the item of what is in front. | The ring. | — |
+| A line of the inbox | No ground, `--radius-line` and `--line-edge`. The title is in `--ink`, and in `--ink-strong` at the heavier weight where the work item changed since the person last looked. An age and a count are in `--font-fact` and `--ink-faint`. | `--hover`, and nothing is selected. | `--pressed` | `--selected` with `--line-edge-selected`. It keeps its ground under the pointer, and its age is in `--ink-muted`, since the faint ink does not stand apart from a selected ground. | The ring. | — |
+| An item of the sidebar | No ground and `--radius-line`. | `--hover` | `--pressed` | `--selected` with `--selected-edge`, on the item of what is in front. Its age and its count are in `--ink-muted`. | The ring. | — |
 | A group's head | The group's name in `--ink-muted` and its count in `--ink-faint` and `--font-fact`, on `--group-ground` with `--group-edge`. | — | — | — | — | — |
 | A row of a list of records: a commit, a changed file, a fact of a view | No ground, with `--line-edge`. | — | — | — | — | — |
 | A menu | A card on `--ground-raised` with `--radius-card`, `--card-edge` and `--dialog-shadow`. An item has `--radius-line`, and a rule stands where another part of the menu begins. | `--hover` on the item. | `--pressed` on the item. | An item whose submenu is open is drawn as the one under the pointer. | The item the keyboard is on is drawn as the one under the pointer, with no ring. | — |
 | A dialog | A card on `--ground-raised` with `--radius-card`, `--card-edge` and `--dialog-shadow`, over `--backdrop`. Its heading says what it does, its text says what will happen, and its buttons stand at its right foot with the main one last. | — | — | — | — | — |
 | A field | `--ground-sunken` with `--field-edge` and `--radius-control`, under words in `--ink-strong`. What it asks for is in `--ink-faint` until something is typed. | — | — | — | The ring. | As the system draws a field that takes nothing. |
-| A pane's tab | Its label in `--ink-muted`. A tab whose pane is on the stage stands on `--terminal-ground` with its label in `--terminal-ink`. | `--hover` | — | The tab in front, whose pane has the keyboard, has `--tab-edge` and its label in `--terminal-strong` at the heavier weight. | The ring. | — |
+| A pane's tab | Its label in `--ink-muted` and its close mark in `--ink-faint`. A tab whose pane is on the stage stands on `--terminal-ground`, which is dark in both appearances, with its label and its close mark in `--terminal-ink`. | `--hover` | — | The tab in front, whose pane has the keyboard, has `--tab-edge` and its label in `--terminal-strong` at the heavier weight. | The ring, in `--terminal-strong` on a tab whose pane is on the stage. | — |
+| The letters a search matched | `--mark` under the letters, which are in `--ink-strong`, with `--mark-edge` and `--radius-mark`. | — | — | — | — | — |
 | A state's mark | The theme's shapes for the state, in the state's colour, 16px wide. The mark says its words to a pointer and to a screen reader. The part of the working mark that turns goes round once in 1.1s. | — | — | — | — | — |
 | What an agent says | `--said-ground` with `--said-edge` and `--radius-said`, the words in `--font-said` and `--ink-strong`. Where the work item needs the person the edge is `--said-edge-waiting`. | — | — | — | — | — |
 | The seal's place | Before a seal: on a line a disc of `--seal-blank-ground` with `--seal-blank-edge`, and in the preview and at a view's foot the seal's drawing pressed into the ground in the blank tones under `--seal-blank-light`. Sealed: the seal as it is drawn, under `--seal-light`. | — | — | — | — | — |

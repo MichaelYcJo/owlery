@@ -8,6 +8,9 @@
  * file names a theme or an appearance. A block holds no width, no height and
  * no size of type: those are the layout's, in index.html. Red stands on the
  * seal alone, so no property but the ones that open `--seal-` holds a red.
+ * An ink that sets words stands at 4.5 to 1 or more against each ground the
+ * words stand on, and a state's mark and the ring of the keyboard's focus at
+ * 3 to 1 or more.
  * test/themes.test.ts holds these rules. docs/design.md, Tokens, is the
  * source of every value here, and a change of one changes that document, its
  * Korean edition and this file in one commit. The comments of the first
@@ -42,8 +45,8 @@
   /* The inks, from strong to faint, and the rules. */
   --ink-strong: #f3efe6;
   --ink: #dcd9d1;
-  --ink-muted: #9a978f;
-  --ink-faint: #6b6963;
+  --ink-muted: #a3a097;
+  --ink-faint: #908e87;
   --rule: rgba(243, 239, 230, 0.1);
   --rule-soft: rgba(243, 239, 230, 0.055);
 
@@ -79,12 +82,12 @@
   --state-waiting: #f2c033;
   --state-waiting-fill: var(--state-waiting);
   --state-working: #dcd9d1;
-  --state-finished: #6b6963;
-  --state-no-agent: #6b6963;
+  --state-finished: #908e87;
+  --state-no-agent: #908e87;
   --state-failed: #f2c033;
   --state-failed-fill: var(--state-failed);
   --added: #a9b88a;
-  --removed: #9a978f;
+  --removed: #a3a097;
 
   /* The terminal, which draws the colours its program asks for over the first two, on a dark ground in both appearances. The strong ink is the label of the tab in front, which stands on the terminal's ground. */
   --terminal-ground: #070708;
@@ -140,7 +143,7 @@
   --shape-failed-fill: path("M8 2.3l6 10.5H2z");
 }
 
-/* Night watch, light: the same two turned over, with the yellow darkened for words and kept bright for a mark's fill. */
+/* Night watch, light: the same two turned over, with the yellow darkened for words and kept bright for a mark's fill. A failure's triangle has a line of the darkened yellow around its fill, which alone does not stand apart from the ground. */
 :root[data-theme="night-watch"][data-appearance="light"] {
   --scheme: light;
 
@@ -164,8 +167,8 @@
 
   --ink-strong: #0f0f10;
   --ink: #26262a;
-  --ink-muted: #5f5d58;
-  --ink-faint: #85827b;
+  --ink-muted: #53514d;
+  --ink-faint: #62605c;
   --rule: #d5d0c4;
   --rule-soft: #e2ded3;
 
@@ -193,15 +196,15 @@
   --badge: rgba(15, 15, 16, 0.1);
   --badge-ink: #26262a;
 
-  --state-waiting: #8a6400;
+  --state-waiting: #846000;
   --state-waiting-fill: #e9b61a;
   --state-working: #26262a;
-  --state-finished: #85827b;
-  --state-no-agent: #85827b;
-  --state-failed: #8a6400;
+  --state-finished: #62605c;
+  --state-no-agent: #62605c;
+  --state-failed: #846000;
   --state-failed-fill: #e9b61a;
   --added: #4f6b2a;
-  --removed: #5f5d58;
+  --removed: #53514d;
 
   --terminal-ground: #0f0f10;
   --terminal-ink: #cfccc4;
@@ -246,7 +249,7 @@
   --shape-finished-fill: none;
   --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
   --shape-no-agent-fill: none;
-  --shape-failed: none;
+  --shape-failed: path("M8 2.3l6 10.5H2z");
   --shape-failed-fill: path("M8 2.3l6 10.5H2z");
 }
 
@@ -274,8 +277,8 @@
 
   --ink-strong: #f6ecd8;
   --ink: #e4ddcf;
-  --ink-muted: #a39b8d;
-  --ink-faint: #756e63;
+  --ink-muted: #aea697;
+  --ink-faint: #9b9385;
   --rule: rgba(246, 236, 216, 0.13);
   --rule-soft: rgba(246, 236, 216, 0.07);
 
@@ -306,12 +309,12 @@
   --state-waiting: #f6ecd8;
   --state-waiting-fill: var(--state-waiting);
   --state-working: #bdb5a5;
-  --state-finished: #7d766a;
-  --state-no-agent: #756e63;
+  --state-finished: #a39b8c;
+  --state-no-agent: #9b9385;
   --state-failed: #dba545;
   --state-failed-fill: var(--state-failed);
   --added: #a3b47c;
-  --removed: #a39b8d;
+  --removed: #aea697;
 
   --terminal-ground: #151312;
   --terminal-ink: #d6cfc1;
@@ -384,8 +387,8 @@
 
   --ink-strong: #1a1613;
   --ink: #2e2924;
-  --ink-muted: #665c50;
-  --ink-faint: #857a6b;
+  --ink-muted: #564d43;
+  --ink-faint: #655c51;
   --rule: #d6cab2;
   --rule-soft: #e3d9c4;
 
@@ -415,13 +418,13 @@
 
   --state-waiting: #1a1613;
   --state-waiting-fill: var(--state-waiting);
-  --state-working: #665c50;
-  --state-finished: #857a6b;
-  --state-no-agent: #857a6b;
-  --state-failed: #a2600a;
+  --state-working: #564d43;
+  --state-finished: #655c51;
+  --state-no-agent: #655c51;
+  --state-failed: #8f550b;
   --state-failed-fill: var(--state-failed);
   --added: #4f6b2a;
-  --removed: #665c50;
+  --removed: #564d43;
 
   --terminal-ground: #1c1815;
   --terminal-ink: #d8cfbd;
@@ -494,8 +497,8 @@
 
   --ink-strong: #f6ecd8;
   --ink: #e4ddcf;
-  --ink-muted: #a39b8d;
-  --ink-faint: #756e63;
+  --ink-muted: #aea697;
+  --ink-faint: #9b9385;
   --rule: rgba(246, 236, 216, 0.09);
   --rule-soft: rgba(246, 236, 216, 0.05);
 
@@ -526,12 +529,12 @@
   --state-waiting: #f6ecd8;
   --state-waiting-fill: var(--state-waiting);
   --state-working: #bdb5a5;
-  --state-finished: #7d766a;
-  --state-no-agent: #756e63;
+  --state-finished: #a39b8c;
+  --state-no-agent: #9b9385;
   --state-failed: #dba545;
   --state-failed-fill: var(--state-failed);
   --added: #a3b47c;
-  --removed: #a39b8d;
+  --removed: #aea697;
 
   --terminal-ground: #151312;
   --terminal-ink: #d6cfc1;
@@ -604,8 +607,8 @@
 
   --ink-strong: #1a1613;
   --ink: #2e2924;
-  --ink-muted: #665c50;
-  --ink-faint: #857a6b;
+  --ink-muted: #564d43;
+  --ink-faint: #655c51;
   --rule: #d6cab2;
   --rule-soft: #e3d9c4;
 
@@ -635,13 +638,13 @@
 
   --state-waiting: #1a1613;
   --state-waiting-fill: var(--state-waiting);
-  --state-working: #665c50;
-  --state-finished: #857a6b;
-  --state-no-agent: #857a6b;
-  --state-failed: #a2600a;
+  --state-working: #564d43;
+  --state-finished: #655c51;
+  --state-no-agent: #655c51;
+  --state-failed: #8f550b;
   --state-failed-fill: var(--state-failed);
   --added: #4f6b2a;
-  --removed: #665c50;
+  --removed: #564d43;
 
   --terminal-ground: #1c1815;
   --terminal-ink: #d8cfbd;

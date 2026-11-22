@@ -70,7 +70,7 @@
       button:disabled { opacity: 0.45; }
       h1, h2, h3, p, ul, dl { margin: 0; padding: 0; font-size: inherit; font-weight: inherit; }
       ul { list-style: none; }
-      /* The keyboard's focus is a ring, on every control. */
+      /* The keyboard's focus is a ring, on every control: inside the control's edge, on the control's own ground, and outside the edge of the main button, whose fill would hide it. */
       button:focus, input:focus, select:focus { outline: none; }
       button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
       .screen { flex: 1; min-width: 0; min-height: 0; }
@@ -79,6 +79,7 @@
       .primary { background: var(--main); color: var(--on-main); font-weight: 600; }
       .primary:hover:enabled { background: var(--main-hover); transition: background-color var(--motion); }
       .primary:active:enabled { background: var(--main-pressed); }
+      .primary:focus-visible { outline-offset: 2px; }
       .quiet { background: var(--control); font-weight: 500; }
       .quiet:hover:enabled { background: var(--control-hover); transition: background-color var(--motion); }
       .quiet:active:enabled { background: var(--control-pressed); }
@@ -89,8 +90,8 @@
       /* A title is in the plain ink, and in the strong ink at the heavier weight where its work item changed since the person last looked. */
       .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 500; }
       .title.changed { color: var(--ink-strong); font-weight: var(--weight-changed); }
-      /* The letters of a title or a branch that match what is typed in the search field. */
-      mark { border-radius: var(--radius-mark); background: var(--mark); box-shadow: var(--mark-edge); color: inherit; }
+      /* The letters of a title or a branch that match what is typed in the search field, in the strong ink, which stands apart from the mark under them. */
+      mark { border-radius: var(--radius-mark); background: var(--mark); box-shadow: var(--mark-edge); color: var(--ink-strong); }
       /* A count and an age are facts a person compares down a list, in the typeface the theme sets its facts in. */
       .count, .age { flex: none; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
       /* How many commits a branch gained since the person last looked. */
@@ -253,6 +254,8 @@
       .line.selected { background: var(--selected); box-shadow: var(--line-edge-selected); }
       /* The selected line keeps its ground under the pointer and answers the press. */
       .line.selected:active { background: var(--pressed); }
+      /* On the selected line and on the sidebar's item of what is in front, an age and a count are in the muted ink: the faint one does not stand apart from a selected ground. */
+      .line.selected .age, .side-item[aria-current] .age, .side-item[aria-current] .count { color: var(--ink-muted); }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
@@ -301,12 +304,13 @@
       #tabs .tab .label { max-width: var(--tab-width); padding: 0 var(--space-2) 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #tabs .tab.active .label { color: var(--terminal-strong); font-weight: 600; }
       #tabs .tab .close { padding: 0 var(--space-4) 0 var(--space-2); color: var(--ink-faint); }
-      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. On the tab of a pane on the stage the close control takes the terminal's inks, since that tab stands on the terminal's ground. */
+      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. The tab of a pane on the stage stands on the terminal's ground, which is dark in both appearances, so its close control and the ring of the keyboard's focus take the terminal's inks there. */
       #tabs .tab:not(.active):active { background: var(--pressed); }
       #tabs .tab .close:hover { color: var(--ink); }
       #tabs .tab .close:active { color: var(--ink-strong); }
-      #tabs .tab.shown .close:hover { color: var(--terminal-ink); }
-      #tabs .tab.shown .close:active { color: var(--terminal-strong); }
+      #tabs .tab.shown .close { color: var(--terminal-ink); }
+      #tabs .tab.shown .close:hover, #tabs .tab.shown .close:active { color: var(--terminal-strong); }
+      #tabs .tab.shown button:focus-visible { outline-color: var(--terminal-strong); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
       #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
