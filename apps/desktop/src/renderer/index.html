@@ -344,6 +344,24 @@
       /* In the column a commit is its time, its subject and its hash on one row, and its lines under the subject. */
       #view-facts .commit { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "subject hash age" "counts counts counts"; padding: var(--space-2) 0; }
       #view-facts .commit .gained { display: none; }
+      /* The questions a work item is parked with, above the facts: every question at once, each with its options, what each implies and a field for another answer, then "Send answers". After the answer, each question with its answer. Each text is plain, with its line breaks kept. */
+      #questions { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge); font-size: var(--size-second); }
+      #questions[hidden] { display: none; }
+      #questions-form, #questions-list { display: flex; flex-direction: column; gap: var(--space-5); }
+      #questions-submit { align-self: flex-end; }
+      #questions-submit[hidden] { display: none; }
+      #questions .question { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; border: 0; }
+      #questions .asks { padding: 0; font-weight: 500; color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-3); align-items: center; }
+      #questions .option .label { overflow-wrap: anywhere; }
+      #questions .option .mark { font-size: var(--size-caption); color: var(--ink-faint); }
+      #questions .option .mark:empty { display: none; }
+      #questions .option .implies { grid-column: 2 / -1; color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+      #questions .option .implies:empty { display: none; }
+      #questions input[type="radio"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      #questions .answer { color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .refusal { color: var(--state-failed); overflow-wrap: anywhere; }
+      #questions .refusal:empty { display: none; }
       #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
       #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
@@ -562,6 +580,15 @@
             <h2 id="view-facts-title" class="head"></h2>
             <span id="view-state" class="state-words"></span>
           </div>
+          <section id="questions" aria-labelledby="questions-head" hidden>
+            <h3 id="questions-head" class="caption"></h3>
+            <p id="questions-by" class="hint"></p>
+            <form id="questions-form">
+              <div id="questions-list"></div>
+              <p id="questions-error" class="refusal" role="alert"></p>
+              <button type="submit" id="questions-submit" class="primary">Send answers</button>
+            </form>
+          </section>
           <dl id="view-fact-list"></dl>
           <div id="view-detail" class="detail"></div>
         </div>

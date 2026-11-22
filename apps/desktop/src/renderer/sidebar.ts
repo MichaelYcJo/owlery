@@ -4,7 +4,7 @@
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
 import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, daemonStatus, filterChoices, hiddenRepositories, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, summaryCount, type StateFilter } from "./view";
+import { ageOf, daemonStatus, filterChoices, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -178,7 +178,7 @@ export function showSidebar(inFront: Front = front): void {
       const listOf = (entries: typeof repository.entries): HTMLUListElement => {
         const list = document.createElement("ul");
         list.hidden = isFolded;
-        list.append(...entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, session?.stateSince)));
+        list.append(...entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, lineSince(workItem, session))));
         return list;
       };
       // The ungrouped work items first, then each group's under a heading of its name.

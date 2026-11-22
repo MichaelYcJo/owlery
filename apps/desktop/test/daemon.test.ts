@@ -22,11 +22,13 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "asked", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
 /** What a work item holds of the fields a person sets, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
 /** What a work item holds of the decisions made for it in place of asking, before one is recorded. */
 const NO_DECISION = { decisions: [] };
+/** What a work item holds of the questions it is parked with, where it never was parked. */
+const NOT_ASKED = { asked: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -439,7 +441,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_DECISION, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_DECISION, ...NOT_ASKED, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -463,6 +465,8 @@ describe("work items", () => {
     d.decided(created.workItem.id, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file." });
     c.send({ type: "reverseDecision", requestId: 2, workItemId: created.workItem.id, decisionId: 1, message: "Frame it first." });
     await c.message("done", (m) => m.requestId === 2);
+    // A park with a question that names options, so that the lists carry a record, a question and an option.
+    d.park(created.workItem.id, { by: "sealer", questions: [{ asks: "Which base?", options: [{ label: "main", implies: "The default." }], default: 0 }] });
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
     expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
     expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
@@ -491,6 +495,9 @@ describe("work items", () => {
       expect(Object.keys(workItem.changes!.list[0]!).sort()).toEqual(["added", "path", "removed"]);
       expect(workItem.decisions.map((decision) => Object.keys(decision).sort())).toEqual([["at", "grounds", "id", "kind", "reversed", "says"], ["at", "grounds", "id", "kind", "reversed", "says"]]);
       expect([Object.keys(workItem.decisions[0]!.reversed!).sort(), workItem.decisions[1]!.reversed]).toEqual([["at", "message"], null]);
+      expect(Object.keys(workItem.asked!).sort()).toEqual(["answeredAt", "at", "by", "questions"]);
+      expect(workItem.asked!.questions.map((question) => Object.keys(question).sort())).toEqual([["answer", "asks", "default", "id", "options"]]);
+      expect(Object.keys(workItem.asked!.questions[0]!.options[0]!).sort()).toEqual(["implies", "label"]);
     }
   });
 
@@ -2977,42 +2984,42 @@ describe("the inbox", () => {
   });
 });
 
+// A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
+const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
+
+/** A daemon on a run folder of a temporary repository, a client of it, and a work item the client created under each title, each with the shell pane its creation opened. */
+async function withWorkItems(titles: readonly string[], options: Partial<DaemonOptions> = {}) {
+  const made = temporaryRepository();
+  cleanups.push(made.remove);
+  const runDir = join(made.base, "run");
+  mkdirSync(runDir, { recursive: true });
+  const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: silent, ...options });
+  const c = await client(url);
+  await c.message("ready");
+  const created = [];
+  for (const [index, title] of titles.entries()) {
+    c.send({ type: "createWorkItem", requestId: 100 + index, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
+    created.push(await c.message("workItemCreated", (m) => m.requestId === 100 + index));
+  }
+  await c.message("inbox", (m) => m.workItems.length === titles.length);
+  c.messages.length = 0;
+  return { d, url, c, made, runDir, workItems: created.map((m) => m.workItem), sessions: created.map((m) => m.session) };
+}
+
+/** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
+let refused = 900;
+async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
+  const requestId = refused++;
+  c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+  await c.message("error", (m) => m.requestId === requestId);
+}
+
 describe("the decisions made without asking", () => {
-  type Client = Awaited<ReturnType<typeof client>>;
   type Inbox = Extract<ServerMessage, { type: "inbox" }>;
   const DEFAULT = { kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default." } as const;
   const ROUTE = { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file, apps/desktop/src/renderer/view.ts." } as const;
-  // A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
-  const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
   const decisionsOf = (inbox: { workItems: { id: number; decisions: unknown }[] }, id: number) => inbox.workItems.find((w) => w.id === id)?.decisions;
   const stored = (runDir: string): unknown => JSON.parse(readFileSync(join(runDir, "decisions.json"), "utf8"));
-
-  /** A daemon on a run folder of a temporary repository, a client of it, and a work item the client created under each title, each with the shell pane its creation opened. */
-  async function withWorkItems(titles: readonly string[], options: Partial<DaemonOptions> = {}) {
-    const made = temporaryRepository();
-    cleanups.push(made.remove);
-    const runDir = join(made.base, "run");
-    mkdirSync(runDir, { recursive: true });
-    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: silent, ...options });
-    const c = await client(url);
-    await c.message("ready");
-    const created = [];
-    for (const [index, title] of titles.entries()) {
-      c.send({ type: "createWorkItem", requestId: 100 + index, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
-      created.push(await c.message("workItemCreated", (m) => m.requestId === 100 + index));
-    }
-    await c.message("inbox", (m) => m.workItems.length === titles.length);
-    c.messages.length = 0;
-    return { d, url, c, made, runDir, workItems: created.map((m) => m.workItem), sessions: created.map((m) => m.session) };
-  }
-
-  /** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
-  let refused = 900;
-  async function settled(c: Client): Promise<void> {
-    const requestId = refused++;
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
-    await c.message("error", (m) => m.requestId === requestId);
-  }
 
   it("records a decision for one work item and tells every client: that work item holds it with an id, the daemon's time and no reversal, the other holds none, no session changes, and the other's headless session finishes", async () => {
     const { d, url, c, workItems, sessions } = await withWorkItems(["Decided for", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 100 }) });
@@ -3186,6 +3193,270 @@ describe("the decisions made without asking", () => {
   });
 });
 
+describe("the questions a work item is parked with", () => {
+  type Inbox = Extract<ServerMessage, { type: "inbox" }>;
+  const BASE = { asks: "Which base does the branch start from?", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: 0 };
+  const FREE = { asks: "What should the screen be called?" };
+  const ASKING = { by: "sealer", questions: [BASE, FREE] };
+  /** The record a park with `ASKING` at the time given leaves. */
+  const parkedAt = (at: number) => ({ by: "sealer", at, questions: [{ id: 1, ...BASE, answer: null }, { id: 2, asks: FREE.asks, options: [], default: null, answer: null }], answeredAt: null });
+  const TYPED = "둘 다 아니고, 세 번째 방법으로";
+  const answeredAt = (at: number, answeredAt: number) => ({ ...parkedAt(at), questions: [{ ...parkedAt(at).questions[0]!, answer: "main" }, { ...parkedAt(at).questions[1]!, answer: TYPED }], answeredAt });
+  const askedOf = (lists: { workItems: { id: number; asked: unknown }[] }, id: number) => lists.workItems.find((w) => w.id === id)?.asked;
+  const stored = (runDir: string): unknown => JSON.parse(readFileSync(join(runDir, "asked.json"), "utf8"));
+
+  it("parks one work item with its questions and tells every client, and holds nothing else: the other work item holds no record and its headless session finishes, a pane starts in each of the two, an `ask` in the parked one is taken, and a third work item is created", async () => {
+    const { d, url, c, made, workItems, sessions } = await withWorkItems(["Parked", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 150 }) });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "ask", requestId: 1, workItemId: b.id, prompt: "Still there?" });
+    const { headless } = await c.message("asked");
+    c.messages.length = 0;
+    other.messages.length = 0;
+    const record = d.park(a.id, ASKING);
+    expect(record).toEqual(parkedAt(1234));
+    for (const told of [c, other]) {
+      const inbox = await told.message("inbox");
+      expect(inbox.workItems).toEqual([{ ...a, asked: record }, b]);
+      expect(askedOf(inbox, b.id)).toBeNull();
+      expect(inbox.sessions).toEqual(sessions);
+      // Nothing but the lists is sent for it.
+      expect(told.messages.filter((m) => m.type !== "headless").map((m) => m.type)).toEqual(["inbox"]);
+    }
+    // While the work item is parked, every request is served as before, in it and beside it.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: b.id });
+    expect((await c.message("started", (m) => m.requestId === 2)).session).toMatchObject({ workItemId: b.id, alive: true });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: a.id });
+    expect((await c.message("started", (m) => m.requestId === 3)).session).toMatchObject({ workItemId: a.id, alive: true });
+    c.send({ type: "ask", requestId: 4, workItemId: a.id, prompt: "And in the parked one?" });
+    expect((await c.message("asked", (m) => m.requestId === 4)).headless).toMatchObject({ workItemId: a.id, state: "working" });
+    c.send({ type: "createWorkItem", requestId: 5, repo: made.repo, title: "A third", kind: "shell", cols: 80, rows: 24 });
+    const third = (await c.message("workItemCreated", (m) => m.requestId === 5)).workItem;
+    expect(third.asked).toBeNull();
+    // The session that was working when the park returned finishes, after the lists that carry the park.
+    const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working");
+    expect(finished.headless).toMatchObject({ workItemId: b.id, state: "finished", stopped: null });
+    expect(c.messages.findIndex((m) => m.type === "inbox")).toBeLessThan(c.messages.indexOf(finished));
+    const later = await (await client(url)).message("ready");
+    expect([askedOf(later, a.id), askedOf(later, b.id), askedOf(later, third.id)]).toEqual([record, null, null]);
+  });
+
+  it("stores who asked and each text of a question without the white space at its ends, 2000 characters of each at most, numbers the questions from 1, and reads a question given no options and no default as one with neither", async () => {
+    const { d, workItems } = await withWorkItems(["Parked"], { now: () => 5 });
+    const long = "가".repeat(2001);
+    const record = d.park(workItems[0]!.id, {
+      by: `  ${long}\n`,
+      questions: [{ asks: `\t${"q".repeat(1999)}😀 `, options: [{ label: ` ${long} `, implies: `\n${long}` }, { label: "second", implies: "" }], default: 1 }, { asks: " One more? ", options: [{ label: "yes", implies: " Then it goes on. " }], default: null }, { asks: "Free?" }],
+    });
+    const cut = "가".repeat(2000);
+    expect(record).toEqual({
+      by: cut,
+      at: 5,
+      questions: [
+        { id: 1, asks: "q".repeat(1999), options: [{ label: cut, implies: cut }, { label: "second", implies: "" }], default: 1, answer: null },
+        { id: 2, asks: "One more?", options: [{ label: "yes", implies: "Then it goes on." }], default: null, answer: null },
+        { id: 3, asks: "Free?", options: [], default: null, answer: null },
+      ],
+      answeredAt: null,
+    });
+  });
+
+  it("parks nothing, writes no file and tells no client for a work item it does not keep, an archived one, a call with no question, a question with an empty text, a default that names no option, an option with no label and an asker that is empty or no text, and leaves the record of a work item that is already parked as it stood", async () => {
+    const { d, c, url, runDir, workItems, sessions } = await withWorkItems(["Parked", "Archived"], { now: () => 7 });
+    const [a, archived] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[1]!.id], headless: [] } });
+    await c.message("inbox", (m) => m.archived.length === 1);
+    c.messages.length = 0;
+    const loose = d.park.bind(d) as (workItemId: unknown, asking: unknown) => unknown;
+    expect(loose(99, ASKING)).toBeUndefined();
+    expect(loose(String(a.id), ASKING)).toBeUndefined();
+    expect(loose(archived.id, ASKING)).toBeUndefined();
+    const refused = [
+      null,
+      { by: "sealer" },
+      { ...ASKING, questions: [] },
+      { ...ASKING, questions: {} },
+      { ...ASKING, questions: [BASE, null] },
+      { ...ASKING, questions: [BASE, { asks: "" }] },
+      { ...ASKING, questions: [BASE, { asks: " \n\t" }] },
+      { ...ASKING, questions: [{ asks: 3 }] },
+      { ...ASKING, questions: [{ ...BASE, default: 2 }] },
+      { ...ASKING, questions: [{ ...BASE, default: -1 }] },
+      { ...ASKING, questions: [{ ...BASE, default: 0.5 }] },
+      { ...ASKING, questions: [{ ...BASE, default: "main" }] },
+      { ...ASKING, questions: [{ asks: "Free?", default: 0 }] },
+      { ...ASKING, questions: [{ ...BASE, options: {} }] },
+      { ...ASKING, questions: [{ ...BASE, options: [null, BASE.options[1]] }] },
+      { ...ASKING, questions: [{ ...BASE, options: [{ label: " ", implies: "x" }, BASE.options[1]] }] },
+      { ...ASKING, questions: [{ ...BASE, options: [{ label: 3, implies: "x" }, BASE.options[1]] }] },
+      { ...ASKING, questions: [{ ...BASE, options: [{ label: "main" }, BASE.options[1]] }] },
+      { ...ASKING, by: "" },
+      { ...ASKING, by: "  " },
+      { ...ASKING, by: 3 },
+    ];
+    for (const asking of refused) expect(loose(a.id, asking)).toBeUndefined();
+    // An inbox for any of them would have arrived before the refusal of a start sent after them.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["error"]);
+    expect(existsSync(join(runDir, "asked.json"))).toBe(false);
+    const ready = await (await client(url)).message("ready");
+    expect([askedOf(ready, a.id), ready.archived[0]?.asked]).toEqual([null, null]);
+
+    // The call as the refusals above would have it taken, so the method is the one under test.
+    const record = loose(a.id, ASKING);
+    expect(record).toEqual(parkedAt(7));
+    await c.message("inbox");
+    c.messages.length = 0;
+    expect(loose(a.id, { by: "proofer", questions: [FREE] })).toBeUndefined();
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["error"]);
+    expect(stored(runDir)).toEqual({ workItems: { [a.id]: record } });
+    expect(askedOf(await (await client(url)).message("ready"), a.id)).toEqual(record);
+  });
+
+  it("ends the park at an `answerQuestions`, with the time and each answer as typed, answers before the inbox that carries it, and lets the work item be parked again, the new record in the place of the answered one", async () => {
+    let clock = 1000;
+    const { d, c, url, runDir, workItems } = await withWorkItems(["Parked", "Another"], { now: () => clock });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    d.park(a.id, ASKING);
+    await c.message("inbox");
+    const other = await client(url);
+    await other.message("ready");
+    c.messages.length = 0;
+    clock = 2000;
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: a.id, answers: [{ questionId: 2, answer: `  ${TYPED}\n` }, { questionId: 1, answer: "main" }] });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    expect([askedOf(inbox, a.id), askedOf(inbox, b.id)]).toEqual([answeredAt(1000, 2000), null]);
+    // Every client is told, and the one that asked alone is answered.
+    expect(askedOf(await other.message("inbox"), a.id)).toEqual(answeredAt(1000, 2000));
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+    expect(stored(runDir)).toEqual({ workItems: { [a.id]: answeredAt(1000, 2000) } });
+
+    clock = 3000;
+    const again = d.park(a.id, { by: "proofer", questions: [{ asks: `${"답".repeat(2001)}?` }] });
+    expect(again).toEqual({ by: "proofer", at: 3000, questions: [{ id: 1, asks: "답".repeat(2000), options: [], default: null, answer: null }], answeredAt: null });
+    expect(askedOf(await c.message("inbox", (m: Inbox) => (askedOf(m, a.id) as { at: number }).at === 3000), a.id)).toEqual(again);
+    // An answer is cut as every text of a record is.
+    clock = 4000;
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "가".repeat(2001) }] });
+    await c.message("done", (m) => m.requestId === 2);
+    expect(stored(runDir)).toEqual({ workItems: { [a.id]: { ...again, questions: [{ ...again!.questions[0]!, answer: "가".repeat(2000) }], answeredAt: 4000 } } });
+  });
+
+  it("refuses an `answerQuestions` that leaves a question out, answers a question the record does not hold or one question twice, gives an empty answer, names a work item that is not parked or one it does not keep, or is of another shape, and changes nothing and sends no inbox", async () => {
+    let clock = 1000;
+    const { d, c, url, runDir, workItems } = await withWorkItems(["Parked", "Never parked", "Answered"], { now: () => clock });
+    const [a, b, answered] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    d.park(a.id, ASKING);
+    d.park(answered.id, { by: "proofer", questions: [FREE] });
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: answered.id, answers: [{ questionId: 1, answer: "The answering section" }] });
+    await c.message("inbox", (m: Inbox) => (askedOf(m, answered.id) as { answeredAt: number | null } | null)?.answeredAt === 1000);
+    const before = stored(runDir);
+    c.messages.length = 0;
+    clock = 2000;
+    const both = [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }];
+    const shape = "an answer names a work item and gives an answer to each of its questions";
+    const refusals = [
+      [2, { workItemId: a.id, answers: [both[0]] }, "Question 2 has no answer."],
+      [3, { workItemId: a.id, answers: [] }, "Question 1 has no answer."],
+      [4, { workItemId: a.id, answers: [...both, { questionId: 3, answer: "a third" }] }, `work item ${a.id} asked no question 3`],
+      [5, { workItemId: a.id, answers: [...both, { questionId: 2, answer: "again" }] }, "Question 2 is answered twice."],
+      [6, { workItemId: a.id, answers: [both[0], { questionId: 2, answer: " \n\t" }] }, "Give an answer to question 2."],
+      [7, { workItemId: b.id, answers: both }, `Work item ${b.id} waits for no answer.`],
+      [8, { workItemId: answered.id, answers: [{ questionId: 1, answer: "another" }] }, `Work item ${answered.id} waits for no answer.`],
+      [9, { workItemId: 99, answers: both }, "no work item 99"],
+      [10, { workItemId: String(a.id), answers: both }, shape],
+      [11, { workItemId: a.id, answers: { 1: "main", 2: TYPED } }, shape],
+      [12, { workItemId: a.id, answers: [both[0], null] }, shape],
+      [13, { workItemId: a.id, answers: [both[0], { questionId: "2", answer: TYPED }] }, shape],
+      [14, { workItemId: a.id, answers: [both[0], { questionId: 2, answer: 3 }] }, shape],
+    ] as const;
+    for (const [requestId, fields, message] of refusals) {
+      c.send({ type: "answerQuestions", requestId, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message });
+    }
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(refusals.map(() => "error").concat("error"));
+    expect(stored(runDir)).toEqual(before);
+    const ready = await (await client(url)).message("ready");
+    expect([askedOf(ready, a.id), askedOf(ready, b.id)]).toEqual([parkedAt(1000), null]);
+    // The message as the refusals above would have it taken, so the case is the one under test.
+    c.send({ type: "answerQuestions", requestId: 20, workItemId: a.id, answers: both });
+    expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
+  });
+
+  it("lists after a restart the records kept before it, a parked work item's and an answered one's as each stood, from a file the user alone can read", async () => {
+    const { d, c, made, runDir, workItems } = await withWorkItems(["Parked", "Answered"], { now: () => 1234 });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    d.park(a.id, ASKING);
+    d.park(b.id, ASKING);
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: b.id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
+    await c.message("done", (m) => m.requestId === 1);
+    await d.close();
+    expect(statSync(join(runDir, "asked.json")).mode & 0o777).toBe(0o600);
+
+    const later = await daemon({ runDir, worktreesRoot: made.root, now: () => 5678 });
+    const lc = await client(later.url);
+    const ready = await lc.message("ready");
+    expect([askedOf(ready, a.id), askedOf(ready, b.id)]).toEqual([parkedAt(1234), answeredAt(1234, 1234)]);
+    // The park read from the file is the one an answer ends, and the answered record is the one a park replaces.
+    expect(later.daemon.park(a.id, ASKING)).toBeUndefined();
+    expect(later.daemon.park(b.id, ASKING)).toEqual(parkedAt(5678));
+  });
+
+  it("lists an archived work item under `archived` with its record, takes an answer for it, and takes a work item's record out of the file at its delete and at its repository's removal, so a work item created afterwards holds none", async () => {
+    const { d, c, url, made, runDir, workItems, sessions } = await withWorkItems(["Archived", "Deleted", "Removed"], { now: () => 9 });
+    const [archived, deleted, removed] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const decision = d.decided(archived.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." })!;
+    for (const { id } of workItems) d.park(id, ASKING);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
+    const inbox = await c.message("inbox", (m) => m.archived.length === 1);
+    expect(inbox.archived[0]).toMatchObject({ id: archived.id, decisions: [decision], asked: parkedAt(9) });
+    expect(stored(runDir)).toEqual({ workItems: { [archived.id]: parkedAt(9), [deleted.id]: parkedAt(9), [removed.id]: parkedAt(9) } });
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: archived.id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
+    await c.message("done", (m) => m.requestId === 2);
+    expect((await c.message("inbox", (m: Inbox) => m.archived[0]?.asked?.answeredAt === 9)).archived[0]?.asked).toEqual(answeredAt(9, 9));
+
+    c.send({ type: "readLoss", requestId: 3, id: deleted.id });
+    const { loss } = await c.message("workItemLoss", (m) => m.requestId === 3);
+    c.send({ type: "deleteWorkItem", requestId: 4, id: deleted.id, stamp: loss.stamp, force: false, running: { panes: [sessions[1]!.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(stored(runDir)).toEqual({ workItems: { [archived.id]: answeredAt(9, 9), [removed.id]: parkedAt(9) } });
+    expect(d.park(deleted.id, ASKING)).toBeUndefined();
+
+    c.send({ type: "removeRepository", requestId: 5, id: 1, workItems: [archived.id, removed.id], running: { panes: [sessions[2]!.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 5);
+    expect(stored(runDir)).toEqual({ workItems: {} });
+    expect(JSON.parse(readFileSync(join(runDir, "decisions.json"), "utf8"))).toEqual({ nextId: 2, workItems: {} });
+
+    c.send({ type: "createWorkItem", requestId: 6, repo: made.repo, title: "Made after", kind: "shell", cols: 80, rows: 24 });
+    const next = (await c.message("workItemCreated", (m) => m.requestId === 6)).workItem;
+    expect([next.asked, next.decisions]).toEqual([null, []]);
+    expect(askedOf(await (await client(url)).message("ready"), next.id)).toBeNull();
+  });
+
+  it("stays up and holds a park and its answer where its run folder cannot be written, and says so in its log", async () => {
+    const { d, c, url, runDir, workItems } = await withWorkItems(["Held in memory"], { now: () => 7 });
+    const id = workItems[0]!.id;
+    // A folder stands where the file goes, so its write is refused.
+    mkdirSync(join(runDir, "asked.json"));
+    const said: string[] = [];
+    const error = console.error;
+    console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
+    cleanups.push(() => {
+      console.error = error;
+    });
+    expect(d.park(id, ASKING)).toEqual(parkedAt(7));
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
+    await c.message("done", (m) => m.requestId === 2);
+    expect(askedOf(await (await client(url)).message("ready"), id)).toEqual(answeredAt(7, 7));
+    expect(said.filter((line) => line.startsWith("the questions were not written: "))).toHaveLength(2);
+  });
+});
+
 describe("the last look", () => {
   type Client = Awaited<ReturnType<typeof client>>;
   const stateOf = (m: Extract<ServerMessage, { type: "inbox" }>, id: number) => m.sessions.find((s) => s.id === id)?.state;
@@ -3277,7 +3548,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_DECISION, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_DECISION, ...NOT_ASKED, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {

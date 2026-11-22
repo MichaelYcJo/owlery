@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type Asked, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -59,16 +59,30 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 export interface InboxLine {
   title: string;
   branch: string;
-  /** What the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, whatever its panes say. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
 }
 
 /**
- * One line of the inbox: the work item, the state of its most recent live pane
- * of a kind that reports state, and its new commits. An exited pane keeps its
- * last state and is passed over, because nothing will change that state again.
+ * The questions a work item is parked with, while it is parked: its record
+ * while that holds no time of an answer. Null once the person answered, for
+ * a work item that never was parked, and for a daemon of an earlier build,
+ * which sends no such field.
+ */
+export function parkedWith(workItem: WorkItem): Asked | null {
+  const asked = (workItem.asked as Asked | null | undefined) ?? null;
+  return asked !== null && asked.answeredAt === null ? asked : null;
+}
+
+/**
+ * One line of the inbox: the work item, its state, and its new commits. A
+ * work item parked with questions for the person waits, whatever its panes
+ * say, so it stands with the work items that wait for the person. Otherwise
+ * the state is that of its most recent live pane of a kind that reports
+ * state. An exited pane keeps its last state and is passed over, because
+ * nothing will change that state again.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
@@ -76,12 +90,21 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: reporting ? reporting.state : null,
+    state: parkedWith(workItem) ? "waiting" : reporting ? reporting.state : null,
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
 
-/** A work item as the lists and the sidebar show it: with its line, and the pane the line reads its state from. */
+/**
+ * Since when a line's state has lasted, which its age is counted from: the
+ * park for a work item parked with questions, and otherwise the time of the
+ * state of the pane the line reads, `session`. Null where neither gives one.
+ */
+export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
+  return parkedWith(workItem)?.at ?? session?.stateSince ?? null;
+}
+
+/** A work item as the lists and the sidebar show it: with its line, and the pane whose state the line reads where the work item is not parked. */
 export interface Entry {
   workItem: WorkItem;
   line: InboxLine;
@@ -197,6 +220,85 @@ export function decisionLines(workItem: WorkItem, now: number): DecisionLine[] {
     age: ageOf(at, now),
     reversed: reversed && { head: `Reversed, ${ageOf(reversed.at, now)}`, message: reversed.message },
   }));
+}
+
+export interface QuestionLine {
+  /** The question's id, which its answer names it by. */
+  id: number;
+  asks: string;
+  /** While the work item is parked, the answers the asker names, each with what it implies and, for the question's default, the mark "Default". None once the record is answered. */
+  options: { label: string; implies: string; mark: string }[];
+  /** The option chosen as the section is drawn: the question's default, or null where it has none and once the record is answered. */
+  chosen: number | null;
+  /** The person's answer, or null while the work item is parked. */
+  answer: string | null;
+}
+
+export interface AskedSection {
+  /** "Waiting for your answer" while the work item is parked, and "Answered" afterwards. */
+  head: string;
+  /** Who asked and how long ago, and for an answered record how long ago it was answered. */
+  by: string;
+  /** Whether the section takes answers. */
+  parked: boolean;
+  /** What tells one drawing of the section from the next: it differs between two work items, two parks of one, and a park and its answer. A view draws the section again only where it differs, so a field the person types in is not drawn over. */
+  key: string;
+  questions: QuestionLine[];
+}
+
+/**
+ * The section of a work item's view that holds the questions it is parked
+ * with and takes the person's answers, or after the answer lists each
+ * question with its answer. Null for a work item that never was parked, and
+ * for a daemon of an earlier build, which sends no record.
+ */
+export function askedSection(workItem: WorkItem, now: number): AskedSection | null {
+  const asked = (workItem.asked as Asked | null | undefined) ?? null;
+  if (asked === null) return null;
+  const parked = asked.answeredAt === null;
+  return {
+    head: parked ? "Waiting for your answer" : "Answered",
+    by: parked ? `Asked by ${asked.by}, ${ageOf(asked.at, now)} ago` : `Asked by ${asked.by}, answered ${ageOf(asked.answeredAt, now)} ago`,
+    parked,
+    key: `${workItem.id}:${asked.at}:${asked.answeredAt}`,
+    questions: asked.questions.map(({ id, asks, options, default: taken, answer }) => ({
+      id,
+      asks,
+      options: parked ? options.map(({ label, implies }, index) => ({ label, implies, mark: index === taken ? "Default" : "" })) : [],
+      chosen: parked ? taken : null,
+      answer: parked ? null : answer,
+    })),
+  };
+}
+
+/**
+ * The answers an `answerQuestions` carries, one for each question of the
+ * section: for the question at each place, `choices` holds the index of the
+ * option the person chose, "other" where they chose to give another answer,
+ * or null where they chose nothing, and `typed` the words in its field for
+ * another answer. An option gives its label, "other" the words as typed,
+ * and nothing chosen, or a choice that names no option, an empty answer,
+ * which the daemon refuses with the question's number.
+ */
+export function answersFor(questions: readonly Pick<QuestionLine, "id" | "options">[], choices: readonly (number | "other" | null)[], typed: readonly string[]): { questionId: number; answer: string }[] {
+  return questions.map(({ id, options }, place) => {
+    const choice = choices[place] ?? null;
+    return { questionId: id, answer: choice === "other" ? (typed[place] ?? "") : choice === null ? "" : (options[choice]?.label ?? "") };
+  });
+}
+
+/**
+ * The notifications for the work items that were parked since the window's
+ * lists were `before`: one for each of `workItems` that is parked now and
+ * that `before`, the work items and the archived ones the window held, did
+ * not hold as parked. It is titled with the work item's title. None is
+ * given for a work item whose notifications are muted, nor for `inFront`,
+ * the work item whose view is in front of a focused window. An archived
+ * work item is not among `workItems`, so none is given for one.
+ */
+export function parkNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  const held = new Set(before.filter((workItem) => parkedWith(workItem)).map((workItem) => workItem.id));
+  return workItems.filter((workItem) => parkedWith(workItem) && !held.has(workItem.id) && !workItem.muted && workItem.id !== inFront).map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: "Waiting for your answer" }));
 }
 
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
@@ -547,7 +649,7 @@ export interface Change {
   workItem: WorkItem;
   /** The work item's line as the lists now give it. */
   line: InboxLine;
-  /** The pane that line reads its state from, whose time is the age the summary's line says. */
+  /** The pane whose state that line reads where the work item is not parked. The age the summary's line says is counted as `lineSince` gives it. */
   session: SessionInfo | undefined;
   /** What changed, opening with the present state. */
   sentence: string;
@@ -695,12 +797,19 @@ export function stateSays(session: SessionInfo | undefined, paneKinds: readonly 
 }
 
 /**
- * The text of a line's second row, and which of the three it is: what the
- * agent's state carried, otherwise the newest commit's subject, otherwise
- * the branch. While a search is typed it is the branch, where the letters
- * that match are marked.
+ * The text of a line's second row, and which of the four it is: for a work
+ * item parked with questions the first question, followed by how many more
+ * it waits on, as in " (and 2 more questions)"; otherwise what the agent's
+ * state carried, otherwise the newest commit's subject, otherwise the
+ * branch. While a search is typed it is the branch, where the letters that
+ * match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "state" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "state" | "commit" | "branch"; text: string } {
+  const asked = searching ? null : parkedWith(workItem);
+  if (asked) {
+    const more = asked.questions.length - 1;
+    return { says: "question", text: `${asked.questions[0]?.asks ?? ""}${more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : ""}` };
+  }
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];

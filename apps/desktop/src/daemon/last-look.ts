@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Changes, CommitInfo, FileChange, Look, SessionInfo, WorkItem } from "../shared/protocol";
+import { askedOf, isAsked } from "./asked";
 import { decisionOf, isDecision } from "./decisions";
 import { writeWholeFile } from "./whole-file";
 
@@ -38,8 +39,8 @@ function isChanges(value: unknown): value is Changes {
   return isRecord(value) && typeof value.files === "number" && typeof value.added === "number" && typeof value.removed === "number" && Array.isArray(value.list) && value.list.every(isFileChange);
 }
 
-/** The fields of a work item that came after the first look was written: the ones that came with the repositories, and `decisions`. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
-type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "decisions";
+/** The fields of a work item that came after the first look was written: the ones that came with the repositories, `decisions` and `asked`. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
+type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "decisions" | "asked";
 /** A work item as a look's file holds one: every field of the protocol's, the ones that came later absent or of the protocol's type. */
 type WrittenWorkItem = Omit<WorkItem, CameLater> & Partial<Pick<WorkItem, CameLater>>;
 
@@ -66,7 +67,8 @@ function isWorkItem(value: unknown): value is WrittenWorkItem {
     (item.muted === undefined || typeof item.muted === "boolean") &&
     (item.groupId === undefined || isNumberOrNull(item.groupId)) &&
     (item.archivedAt === undefined || isNumberOrNull(item.archivedAt)) &&
-    (item.decisions === undefined || (Array.isArray(item.decisions) && item.decisions.every(isDecision)))
+    (item.decisions === undefined || (Array.isArray(item.decisions) && item.decisions.every(isDecision))) &&
+    (item.asked === undefined || item.asked === null || isAsked(item.asked))
   );
 }
 
@@ -76,17 +78,18 @@ function isLook(value: unknown): value is Omit<Look, "workItems"> & { workItems:
 }
 
 /**
- * Only the fields of a look, each entry a copy, its commits, its changes and
- * its decisions among it: what the lists or a file's entries carry beyond
- * them, or become afterwards, is not the look's. A work item without a field
- * that came later gets that field's empty value: the id 0, which no
- * repository bears, no pin, no mute, no group, no archive and no decision.
+ * Only the fields of a look, each entry a copy, its commits, its changes, its
+ * decisions and the questions it is parked with among it: what the lists or a
+ * file's entries carry beyond them, or become afterwards, is not the look's.
+ * A work item without a field that came later gets that field's empty value:
+ * the id 0, which no repository bears, no pin, no mute, no group, no archive,
+ * no decision and no record of a park.
  */
 function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonly WrittenWorkItem[]): Look {
   return {
     at,
     sessions: sessions.map(({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool }) => ({ id, kind, alive, workItemId, state, stateSince, stateText, stateTool })),
-    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, decisions }) => ({
+    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, decisions, asked }) => ({
       id,
       title,
       repoId: repoId ?? 0,
@@ -106,6 +109,7 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
       groupId: groupId ?? null,
       archivedAt: archivedAt ?? null,
       decisions: (decisions ?? []).map(decisionOf),
+      asked: asked ? askedOf(asked) : null,
     })),
   };
 }
@@ -118,9 +122,9 @@ function lookOf(at: number, sessions: readonly SessionInfo[], workItems: readonl
  * user alone, and is read at start, so the look outlives the daemon. A file
  * whose entries lack a field of the protocol's, as one a build before that
  * field wrote, is no look, but for the fields of a work item that came with
- * the repositories and for its `decisions`: a look without one of them is
- * read with it at its empty value. Given no run directory, the look is kept
- * in memory alone.
+ * the repositories and for its `decisions` and its `asked`: a look without
+ * one of them is read with it at its empty value. Given no run directory, the
+ * look is kept in memory alone.
  */
 export class LastLook {
   private look: Look | null = null;

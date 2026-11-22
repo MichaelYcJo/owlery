@@ -6,7 +6,9 @@ import {
   archivalOf,
   archivedHead,
   archivedIn,
+  answersFor,
   askButton,
+  askedSection,
   asksFetch,
   BASE_ANSWER_MS,
   baseKey,
@@ -47,6 +49,7 @@ import {
   lineCounts,
   lineMarks,
   lineSession,
+  lineSince,
   lineText,
   lossSections,
   linkCard,
@@ -68,6 +71,7 @@ import {
   paneKey,
   paneMenu,
   paneTabs,
+  parkNotifications,
   pinnedFirst,
   pathCandidates,
   pathTarget,
@@ -112,7 +116,7 @@ import {
   type MenuEntry,
   unanswered,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type Asked, type AskedQuestion, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -134,6 +138,7 @@ const LOGIN: WorkItem = {
   groupId: null,
   archivedAt: null,
   decisions: [],
+  asked: null,
 };
 const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
@@ -899,6 +904,117 @@ describe("the decisions made without asking", () => {
     expect(decisionLines(EARLIER, NOW)).toEqual([]);
     expect(inboxLine(EARLIER, [session(2, { state: "working" })], KINDS)).toEqual(inboxLine(LOGIN, [session(2, { state: "working" })], KINDS));
     expect(lineText(EARLIER, undefined, false)).toEqual(lineText(LOGIN, undefined, false));
+  });
+});
+
+describe("a work item parked with its questions", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  const BASE: AskedQuestion = { id: 1, asks: "Which base does the branch start from?", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: 1, answer: null };
+  const FREE: AskedQuestion = { id: 2, asks: "What should the screen be called?", options: [], default: null, answer: null };
+  const OPEN: AskedQuestion = { id: 3, asks: "Squash or merge?", options: [{ label: "squash", implies: "" }, { label: "merge", implies: "Every commit stays." }], default: null, answer: null };
+  const ASKED: Asked = { by: "sealer", at: NOW - 12 * MINUTE, questions: [BASE, FREE], answeredAt: null };
+  const TYPED = "둘 다 아니고, 세 번째 방법으로";
+  const ANSWERED: Asked = { ...ASKED, questions: [{ ...BASE, answer: "main" }, { ...FREE, answer: TYPED }], answeredAt: NOW - 3 * MINUTE };
+  const PARKED: WorkItem = { ...LOGIN, asked: ASKED };
+  const DONE: WorkItem = { ...LOGIN, asked: ANSWERED };
+  const working = session(2, { state: "working", stateSince: NOW - 40 * MINUTE, stateText: "Running the tests" });
+  /** A work item as a daemon of a build before the questions sends it. */
+  const { asked: _asked, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("gives a parked work item's line the state waiting, whatever its panes say, so that the inbox's sentence counts it in waiting for you and it stands in that group, and the state its panes give once it is answered", () => {
+    for (const sessions of [[], [working], [session(2, { state: "finished" })], [session(2, { state: "waiting" })]]) {
+      expect(inboxLine(PARKED, sessions, KINDS)).toEqual({ ...inboxLine(LOGIN, sessions, KINDS), state: "waiting" });
+      expect(inboxLine(DONE, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+    }
+    const entries = workItemEntries([SEARCH, PARKED], [working, session(3, { workItemId: 2, state: "working" })], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 waiting for you, 1 working");
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Waiting for you", [1]], ["Working", [2]]]);
+    expect(inboxSummary(workItemEntries([SEARCH, DONE], [working, session(3, { workItemId: 2, state: "working" })], KINDS).map((entry) => entry.line))).toBe("2 working");
+  });
+
+  it("says a parked work item's first question in its line's second row, with how many more it waits on, before what its agent says, and what the line said before once it is answered or while a search is typed", () => {
+    expect(lineText(PARKED, working, false)).toEqual({ says: "question", text: "Which base does the branch start from? (and 1 more question)" });
+    expect(lineText({ ...LOGIN, asked: { ...ASKED, questions: [BASE, FREE, OPEN] } }, undefined, false)).toEqual({ says: "question", text: "Which base does the branch start from? (and 2 more questions)" });
+    expect(lineText({ ...LOGIN, asked: { ...ASKED, questions: [{ ...FREE, id: 1 }] } }, working, false)).toEqual({ says: "question", text: "What should the screen be called?" });
+    expect(lineText(DONE, working, false)).toEqual({ says: "state", text: "Running the tests" });
+    expect(lineText(PARKED, working, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
+
+  it("counts a parked work item's age from the park, and the age of any other from its pane's state", () => {
+    expect(lineSince(PARKED, working)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince(PARKED, undefined)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince(DONE, working)).toBe(NOW - 40 * MINUTE);
+    expect(lineSince(LOGIN, working)).toBe(NOW - 40 * MINUTE);
+    expect([lineSince(DONE, undefined), lineSince(LOGIN, session(2))]).toEqual([null, null]);
+    expect(stateWithAge(inboxLine(PARKED, [working], KINDS).state, lineSince(PARKED, working), NOW)).toBe("Waiting for you, 12 min");
+  });
+
+  it("gives the section of a parked work item its head, who asked and how long ago, and every question with its options, what each implies, the mark of its default and the default as the option chosen", () => {
+    expect(askedSection({ ...LOGIN, asked: { ...ASKED, questions: [BASE, FREE, OPEN] } }, NOW)).toEqual({
+      head: "Waiting for your answer",
+      by: "Asked by sealer, 12 min ago",
+      parked: true,
+      key: `1:${NOW - 12 * MINUTE}:null`,
+      questions: [
+        { id: 1, asks: "Which base does the branch start from?", options: [{ label: "main", implies: "The release's fixes are not in it.", mark: "" }, { label: "release/v0.0.2", implies: "It merges after the release.", mark: "Default" }], chosen: 1, answer: null },
+        { id: 2, asks: "What should the screen be called?", options: [], chosen: null, answer: null },
+        { id: 3, asks: "Squash or merge?", options: [{ label: "squash", implies: "", mark: "" }, { label: "merge", implies: "Every commit stays.", mark: "" }], chosen: null, answer: null },
+      ],
+    });
+  });
+
+  it("gives the section of an answered record the head Answered, who asked and how long ago it was answered, and each question with its answer and no option, and gives no section for a work item that never was parked", () => {
+    expect(askedSection(DONE, NOW)).toEqual({
+      head: "Answered",
+      by: "Asked by sealer, answered 3 min ago",
+      parked: false,
+      key: `1:${NOW - 12 * MINUTE}:${NOW - 3 * MINUTE}`,
+      questions: [
+        { id: 1, asks: "Which base does the branch start from?", options: [], chosen: null, answer: "main" },
+        { id: 2, asks: "What should the screen be called?", options: [], chosen: null, answer: TYPED },
+      ],
+    });
+    expect(askedSection(LOGIN, NOW)).toBeNull();
+    // The key differs between two work items, two parks of one, and a park and its answer, so the section is drawn again at each.
+    const keys = [askedSection(PARKED, NOW), askedSection(DONE, NOW), askedSection({ ...PARKED, id: 2 }, NOW), askedSection({ ...LOGIN, asked: { ...ASKED, at: NOW } }, NOW)].map((section) => section?.key);
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it("gives each question of the section the answer the person chose: an option's label, or the words they typed as another answer, and an empty answer for a question with nothing chosen, which the daemon refuses", () => {
+    const questions = askedSection({ ...LOGIN, asked: { ...ASKED, questions: [BASE, FREE, OPEN] } }, NOW)!.questions;
+    expect(answersFor(questions, [0, "other", 1], ["ignored", TYPED, ""])).toEqual([{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }, { questionId: 3, answer: "merge" }]);
+    expect(answersFor(questions, ["other", null, null], [" trunk ", "typed and not chosen", ""])).toEqual([{ questionId: 1, answer: " trunk " }, { questionId: 2, answer: "" }, { questionId: 3, answer: "" }]);
+    // A choice that names no option of its question gives no answer.
+    expect(answersFor(questions, [5, 0, null], ["", "", ""])).toEqual([{ questionId: 1, answer: "" }, { questionId: 2, answer: "" }, { questionId: 3, answer: "" }]);
+  });
+
+  it("notifies of a work item that is parked now and was not before, titled with the work item's title, and of none that is muted, whose view is in front, that the window already held as parked, or that is archived", () => {
+    const told = { workItemId: 1, title: "Fix the login bug", body: "Waiting for your answer" };
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, SEARCH], undefined)).toEqual([told]);
+    expect(parkNotifications([DONE], [PARKED], undefined)).toEqual([told]);
+    // A work item the window did not hold at all was not held as parked.
+    expect(parkNotifications([SEARCH], [SEARCH, PARKED], undefined)).toEqual([told]);
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, { ...SEARCH, asked: ASKED }], 2)).toEqual([told]);
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, { ...SEARCH, asked: ASKED }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Waiting for your answer" }]);
+    expect(parkNotifications([LOGIN], [{ ...PARKED, muted: true }], undefined)).toEqual([]);
+    expect(parkNotifications([LOGIN], [PARKED], 1)).toEqual([]);
+    expect(parkNotifications([PARKED], [PARKED], undefined)).toEqual([]);
+    // An archived work item stands in no list of work items, and one restored while parked was held as parked among the archived.
+    expect(parkNotifications([LOGIN], [], undefined)).toEqual([]);
+    expect(parkNotifications([{ ...PARKED, archivedAt: 50 }], [PARKED], undefined)).toEqual([]);
+    expect(parkNotifications([PARKED], [DONE], undefined)).toEqual([]);
+    expect(parkNotifications([LOGIN], [LOGIN], undefined)).toEqual([]);
+  });
+
+  it("reads a work item of a daemon of an earlier build, which sends no record, as one that never was parked, and throws at none", () => {
+    expect(inboxLine(EARLIER, [working], KINDS)).toEqual(inboxLine(LOGIN, [working], KINDS));
+    expect(lineText(EARLIER, working, false)).toEqual(lineText(LOGIN, working, false));
+    expect(lineSince(EARLIER, working)).toBe(NOW - 40 * MINUTE);
+    expect(askedSection(EARLIER, NOW)).toBeNull();
+    expect(parkNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
+    expect(parkNotifications([EARLIER], [PARKED], undefined)).toHaveLength(1);
   });
 });
 

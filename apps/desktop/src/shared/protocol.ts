@@ -146,6 +146,32 @@ export interface Decision {
   reversed: { at: number; message: string } | null;
 }
 
+/** One question a work item is parked with. */
+export interface AskedQuestion {
+  /** Its place in the record, from 1. */
+  id: number;
+  /** The question, 2000 characters of it at most, as every text of a record is. */
+  asks: string;
+  /** The answers the asker names, each with what it implies. It may be empty. */
+  options: { label: string; implies: string }[];
+  /** The index in `options` of the answer taken where the person gives none, or null. */
+  default: number | null;
+  /** The person's answer, an option's label or their own words, or null until they answer. */
+  answer: string | null;
+}
+
+/** The questions a work item was parked with. The work item is parked while `answeredAt` is null. */
+export interface Asked {
+  /** Who asked, as a person reads it, such as a role's name. */
+  by: string;
+  /** The daemon's clock when the work item was parked. */
+  at: number;
+  /** The questions, one at least, in the order they were asked. */
+  questions: AskedQuestion[];
+  /** The daemon's clock when a person answered, or null while the work item is parked. */
+  answeredAt: number | null;
+}
+
 /**
  * One piece of work, in a worktree of its own, of one repository: `repoId` is
  * that repository's id and `repo` its main checkout's top-level folder, `branch` the branch
@@ -191,6 +217,8 @@ export interface WorkItem {
   archivedAt: number | null;
   /** The decisions made for it in place of asking the person, in the order they were recorded, the reversed among them. A daemon of an earlier build sends no such field, and a client reads its absence as no decision. */
   decisions: Decision[];
+  /** The questions it is parked with, or was parked with last, or null where it never was. It is parked while the record holds no time of an answer, and an answered record stays until the next park replaces it. A daemon of an earlier build sends no such field, and a client reads its absence as no record. */
+  asked: Asked | null;
 }
 
 export interface SessionInfo {
@@ -302,6 +330,8 @@ export type ClientMessage =
   | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
   // Reverses a decision made for a work item in place of asking, with the person's message, which is stored without the white space at its ends. The decision stays listed, with the time and the message. An empty message is refused, and so are a decision the work item does not hold and one already reversed: nothing is then changed. The daemon answers with `done`.
   | { type: "reverseDecision"; requestId: number; workItemId: number; decisionId: number; message: string }
+  // Answers the questions a work item is parked with, which ends the park: one answer for each question of the record, an option's label or the person's own words, stored without the white space at its ends. Refused, with nothing changed, where the work item is not parked, where a question of the record has no answer in the message, where the message answers a question the record does not hold or one question twice, and for an empty answer. The record stays on the work item, answered. The daemon answers with `done`.
+  | { type: "answerQuestions"; requestId: number; workItemId: number; answers: { questionId: number; answer: string }[] }
   // Asks what renaming the work item's branch after the name `title` would give. The daemon renames nothing, and answers with a `renamePlan`.
   | { type: "planRename"; requestId: number; id: number; title: string }
   // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so is a rename of the branch that a plan would answer with `blocked`: nothing is then changed, the name neither. The worktree's folder keeps its name. The daemon answers with `done`.
