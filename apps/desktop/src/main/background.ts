@@ -17,12 +17,12 @@ export function startsInBackground(env: NodeJS.ProcessEnv): boolean {
 /**
  * Shows the window of an app started in the background: it lets the
  * system's pointer through to what is under it, and then shows below the
- * window in front, without the keyboard. The pointer of the person at the
- * machine then reaches their own windows and none of its clicks lands in
- * this one, and the page moves no pointer of its own where the person's
- * passes over the window, so a case's pointer, which the debugging port
+ * window in front, without the keyboard. The system routes the pointer of
+ * the person at the machine to the windows under this one, so none of their
+ * clicks lands in it. Their pointer passing over the window then moves no
+ * pointer in the page either, and a case's pointer, which the debugging port
  * moves, stays where the case put it (#117). The debugging port's input
- * reaches the page all the same.
+ * reaches the page as before.
  */
 export function showInBackground(win: { setIgnoreMouseEvents(ignore: boolean): void; showInactive(): void }): void {
   win.setIgnoreMouseEvents(true);
