@@ -56,7 +56,7 @@
   --selected: rgba(243, 239, 230, 0.1);
   --selected-edge: none;
 
-  /* The edge of a line of the inbox, at rest and selected, each a whole shadow, and the ground and edge of a group's head. */
+  /* The edge of a line of the inbox, at rest and selected, each a whole shadow, the first of which a row of a list of records carries too, and the ground and edge of a group's head. */
   --line-edge: none;
   --line-edge-selected: none;
   --group-ground: transparent;
