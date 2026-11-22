@@ -2,12 +2,12 @@
  * The themes. The window has three, each in a dark and a light appearance,
  * and each pair is one block: the page moves between them by the values of
  * `data-theme` and `data-appearance` on its `html`. A block holds every
- * colour, typeface, texture, radius, shadow and shape the page draws with,
- * each named for its role, and every difference between two themes is a
- * property of their blocks: no selector outside this file names a theme or
- * an appearance. A block holds no width, no height and no size of type:
- * those are the layout's, in index.html. Red stands on the seal alone, so no
- * property but the ones that open `--seal-` holds a red.
+ * colour, typeface, texture, radius and shadow the page draws with, and the
+ * shapes of a state's mark, each named for its role, and every difference
+ * between two themes is a property of their blocks: no selector outside this
+ * file names a theme or an appearance. A block holds no width, no height and
+ * no size of type: those are the layout's, in index.html. Red stands on the
+ * seal alone, so no property but the ones that open `--seal-` holds a red.
  * test/themes.test.ts holds these rules. docs/design.md, Tokens, is the
  * source of every value here, and a change of one changes that document, its
  * Korean edition and this file in one commit. The comments of the first
