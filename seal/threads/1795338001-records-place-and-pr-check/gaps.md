@@ -23,3 +23,15 @@ Nothing tells a person that a work item cut from a remote's base holds no record
 The dialog of the records place does not open at a registration typed as a folder inside a repository the daemon already keeps, nor for a repository that a work item's creation added. The entry of the repository's menu opens it. `frame/design.md` *Scope* item 12 names the registration alone.
 
 The policy text does not mention the proposed command. P6 is written as `frame/design.md` gives it.
+
+The daemon's reader of a `seal` block and the check's are compared on 35 fixtures and on no generated corpus. `frame/design.md` scenario 18 names the fixtures, and a kind or a field added to one reader is added to that case with a fixture.
+
+The docstring of `pr-check/lib/fields.py` still calls that module the one statement of the grammar, which `apps/desktop/src/daemon/record-blocks.ts` now states too. `frame/design.md` *Scope* item 1 keeps the taken files unchanged in this work.
+
+`record-blocks.ts` reads the four kinds the frame names. It does not read a round record's kinds, nor the rule that a block holds one of two keys, which the check's finding kind uses. `trail/phases/phase-3.md` gives #41 as their home.
+
+A write through `writeRecord` leaves `decisions.md` readable by the user alone, because `whole-file.ts` writes every file so. Git keeps no such mode, so the commit does not change. Keeping the file's own mode would be a change to a writer six other files use.
+
+`workItemDirectory` reads the records root at `seal/` or `agentic-seal/` of the worktree, and not the place under the git directory that the taken check also knows. Owlery commits its records, so no work item of Owlery's stands there.
+
+No case writes a block and commits it: the commit of a record is a stage's or the daemon's, in #41, #42 and #119 (`frame/design.md` *Scope* items 20 and 21).

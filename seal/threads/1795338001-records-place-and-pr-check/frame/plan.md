@@ -45,7 +45,7 @@ The policy documents are `docs/architecture.md` and `docs/architecture.ko.md`: *
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* items 1 to 6, with entries P1 to P5 and the rows of *Removes* they name | Scenarios 1 to 4 as cases of `test/pr-check.test.ts`, each seen red before the folder holds its file, scenario 6 by `test/role-bundle.test.ts`, and the two searches of scenario 6 and those of scenario 5 printing nothing | `a2fd024` |
 | 2 | *Scope* items 7 to 12 and 19, with entries P6 to P8 and the parts of *Data & interfaces* on the protocol and the connection | Scenarios 7 to 16 as cases, each seen red before its code, and scenario 17 by its one case in the built app | `b711d14` |
-| 3 | *Scope* items 13 to 18, with entries P9 to P12 and the parts of *Data & interfaces* on the block grammar and the record | Scenarios 18 to 21 as cases, each seen red before its code, and the two searches of scenario 22 printing nothing | |
+| 3 | *Scope* items 13 to 18, with entries P9 to P12 and the parts of *Data & interfaces* on the block grammar and the record | Scenarios 18 to 21 as cases, each seen red before its code, and the two searches of scenario 22 printing nothing | `982580b` |
 
 Phase 1 comes first because phase 2's workflow names a file of `pr-check/` and phase 3's reader is compared with `pr-check/lib/fields.py`. Phases 2 and 3 share no file but the two policy documents. Each phase writes its entries of the policy text with the code they describe, so every `check:` line names a test file that stands in the same commit. The broad gate, which compares the two editions, is the orchestrator's.
 
