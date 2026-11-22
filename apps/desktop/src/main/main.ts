@@ -15,7 +15,7 @@ import { staysOnPage } from "./navigation";
 import { copyText, installedApps, openFolder, trashFolder, type Openers } from "./openers";
 import { chooseFinder, pathsOf, showInFinder } from "./paths";
 import { comeForward } from "./forward";
-import { pickFolder } from "./pick-folder";
+import { chooseFolderDialog, pickFolder } from "./pick-folder";
 import { WINDOW_SIZE } from "./window-size";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
@@ -23,7 +23,7 @@ import { WINDOW_SIZE } from "./window-size";
 // whether it is of another build than the one it would start, stops it where a
 // person chose "Restart Daemon…" or "Quit Owlery Completely…" in the menu
 // and confirmed it in the window, opens the folder
-// dialog the window asks for, and keeps the theme and the appearance a person chose. It sets
+// dialog the window asks for outside a background start, and keeps the theme and the appearance a person chose. It sets
 // the app's menu, keeps the one window on Owlery's own page, opens the
 // address of a link a person clicked in a pane outside Owlery, says what
 // stands at a path a pane printed and shows one in Finder, opens a folder in
@@ -168,9 +168,9 @@ app.whenReady().then(() => {
   // The window asks after the person confirmed it in the dialog. The answer is null, or why the daemon was not ended.
   ipcMain.handle(Channel.endDaemon, (_event, then: unknown): Promise<string | null> => control.end(then));
   ipcMain.handle(Channel.pickFolder, (event): Promise<string | null> => {
-    // The dialog is a sheet of the window that asked, where that window is still there.
+    // The dialog is a sheet of the window that asked, where that window is still there. In the background none opens (./pick-folder, `chooseFolderDialog`).
     const win = BrowserWindow.fromWebContents(event.sender);
-    return pickFolder((options) => (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)));
+    return pickFolder(chooseFolderDialog(background, (options) => (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))));
   });
   // The saved choice is read from its file at every load, so a window that reloads opens in the theme and the appearance the person last chose.
   ipcMain.on(Channel.appearance, (event) => {
