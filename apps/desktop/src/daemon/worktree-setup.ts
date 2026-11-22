@@ -7,7 +7,7 @@
 // arguments, never through a shell.
 import { spawn } from "node:child_process";
 import { constants as files, type Dirent } from "node:fs";
-import { copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, writeFile } from "node:fs/promises";
 import { constants } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { WorktreeSetup } from "../shared/protocol";
@@ -148,20 +148,46 @@ const UNSEEN = "*\n";
 /** The folder of a staging folder that holds the copy, beside its `.gitignore`. */
 const COPY = "copy";
 
+/** Gives `folder` and each folder under it its owner's read, write and search bits, since a copy keeps the modes of the source's folders. A link is not followed. */
+async function writable(folder: string): Promise<void> {
+  const kind = await lstat(folder).catch(() => null);
+  if (!kind?.isDirectory()) return;
+  await chmod(folder, (kind.mode & 0o7777) | 0o700);
+  for (const name of await readdir(folder)) await writable(join(folder, name));
+}
+
+/**
+ * Removes `copy`, a copy the daemon made in a staging folder. Where a folder
+ * the source kept read-only refuses the removal of what it holds, it gives
+ * the copy's folders their owner's write bit and removes it again.
+ */
+async function removeCopy(copy: string): Promise<void> {
+  await rm(copy, { recursive: true, force: true }).catch(async (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EACCES" && error.code !== "EPERM") throw error;
+    await writable(copy);
+    await rm(copy, { recursive: true, force: true });
+  });
+}
+
 /**
  * Removes the staging folder `staging`, the copy in it before its
- * `.gitignore`, and throws where either removal fails. `staging` is a
- * folder, never a link, since the removal of the copy resolves the folder's
- * name: `copyPath` made it, and `removeLeftCopies` passes over a link. A
- * `cp` that a stopped daemon started may still write in the copy, and a
- * removal it defeats, or one the daemon's stop cuts short, then leaves the
- * folder with its `.gitignore`, so git still sees nothing in it and a later
- * setup removes it. Once the copy is gone, such a `cp` makes nothing there
- * again, since it makes no folder above its target.
+ * `.gitignore`, by `removeCopy`, and throws where either removal fails.
+ * `staging` is a folder, never a link, since the removal of the copy
+ * resolves the folder's name: `copyPath` made it, and `removeLeftCopies`
+ * passes over a link. A `cp` that a stopped daemon started may still write
+ * in the copy, and a removal it defeats, or one the daemon's stop cuts
+ * short, then leaves the folder with its `.gitignore`, so git still sees
+ * nothing in it and a later setup removes it. Once the copy is gone, such a
+ * `cp` makes nothing there again, since it makes no folder above its target.
  */
 async function removeStaging(staging: string): Promise<void> {
-  await rm(join(staging, COPY), { recursive: true, force: true });
+  await removeCopy(join(staging, COPY));
   await rm(staging, { recursive: true, force: true });
+}
+
+/** What the error of a path that failed to copy adds where its staging folder, `name`, could not be removed, for `why`. */
+export function stagingStayed(name: string, why: string): string {
+  return `its staging folder ${name} stayed beside it, which git ignores: ${why}`;
 }
 
 /**
@@ -195,7 +221,8 @@ async function removeLeftCopies(folder: string): Promise<void> {
  * down, so a command in the person's pane neither lists nor adds the copy
  * before it stands in its place, nor a folder a stopped daemon left. The
  * folder goes in every case, with whatever a failed copy left in it, by
- * `removeStaging`.
+ * `removeStaging`. Where a failed copy's folder cannot be removed, the
+ * error it throws names the folder, which stays with its `.gitignore`.
  */
 async function copyPath(clone: string, source: string, target: string): Promise<void> {
   const staging = await mkdtemp(join(dirname(target), STAGING));
@@ -206,13 +233,19 @@ async function copyPath(clone: string, source: string, target: string): Promise<
     const stage = join(staging, COPY, basename(target));
     await mkdir(dirname(stage));
     if (!(await cloned(clone, source, stage))) {
-      await rm(stage, { recursive: true, force: true });
+      await removeCopy(stage);
       await cp(source, stage, { recursive: true, verbatimSymlinks: true, force: false, errorOnExist: false });
     }
     await place(stage, target);
-  } finally {
-    await removeStaging(staging).catch(() => {});
+  } catch (error) {
+    // The path is listed as failed, so its error names the folder where the folder could not go, and the setup never says nothing of the path stays when something does.
+    const why = error instanceof Error ? error.message : String(error);
+    await removeStaging(staging).catch((removal: unknown) => {
+      throw new Error(`${why}; ${stagingStayed(basename(staging), removal instanceof Error ? removal.message : String(removal))}`);
+    });
+    throw error;
   }
+  await removeStaging(staging).catch(() => {});
 }
 
 /**
@@ -236,7 +269,10 @@ async function copyPath(clone: string, source: string, target: string): Promise<
  * A path that came to stand in the worktree meanwhile is left as it is and
  * listed as not copied. A path that
  * fails to copy is listed with its error, nothing of it is left in the
- * worktree, the folders made for it among them, and the others go on. Where
+ * worktree, the folders made for it among them, and the others go on. A
+ * copy that holds a folder the source keeps read-only is made writable to
+ * be removed. Where its staging folder still cannot be removed, the folder
+ * stays, with the folders above it, and the path's error names it. Where
  * either git command fails, nothing is copied and `failure` says why;
  * nothing is thrown.
  */

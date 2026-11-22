@@ -138,7 +138,7 @@ export interface WorktreeSetup {
   /** The ignored paths copied from the main checkout, a folder as one path, such as `node_modules/`, 500 at most. A path that stood in the worktree already is not copied and not listed. */
   copied: string[];
   copiedCount: number;
-  /** The paths that could not be copied, each with the error, 500 at most. */
+  /** The paths that could not be copied, each with the error, 500 at most. Where the staging folder of a failed copy could not be removed, the error names that folder, which stays beside the path's place. */
   failedCopies: { path: string; why: string }[];
   /** The command `.worktreesetup` held, whole, or null where it named none. */
   command: string | null;

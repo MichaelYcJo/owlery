@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { link, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -15,6 +16,11 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });
+
+/** Gives the owner back read, write and search on everything under `base` before the case's folders are removed, which a folder it kept read-only would refuse. */
+function removableAfter(base: string): void {
+  cleanups.push(() => execFileSync("chmod", ["-R", "u+rwx", base]));
+}
 
 /**
  * A temporary repository whose `.gitignore` ignores `.env`, `.env.*` and
@@ -189,13 +195,15 @@ describe("copyIncluded", () => {
     mkdirSync(join(repo, "node_modules", ".bin"));
     symlinkSync("../pkg/index.js", join(repo, "node_modules", ".bin", "tool"));
     writeFileSync(join(repo, ".worktreeinclude"), ".env\nnode_modules/\n");
-    // A clone that fails half way: it leaves a folder, with a stray file in it, at each target.
-    const clone = clonedBy(base, 'mkdir -p "$5" && echo stray > "$5/stray"\nexit 1');
+    // A clone that fails half way: it leaves a folder at each target, with a stray file in it and a folder it kept read-only, as `cp` gives a folder the source's mode.
+    removableAfter(base);
+    const clone = clonedBy(base, 'mkdir -p "$5/kept" && echo stray > "$5/stray" && echo stray > "$5/kept/stray" && chmod 555 "$5/kept"\nexit 1');
     expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: [".env", "node_modules/"], copiedCount: 2, failed: [], failure: null });
     expect(clone.calls()).toHaveLength(2);
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=main\n");
     expect(readFileSync(join(worktree, "node_modules", "pkg", "index.js"), "utf8")).toBe("module.exports = 1;\n");
     expect(existsSync(join(worktree, "node_modules", "stray"))).toBe(false);
+    expect(existsSync(join(worktree, "node_modules", "kept"))).toBe(false);
     expect(readlinkSync(join(worktree, "node_modules", ".bin", "tool"))).toBe("../pkg/index.js");
     const other = join(base, "other");
     git(repo, "worktree", "add", "--quiet", "-b", "owlery/other", other);
@@ -217,21 +225,62 @@ describe("copyIncluded", () => {
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=main\n");
   });
 
-  it("leaves nothing of a path it could not copy, the folders it made for it among them, so a copy again copies the path whole", async () => {
-    const { repo, worktree } = repositoryWithIgnoredFiles();
+  it("leaves nothing of a path it could not copy, the folders it made for it among them and a folder the source keeps read-only, and follows no link in the copy, so a copy again copies the path whole", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
     for (const name of ["a.js", "m.js", "z.js"]) writeFileSync(join(repo, "node_modules", "pkg", name), `${name}\n`);
     const unreadable = [join(repo, "node_modules", "pkg", "m.js"), join(repo, "apps", "web", ".env.local")];
     for (const file of unreadable) chmodSync(file, 0o000);
     cleanups.push(() => {
       for (const file of unreadable) chmodSync(file, 0o600);
     });
+    // `cp` gives the copy of a folder the source's mode, so the copy holds a folder the daemon cannot remove anything from as it stands.
+    removableAfter(base);
+    mkdirSync(join(repo, "node_modules", "pkg", "kept"));
+    writeFileSync(join(repo, "node_modules", "pkg", "kept", "index.js"), "kept\n");
+    chmodSync(join(repo, "node_modules", "pkg", "kept"), 0o555);
+    // A link in the copy to a read-only folder outside the worktree, whose mode the removal leaves as it is.
+    const outside = join(base, "outside");
+    mkdirSync(outside);
+    writeFileSync(join(outside, "keep.txt"), "keep\n");
+    chmodSync(outside, 0o555);
+    symlinkSync(outside, join(repo, "node_modules", "pkg", "outside"));
     writeFileSync(join(repo, ".worktreeinclude"), "**/.env.local\nnode_modules/\n");
     const copy = await copyIncluded(repo, worktree);
     expect([copy.copied, copy.failed]).toEqual([[], [{ path: "apps/web/.env.local", why: expect.stringContaining("EACCES") }, { path: "node_modules/", why: expect.stringContaining("EACCES") }]]);
     expect(readdirSync(worktree).sort()).toEqual([".env.example", ".git", ".gitignore", "README.md"]);
+    expect(statSync(outside).mode & 0o777).toBe(0o555);
     for (const file of unreadable) chmodSync(file, 0o600);
     expect(await copyIncluded(repo, worktree)).toEqual({ copied: ["apps/web/.env.local", "node_modules/"], copiedCount: 2, failed: [], failure: null });
-    expect(readdirSync(join(worktree, "node_modules", "pkg")).sort()).toEqual(["a.js", "index.js", "m.js", "z.js"]);
+    expect(readdirSync(join(worktree, "node_modules", "pkg")).sort()).toEqual(["a.js", "index.js", "kept", "m.js", "outside", "z.js"]);
+  });
+
+  it("names in a failed path's error the staging folder it could not remove, which stays as git ignores it, and a later setup removes it", async () => {
+    const { repo, worktree } = repositoryWithIgnoredFiles();
+    const { rm: removed } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    cleanups.push(() => vi.mocked(rm).mockImplementation(removed));
+    writeFileSync(join(repo, ".env.secret"), "SECRET=1\n");
+    chmodSync(join(repo, ".env.secret"), 0o000);
+    cleanups.push(() => chmodSync(join(repo, ".env.secret"), 0o600));
+    writeFileSync(join(repo, ".worktreeinclude"), ".env.secret\n");
+    // A copy the daemon cannot make removable, as one a flag of the system holds, refuses its removal however its modes stand.
+    vi.mocked(rm).mockImplementation(async (path, options) => {
+      const at = String(path);
+      if (basename(at) === "copy" && basename(dirname(at)).startsWith(".owlery-copy-")) throw Object.assign(new Error(`EPERM: operation not permitted, unlink '${at}'`), { code: "EPERM" });
+      return removed(path, options);
+    });
+    const copy = await copyIncluded(repo, worktree);
+    const staging = readdirSync(worktree).filter((name) => name.startsWith(".owlery-copy-"));
+    expect(staging).toHaveLength(1);
+    const left = staging[0] ?? "";
+    // The copy's own error first, then the folder that stayed.
+    expect(copy.failed).toEqual([{ path: ".env.secret", why: expect.stringContaining(`; its staging folder ${left} stayed beside it, which git ignores: EPERM`) }]);
+    expect(copy.failed[0]?.why).toMatch(/^EACCES/);
+    expect(readFileSync(join(worktree, left, ".gitignore"), "utf8")).toBe("*\n");
+    expect(git(worktree, "status", "--porcelain", "--untracked-files=all")).toBe("");
+    vi.mocked(rm).mockImplementation(removed);
+    chmodSync(join(repo, ".env.secret"), 0o600);
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: [".env.secret"], copiedCount: 1, failed: [], failure: null });
+    expect(readdirSync(worktree).filter((name) => name.startsWith(".owlery-copy-"))).toEqual([]);
   });
 
   it("removes the staging folders a stopped copy left beside a path, whether the path is copied or stands, and no folder it did not write", async () => {
