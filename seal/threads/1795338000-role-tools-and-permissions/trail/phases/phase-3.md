@@ -34,7 +34,7 @@ Executed at `f4f871b`'s tree, before its commit: `OWLERY_BACKGROUND=1 OWLERY_SCR
 
 **Seen red before the code** (executed, `node scripts/test-in-electron.mjs test/view.test.ts` at `3391471`'s code with the cases written, output `red-view.txt`): 12 cases failed and 421 passed. The line's state failed at `view.test.ts:1147` on `state`, the text at 1156 on `says: 'state'`, the age at 1165 on the pane's time, the session's lines at 1192 on `[]`, the five existing cases of `headlessLines` on `[]`, and the notifications, the key and the earlier build on `permissionNotifications is not a function` or `headlessKey is not a function`. Those last three name no guard, so their red is the mutation below. The case of scenario 22 asserts a field that is not read, and its red is the mutant that reads the field without `?? []`.
 
-**The built-app case was not run against the code before it.** The owner's rule runs built-app files once at the end. Its red is each guard's mutation below, each red on the line of the guard it breaks.
+**The built-app case was committed in `ddff5d0` before its first run, and was not run against the code before it.** Its red is each guard's mutation below, run in the phase's batch of built-app runs after that commit, each red on the line of the guard it breaks.
 
 **Mutation, after `ddff5d0`** (executed, `seal mutate`, outputs `mutate-*.txt`). Every mutant is red, and each was run again alone to read its failing line (`mutate-view-each.txt`, `mutate-wiv-each.txt`, `mutate-renderer-each.txt`).
 
