@@ -31,6 +31,11 @@ The snippet replaces the paragraph at `phase-2.md:9`. No other statement holds t
 **The sweep of the channel's statements found one more line.** `apps/desktop/src/shared/ipc.ts:70`, the comment of `OwleryApi.pickFolder`, said the call opens the native dialog, and it now says a background start opens none. The census was a sample: `git grep -i` outside `seal/` for "folder dialog", "opens nothing", "four things", "lacks four", "draws nothing" and "Browse" (the fix pass's hand-back, as the orchestrator received it). Only `ipc.ts:70` was corrected. The other lines on the folder dialog, `src/main/pick-folder.ts:1` and `:19` and `src/shared/ipc.ts:3`, hold for a background start. The rest state the window, the browser's and Finder's stand-ins, or other subjects, "Browse" matching inside "browser" among them.
 ```
 
+```seal
+verdict: fixed f9dfe09
+answer: `phase-2.md:9` now holds the round's paragraph, naming what the search printed besides `ipc.ts:70`.
+```
+
 ### 2. The plan gives *Scope* item 2 to phase 2, closed at `6efb9e9`, while the fold puts a case in item 2 that `7ef8dfb` added after it
 
 ```seal
@@ -46,6 +51,11 @@ The snippet replaces the sentence at `plan.md:41`. Row 2 at `:39` stays true of 
 
 ```markdown
 *Scope* item 3 is this frame's own `## Rule changes`, which the settle writes, so no phase builds it. The built-app case of *Scope* item 2, `work-item-form.test.ts` *answers Browse with no folder in the background, and opens no dialog*, is no phase's either: the fix pass of round 2 built it at `7ef8dfb`, after phase 2 closed at `6efb9e9`, and its close stands in `trail/rounds/round-2.md` finding 2.
+```
+
+```seal
+verdict: fixed f9dfe09
+answer: `plan.md:41` now holds the round's sentence: the built-app case is no phase's, built by round 2's fix pass at `7ef8dfb`.
 ```
 
 ## Confirmations
@@ -97,3 +107,4 @@ The new case covers the handler's wiring, and no other case in its group does. `
 | `git merge-tree --write-tree --name-only HEAD feat/119-no-question-holds-an-agentic-run`, and the same with `origin/release/v0.0.2` | exit 0 for each; a tree, no conflict |
 | `git grep -c -F -f froms.txt <ref> -- docs` for the base and the tips of #97, #119 and #131 | 3 lines in each architecture edition and 1 in each design edition at every ref |
 | `chain_check.py --baseline origin/release/v0.0.2 --root <the branch worktree> --worktree`, before the record | exit 0; round 2 finding 2 and the target behind HEAD owe this round; no gate record and no guarantee yet; no notice at `frame/design.md` of a pin or a copy |
+
