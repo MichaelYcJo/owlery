@@ -204,8 +204,8 @@ export interface Look {
  * The roles a headless session can be launched as, each with the stage it is
  * launched at. The names are neutral: which agent, which rules and which
  * options a pair means is its adapter's (docs/architecture.md, "Rules that
- * keep it portable"). A new stage is one pair here and one row of each
- * adapter's table.
+ * keep it portable"). A new stage is one pair here, one row of the grants
+ * (`src/daemon/role-grants.ts`) and one row of each adapter's table.
  */
 export const ROLE_STAGES = [
   { role: "proofer", stage: "round" },
