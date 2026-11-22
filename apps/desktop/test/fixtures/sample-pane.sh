@@ -1,11 +1,15 @@
 #!/bin/sh
 # The pane's process in the screenshot run. The run starts the app with SHELL
-# set to this file, so a shell pane runs it in place of a shell: it prints a
-# few lines in the terminal's own colours, for a screenshot to show them, and
-# then waits. The lines are invented examples.
+# set to this file, so a pane runs it in place of a shell and in place of
+# `claude`: it prints a few lines in the terminal's own colours, for a
+# screenshot to show them, and then waits. The lines are invented examples.
 
-# The daemon also runs $SHELL with no terminal, to look for `claude`.
-[ -t 0 ] || exit 0
+# The daemon also runs $SHELL with no terminal, to look for `claude`, and is
+# told of the stand-in beside this file, so no CLI of the person's is run.
+if [ ! -t 0 ]; then
+  printf '\n__owlery_cli=%s\n__owlery_path=%s\n' "${0%/*}/sample-cli.sh" '/usr/bin:/bin'
+  exit 0
+fi
 printf '$ git status --short\r\n'
 printf ' \033[31mM\033[0m src/login.ts\r\n'
 printf '\033[31m??\033[0m src/login.test.ts\r\n'

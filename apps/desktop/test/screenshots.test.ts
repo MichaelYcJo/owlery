@@ -1,8 +1,11 @@
 // The screenshot command: `pnpm run screenshots` sets `OWLERY_SCREENSHOTS`
 // and this file then starts the built app in the background, on a temporary
-// repository with three work items, and writes one PNG file for each view
-// (the inbox, a work item's view, a work item's menu and the "New work item"
-// form) in each appearance of the theme a first run opens in. With
+// repository with four work items, one in each state a work item has, and
+// writes one PNG file for each view (the inbox, a work item's view, a work
+// item's menu and the "New work item" form) in each appearance of the theme
+// a first run opens in. No agent runs: a pane's process is a fixture, a
+// state is what the daemon's hook socket is fed, and the prompt asked in the
+// view fails at a stand-in for the CLI. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -10,12 +13,14 @@
 // functions, and starts no app. docs/design.md states when a pull request
 // carries the files.
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WINDOW_SIZE } from "../src/main/window-size";
+import type { ServerMessage, SessionInfo, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { temporaryRepository } from "./repositories";
+import { commitFile, temporaryRepository } from "./repositories";
 import { pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
 /** The run, started by `pnpm run screenshots`. Without it the file is the cases. */
@@ -26,8 +31,22 @@ const APP_DIR = join(__dirname, "..");
 /** The pane's process of the run. */
 const SAMPLE_PANE = join(__dirname, "fixtures", "sample-pane.sh");
 
-/** The work items of the run, which are invented examples. The last one made is the one whose view and menu are captured. */
-const WORK_ITEMS = ["Rename the settings file", "Add an export of the history", "Fix the login redirect"];
+/**
+ * The work items of the run, which are invented examples, each with the kind
+ * of its pane and the events its pane's hook is fed, as the hook's own input.
+ * A shell's work item has no agent. The last one made is the one whose view
+ * and menu are captured, and it is the one that needs the person.
+ */
+const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[] }[] = [
+  { title: "Rename the settings file", kind: "shell", events: [] },
+  { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }] },
+  { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }] },
+  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }] },
+];
+/** The last work item made. */
+const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
+/** The prompt the run asks in the shown work item's view. The stand-in for the CLI fails it at once. */
+const ASKED = "Which file holds the redirect?";
 
 describe.skipIf(RUN)("the screenshot command, without the app", () => {
   it("captures the theme a first run opens in where no theme is asked for", () => {
@@ -92,6 +111,37 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const SIDEBAR_LINE = `#repositories button[data-work-item="${WORK_ITEMS.length}"]`;
   const MENU = `[role="menu"]`;
 
+  /** The work items and the sessions the daemon lists, read as a second client of it. */
+  async function listed(): Promise<{ workItems: WorkItem[]; sessions: SessionInfo[] }> {
+    const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    try {
+      return await new Promise((resolve, reject) => {
+        socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })));
+        socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")));
+        socket.addEventListener("message", (event) => {
+          const message = JSON.parse(String(event.data)) as ServerMessage;
+          if (message.type === "ready") resolve({ workItems: message.workItems, sessions: message.sessions });
+        });
+      });
+    } finally {
+      socket.close();
+    }
+  }
+
+  /** The pane of the work item of that title. */
+  async function paneOf(title: string): Promise<SessionInfo> {
+    const { workItems, sessions } = await listed();
+    const pane = sessions.find((session) => session.workItemId === workItems.find((item) => item.title === title)?.id);
+    if (!pane) throw new Error(`the daemon lists no pane of ${title}`);
+    return pane;
+  }
+
+  /** Hands the daemon a hook's event for a pane, as the hook's own command does: the pane's id on a line and the event's JSON after it, to the socket named from inside its folder. */
+  function feed(pane: number, event: Record<string, unknown>): void {
+    execFileSync("/usr/bin/nc", ["-U", "-w", "2", "hooks.sock"], { cwd: join(app.userData, "run"), input: `${pane}\n${JSON.stringify(event)}` });
+  }
+
   /** The page at rest: the pointer on nothing, and the one motion of the layout over. */
   const rest = async (): Promise<void> => {
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
@@ -126,7 +176,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(WORK_ITEMS.at(-1))} && document.querySelector("#stage .pane .xterm-scrollable-element")`, "the work item's view with its terminal");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element")`, "the work item's view with its terminal");
     },
     menu: async () => {
       await show.inbox();
@@ -167,13 +217,31 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     app = await BuiltApp.start({ SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root });
     // The app starts in the background, and the page of a window without the system's focus draws as one a person has left.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
+    // A pane that comes to wait or to finish behind another raises a notification, and none of this run reaches the system's.
+    await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
-    for (const name of WORK_ITEMS) {
-      await openForm(name);
-      await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+    for (const { title, kind, events } of WORK_ITEMS) {
+      await openForm(title);
+      await app.evaluate(`document.getElementById("work-item-kind").value = ${JSON.stringify(kind)}`);
       await app.click("#work-item-create");
-      await app.until(`!document.getElementById("work-item-dialog").open && !document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(name)}`, `the view of ${name}`);
+      await app.until(`!document.getElementById("work-item-dialog").open && !document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
+      // The events follow the pane's start at once: a Claude Code pane that says nothing for ten seconds is listed as waiting.
+      for (const event of events) feed((await paneOf(title)).id, event);
     }
+    await app.until(`document.getElementById("strip-state").classList.contains("waiting")`, `${SHOWN} as the one that needs the person`);
+
+    // Two commits in the shown work item's worktree, for the commits and the changed files of the preview and the view.
+    const shown = (await listed()).workItems.find((item) => item.title === SHOWN);
+    if (!shown) throw new Error(`the daemon lists no work item ${SHOWN}`);
+    commitFile(shown.worktree, "redirect.ts");
+    commitFile(shown.worktree, "redirect.test.ts");
+    await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
+
+    // A prompt asked in the view, which the stand-in for the CLI fails.
+    await app.click("#ask-prompt");
+    await app.cdp("Input.insertText", { text: ASKED });
+    await app.click("#ask-submit");
+    await app.until(`document.querySelector("#headless li .state.failed") && document.querySelector("#headless li .error-output")`, "the asked prompt as failed", 15_000);
   }, 120_000);
 
   afterAll(async () => {
