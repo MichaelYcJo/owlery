@@ -38,6 +38,11 @@ The class is every stand-in in the file that sends a signal, listed by `grep -n 
     expect(seal.ran()).toBe(false);
 ```
 
+```seal
+verdict: fixed 5efbf83
+answer: The snippet stands as the round gave it, at `apps/desktop/test/settle.test.ts:571-574`. The rerun of `--apply` in the test runner's process now gets a stand-in that removes and kills nothing, and the case asserts that it did not run. The case was seen red with only the guard it names removed: `seal mutate` broke the `HEAD` reading of `readSettle` (`rows.length > 0` to `rows.length < 0` in the loop over the records `HEAD` holds), and ran the case through a script that starts it in a child leading a session of its own, so a group kill could not reach the caller. The verdict was `red`, failing at `test/settle.test.ts:574` on `expected true to be false`, with no runner killed. The class is the one the round listed by `grep -n kill` over the file. At `5efbf83`, line 469 kills only itself, line 551 runs only under `scriptApply`, and line 562's stand-in now reaches only the `scriptApply` run.
+```
+
 ### 2. `pr.md` says every link inside the records stops the reading and every record value is written as text, and the code stops on three kinds of link and keeps the record's code spans as Markdown
 
 ```seal
@@ -67,6 +72,12 @@ The second sentence of the bullet at `changelog.md:6` becomes:
 
 ```markdown
 It exits 2 where it cannot read the records: a `decisions.md` that cannot be opened, a link where a work item's directory stands, a `decisions.md` or a `threads/` that links to nothing, a directory or a `decisions.md` that `HEAD` holds as a link where the working tree lacks the record, or a `--since` ref that git cannot resolve.
+```
+
+```seal
+verdict: fixed a72454a
+answer: Both snippets stand as the round gave them. The orchestrator wrote the paragraph at `pr.md:13` in `7107e7f`. This pass wrote the sentence at `changelog.md:6` in `a72454a`, and each line matches its snippet exactly (executed, a comparison of the strings). The same commit names the link `HEAD` holds in the module comment of `settle.ts`, lines 9-14, which the round named as leaving it out. That comment and *Scope* item 1 of `frame/design.md` now list the same four stops. The other statements of the link stops and of how a value is written were found by `git grep` on their words over the tree outside the round records: `settle.ts`, `test/settle.test.ts`, `changelog.md`, `pr.md` and `frame/design.md:42`. None of them contradicts the code at `a72454a`. That search is a sample.
+location: `seal/threads/1795341002-settle-reads-decisions/changelog.md`, `apps/desktop/src/daemon/settle.ts`
 ```
 
 ## Confirmations
