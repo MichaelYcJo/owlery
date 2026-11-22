@@ -200,9 +200,8 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         reported = true;
         clearTimeout(grace);
         // Nothing follows the exit. A child the CLI started may still hold the streams, and what it prints is not the
-        // run's: the daemon's ends of the pipes close here, so the child's later writes fail. At a `close` the streams
-        // have ended already, and this changes nothing.
-        lines.close();
+        // run's: the daemon's ends of the pipes close here, so the reader of the lines gets nothing more and the
+        // child's later writes fail. At a `close` the streams have ended already, and this changes nothing.
         child.stdout.destroy();
         child.stderr.destroy();
         listener({ type: "exit", exitCode: code ?? 1, errorOutput });
