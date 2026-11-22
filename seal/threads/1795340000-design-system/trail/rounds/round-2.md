@@ -148,6 +148,11 @@ The fix pass's broader raise of `--ink-muted` (and `--ink-faint`) in every block
 
 The *Removes* row on the blocks `night-desk` and `letter` cites *Scope* item 5 and needs no change of its own.
 
+```seal
+verdict: fixed fbd4f5b
+answer: The four paste-ready edits were applied in the frame's words, read against `git diff 0d65470 HEAD -- apps/desktop/src/renderer/themes.css`, whose changes to Desk's blocks are exactly the values the finding lists and no others. `frame/design.md:148` (*Scope* 5) names `--ink-muted`, `--ink-faint`, `--state-finished`, `--state-no-agent` and `--removed` in both appearances, and in the light one `--state-working` and `--state-failed`. `frame/design.md:100` and `:101` (the Register and Desk cells of the Palette rows) name the finished and sleeping words and `--removed`, and in the light row the working mark. `frame/plan.md:83` names finding 4 and the colours of a state that equal the inks. The fold also rewrote `frame/design.md:93` (*Contrast*) to state principle 9's two exemptions, a ground drawn only while a part is pressed and a disabled part drawn at 45%, and `frame/plan.md:84` names the disabled part, which the fix pass added and the orchestrator accepts. A row of `frame/plan.md` *Judgments of the run* names this fold.
+```
+
 ## Confirmations
 
 ```seal
