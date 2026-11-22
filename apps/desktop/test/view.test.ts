@@ -121,6 +121,7 @@ import {
   type InboxLine,
   type MenuEntry,
   unanswered,
+  unreadLines,
 } from "../src/renderer/view";
 import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 
@@ -880,12 +881,26 @@ describe("the decisions made without asking", () => {
   const { decisions: _decisions, ...BEFORE } = LOGIN;
   const EARLIER = BEFORE as WorkItem;
 
-  it("marks a line with how many decisions stand as made, a reversed, an applied and a carried one not among them, and with nothing where none stands", () => {
-    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(2, REVERSAL), decision(3)] })).toBe("2 decisions without asking");
-    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(2, REVERSAL)] })).toBe("1 decision without asking");
-    expect(decisionMark({ ...LOGIN, decisions: [decision(2, REVERSAL)] })).toBe("");
-    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(2, { ...REVERSAL, state: "applied", landed: "abc1234" }), decision(3, { ...REVERSAL, state: "carried", landed: "#53" })] })).toBe("1 decision without asking");
-    expect(decisionMark(LOGIN)).toBe("");
+  it("marks a line with how many decisions made without asking the person has not seen, the look not holding them, and with how many reversals wait for a stage, an applied and a carried decision in neither count, and with nothing where both are zero", () => {
+    const APPLIED = { ...REVERSAL, state: "applied", landed: "abc1234" } as const;
+    const four = { ...LOGIN, decisions: [decision(1), decision(2, REVERSAL), decision(3), decision(4, APPLIED)] };
+    // No look is recorded, so the person has seen none.
+    expect(decisionMark(four, null)).toBe("2 decisions without asking, 1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1)] }, null)).toBe("1 decision without asking");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(2, REVERSAL)] }, null)).toBe("1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(2, REVERSAL), decision(5, REVERSAL)] }, null)).toBe("2 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(4, APPLIED), decision(3, { ...REVERSAL, state: "carried", landed: "#53" })] }, null)).toBe("");
+    expect(decisionMark(LOGIN, null)).toBe("");
+    // A decision the look holds for the work item is one the person has seen, and a reversal waits whether or not the look holds it.
+    const seen = (decisions: Decision[], other: WorkItem[] = []): Look => ({ at: 1000, sessions: [], workItems: [...other, { ...LOGIN, decisions }] });
+    expect(decisionMark(four, seen([decision(1)]))).toBe("1 decision without asking, 1 reversed");
+    expect(decisionMark(four, seen([decision(1), decision(2), decision(3)]))).toBe("1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(3)] }, seen([decision(1), decision(3)]))).toBe("");
+    // The look holds a decision under its work item's id: another work item's decision of the same id is not this one's, and a look that does not hold the work item holds none of its decisions.
+    expect(decisionMark(four, seen([], [{ ...SEARCH, decisions: [decision(1), decision(3)] }]))).toBe("2 decisions without asking, 1 reversed");
+    expect(decisionMark(four, { at: 1000, sessions: [], workItems: [{ ...SEARCH, decisions: [decision(1), decision(3)] }] })).toBe("2 decisions without asking, 1 reversed");
+    // An archived work item's line carries the mark its line carried before the archive.
+    expect(decisionMark({ ...four, archivedAt: 50 }, seen([decision(1)]))).toBe(decisionMark(four, seen([decision(1)])));
   });
 
   it("leaves a line's state and its group as its panes give them, whatever was decided for the work item", () => {
@@ -897,30 +912,45 @@ describe("the decisions made without asking", () => {
     }
   });
 
-  it("lists every decision under its head, the last of the record first: the kind in words, what was decided, the grounds, how long it has been in its state, and for one that no longer stands as made that it was reversed, applied in a commit or carried to a home, with the message; a decision with no time has no age", () => {
+  it("lists every decision under its head, the last of the record first: the kind in words, what was decided, the grounds, who decided where the record says it, how long it has been in its state, and for one that no longer stands as made that it was reversed, applied in a commit or carried to a home, with the message; a decision with no time has no age", () => {
     expect(DECISIONS_HEAD).toBe("Decided without asking");
     const decisions = [
       decision(1, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", since: NOW - 3 * 60 * MINUTE }),
       decision(2, REVERSAL),
-      decision(3, { kind: "scope", says: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3.", since: NOW - 5 * MINUTE }),
+      decision(3, { kind: "scope", says: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3.", by: "orchestrator", since: NOW - 5 * MINUTE }),
       decision(4, { kind: "answered", says: "The base is main.", grounds: "seal/config.json names no other.", since: NOW }),
       decision(5, { ...REVERSAL, state: "applied", landed: "abc1234", since: null }),
       decision(6, { ...REVERSAL, state: "carried", landed: "#53", since: NOW - 2 * MINUTE }),
     ];
-    const DEFAULT = { kind: "Default taken", says: "Start from main.", grounds: "Grounds: frame/questions.md Q1 states main as its default." };
+    const DEFAULT = { kind: "Default taken", says: "Start from main.", grounds: "Grounds: frame/questions.md Q1 states main as its default.", by: "" };
     expect(decisionLines({ ...LOGIN, decisions }, NOW)).toEqual([
       { id: 6, ...DEFAULT, age: "2 min", reversed: { head: "Carried to #53", message: "기본값 말고 main에서 시작해 주세요" } },
       { id: 5, ...DEFAULT, age: "", reversed: { head: "Applied in abc1234", message: "기본값 말고 main에서 시작해 주세요" } },
-      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: seal/config.json names no other.", age: "less than a minute", reversed: null },
-      { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", age: "5 min", reversed: null },
-      { id: 2, kind: "Default taken", says: "Start from main.", grounds: "Grounds: frame/questions.md Q1 states main as its default.", age: "3 min", reversed: { head: "Reversed", message: "기본값 말고 main에서 시작해 주세요" } },
-      { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", age: "3 h", reversed: null },
+      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: seal/config.json names no other.", by: "", age: "less than a minute", reversed: null },
+      { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", by: "Decided by orchestrator", age: "5 min", reversed: null },
+      { id: 2, ...DEFAULT, age: "3 min", reversed: { head: "Reversed", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", by: "", age: "3 h", reversed: null },
     ]);
     expect(decisionLines(LOGIN, NOW)).toEqual([]);
   });
 
-  it("reads a work item of a daemon of an earlier build, which sends no decisions, as one with none, and throws at none", () => {
-    expect(decisionMark(EARLIER)).toBe("");
+  it("names each line of the record that was not read, by its number and the reader's reason, in the order given, and none where the record was read whole", () => {
+    expect(unreadLines({ ...LOGIN, unread: [{ line: 4, why: "the block holds no id" }, { line: 19, why: "a fence opens like a seal block and is not one" }] })).toEqual([
+      "Line 4 of decisions.md was not read: the block holds no id",
+      "Line 19 of decisions.md was not read: a fence opens like a seal block and is not one",
+    ]);
+    expect(unreadLines(LOGIN)).toEqual([]);
+  });
+
+  it("reads a work item of a daemon of an earlier build, which sends no decisions and no unread line, as one with none, in the lists and in the look, and throws at none", () => {
+    const { decisions: _d, questions: _q, unread: _u, ...bare } = LOGIN;
+    const BARE = bare as WorkItem;
+    expect(decisionMark(EARLIER, null)).toBe("");
+    expect(decisionMark(BARE, { at: 1000, sessions: [], workItems: [BARE] })).toBe("");
+    // A look written before the decisions holds none, so each decision is one the person has not seen.
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1)] }, { at: 1000, sessions: [], workItems: [BARE] })).toBe("1 decision without asking");
+    expect(unreadLines(BARE)).toEqual([]);
+    expect(matchWorkItems(workItemEntries([BARE], [], KINDS), "", "decided")).toEqual([]);
     expect(decisionLines(EARLIER, NOW)).toEqual([]);
     expect(inboxLine(EARLIER, [session(2, { state: "working" })], KINDS)).toEqual(inboxLine(LOGIN, [session(2, { state: "working" })], KINDS));
     expect(lineText(EARLIER, undefined, false)).toEqual(lineText(LOGIN, undefined, false));
@@ -979,45 +1009,68 @@ describe("a work item parked with its questions", () => {
     expect(stateWithAge(inboxLine(PARKED, [working], KINDS).state, lineSince(PARKED, working), NOW)).toBe("Needs you, 12 min");
   });
 
-  it("gives the section of a parked work item its head, who asked and how long ago, and every question with its options, what each implies, the mark of its default and the default as the option chosen", () => {
-    expect(askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW)).toEqual({
+  it("gives the section of a parked work item its head and how long ago the first question was asked, and every question with who asked where the record says it, its grounds, its options, what each implies, the mark of its default and the default as the option chosen", () => {
+    expect(askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW, null)).toEqual({
       head: "Waiting for your answer",
-      by: "Asked by sealer, 12 min ago",
+      age: "Asked 12 min ago",
       parked: true,
       key: "1:open:1,2,3",
       questions: [
-        { id: 1, asks: "Which base does the branch start from?", options: [{ label: "main", implies: "The release's fixes are not in it.", mark: "" }, { label: "release/v0.0.2", implies: "It merges after the release.", mark: "Default" }], chosen: 1, answer: null },
-        { id: 2, asks: "What should the screen be called?", options: [], chosen: null, answer: null },
-        { id: 3, asks: "Squash or merge?", options: [{ label: "squash", implies: "", mark: "" }, { label: "merge", implies: "Every commit stays.", mark: "" }], chosen: null, answer: null },
+        { id: 1, asks: "Which base does the branch start from?", by: "Asked by sealer", grounds: "Grounds: No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it.", mark: "" }, { label: "release/v0.0.2", implies: "It merges after the release.", mark: "Default" }], chosen: 1, answer: null },
+        { id: 2, asks: "What should the screen be called?", by: "Asked by sealer", grounds: "Grounds: No document names it.", options: [], chosen: null, answer: null },
+        { id: 3, asks: "Squash or merge?", by: "", grounds: "Grounds: The repository's config names neither.", options: [{ label: "squash", implies: "", mark: "" }, { label: "merge", implies: "Every commit stays.", mark: "" }], chosen: null, answer: null },
       ],
     });
+    // A look does not end a park: the open questions are listed whatever the look holds.
+    expect(askedSection(PARKED, NOW, { at: 1000, sessions: [], workItems: [PARKED] })?.key).toBe("1:open:1,2");
+    expect(askedSection(PARKED, NOW, { at: 1000, sessions: [], workItems: [DONE] })?.key).toBe("1:open:1,2");
   });
 
-  it("gives the section of an answered record the head Answered, who asked and how long ago it was answered, and each question with its answer and no option, and gives no section for a work item that never was parked", () => {
-    expect(askedSection(DONE, NOW)).toEqual({
+  it("lists an answered question until the look holds it as answered for its work item: every one while the window holds no look, the ones the look holds open or not at all otherwise, and no section once the look holds each as answered", () => {
+    const look = (...workItems: WorkItem[]): Look => ({ at: 1000, sessions: [], workItems });
+    const shown = (held: Look | null) => askedSection(DONE, NOW, held)?.questions.map(({ id }) => id) ?? null;
+    expect(shown(null)).toEqual([1, 2]);
+    // The look was recorded while the work item was parked, or before it was, or does not hold the work item.
+    expect(shown(look(PARKED))).toEqual([1, 2]);
+    expect(shown(look(LOGIN))).toEqual([1, 2]);
+    expect(shown(look(SEARCH))).toEqual([1, 2]);
+    // The look holds one of the two as answered: the other alone is listed, and the age is its own.
+    const half = look({ ...LOGIN, questions: [ANSWERED[0]!, FREE] });
+    expect(askedSection(DONE, NOW, half)).toMatchObject({ head: "Answered", age: "Answered 3 min ago", key: "1:answered:2", questions: [{ id: 2, answer: TYPED }] });
+    expect(askedSection(DONE, NOW, look({ ...LOGIN, questions: [BASE, ANSWERED[1]!] }))).toMatchObject({ age: "Answered 4 min ago", key: "1:answered:1" });
+    expect(shown(look(DONE))).toBeNull();
+    // The look holds a question under its work item's id, so another work item's answered question of the same id ends nothing.
+    expect(shown(look({ ...SEARCH, questions: ANSWERED }))).toEqual([1, 2]);
+    // A look written before the questions holds none as answered.
+    expect(shown(look(EARLIER))).toEqual([1, 2]);
+  });
+
+  it("gives the section of an answered record the head Answered, how long ago the last answer was given, and each question with its answer, no option, no asker and no grounds, and gives no section for a work item that never was parked", () => {
+    expect(askedSection(DONE, NOW, null)).toEqual({
       head: "Answered",
-      by: "Asked by sealer, answered 3 min ago",
+      age: "Answered 3 min ago",
       parked: false,
       key: "1:answered:1,2",
       questions: [
-        { id: 1, asks: "Which base does the branch start from?", options: [], chosen: null, answer: "main" },
-        { id: 2, asks: "What should the screen be called?", options: [], chosen: null, answer: TYPED },
+        { id: 1, asks: "Which base does the branch start from?", by: "", grounds: "", options: [], chosen: null, answer: "main" },
+        { id: 2, asks: "What should the screen be called?", by: "", grounds: "", options: [], chosen: null, answer: TYPED },
       ],
     });
-    expect(askedSection(LOGIN, NOW)).toBeNull();
-    // While one question of the record is open, the section holds the open ones alone, and says who asked only where a question says it.
-    expect(askedSection(AGAIN, NOW)).toMatchObject({ head: "Waiting for your answer", by: "1 min ago", parked: true, key: "1:open:3", questions: [{ id: 3, answer: null }] });
-    expect(askedSection({ ...LOGIN, questions: [OPEN] }, NOW)?.by).toBe("");
-    // Who asked is the first asker a question of the section names, and a default that names no option of its question chooses none.
-    expect(askedSection({ ...LOGIN, questions: [OPEN, FREE] }, NOW)?.by).toBe("Asked by sealer, 10 min ago");
-    expect(askedSection({ ...LOGIN, questions: [{ ...BASE, default: "develop" }] }, NOW)?.questions.map(({ chosen, options }) => [chosen, options.map(({ mark }) => mark)])).toEqual([[null, ["", ""]]]);
+    expect(askedSection(LOGIN, NOW, null)).toBeNull();
+    // While one question of the record is open, the section holds the open ones alone, and names an asker only where the question's block says one.
+    expect(askedSection(AGAIN, NOW, null)).toMatchObject({ head: "Waiting for your answer", age: "Asked 1 min ago", parked: true, key: "1:open:3", questions: [{ id: 3, by: "", answer: null }] });
+    // A question the daemon has no time for gives the section no age, and the age is counted from the earliest time among the others.
+    expect(askedSection({ ...LOGIN, questions: [OPEN] }, NOW, null)?.age).toBe("");
+    expect(askedSection({ ...LOGIN, questions: [OPEN, FREE] }, NOW, null)).toMatchObject({ age: "Asked 10 min ago", questions: [{ by: "" }, { by: "Asked by sealer" }] });
+    // A default that names no option of its question chooses none.
+    expect(askedSection({ ...LOGIN, questions: [{ ...BASE, default: "develop" }] }, NOW, null)?.questions.map(({ chosen, options }) => [chosen, options.map(({ mark }) => mark)])).toEqual([[null, ["", ""]]]);
     // The key differs between two work items, two sets of questions of one, and a park and its answer, so the section is drawn again at each.
-    const keys = [askedSection(PARKED, NOW), askedSection(DONE, NOW), askedSection({ ...PARKED, id: 2 }, NOW), askedSection(AGAIN, NOW)].map((section) => section?.key);
+    const keys = [askedSection(PARKED, NOW, null), askedSection(DONE, NOW, null), askedSection({ ...PARKED, id: 2 }, NOW, null), askedSection(AGAIN, NOW, null)].map((section) => section?.key);
     expect(new Set(keys).size).toBe(4);
   });
 
   it("gives each question of the section the answer the person chose: an option's label, or the words they typed as another answer, and an empty answer for a question with nothing chosen, which the daemon refuses", () => {
-    const questions = askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW)!.questions;
+    const questions = askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW, null)!.questions;
     expect(answersFor(questions, [0, "other", 1], ["ignored", TYPED, ""])).toEqual([{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }, { questionId: 3, answer: "merge" }]);
     expect(answersFor(questions, ["other", null, null], [" trunk ", "typed and not chosen", ""])).toEqual([{ questionId: 1, answer: " trunk " }, { questionId: 2, answer: "" }, { questionId: 3, answer: "" }]);
     // A choice that names no option of its question gives no answer.
@@ -1046,7 +1099,8 @@ describe("a work item parked with its questions", () => {
     expect(inboxLine(EARLIER, [working], KINDS)).toEqual(inboxLine(LOGIN, [working], KINDS));
     expect(lineText(EARLIER, working, false)).toEqual(lineText(LOGIN, working, false));
     expect(lineSince(EARLIER, working)).toBe(NOW - 40 * MINUTE);
-    expect(askedSection(EARLIER, NOW)).toBeNull();
+    expect(askedSection(EARLIER, NOW, null)).toBeNull();
+    expect(askedSection(EARLIER, NOW, { at: 1000, sessions: [], workItems: [EARLIER] })).toBeNull();
     expect(parkNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
     expect(parkNotifications([EARLIER], [PARKED], undefined)).toHaveLength(1);
   });
@@ -2160,6 +2214,16 @@ describe("matchWorkItems", () => {
     expect(ids("", "none")).toEqual([4]);
   });
 
+  it("leaves, where the decisions are chosen, the work items that hold a decision the person may still act on, one that stands as made or a reversal that waits for a stage, in the order given and whatever their lines' states, and not one whose decisions are all applied or carried", () => {
+    const decision = (state: Decision["state"]): Decision => ({ id: 1, kind: "default", says: "Start from main.", grounds: "Q1 states main.", by: null, state, reversal: state === "decided" ? null : "main에서", landed: null, since: null });
+    const entries = workItemEntries([{ ...FOURTH, decisions: [decision("reversed")] }, { ...DOCS, decisions: [decision("applied"), decision("carried")] }, { ...LOGIN, decisions: [decision("applied"), decision("decided")] }, SEARCH], sessions, KINDS);
+    expect(matchWorkItems(entries, "", "decided").map((entry) => entry.workItem.id)).toEqual([4, 1]);
+    expect(entries.map((entry) => entry.line.state)).toEqual([null, "finished", "waiting", "working"]);
+    // What is typed narrows them as it narrows any other choice.
+    expect(matchWorkItems(entries, "tidy", "decided").map((entry) => entry.workItem.id)).toEqual([4]);
+    expect(matchWorkItems(entries, "", "all")).toHaveLength(4);
+  });
+
   it("narrows by what is typed and by the state together", () => {
     expect(ids("project", "working")).toEqual([2]);
     expect(ids("docs", "working")).toEqual([]);
@@ -2183,13 +2247,14 @@ describe("matchCount and matchSentence", () => {
 });
 
 describe("filterChoices", () => {
-  it("offers every state at once and then each group's heading, in the inbox's order", () => {
+  it("offers every state at once, then each group's heading in the inbox's order, and last the work items with a decision to act on", () => {
     expect(filterChoices()).toEqual([
       { value: "all", label: "All" },
       { value: "waiting", label: "Needs you" },
       { value: "working", label: "Working" },
       { value: "finished", label: "Finished" },
       { value: "none", label: "Asleep" },
+      { value: "decided", label: "Decided without asking" },
     ]);
   });
 });

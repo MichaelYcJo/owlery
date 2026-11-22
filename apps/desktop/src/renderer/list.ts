@@ -139,8 +139,8 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
-    // After the text, how many decisions made without asking stand for the work item, where one does.
-    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("decided", decisionMark(workItem)), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
+    // After the text, how many decisions made without asking the person has not seen, the look not holding them, and how many reversals wait for a stage.
+    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("decided", decisionMark(workItem, held.lastLook)), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
     button.append(first, second);
     // A line of the archived screen opens no view: its press selects it.
     button.addEventListener("click", () => (name === "archived" ? select(workItem.id) : actions.openView(workItem.id)));

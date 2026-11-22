@@ -328,6 +328,8 @@ describe("what a theme draws can be seen", () => {
     expect([...new Set([...read.filter((token) => token !== "--state"), ...states])].sort()).toEqual(Object.keys(WORDS).sort());
     // An age and a count on a selected ground are in the muted ink, and the letters a search matched in the strong one: the lists above stand on both.
     expect(ruled(".line.selected .age, .side-item[aria-current] .age, .side-item[aria-current] .count")).toEqual([["color", "var(--ink-muted)"]]);
+    // So is a line's count of the decisions made without asking.
+    expect(ruled(".line.selected .decided")).toEqual([["color", "var(--ink-muted)"]]);
     expect(ruled("mark")).toContainEqual(["color", "var(--ink-strong)"]);
     // The close mark of a tab on the terminal's ground is in the terminal's inks, and never in an ink of the window's.
     expect(ruled("#tabs .tab.shown .close")).toEqual([["color", "var(--terminal-ink)"]]);

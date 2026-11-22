@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -193,15 +193,28 @@ function decisionsOf(workItem: WorkItem): readonly Decision[] {
   return (workItem.decisions as Decision[] | undefined) ?? [];
 }
 
+/** A work item as the look holds it, or nothing where no look is recorded and where the look does not hold the work item. The look is what the person has seen. */
+function lookedAt(workItem: WorkItem, look: Look | null): WorkItem | undefined {
+  return look?.workItems.find((item) => item.id === workItem.id);
+}
+
 /**
  * The mark a work item's line carries for the decisions made for it in place
- * of asking: how many stand, as in "2 decisions without asking", a standing
- * one being one whose state is `decided`, or nothing where none stands. No
- * decision changes the line's state or its group.
+ * of asking: how many the person has not seen, and how many reversals wait
+ * for a stage, as in "2 decisions without asking, 1 reversed". A decision
+ * the person has not seen is one that stands as made, its state `decided`,
+ * and that the look does not hold for the work item, told by its id; where
+ * no look is recorded the person has seen none. A reversal waits while its
+ * decision's state is `reversed`, whatever the look holds. A decision that
+ * is `applied` or `carried` is in neither count. Nothing where both counts
+ * are zero. No decision changes the line's state or its group.
  */
-export function decisionMark(workItem: WorkItem): string {
-  const standing = decisionsOf(workItem).filter((decision) => decision.state === "decided").length;
-  return standing === 0 ? "" : `${standing} ${standing === 1 ? "decision" : "decisions"} without asking`;
+export function decisionMark(workItem: WorkItem, look: Look | null): string {
+  const before = lookedAt(workItem, look);
+  const seen = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
+  const unseen = decisionsOf(workItem).filter((decision) => decision.state === "decided" && !seen.has(decision.id)).length;
+  const reversed = decisionsOf(workItem).filter((decision) => decision.state === "reversed").length;
+  return [unseen === 0 ? "" : `${unseen} ${unseen === 1 ? "decision" : "decisions"} without asking`, reversed === 0 ? "" : `${reversed} reversed`].filter((words) => words !== "").join(", ");
 }
 
 /** The head the preview and a work item's view list the decisions under. */
@@ -218,6 +231,8 @@ export interface DecisionLine {
   says: string;
   /** Why, after "Grounds: ". */
   grounds: string;
+  /** Who decided, after "Decided by ", or empty where the record does not say. */
+  by: string;
   /** How long the decision has been in its state, in the words of an age: since the daemon first read it as made, or as reversed, applied or carried. Empty where the daemon sent no time. */
   age: string;
   /** For a decision that no longer stands as made: that a person reversed it, that a commit took the reversal in or that it was carried to another home, and the message the person gave. Null while it stands. A work item's view offers "Reverse" on a line that stands. */
@@ -226,20 +241,37 @@ export interface DecisionLine {
 
 /** The lines of the decisions made for a work item in place of asking, every one of them, whatever its state, the last of the record first. */
 export function decisionLines(workItem: WorkItem, now: number): DecisionLine[] {
-  return [...decisionsOf(workItem)].reverse().map(({ id, kind, says, grounds, state, reversal, landed, since }) => ({
+  return [...decisionsOf(workItem)].reverse().map(({ id, kind, says, grounds, by, state, reversal, landed, since }) => ({
     id,
     kind: DECISION_KIND[kind] ?? kind,
     says,
     grounds: `Grounds: ${grounds}`,
+    by: by ? `Decided by ${by}` : "",
     age: since === null ? "" : ageOf(since, now),
     reversed: state === "decided" ? null : { head: state === "applied" ? `Applied in ${landed ?? ""}` : state === "carried" ? `Carried to ${landed ?? ""}` : "Reversed", message: reversal ?? "" },
   }));
+}
+
+/**
+ * What the preview and a work item's view say, under the list of the
+ * decisions, of each block and line of the work item's record that the
+ * daemon's reader did not read: its line in `decisions.md` and the reader's
+ * reason, in the order the daemon sends them. Nothing was decided on such a
+ * line, and no decision and no question was read from it. None for a daemon
+ * of an earlier build, which sends no such field.
+ */
+export function unreadLines(workItem: WorkItem): string[] {
+  return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
 }
 
 export interface QuestionLine {
   /** The question's id, which its answer names it by. */
   id: number;
   asks: string;
+  /** While the work item is parked, who asks, after "Asked by ", or empty where the record does not say. Empty once the questions are answered. */
+  by: string;
+  /** While the work item is parked, why the question is the person's, after "Grounds: ". Empty once the questions are answered. */
+  grounds: string;
   /** While the work item is parked, the answers the asker names, each with what it implies and, for the question's default, the mark "Default". None once the questions are answered. */
   options: { label: string; implies: string; mark: string }[];
   /** The option chosen as the section is drawn: the question's default, or null where it has none and once the questions are answered. */
@@ -251,8 +283,8 @@ export interface QuestionLine {
 export interface AskedSection {
   /** "Waiting for your answer" while the work item is parked, and "Answered" afterwards. */
   head: string;
-  /** Who asked, where the record says it, and for how long the questions have waited or have been answered. */
-  by: string;
+  /** For how long the questions have waited, as in "Asked 12 min ago", or have been answered, as in "Answered 3 min ago". Empty where the daemon sent no time. */
+  age: string;
   /** Whether the section takes answers. */
   parked: boolean;
   /** What tells one drawing of the section from the next: it differs between two work items, two sets of questions of one, and a park and its answer. A view draws the section again only where it differs, so a field the person types in is not drawn over. */
@@ -264,31 +296,37 @@ export interface AskedSection {
  * The section of a work item's view that holds the questions it is parked
  * with and takes the person's answers, or after the answer lists each
  * question with its answer. While a question of the record is open, the
- * section holds the open questions and no other. Null for a work item whose
- * record holds no question, and for a daemon of an earlier build, which
- * sends none.
+ * section holds the open questions and no other, whatever the look holds.
+ * After the answer it holds each answered question until the look holds
+ * that question as answered for the work item: `look` is the look the
+ * window holds, and while it holds none every answered question is listed.
+ * Null once the look holds each as answered, for a work item whose record
+ * holds no question, and for a daemon of an earlier build, which sends
+ * none.
  */
-export function askedSection(workItem: WorkItem, now: number): AskedSection | null {
-  const all = questionsOf(workItem);
-  if (all.length === 0) return null;
+export function askedSection(workItem: WorkItem, now: number, look: Look | null): AskedSection | null {
   const open = parkedWith(workItem);
-  const shown = open ?? all;
+  const before = lookedAt(workItem, look);
+  const seen = new Set(before ? questionsOf(before).flatMap(({ id, answer }) => (answer === null ? [] : [id])) : []);
+  const shown = open ?? questionsOf(workItem).filter(({ id }) => !seen.has(id));
+  if (shown.length === 0) return null;
   const parked = open !== null;
-  const by = shown.find((question) => question.by !== null)?.by ?? null;
   const times = shown.flatMap(({ since }) => (since === null ? [] : [since]));
   // The questions have waited since the first of them was read, and have all been answered since the last of them was.
-  const age = times.length === 0 ? "" : `${ageOf(parked ? Math.min(...times) : Math.max(...times), now)} ago`;
+  const age = times.length === 0 ? "" : `${parked ? "Asked" : "Answered"} ${ageOf(parked ? Math.min(...times) : Math.max(...times), now)} ago`;
   return {
     head: parked ? "Waiting for your answer" : "Answered",
-    by: [by === null ? "" : `Asked by ${by}`, age === "" ? "" : parked ? age : `answered ${age}`].filter((words) => words !== "").join(", "),
+    age,
     parked,
     key: `${workItem.id}:${parked ? "open" : "answered"}:${shown.map(({ id }) => id).join(",")}`,
-    questions: shown.map(({ id, asks, options, default: taken, answer }) => {
+    questions: shown.map(({ id, asks, grounds, by, options, default: taken, answer }) => {
       // A default that names no option of its question chooses none.
       const fallback = options.findIndex(({ label }) => label === taken);
       return {
         id,
         asks,
+        by: parked && by ? `Asked by ${by}` : "",
+        grounds: parked ? `Grounds: ${grounds}` : "",
         options: parked ? options.map(({ label, implies }) => ({ label, implies, mark: label === taken ? "Default" : "" })) : [],
         chosen: parked && fallback >= 0 ? fallback : null,
         answer,
@@ -641,22 +679,27 @@ export function markRanges(text: string, query: string): [number, number][] {
   return ranges;
 }
 
-/** What the filter shows: every state, one agent state, or the work items with no state. */
-export type StateFilter = "all" | AgentState | "none";
+/** What the filter shows: every state, one agent state, the work items with no state, or the work items with a decision made without asking that the person may still act on. */
+export type StateFilter = "all" | AgentState | "none" | "decided";
 
-/** The filter's choices: "All", and the heading of each of the inbox's groups, in their order. */
+/** The filter's choices: "All", the heading of each of the inbox's groups, in their order, and last the head the decisions are listed under. */
 export function filterChoices(): { value: StateFilter; label: string }[] {
-  return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) }))];
+  return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) })), { value: "decided", label: DECISIONS_HEAD }];
 }
 
 /**
  * The work items a search and a filter leave, in the order given: those
  * whose title, branch or repository's name holds what is typed, and whose
- * line is in the state chosen.
+ * line is in the state chosen. Where the decisions are chosen, the filter
+ * leaves the work items that hold a decision whose state is `decided` or
+ * `reversed`, whatever their lines' states: one the person may reverse, or
+ * a reversal no stage has taken in.
  */
 export function matchWorkItems<E extends { workItem: WorkItem; line: InboxLine }>(entries: readonly E[], query: string, state: StateFilter): E[] {
   return entries.filter(({ workItem, line }) => {
-    if (state !== "all" && (line.state ?? "none") !== state) return false;
+    if (state === "decided") {
+      if (!decisionsOf(workItem).some((decision) => decision.state === "decided" || decision.state === "reversed")) return false;
+    } else if (state !== "all" && (line.state ?? "none") !== state) return false;
     return query === "" || [workItem.title, workItem.branch, repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
   });
 }

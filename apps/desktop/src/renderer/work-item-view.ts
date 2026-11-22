@@ -122,7 +122,7 @@ const askSubmit = byId<HTMLButtonElement>("ask-submit");
 const headlessList = byId<HTMLUListElement>("headless");
 const questionsSection = byId("questions");
 const questionsHead = byId("questions-head");
-const questionsBy = byId("questions-by");
+const questionsAge = byId("questions-age");
 const questionsList = byId("questions-list");
 const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
@@ -668,25 +668,30 @@ function showAskSection(): void {
 
 /**
  * Draws the section that holds the questions the view's work item is parked
- * with: every question at once, each with its options as radio buttons,
- * what each implies, and a field for another answer, the question's default
- * chosen. A question that names no option has the field alone. After the
- * answer the section lists each question with its answer, and it is hidden
- * for a work item that never was parked. Who asked and the age are said
- * anew at each call. The questions are drawn again only where the section's
- * key is another, so a choice and a typed answer stay, with the keyboard and a
- * composition under way, through every `inbox` that arrives meanwhile.
+ * with: every question at once, each with who asks where the record says
+ * it, its grounds, its options as radio buttons, what each implies, and a
+ * field for another answer, the question's default chosen. A question that
+ * names no option has the field alone. While the work item is parked the
+ * section carries the class of what needs the person, and the theme gives
+ * it that edge. After the answer the section lists each question with its
+ * answer, until the look the window holds has each as answered. It is
+ * hidden from then on, and for a work item that never was parked. The age
+ * is said anew at each call. The questions are drawn again only where the
+ * section's key is another, so a choice and a typed answer stay, with the
+ * keyboard and a composition under way, through every `inbox` that arrives
+ * meanwhile.
  */
 function showQuestions(workItem: WorkItem): void {
-  const section = askedSection(workItem, Date.now());
+  const section = askedSection(workItem, Date.now(), held.lastLook);
   questionsSection.hidden = !section;
   if (!section) {
     questionsDrawn = undefined;
     questionsList.replaceChildren();
     return;
   }
+  questionsSection.classList.toggle("waiting", section.parked);
   questionsHead.textContent = section.head;
-  questionsBy.textContent = section.by;
+  questionsAge.textContent = section.age;
   if (section.key === questionsDrawn) return;
   questionsDrawn = section.key;
   answersRequest = undefined;
@@ -723,7 +728,8 @@ function showQuestions(workItem: WorkItem): void {
         label.append(radio, ...words);
         return label;
       };
-      field.append(asks, ...question.options.map((option, index) => choice(String(index), index === question.chosen, part("label", option.label), part("mark", option.mark), part("implies", option.implies))));
+      // Who asks and why the question is the person's are plain text, never markup.
+      field.append(asks, part("by", question.by), part("grounds", question.grounds), ...question.options.map((option, index) => choice(String(index), index === question.chosen, part("label", option.label), part("mark", option.mark), part("implies", option.implies))));
       if (question.options.length > 0) {
         field.append(choice("other", false, part("label", "Another answer")));
         // Words typed as another answer choose it.
@@ -747,7 +753,7 @@ function showQuestions(workItem: WorkItem): void {
  */
 function sendAnswers(): void {
   const workItem = viewed();
-  const section = workItem && askedSection(workItem, Date.now());
+  const section = workItem && askedSection(workItem, Date.now(), held.lastLook);
   // One request per answer: a second press before the daemon has answered would send the answers twice.
   if (!workItem || !section?.parked || answersRequest !== undefined) return;
   const fields = section.questions.map((question) => questionsList.querySelector<HTMLElement>(`[data-question="${question.id}"]`));

@@ -97,9 +97,11 @@
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
-      /* On a line, how many decisions made without asking stand for the work item. */
-      .line .decided { flex: none; font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
+      /* On a line, how many decisions made without asking the person has not seen, and how many reversals wait for a stage: a count, in the form of a line's age. */
+      .line .decided { flex: none; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
       .line .decided:empty { display: none; }
+      /* On a selected line the count is in the muted ink, as the line's age is: the faint ink does not stand apart from a selected ground. */
+      .line.selected .decided { color: var(--ink-muted); }
       .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); }
       .icon-button:hover { background: var(--hover); color: var(--ink); transition: background-color var(--motion), color var(--motion); }
       .icon-button:active { background: var(--pressed); }
@@ -153,12 +155,15 @@
       .detail .says.waiting { box-shadow: var(--said-edge-waiting); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
       .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      /* A decision made in place of asking: its kind and its age on a row, with "Reverse" in a view, then what was decided, its grounds, and under a reversed one that it was reversed and the person's message. Each text is plain, with its line breaks kept. */
-      .decision { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); font-size: var(--size-second); }
-      .decision:last-child { border-bottom: 0; }
+      /* A decision made in place of asking, a row of a list of records: its kind, who decided and its age on a row, with "Reverse" in a view, then what was decided, its grounds, and under one that no longer stands as made what became of it and the person's message. Each text is plain, with its line breaks kept. */
+      .decision { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) 0; box-shadow: var(--line-edge); font-size: var(--size-second); }
       .decision .row { display: flex; align-items: center; gap: var(--space-4); min-height: var(--detail-line); }
       .decision .kind { font-weight: 500; color: var(--ink-strong); }
-      .decision .age { flex: 1; font-size: var(--size-caption); color: var(--ink-faint); }
+      .decision .by { font-size: var(--size-caption); color: var(--ink-muted); }
+      .decision .by:empty { display: none; }
+      .decision .age { flex: 1; }
+      /* A line of the work item's record that was not read, under the decisions: a fault of the record, in the colour of a failure. */
+      .decisions .unread { padding: var(--space-2) 0; font-size: var(--size-second); color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
       .decision .what, .decision .grounds, .decision .message { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       .decision .grounds, .decision .reversal { color: var(--ink-muted); }
       .decision .reversal { margin-top: var(--space-2); font-size: var(--size-caption); }
@@ -356,14 +361,19 @@
       /* In the column a commit is its time, its subject and its hash on one row, and its lines under the subject. */
       #view-facts .commit { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "subject hash age" "counts counts counts"; padding: var(--space-2) 0; }
       #view-facts .commit .gained { display: none; }
-      /* The questions a work item is parked with, above the facts: every question at once, each with its options, what each implies and a field for another answer, then "Send answers". After the answer, each question with its answer. Each text is plain, with its line breaks kept. */
-      #questions { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge); font-size: var(--size-second); }
+      /* The questions a work item is parked with, above the facts, in the form of what an agent says, with the edge of what needs the person while the work item is parked: every question at once, each with who asks, its grounds, its options, what each implies and a field for another answer, then "Send answers". After the answer, each question with its answer. Each text is plain, with its line breaks kept. */
+      #questions { display: flex; flex-direction: column; gap: var(--space-3); padding: 14px var(--space-6) var(--space-5); border-radius: var(--radius-said); background: var(--said-ground); box-shadow: var(--said-edge); font-size: var(--size-second); }
+      #questions.waiting { box-shadow: var(--said-edge-waiting); }
       #questions[hidden] { display: none; }
       #questions-form, #questions-list { display: flex; flex-direction: column; gap: var(--space-5); }
       #questions-submit { align-self: flex-end; }
       #questions-submit[hidden] { display: none; }
       #questions .question { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; border: 0; }
-      #questions .asks { padding: 0; font-weight: 500; color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .asks { padding: 0; font-family: var(--font-said); font-size: var(--size-head); font-weight: var(--weight-said); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .by { font-size: var(--size-caption); color: var(--ink-muted); }
+      #questions .by:empty { display: none; }
+      #questions .grounds { color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .grounds:empty { display: none; }
       #questions .option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-3); align-items: center; }
       #questions .option .label { overflow-wrap: anywhere; }
       #questions .option .mark { font-size: var(--size-caption); color: var(--ink-faint); }
@@ -496,7 +506,7 @@
         </button>
         <label id="sidebar-filter-control" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
-          <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state"></select>
+          <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state, or those with a decision to act on"></select>
         </label>
         <button id="new-work-item" class="icon-button" aria-label="New work item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg></button>
       </div>
@@ -544,7 +554,7 @@
             <p data-part="last-here" class="hint" hidden></p>
             <p data-part="match" class="hint" hidden></p>
           </div>
-          <select data-part="filter" class="filter" aria-label="Show the work items of one state"></select>
+          <select data-part="filter" class="filter" aria-label="Show the work items of one state, or those with a decision to act on"></select>
         </div>
         <p data-part="empty" class="list-empty" hidden></p>
         <div data-part="lines" class="lines"></div>
@@ -603,7 +613,7 @@
           </div>
           <section id="questions" aria-labelledby="questions-head" hidden>
             <h3 id="questions-head" class="caption"></h3>
-            <p id="questions-by" class="hint"></p>
+            <p id="questions-age" class="hint"></p>
             <form id="questions-form">
               <div id="questions-list"></div>
               <p id="questions-error" class="refusal" role="alert"></p>
