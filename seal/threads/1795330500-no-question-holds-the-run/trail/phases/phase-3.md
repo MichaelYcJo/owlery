@@ -1,0 +1,52 @@
+# Phase 3: 1795330500-no-question-holds-the-run
+
+## What this phase found
+
+**The frame holds for this phase, read against `ffb60e0`.** Each unit `frame/design.md` *Data & interfaces* names for the park stands where it says, by its name: `workItemOf`, `dropWorkItems`, the `reverseDecision` case of `handle` and `DaemonOptions.runDir` in `apps/desktop/src/daemon/daemon.ts`, `lookOf`, `isWorkItem` and `CameLater` in `apps/desktop/src/daemon/last-look.ts`, `inboxLine`, `lineText` and `notificationFor` in `apps/desktop/src/renderer/view.ts`, and `WORK_ITEM_FIELDS` in `apps/desktop/test/daemon.test.ts`. `read`: each file at HEAD.
+
+**One part of the frame does not hold as written.** *Scope* item 11 puts the questions in the work item's view with a field for another answer. The view's right column is drawn again at every `inbox`, which is the constraint phase 2 met for "Reverse". A dialog does not fit here: the frame asks for every question at once in the view. So the section stands in the page's markup, above the facts of the right column, and `showQuestions` draws its questions again only where the record is another one. The pure function `askedSection` gives a key for that: the work item's id, the park's time and the answer's time. A choice and a typed answer stay through every `inbox` that arrives meanwhile. Judged against *Scope* item 11 and `trail/phases/phase-2.md`, the decision on "Reverse".
+
+**Decisions made while building.** Each was judged against the document named.
+
+- **`Daemon#park` refuses three things beside the six *Scope* item 8 names**: an asker that is empty or no text, an option whose label is empty, and a field of another type. The section names who asked, and an option with no label cannot be chosen. No policy document decides it. Judged against *Scope* items 8 and 11.
+- **An `answerQuestions` is refused for two things beside the four *Scope* item 9 names**: one question answered twice, and a message of another shape. A work item the daemon does not keep answers `no work item N`, as a reversal does. The refusals a person can cause read as sentences: "Give an answer to question 2.", "Question 2 has no answer.", "Work item 3 waits for no answer."
+- **The window refuses no answer itself.** For a question with nothing chosen it sends an empty answer, and the section shows the daemon's refusal, which names the question's number. Judged against phase 2's decision for the reversal's message and *Scope* item 9, which makes the refusal the daemon's.
+- **`asked.json` holds a record only where its questions are numbered by their place from 1 and each default names an option.** An answer names a question by that number, so a file that numbers them otherwise is not the store's. A look's file reads a record by the same test: `isAsked` and `askedOf` live in `apps/desktop/src/daemon/asked.ts`, and `last-look.ts` imports them.
+- **`Daemon#park` takes a work item whose record is answered, and the new record replaces it**, as *Scope* item 9 says. `Daemon#decided` takes an archived work item and `Daemon#park` refuses one, as *Scope* item 8 says. An `answerQuestions` for a parked work item that was archived afterwards is taken, as a reversal for an archived one is.
+- **A line's age is one function, `lineSince`.** *Scope* item 10 counts a parked work item's age from the park. Five drawings read a pane's time for the age: a line of a list, the preview, the sidebar, the summary and the view. Each now reads `lineSince`. `InboxLine` gained no field, so no existing case that compares a line changed.
+- **`lineText` names a fourth source, `question`.** `list.ts` draws it as it draws a state's text.
+- **The notification of a park compares the window's lists before and after an `inbox`**, the archived ones among the lists before, so a parked work item that is restored raises none. A click on it brings the window forward and opens the work item's view. Scenario 13 fixes the first, and no scenario the click. Judged against *Scope* item 11 and `apps/desktop/src/renderer/renderer.ts#onNotificationClick`.
+- **The section's words.** The head is "Waiting for your answer" and then "Answered", as *Scope* item 11 says. The line under it reads "Asked by sealer, 12 min ago" and then "Asked by sealer, answered 3 min ago". A default carries the mark "Default". The choice that goes with the field reads "Another answer". The frame fixes the heads and the button, and the other three are this phase's.
+- **`decisionsChange` became `keptChange`**, which names the store whose write failed. The log reads "the questions were not written: …" for `asked.json`, and the decisions' line is unchanged.
+- **After the daemon's `done` the keyboard goes back to the pane in front.** The `inbox` that follows takes the section's controls away, and the keyboard would otherwise be on nothing.
+
+**Departures from `frame/design.md` *Removes*.** Three sentences the frame did not name were rewritten because the park made them untrue: the docstring of `lineSession` and of `Entry` in `apps/desktop/src/renderer/view.ts`, which said a line reads its state from a pane, the docstring of `Change.session` there, which said the summary's age is that pane's, and the comment at the head of `apps/desktop/src/daemon/whole-file.ts`, which counts the daemon's writers. The docstring of `changesSince` stays for phase 4, as the frame's row says.
+
+**Existing cases that changed.** `WORK_ITEM_FIELDS` gained `asked`, and the case that reads it now parks its work item, so it reads the fields of a record, a question and an option in `ready`, in an `inbox` and in the look. The two cases that write out every field of a work item gained `asked: null` through a new constant `NOT_ASKED`. The fixtures `WORK_ITEM` of `test/last-look.test.ts` and `LOGIN` of `test/view.test.ts` gained the field. The helpers `silent`, `withWorkItems` and `settled` of the decisions' cases moved to the file's top level, unchanged, so the park's cases use them. The case of a look written before the decisions now reads a look written before both fields, and one written between them.
+
+**Seen red.** `executed`, before any code of the phase existed but the protocol's types, with the cases added: `node scripts/test-in-electron.mjs test/asked.test.ts test/last-look.test.ts test/view.test.ts test/daemon.test.ts -t "AskedStore|parked|carries only the fields the protocol names, none|LastLook|creates a work item and opens a pane|the last look"` exited 1 with 32 cases failed and `test/asked.test.ts` failed as a file on the missing module. The eight daemon cases of the park failed on `d.park is not a function`, the eight cases of the window's words on the missing functions or on the line's state and text, and the cases of the look on a look without `asked`. No new case passed against the old code.
+
+**Mutation runs.** `executed`, each after a commit, one `seal mutate` for each break, with the cases that cover the unit:
+
+- `src/daemon/asked.ts`, 16 breaks: 15 red and 1 survived. The break that survived removed the test that every question has an answer, and no case gave as many answers as questions with one of them to a question the record does not hold. The case now does (`2e5b952`), and the same break ran again red.
+- `src/daemon/daemon.ts`, 24 breaks over `park`, the `answerQuestions` case, the drop and `workItemOf`: 24 red.
+- `src/daemon/last-look.ts`, 4 breaks: 4 red.
+- `src/renderer/view.ts`, 20 breaks over `inboxLine`, `parkedWith`, `lineSince`, `lineText`, `askedSection`, `answersFor` and `parkNotifications`: 20 red.
+
+`list.ts`, `sidebar.ts`, `summary.ts`, `renderer.ts`, `work-item-view.ts` and `index.html` draw what those functions return. No case of this phase reads them with a parked work item, and no break of them was run: `gaps.md` holds the drawing as not verified, for scenario 17.
+
+**The phase boundary run.** `executed`, exit 0 each. At `2e5b952`: the seven unit files that the phase changed or that read a path it changed, in one command (`asked`, `decisions`, `last-look`, `view`, `daemon`, `themes`, `navigation`: 671 cases), and then five of the files that start the built app, one command each, as the spawn asked (`ask-section`, `work-item-menu`, `work-item-form`, `notification-click`, `daemon-restart`: 43 cases). The commit after it, `b918acb`, changes one docstring of `view.ts`. At `b918acb`: the other four built-app files, one command each (`keep-awake`, `terminal-basics`, `korean-input`, `memory`: 90 passed, 1 skipped), and `view.test.ts` again. The repository names no tree-wide test file. The whole suite, the typecheck as the broad gate runs it and the comparison of the documents were not run.
+
+**The typecheck before the commits.** `executed`: `tsc --noEmit` in `apps/desktop`, exit 0, before `373e7b1`, `3986a0b` and `b918acb`. The compiler has no narrower form under the project's `tsconfig.json`, so this was the check of the changed files and not the broad gate. `2e5b952` changes one test case and was run, not typechecked alone, before its commit; the typecheck before `b918acb` read it.
+
+**How the work was run.** The typecheck and the cases before `3986a0b` were sent in one step with that commit, so the commit did not wait on their result. Both exited 0. One store case was edited while the daemon's mutation runs were under way, uncommitted, in a file those runs do not write, and was committed before the break it answers ran again.
+
+**Questions for the owner.** None arose. Q1 and Q2 of `frame/questions.md` stand open at their defaults, and no code of this phase depends on either.
+
+**For the next phase.**
+
+- A parked work item's line already differs in its state from its line in the look, so `changesSince` lists it with "Waits for you." and `summaryControls` opens it. No case of this phase pins that: scenario 15 is phase 4's.
+- A look holds `asked` and `decisions`, so `changesSince` can read both sides.
+- For scenario 17: the section's controls are `#questions`, a `fieldset[data-question="<id>"]` for each question, radio buttons named `question-<id>` whose values are the option's index or `other`, `input.other-answer`, `#questions-submit` and `#questions-error`. Words typed in the field choose "Another answer". After the answer the section's head reads "Answered".
+- The daemon reads `asked.json` only at its start, as it reads `decisions.json`. Its shape is `{"workItems":{"<id>":<record>}}`.
+- `test/daemon.test.ts -t "the questions a work item is parked with"` runs the park's eight cases in about 13 seconds.

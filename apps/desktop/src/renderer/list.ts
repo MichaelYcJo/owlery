@@ -7,6 +7,7 @@ import {
   ageOf,
   ahead,
   archivedHead,
+  decisionMark,
   archivedIn,
   emptyList,
   filterChoices,
@@ -17,6 +18,7 @@ import {
   keyHints,
   lastHere,
   lineBadge,
+  lineSince,
   lineText,
   markRanges,
   matchSentence,
@@ -106,7 +108,7 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     const entry = own().find(({ workItem }) => workItem.id === selected);
     previewContent.hidden = !entry;
     if (!entry) return;
-    showState(previewState, entry.line.state, entry.session?.stateSince);
+    showState(previewState, entry.line.state, lineSince(entry.workItem, entry.session));
     previewTitle.textContent = entry.line.title;
     previewBranch.textContent = entry.line.branch;
     previewAhead.textContent = ahead(entry.workItem).sentence;
@@ -134,12 +136,18 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     button.dataset.workItem = String(workItem.id);
     const first = part("first", "");
     // A pin and a mute each put a mark after the title.
-    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(session?.stateSince, Date.now())));
-    // The second row's text is the branch while a search is typed, with the letters that match marked.
+    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(lineSince(workItem, session), Date.now())));
+    // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
-    // After the text, the setup's words while it runs and where it failed.
-    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
+    // After the text, how many decisions made without asking the person has not seen, the look not holding them, and how many reversals wait for a stage; then the setup's words while it runs and where it failed.
+    second.append(
+      marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []),
+      part("decided", decisionMark(workItem, held.lastLook)),
+      part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)),
+      part("badge", lineBadge(workItem, held.lastLook)),
+      sealPlace("line"),
+    );
     button.append(first, second);
     // A line of the archived screen opens no view: its press selects it.
     button.addEventListener("click", () => (name === "archived" ? select(workItem.id) : actions.openView(workItem.id)));

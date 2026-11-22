@@ -156,6 +156,57 @@ export function losesWork(loss: Pick<WorkItemLoss, "commitCount" | "uncommittedC
   return loss.commitCount > 0 || loss.uncommittedCount > 0 || loss.untrackedCount > 0;
 }
 
+/** Why the orchestrator decided without asking: it chose a route, took a default, chose a scope, or found the question answered in the tree. */
+export type DecisionKind = "route" | "default" | "scope" | "answered";
+
+/** Where a decision stands: as made, reversed by the person, taken in by a stage, or carried to another home after the merge. */
+export type DecisionState = "decided" | "reversed" | "applied" | "carried";
+
+/** One decision made for a work item in place of asking the person, as the daemon read it in the work item's record. */
+export interface Decision {
+  /** The block's id, given once over the work item's record. Two work items may each hold the same id. */
+  id: number;
+  kind: DecisionKind;
+  /** What was decided. */
+  says: string;
+  /** Why, with the coordinate the decision stands on. */
+  grounds: string;
+  /** Who decided, where the block says it. */
+  by: string | null;
+  state: DecisionState;
+  /** The person's message, where the state is not `decided`. */
+  reversal: string | null;
+  /** The commit that took the reversal in where `applied`, the home it went to where `carried`, and null otherwise. */
+  landed: string | null;
+  /** The daemon's clock when it first read the block in its state, or null where it has none. */
+  since: number | null;
+}
+
+/** One question a work item is or was parked with, as the daemon read it in the work item's record. The work item is parked while one of its questions has no answer. */
+export interface Question {
+  /** The block's id, of the same count as a decision's. */
+  id: number;
+  asks: string;
+  /** Why the code and the policy do not answer it and the session cannot give it itself. */
+  grounds: string;
+  /** Who asks, where the block says it. */
+  by: string | null;
+  /** The answers the asker names, each with what it implies. It may be empty. */
+  options: { label: string; implies: string }[];
+  /** The label of the option taken where the person gives none, or null. */
+  default: string | null;
+  /** The person's answer, an option's label or their own words, or null while the question is open. */
+  answer: string | null;
+  /** The daemon's clock when it first read the block in its state, or null where it has none. */
+  since: number | null;
+}
+
+/** One block or line of a work item's record that the reader did not read, at its 1-based line of `decisions.md`, with the reader's reason. Nothing is decided on it. */
+export interface Unread {
+  line: number;
+  why: string;
+}
+
 /**
  * What the daemon did to set up a work item's worktree, as the repository's
  * two files named it when the setup began: `.worktreeinclude`, the ignored
@@ -226,6 +277,12 @@ export interface WorkItem {
   groupId: number | null;
   /** When it was archived, or null while it is not. */
   archivedAt: number | null;
+  /** The decisions made for it in place of asking the person, as the daemon read them in the work item's record, in the order of the file. A daemon of an earlier build sends no such field, and a client reads its absence as no decision. */
+  decisions: Decision[];
+  /** The questions it is or was parked with, as the daemon read them in the work item's record, in the order of the file. It is parked while one of them has no answer. A daemon of an earlier build sends no such field, and a client reads its absence as no question. */
+  questions: Question[];
+  /** What the reader did not read of the work item's record. A daemon of an earlier build sends no such field, and a client reads its absence as nothing unread. */
+  unread: Unread[];
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
 }
@@ -366,6 +423,10 @@ export type ClientMessage =
   | { type: "addGroup"; requestId: number; repoId: number; name: string }
   // Sets a work item's pin, its mute, its group, or several of them: a field that is absent is left as it is. `groupId` is the id of a group of the work item's repository, or null, which takes the work item out of its group. A group of another repository, or one no repository holds, is refused, and nothing of the message is then set. The daemon answers with `done`.
   | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
+  // Reverses a decision made for a work item in place of asking, with the person's message, which is written into the decision's block of the work item's record without the white space at its ends. `decisionId` is the block's id. The decision stays listed, as `reversed`, with the message. An empty message is refused, and so are an id the record holds no decision of, a decision that does not stand `decided` and a work item whose worktree holds no directory of its own: no file is then changed. It is refused too, before anything is written, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it, with an `error` that says which, since a word written in the middle of a rebase is lost where the rebase is aborted. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working and no headless session of it is working, and otherwise leaves the file written for the session's own commit. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  | { type: "reverseDecision"; requestId: number; workItemId: number; decisionId: number; message: string }
+  // Answers the questions a work item is parked with, which ends the park: one answer for each open question of the work item's record, named by the block's id, an option's label or the person's own words, written into the question's block without the white space at its ends. Refused, with no file changed, where the record holds no open question, where an open question has no answer in the message, where the message answers an id that is no open question of the record or one question twice, for an empty answer, for a work item whose worktree holds no directory of its own, and, as a `reverseDecision` is, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it. The answered blocks stay in the record. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working and no headless session of it is working, and otherwise leaves the file written for the session's own commit. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  | { type: "answerQuestions"; requestId: number; workItemId: number; answers: { questionId: number; answer: string }[] }
   // Asks what renaming the work item's branch after the name `title` would give. The daemon renames nothing, and answers with a `renamePlan`.
   | { type: "planRename"; requestId: number; id: number; title: string }
   // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so is a rename of the branch that a plan would answer with `blocked`: nothing is then changed, the name neither. The worktree's folder keeps its name. The daemon answers with `done`.

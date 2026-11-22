@@ -6,7 +6,9 @@ import {
   archivalOf,
   archivedHead,
   archivedIn,
+  answersFor,
   askButton,
+  askedSection,
   asksFetch,
   BASE_ANSWER_MS,
   baseKey,
@@ -25,6 +27,9 @@ import {
   deleteSays,
   deletionOf,
   daemonStatus,
+  decisionLines,
+  decisionMark,
+  DECISIONS_HEAD,
   droppedText,
   emptyList,
   fileLines,
@@ -45,6 +50,7 @@ import {
   lineCounts,
   lineMarks,
   lineSession,
+  lineSince,
   lineText,
   lossSections,
   linkCard,
@@ -66,6 +72,7 @@ import {
   paneKey,
   paneMenu,
   paneTabs,
+  parkNotifications,
   pinnedFirst,
   pathCandidates,
   pathTarget,
@@ -119,8 +126,9 @@ import {
   type InboxLine,
   type MenuEntry,
   unanswered,
+  unreadLines,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -141,6 +149,9 @@ const LOGIN: WorkItem = {
   muted: false,
   groupId: null,
   archivedAt: null,
+  decisions: [],
+  questions: [],
+  unread: [],
   setup: null,
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
@@ -878,6 +889,243 @@ describe("lineMarks", () => {
   });
 });
 
+describe("the decisions made without asking", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  function decision(id: number, fields: Partial<Decision> = {}): Decision {
+    return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: null, state: "decided", reversal: null, landed: null, since: NOW - 12 * MINUTE, ...fields };
+  }
+  /** What a decision a person reversed holds beside what it held as made: the state, the message, and the time the daemon first read it as reversed. */
+  const REVERSAL = { state: "reversed", reversal: "기본값 말고 main에서 시작해 주세요", since: NOW - 3 * MINUTE } as const;
+  /** A work item as a daemon of a build before the decisions sends it. */
+  const { decisions: _decisions, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("marks a line with how many decisions made without asking the person has not seen, the look not holding them, and with how many reversals wait for a stage, an applied and a carried decision in neither count, and with nothing where both are zero", () => {
+    const APPLIED = { ...REVERSAL, state: "applied", landed: "abc1234" } as const;
+    const four = { ...LOGIN, decisions: [decision(1), decision(2, REVERSAL), decision(3), decision(4, APPLIED)] };
+    // No look is recorded, so the person has seen none.
+    expect(decisionMark(four, null)).toBe("2 decisions without asking, 1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1)] }, null)).toBe("1 decision without asking");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(2, REVERSAL)] }, null)).toBe("1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(2, REVERSAL), decision(5, REVERSAL)] }, null)).toBe("2 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(4, APPLIED), decision(3, { ...REVERSAL, state: "carried", landed: "#53" })] }, null)).toBe("");
+    expect(decisionMark(LOGIN, null)).toBe("");
+    // A decision the look holds for the work item is one the person has seen, and a reversal waits whether or not the look holds it.
+    const seen = (decisions: Decision[], other: WorkItem[] = []): Look => ({ at: 1000, sessions: [], workItems: [...other, { ...LOGIN, decisions }] });
+    expect(decisionMark(four, seen([decision(1)]))).toBe("1 decision without asking, 1 reversed");
+    expect(decisionMark(four, seen([decision(1), decision(2), decision(3)]))).toBe("1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(3)] }, seen([decision(1), decision(3)]))).toBe("");
+    // The look holds a decision under its work item's id: another work item's decision of the same id is not this one's, and a look that does not hold the work item holds none of its decisions.
+    expect(decisionMark(four, seen([], [{ ...SEARCH, decisions: [decision(1), decision(3)] }]))).toBe("2 decisions without asking, 1 reversed");
+    expect(decisionMark(four, { at: 1000, sessions: [], workItems: [{ ...SEARCH, decisions: [decision(1), decision(3)] }] })).toBe("2 decisions without asking, 1 reversed");
+    // An archived work item's line carries the mark its line carried before the archive.
+    expect(decisionMark({ ...four, archivedAt: 50 }, seen([decision(1)]))).toBe(decisionMark(four, seen([decision(1)])));
+  });
+
+  it("leaves a line's state and its group as its panes give them, whatever was decided for the work item", () => {
+    const decided = { ...LOGIN, decisions: [decision(1), decision(2, REVERSAL)] };
+    for (const sessions of [[], [session(2, { state: "working" })], [session(2, { state: "waiting" })], [session(2, { state: "finished" })]]) {
+      expect(inboxLine(decided, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+      expect(inboxGroups(workItemEntries([decided], sessions, KINDS)).map((group) => group.heading)).toEqual(inboxGroups(workItemEntries([LOGIN], sessions, KINDS)).map((group) => group.heading));
+      expect(inboxSummary([inboxLine(decided, sessions, KINDS)])).toBe(inboxSummary([inboxLine(LOGIN, sessions, KINDS)]));
+    }
+  });
+
+  it("lists every decision under its head, the last of the record first: the kind in words, what was decided, the grounds, who decided where the record says it, how long it has been in its state, and for one that no longer stands as made that it was reversed, applied in a commit or carried to a home, with the message; a decision with no time has no age", () => {
+    expect(DECISIONS_HEAD).toBe("Decided without asking");
+    const decisions = [
+      decision(1, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", since: NOW - 3 * 60 * MINUTE }),
+      decision(2, REVERSAL),
+      decision(3, { kind: "scope", says: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3.", by: "orchestrator", since: NOW - 5 * MINUTE }),
+      decision(4, { kind: "answered", says: "The base is main.", grounds: "seal/config.json names no other.", since: NOW }),
+      decision(5, { ...REVERSAL, state: "applied", landed: "abc1234", since: null }),
+      decision(6, { ...REVERSAL, state: "carried", landed: "#53", since: NOW - 2 * MINUTE }),
+    ];
+    const DEFAULT = { kind: "Default taken", says: "Start from main.", grounds: "Grounds: frame/questions.md Q1 states main as its default.", by: "" };
+    expect(decisionLines({ ...LOGIN, decisions }, NOW)).toEqual([
+      { id: 6, ...DEFAULT, age: "2 min", reversed: { head: "Carried to #53", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 5, ...DEFAULT, age: "", reversed: { head: "Applied in abc1234", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: seal/config.json names no other.", by: "", age: "less than a minute", reversed: null },
+      { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", by: "Decided by orchestrator", age: "5 min", reversed: null },
+      { id: 2, ...DEFAULT, age: "3 min", reversed: { head: "Reversed", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", by: "", age: "3 h", reversed: null },
+    ]);
+    expect(decisionLines(LOGIN, NOW)).toEqual([]);
+  });
+
+  it("names each line of the record that was not read, by its number and the reader's reason, in the order given, and none where the record was read whole", () => {
+    expect(unreadLines({ ...LOGIN, unread: [{ line: 4, why: "the block holds no id" }, { line: 19, why: "a fence opens like a seal block and is not one" }] })).toEqual([
+      "Line 4 of decisions.md was not read: the block holds no id",
+      "Line 19 of decisions.md was not read: a fence opens like a seal block and is not one",
+    ]);
+    expect(unreadLines(LOGIN)).toEqual([]);
+  });
+
+  it("reads a work item of a daemon of an earlier build, which sends no decisions and no unread line, as one with none, in the lists and in the look, and throws at none", () => {
+    const { decisions: _d, questions: _q, unread: _u, ...bare } = LOGIN;
+    const BARE = bare as WorkItem;
+    expect(decisionMark(EARLIER, null)).toBe("");
+    expect(decisionMark(BARE, { at: 1000, sessions: [], workItems: [BARE] })).toBe("");
+    // A look written before the decisions holds none, so each decision is one the person has not seen.
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1)] }, { at: 1000, sessions: [], workItems: [BARE] })).toBe("1 decision without asking");
+    expect(unreadLines(BARE)).toEqual([]);
+    expect(matchWorkItems(workItemEntries([BARE], [], KINDS), "", "decided")).toEqual([]);
+    expect(decisionLines(EARLIER, NOW)).toEqual([]);
+    expect(inboxLine(EARLIER, [session(2, { state: "working" })], KINDS)).toEqual(inboxLine(LOGIN, [session(2, { state: "working" })], KINDS));
+    expect(lineText(EARLIER, undefined, false)).toEqual(lineText(LOGIN, undefined, false));
+  });
+});
+
+describe("a work item parked with its questions", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  const BASE: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "sealer", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "release/v0.0.2", answer: null, since: NOW - 12 * MINUTE };
+  const FREE: Question = { id: 2, asks: "What should the screen be called?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: NOW - 10 * MINUTE };
+  const OPEN: Question = { id: 3, asks: "Squash or merge?", grounds: "The repository's config names neither.", by: null, options: [{ label: "squash", implies: "" }, { label: "merge", implies: "Every commit stays." }], default: null, answer: null, since: null };
+  const TYPED = "둘 다 아니고, 세 번째 방법으로";
+  const ANSWERED: Question[] = [{ ...BASE, answer: "main", since: NOW - 4 * MINUTE }, { ...FREE, answer: TYPED, since: NOW - 3 * MINUTE }];
+  const PARKED: WorkItem = { ...LOGIN, questions: [BASE, FREE] };
+  const DONE: WorkItem = { ...LOGIN, questions: ANSWERED };
+  /** A work item whose record holds two answered questions and one that a later park added. */
+  const AGAIN: WorkItem = { ...LOGIN, questions: [...ANSWERED, { ...OPEN, since: NOW - MINUTE }] };
+  const working = session(2, { state: "working", stateSince: NOW - 40 * MINUTE, stateText: "Running the tests" });
+  /** A work item as a daemon of a build before the questions sends it. */
+  const { questions: _questions, unread: _unread, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("gives a parked work item's line the state waiting, whatever its panes say, so that the inbox's sentence counts it among those that need the person and it stands in that group, and the state its panes give once it is answered", () => {
+    for (const sessions of [[], [working], [session(2, { state: "finished" })], [session(2, { state: "waiting" })]]) {
+      expect(inboxLine(PARKED, sessions, KINDS)).toEqual({ ...inboxLine(LOGIN, sessions, KINDS), state: "waiting" });
+      expect(inboxLine(DONE, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+      // One open question beside the answered ones parks the work item again.
+      expect(inboxLine(AGAIN, sessions, KINDS).state).toBe("waiting");
+    }
+    const entries = workItemEntries([SEARCH, PARKED], [working, session(3, { workItemId: 2, state: "working" })], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 needs you, 1 working");
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Working", [2]]]);
+    expect(inboxSummary(workItemEntries([SEARCH, DONE], [working, session(3, { workItemId: 2, state: "working" })], KINDS).map((entry) => entry.line))).toBe("2 working");
+  });
+
+  it("says a parked work item's first question in its line's second row, with how many more it waits on, before what its agent says, and what the line said before once it is answered or while a search is typed", () => {
+    expect(lineText(PARKED, working, false)).toEqual({ says: "question", text: "Which base does the branch start from? (and 1 more question)" });
+    expect(lineText({ ...LOGIN, questions: [BASE, FREE, OPEN] }, undefined, false)).toEqual({ says: "question", text: "Which base does the branch start from? (and 2 more questions)" });
+    expect(lineText({ ...LOGIN, questions: [{ ...FREE, id: 1 }] }, working, false)).toEqual({ says: "question", text: "What should the screen be called?" });
+    expect(lineText(DONE, working, false)).toEqual({ says: "state", text: "Running the tests" });
+    // The answered questions are not counted among the ones it waits on.
+    expect(lineText(AGAIN, working, false)).toEqual({ says: "question", text: "Squash or merge?" });
+    expect(lineText(PARKED, working, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
+
+  it("counts a parked work item's age from the earliest time among its open questions, the answered ones' and a question with no time left out, and the age of any other from its pane's state", () => {
+    expect(lineSince(PARKED, working)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince({ ...LOGIN, questions: [OPEN, FREE, BASE] }, working)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince(AGAIN, working)).toBe(NOW - MINUTE);
+    expect(lineSince({ ...LOGIN, questions: [OPEN] }, working)).toBeNull();
+    expect(lineSince(PARKED, undefined)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince(DONE, working)).toBe(NOW - 40 * MINUTE);
+    expect(lineSince(LOGIN, working)).toBe(NOW - 40 * MINUTE);
+    expect([lineSince(DONE, undefined), lineSince(LOGIN, session(2))]).toEqual([null, null]);
+    expect(stateWithAge(inboxLine(PARKED, [working], KINDS).state, lineSince(PARKED, working), NOW)).toBe("Needs you, 12 min");
+  });
+
+  it("gives the section of a parked work item its head and how long ago the first question was asked, and every question with who asked where the record says it, its grounds, its options, what each implies, the mark of its default and the default as the option chosen", () => {
+    expect(askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW, null)).toEqual({
+      head: "Waiting for your answer",
+      age: "Asked 12 min ago",
+      parked: true,
+      key: "1:open:1,2,3",
+      questions: [
+        { id: 1, asks: "Which base does the branch start from?", by: "Asked by sealer", grounds: "Grounds: No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it.", mark: "" }, { label: "release/v0.0.2", implies: "It merges after the release.", mark: "Default" }], chosen: 1, answer: null },
+        { id: 2, asks: "What should the screen be called?", by: "Asked by sealer", grounds: "Grounds: No document names it.", options: [], chosen: null, answer: null },
+        { id: 3, asks: "Squash or merge?", by: "", grounds: "Grounds: The repository's config names neither.", options: [{ label: "squash", implies: "", mark: "" }, { label: "merge", implies: "Every commit stays.", mark: "" }], chosen: null, answer: null },
+      ],
+    });
+    // A look does not end a park: the open questions are listed whatever the look holds.
+    expect(askedSection(PARKED, NOW, { at: 1000, sessions: [], workItems: [PARKED] })?.key).toBe("1:open:1,2");
+    expect(askedSection(PARKED, NOW, { at: 1000, sessions: [], workItems: [DONE] })?.key).toBe("1:open:1,2");
+  });
+
+  it("lists an answered question until the look holds it as answered for its work item: every one while the window holds no look, the ones the look holds open or not at all otherwise, and no section once the look holds each as answered", () => {
+    const look = (...workItems: WorkItem[]): Look => ({ at: 1000, sessions: [], workItems });
+    const shown = (held: Look | null) => askedSection(DONE, NOW, held)?.questions.map(({ id }) => id) ?? null;
+    expect(shown(null)).toEqual([1, 2]);
+    // The look was recorded while the work item was parked, or before it was, or does not hold the work item.
+    expect(shown(look(PARKED))).toEqual([1, 2]);
+    expect(shown(look(LOGIN))).toEqual([1, 2]);
+    expect(shown(look(SEARCH))).toEqual([1, 2]);
+    // The look holds one of the two as answered: the other alone is listed, and the age is its own.
+    const half = look({ ...LOGIN, questions: [ANSWERED[0]!, FREE] });
+    expect(askedSection(DONE, NOW, half)).toMatchObject({ head: "Answered", age: "Answered 3 min ago", key: "1:answered:2", questions: [{ id: 2, answer: TYPED }] });
+    expect(askedSection(DONE, NOW, look({ ...LOGIN, questions: [BASE, ANSWERED[1]!] }))).toMatchObject({ age: "Answered 4 min ago", key: "1:answered:1" });
+    expect(shown(look(DONE))).toBeNull();
+    // The look holds a question under its work item's id, so another work item's answered question of the same id ends nothing.
+    expect(shown(look({ ...SEARCH, questions: ANSWERED }))).toEqual([1, 2]);
+    // A look written before the questions holds none as answered.
+    expect(shown(look(EARLIER))).toEqual([1, 2]);
+  });
+
+  it("gives the section of an answered record the head Answered, how long ago the last answer was given, and each question with its answer, no option, no asker and no grounds, and gives no section for a work item that never was parked", () => {
+    expect(askedSection(DONE, NOW, null)).toEqual({
+      head: "Answered",
+      age: "Answered 3 min ago",
+      parked: false,
+      key: "1:answered:1,2",
+      questions: [
+        { id: 1, asks: "Which base does the branch start from?", by: "", grounds: "", options: [], chosen: null, answer: "main" },
+        { id: 2, asks: "What should the screen be called?", by: "", grounds: "", options: [], chosen: null, answer: TYPED },
+      ],
+    });
+    expect(askedSection(LOGIN, NOW, null)).toBeNull();
+    // While one question of the record is open, the section holds the open ones alone, and names an asker only where the question's block says one.
+    expect(askedSection(AGAIN, NOW, null)).toMatchObject({ head: "Waiting for your answer", age: "Asked 1 min ago", parked: true, key: "1:open:3", questions: [{ id: 3, by: "", answer: null }] });
+    // A question the daemon has no time for gives the section no age, and the age is counted from the earliest time among the others.
+    expect(askedSection({ ...LOGIN, questions: [OPEN] }, NOW, null)?.age).toBe("");
+    expect(askedSection({ ...LOGIN, questions: [OPEN, FREE] }, NOW, null)).toMatchObject({ age: "Asked 10 min ago", questions: [{ by: "" }, { by: "Asked by sealer" }] });
+    // A default that names no option of its question chooses none.
+    expect(askedSection({ ...LOGIN, questions: [{ ...BASE, default: "develop" }] }, NOW, null)?.questions.map(({ chosen, options }) => [chosen, options.map(({ mark }) => mark)])).toEqual([[null, ["", ""]]]);
+    // The key differs between two work items, two sets of questions of one, and a park and its answer, so the section is drawn again at each.
+    const keys = [askedSection(PARKED, NOW, null), askedSection(DONE, NOW, null), askedSection({ ...PARKED, id: 2 }, NOW, null), askedSection(AGAIN, NOW, null)].map((section) => section?.key);
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it("gives each question of the section the answer the person chose: an option's label, or the words they typed as another answer, and an empty answer for a question with nothing chosen, which the daemon refuses", () => {
+    const questions = askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW, null)!.questions;
+    expect(answersFor(questions, [0, "other", 1], ["ignored", TYPED, ""])).toEqual([{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }, { questionId: 3, answer: "merge" }]);
+    expect(answersFor(questions, ["other", null, null], [" trunk ", "typed and not chosen", ""])).toEqual([{ questionId: 1, answer: " trunk " }, { questionId: 2, answer: "" }, { questionId: 3, answer: "" }]);
+    // A choice that names no option of its question gives no answer.
+    expect(answersFor(questions, [5, 0, null], ["", "", ""])).toEqual([{ questionId: 1, answer: "" }, { questionId: 2, answer: "" }, { questionId: 3, answer: "" }]);
+  });
+
+  it("notifies of a work item that is parked now and was not before, titled with the work item's title, and of none that is muted, whose view is in front, that the window already held as parked, or that is archived", () => {
+    const told = { workItemId: 1, title: "Fix the login bug", body: "Waiting for your answer" };
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, SEARCH], undefined)).toEqual([told]);
+    expect(parkNotifications([DONE], [PARKED], undefined)).toEqual([told]);
+    // A work item the window did not hold at all was not held as parked.
+    expect(parkNotifications([SEARCH], [SEARCH, PARKED], undefined)).toEqual([told]);
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, { ...SEARCH, questions: [BASE, FREE] }], 2)).toEqual([told]);
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, { ...SEARCH, questions: [BASE, FREE] }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Waiting for your answer" }]);
+    expect(parkNotifications([LOGIN], [{ ...PARKED, muted: true }], undefined)).toEqual([]);
+    expect(parkNotifications([LOGIN], [PARKED], 1)).toEqual([]);
+    expect(parkNotifications([PARKED], [PARKED], undefined)).toEqual([]);
+    // An archived work item stands in no list of work items, and one restored while parked was held as parked among the archived.
+    expect(parkNotifications([LOGIN], [], undefined)).toEqual([]);
+    expect(parkNotifications([{ ...PARKED, archivedAt: 50 }], [PARKED], undefined)).toEqual([]);
+    expect(parkNotifications([PARKED], [DONE], undefined)).toEqual([]);
+    expect(parkNotifications([LOGIN], [LOGIN], undefined)).toEqual([]);
+  });
+
+  it("reads a work item of a daemon of an earlier build, which sends no record, as one that never was parked, and throws at none", () => {
+    expect(inboxLine(EARLIER, [working], KINDS)).toEqual(inboxLine(LOGIN, [working], KINDS));
+    expect(lineText(EARLIER, working, false)).toEqual(lineText(LOGIN, working, false));
+    expect(lineSince(EARLIER, working)).toBe(NOW - 40 * MINUTE);
+    expect(askedSection(EARLIER, NOW, null)).toBeNull();
+    expect(askedSection(EARLIER, NOW, { at: 1000, sessions: [], workItems: [EARLIER] })).toBeNull();
+    expect(parkNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
+    expect(parkNotifications([EARLIER], [PARKED], undefined)).toHaveLength(1);
+  });
+});
+
 describe("setupMark", () => {
   it("says Setting up while the setup runs and Setup failed where it failed, and nothing where it succeeded or none was named", () => {
     expect(setupMark({ ...LOGIN, setup: RUNNING_SETUP })).toBe("Setting up");
@@ -962,6 +1210,7 @@ describe("changesSince", () => {
         line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "3 new commits" },
         session: waits,
         sentence: "Needs you. 2 new commits since you were last here.",
+        decided: 0,
       },
     ]);
     expect(summarySentence(changes)).toBe("1 needs you");
@@ -1033,11 +1282,68 @@ describe("changesSince", () => {
     const changes = changesSince(look([]), [LOGIN, SEARCH, third, fourth], sessions, KINDS);
     expect(changes.map((change) => change.workItem.id)).toEqual([3, 4, 2, 1]);
   });
+
+  describe("the decisions made without asking since the look", () => {
+    function decision(id: number, fields: Partial<Decision> = {}): Decision {
+      return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: null, state: "decided", reversal: null, landed: null, since: 2000, ...fields };
+    }
+    const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: 3000 };
+    const THIRD: WorkItem = { ...LOGIN, id: 3, title: "Third", newCommits: 1 };
+
+    it("gives a parked work item, one that gained decisions alone and one that gained a commit and a decision as changed, the parked one first, counts the decisions apart from the one that waits, and opens the parked one", () => {
+      const before = look([SEARCH, THIRD, LOGIN]);
+      const changes = changesSince(before, [{ ...SEARCH, decisions: [decision(1), decision(2, { kind: "route" })] }, { ...THIRD, newCommits: 2, decisions: [decision(3)] }, { ...LOGIN, questions: [ASKED] }], [], KINDS);
+      expect(changes.map((change) => [change.workItem.id, change.sentence, change.decided])).toEqual([
+        [1, "Needs you.", 0],
+        [2, "No agent is running. 2 decisions made without asking.", 2],
+        [3, "No agent is running. 1 new commit since you were last here. 1 decision made without asking.", 1],
+      ]);
+      expect(summarySentence(changes)).toBe("1 needs you. 3 decisions made without asking.");
+      expect(summaryHead(true, changes)).toBe("1 needs you. 3 decisions made without asking.");
+      expect(summaryControls(changes).main).toEqual({ label: "Answer the first question", opens: 1 });
+    });
+
+    it("counts a decision by its id: one the look already holds adds nothing, whether or not it was reversed since, and one it does not hold counts beside it", () => {
+      const held = { ...LOGIN, decisions: [decision(1), decision(2)] };
+      const reversed = { ...LOGIN, decisions: [decision(1), decision(2, { state: "reversed", reversal: "main에서 시작해 주세요", since: 4000 })] };
+      expect(changesSince(look([held]), [held], [], KINDS)).toEqual([]);
+      expect(changesSince(look([held]), [reversed], [], KINDS)).toEqual([]);
+      const gained = changesSince(look([held]), [{ ...reversed, decisions: [...reversed.decisions, decision(5)] }], [], KINDS);
+      expect(gained.map((change) => [change.sentence, change.decided])).toEqual([["No agent is running. 1 decision made without asking.", 1]]);
+      // A decision recorded since the look and already reversed is one the look does not hold.
+      const both = changesSince(look([LOGIN]), [reversed], [], KINDS);
+      expect(both.map((change) => change.decided)).toEqual([2]);
+    });
+
+    it("counts every decision of a work item the look does not hold, after the words that it is new", () => {
+      const changes = changesSince(look([]), [{ ...LOGIN, decisions: [decision(1), decision(2)] }], [], KINDS);
+      expect(changes.map((change) => [change.sentence, change.decided])).toEqual([["No agent is running. New since you were last here. 2 decisions made without asking.", 2]]);
+    });
+
+    it("says an answered work item's state as its panes give it again, and names no decision for it", () => {
+      const answered = { ...LOGIN, questions: [{ ...ASKED, answer: "main", since: 5000 }] };
+      const changes = changesSince(look([{ ...LOGIN, questions: [ASKED] }]), [answered], [session(3, { state: "working" })], KINDS);
+      expect(changes.map((change) => [change.sentence, change.decided])).toEqual([["Is working.", 0]]);
+      expect(changesSince(look([{ ...LOGIN, questions: [ASKED] }]), [{ ...LOGIN, questions: [ASKED] }], [session(3, { state: "working" })], KINDS)).toEqual([]);
+    });
+
+    it("reads a work item without the fields, in a look written before them and from a daemon of an earlier build, as one with no decision and no record, and throws at none", () => {
+      const { decisions: _decisions, questions: _questions, unread: _unread, ...before } = LOGIN;
+      const EARLIER = before as WorkItem;
+      expect(changesSince(look([EARLIER]), [EARLIER], [], KINDS)).toEqual([]);
+      expect(changesSince(look([LOGIN]), [EARLIER], [], KINDS)).toEqual([]);
+      // Every decision is one a look written before the decisions does not hold.
+      const changes = changesSince(look([EARLIER]), [{ ...LOGIN, decisions: [decision(1)] }], [], KINDS);
+      expect(changes.map((change) => change.decided)).toEqual([1]);
+      expect(changesSince(look([]), [EARLIER], [], KINDS).map((change) => change.decided)).toEqual([0]);
+      expect(summaryControls(changesSince(look([]), [EARLIER], [], KINDS)).main.opens).toBe("inbox");
+    });
+  });
 });
 
 describe("summarySentence", () => {
-  function change(state: InboxLine["state"]): { line: InboxLine } {
-    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" } };
+  function change(state: InboxLine["state"], decided = 0): { line: InboxLine; decided: number } {
+    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, decided };
   }
 
   it("counts the changed work items by their present state, in the inbox's order and words, and leaves out the ones with no state", () => {
@@ -1048,6 +1354,13 @@ describe("summarySentence", () => {
   it("says how many work items changed where none of them has a state", () => {
     expect(summarySentence([change(null)])).toBe("1 work item changed");
     expect(summarySentence([change(null), change(null)])).toBe("2 work items changed");
+  });
+
+  it("adds after a full stop how many decisions were made without asking, the sum over the changed work items, of one and of several, and nothing where the sum is zero", () => {
+    expect(summarySentence([change("waiting"), change(null, 2), change("finished", 1)])).toBe("1 needs you, 1 finished. 3 decisions made without asking.");
+    expect(summarySentence([change("working", 1)])).toBe("1 working. 1 decision made without asking.");
+    expect(summarySentence([change(null, 2), change(null)])).toBe("2 work items changed. 2 decisions made without asking.");
+    expect(summarySentence([change("waiting", 0), change("waiting")])).toBe("2 need you");
   });
 });
 
@@ -1995,6 +2308,16 @@ describe("matchWorkItems", () => {
     expect(ids("", "none")).toEqual([4]);
   });
 
+  it("leaves, where the decisions are chosen, the work items that hold a decision the person may still act on, one that stands as made or a reversal that waits for a stage, in the order given and whatever their lines' states, and not one whose decisions are all applied or carried", () => {
+    const decision = (state: Decision["state"]): Decision => ({ id: 1, kind: "default", says: "Start from main.", grounds: "Q1 states main.", by: null, state, reversal: state === "decided" ? null : "main에서", landed: null, since: null });
+    const entries = workItemEntries([{ ...FOURTH, decisions: [decision("reversed")] }, { ...DOCS, decisions: [decision("applied"), decision("carried")] }, { ...LOGIN, decisions: [decision("applied"), decision("decided")] }, SEARCH], sessions, KINDS);
+    expect(matchWorkItems(entries, "", "decided").map((entry) => entry.workItem.id)).toEqual([4, 1]);
+    expect(entries.map((entry) => entry.line.state)).toEqual([null, "finished", "waiting", "working"]);
+    // What is typed narrows them as it narrows any other choice.
+    expect(matchWorkItems(entries, "tidy", "decided").map((entry) => entry.workItem.id)).toEqual([4]);
+    expect(matchWorkItems(entries, "", "all")).toHaveLength(4);
+  });
+
   it("narrows by what is typed and by the state together", () => {
     expect(ids("project", "working")).toEqual([2]);
     expect(ids("docs", "working")).toEqual([]);
@@ -2018,13 +2341,14 @@ describe("matchCount and matchSentence", () => {
 });
 
 describe("filterChoices", () => {
-  it("offers every state at once and then each group's heading, in the inbox's order", () => {
+  it("offers every state at once, then each group's heading in the inbox's order, and last the work items with a decision to act on", () => {
     expect(filterChoices()).toEqual([
       { value: "all", label: "All" },
       { value: "waiting", label: "Needs you" },
       { value: "working", label: "Working" },
       { value: "finished", label: "Finished" },
       { value: "none", label: "Asleep" },
+      { value: "decided", label: "Decided without asking" },
     ]);
   });
 });
@@ -2070,7 +2394,7 @@ describe("summaryControls", () => {
 });
 
 describe("summaryHead", () => {
-  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine }];
+  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine, decided: 0 }];
 
   it("is the summary's sentence where a work item changed", () => {
     expect(summaryHead(true, waits)).toBe("1 needs you");

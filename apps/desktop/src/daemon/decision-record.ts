@@ -12,10 +12,11 @@
 //
 // The record holds no clock and nothing of what the person has seen: both are
 // the daemon's state.
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { DECISION_BLOCK, QUESTION_BLOCK, assemble, field, gfmLines, read, stripped, walk, type Block, type Kind } from "./record-blocks";
 import { rootOf } from "./records-place";
+import { repositoryFileText } from "./repository-file";
 import { writeWholeFile } from "./whole-file";
 
 /** The record's file name, in the work item's directory. */
@@ -87,10 +88,10 @@ export interface NewQuestion {
 const REVIEW_ANSWERS = ["through the review chain", "straight to the PR"];
 const DESTINATION_ANSWERS = ["open the pull request", "stop before the pull request"];
 
-/** A file's text, or null where it cannot be read. */
+/** A file's text, or null where it is not read: where none stands, and where `repositoryFileText` refuses what stands, a link and a file over its bound among it. */
 function textOf(file: string): string | null {
   try {
-    return readFileSync(file, "utf8");
+    return repositoryFileText(file);
   } catch {
     return null;
   }
@@ -134,7 +135,10 @@ function declaredBranch(text: string): string | null {
  * does, where more than one does, and where the worktree holds no records
  * root, which is how the pull request check reads it
  * (`pr-check/lib/routing.py#item_dir`). It reads the working tree, committed
- * or not.
+ * or not. A `routing.md` that is a link, that is no plain file, or that holds
+ * more than `REPOSITORY_FILE_BYTES` names no branch here, though the check
+ * reads it: the daemon reads each one in its pass, from a checkout it did not
+ * write.
  */
 export function workItemDirectory(worktree: string, branch: string): string | null {
   const root = rootOf(worktree);
@@ -369,26 +373,21 @@ function head(workItem: string): string {
   ].join("\n");
 }
 
-/** The record's text, or null where no file stands at its path. Any other failure to read it throws, so a write never replaces a record it could not read. */
-function recordText(file: string): string | null {
-  try {
-    return readFileSync(file, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
 /**
  * Reads the record of the work item's directory, applies the change and puts
  * the whole file back, then returns the record as it now reads. Where no
  * record stands, the change is given the head of a new one. A record that
- * stands and cannot be read throws, and is left as it is. A change that
- * throws leaves the file as it is, and creates none.
+ * stands and cannot be read throws, and is left as it is: one that is a
+ * link, one that is no plain file and one over `REPOSITORY_FILE_BYTES` among
+ * them, as `repositoryFileText` refuses each, so a write never replaces a
+ * link it read with a file. The write's rename does replace a link put at
+ * the record's path after that read, and a link put at the partial file's
+ * path `decisions.md.<pid>` is written through (`whole-file.ts`). A change
+ * that throws leaves the file as it is, and creates none.
  */
 export function writeRecord(directory: string, change: (text: string) => string): DecisionRecord {
   const file = join(directory, RECORD_FILE);
-  const before = recordText(file);
+  const before = repositoryFileText(file);
   const after = change(before ?? head(basename(directory)));
   if (after !== before) writeWholeFile(file, after);
   return readDecisionRecord(after);

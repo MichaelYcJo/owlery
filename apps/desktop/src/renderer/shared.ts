@@ -4,7 +4,7 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, fileLines, lineMarks, matchWorkItems, RUN_SETUP_SAYS, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import { commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, RUN_SETUP_SAYS, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -270,18 +270,45 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 
 /**
  * What the preview and a view's right column say of a work item alike: what
- * its agent says, its commits, its changed files and its setup, each left
- * out where the daemon sent none. The first `gained` commits carry the dot
- * of a commit the branch gained since the person last looked. Where
- * `runSetup` is given, as a view gives it, the setup offers "Run setup
- * again" while it does not run, whose press calls `runSetup` with the
- * command the section names, whole, the one the daemon may then run.
+ * its agent says, the decisions made for it in place of asking, its commits,
+ * its changed files and its setup, each left out where the daemon sent none.
+ * Under the decisions stands a line for each line of the work item's record
+ * that the daemon did not read, and the section is drawn for those lines
+ * alone where the record gave no decision. The first `gained` commits carry
+ * the dot of a commit the branch gained since the person last looked. A
+ * view gives both of `acts`, and a preview neither. Where `reverse` is
+ * given, each decision that stands offers "Reverse", whose press hands
+ * `reverse` the decision's id. Where `runSetup` is given, the setup offers
+ * "Run setup again" while it does not run, whose press calls `runSetup`
+ * with the command the section names, whole, the one the daemon may then
+ * run.
  */
-export function detail(entry: Entry, gained: number, runSetup?: (command: string | null) => void): HTMLElement[] {
+export function detail(entry: Entry, gained: number, { reverse, runSetup }: { reverse?: (decisionId: number) => void; runSetup?: (command: string | null) => void } = {}): HTMLElement[] {
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
   // The agent's words are plain text, never markup. Where the agent waits for the person the card says so by its class, and the theme gives that card its edge.
   if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), part("said", says.text)));
+  const decisions = decisionLines(entry.workItem, Date.now());
+  const unread = unreadLines(entry.workItem);
+  if (decisions.length > 0 || unread.length > 0) {
+    const lines = decisions.map((line) => {
+      const head = row(part("kind", line.kind), part("by", line.by), part("age", line.age));
+      if (reverse && line.reversed === null) {
+        const button = document.createElement("button");
+        button.className = "quiet";
+        button.textContent = "Reverse";
+        button.title = "Reverse this decision, with a message";
+        button.addEventListener("click", () => reverse(line.id));
+        head.append(button);
+      }
+      // What was decided, its grounds and a person's message are plain text, never markup.
+      const element = item(line.reversed ? "decision reversed" : "decision", head, part("what", line.says), part("grounds", line.grounds));
+      if (line.reversed) element.append(part("reversal", line.reversed.head), part("message", line.reversed.message));
+      return element;
+    });
+    // The reader's reason is plain text, never markup.
+    parts.push(section("decisions", heading(DECISIONS_HEAD), ...(lines.length > 0 ? [listOf(lines)] : []), ...unread.map((text) => part("unread", text))));
+  }
   const commits = commitLines(entry.workItem, gained, Date.now());
   if (commits) {
     const lines = commits.lines.map((line) => {

@@ -97,6 +97,11 @@
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
+      /* On a line, how many decisions made without asking the person has not seen, and how many reversals wait for a stage. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
+      .line .decided { flex: none; font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
+      .line .decided:empty { display: none; }
+      /* On a selected line the count is in the muted ink, as the line's age is: the faint ink does not stand apart from a selected ground. */
+      .line.selected .decided { color: var(--ink-muted); }
       .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); }
       .icon-button:hover { background: var(--hover); color: var(--ink); transition: background-color var(--motion), color var(--motion); }
       .icon-button:active { background: var(--pressed); }
@@ -139,7 +144,7 @@
       .seal.drawn[data-seal="sealed"] { background-image: url("./owl.svg"); }
       .seal-slot { flex: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
 
-      /* What the preview and a view's right column say of a work item alike: what its agent says, its commits, its changed files and its setup. */
+      /* What the preview and a view's right column say of a work item alike: what its agent says, the decisions made for it without asking, its commits, its changed files and its setup. */
       .detail { display: flex; flex-direction: column; gap: var(--space-6); }
       .detail section { display: flex; flex-direction: column; min-width: 0; }
       .detail h3 { display: flex; align-items: center; gap: var(--space-4); margin-bottom: 3px; padding-bottom: var(--space-3); border-bottom: 1px solid var(--rule); }
@@ -150,6 +155,19 @@
       .detail .says.waiting { box-shadow: var(--said-edge-waiting); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
       .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* A decision made in place of asking, a row of a list of records: its kind, who decided and its age on a row, with "Reverse" in a view, then what was decided, its grounds, and under one that no longer stands as made what became of it and the person's message. Each text is plain, with its line breaks kept. */
+      .decision { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) 0; box-shadow: var(--line-edge); font-size: var(--size-second); }
+      .decision .row { display: flex; align-items: center; gap: var(--space-4); min-height: var(--detail-line); }
+      .decision .kind { font-weight: 500; color: var(--ink-strong); }
+      .decision .by { font-size: var(--size-caption); color: var(--ink-muted); }
+      .decision .by:empty { display: none; }
+      .decision .age { flex: 1; }
+      /* A line of the work item's record that was not read, under the decisions: a fault of the record, in the colour of a failure. */
+      .decisions .unread { padding: var(--space-2) 0; font-size: var(--size-second); color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
+      .decision .what, .decision .grounds, .decision .message { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .decision .grounds, .decision .reversal { color: var(--ink-muted); }
+      .decision .reversal { margin-top: var(--space-2); font-size: var(--size-caption); }
+      .decision.reversed .what { text-decoration: line-through; color: var(--ink-muted); }
       .commit { display: grid; grid-template-columns: var(--dot) auto minmax(0, 1fr) auto auto; grid-template-areas: "gained hash subject counts age"; column-gap: var(--space-4); align-items: center; min-height: var(--detail-line); font-size: var(--size-second); }
       .commit .gained { grid-area: gained; }
       /* The dot before a commit the branch gained since the person last looked. */
@@ -288,7 +306,7 @@
       .preview-facts .branch { color: var(--ink); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
-      .preview .detail .says { grid-column: 1 / -1; }
+      .preview .detail .says, .preview .detail .decisions { grid-column: 1 / -1; }
       .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
       .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
 
@@ -356,6 +374,30 @@
       /* In the column a commit is its time, its subject and its hash on one row, and its lines under the subject. */
       #view-facts .commit { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "subject hash age" "counts counts counts"; padding: var(--space-2) 0; }
       #view-facts .commit .gained { display: none; }
+      /* The questions a work item is parked with, above the facts, in the form of what an agent says, with the edge of what needs the person while the work item is parked: every question at once, each with who asks, its grounds, its options, what each implies and a field for another answer, then "Send answers". After the answer, each question with its answer. Each text is plain, with its line breaks kept. */
+      #questions { display: flex; flex-direction: column; gap: var(--space-3); padding: 14px var(--space-6) var(--space-5); border-radius: var(--radius-said); background: var(--said-ground); box-shadow: var(--said-edge); font-size: var(--size-second); }
+      #questions.waiting { box-shadow: var(--said-edge-waiting); }
+      #questions[hidden] { display: none; }
+      #questions-form, #questions-list { display: flex; flex-direction: column; gap: var(--space-5); }
+      #questions-submit { align-self: flex-end; }
+      #questions-submit[hidden] { display: none; }
+      #questions .question { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; border: 0; }
+      #questions .asks { padding: 0; font-family: var(--font-said); font-size: var(--size-head); font-weight: var(--weight-said); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .by { font-size: var(--size-caption); color: var(--ink-muted); }
+      #questions .by:empty { display: none; }
+      #questions .grounds { color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .grounds:empty { display: none; }
+      #questions .option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-3); align-items: center; }
+      #questions .option .label { overflow-wrap: anywhere; }
+      #questions .option .mark { font-size: var(--size-caption); color: var(--ink-faint); }
+      #questions .option .mark:empty { display: none; }
+      #questions .option .implies { grid-column: 2 / -1; color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+      #questions .option .implies:empty { display: none; }
+      /* The chosen option is marked in the strong ink, and never in the system's own accent: a theme has one signal, and a choice is not it. */
+      #questions input[type="radio"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; accent-color: var(--ink-strong); }
+      #questions .answer { color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #questions .refusal { color: var(--state-failed); overflow-wrap: anywhere; }
+      #questions .refusal:empty { display: none; }
       #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
       #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
@@ -481,7 +523,7 @@
         </button>
         <label id="sidebar-filter-control" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
-          <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state"></select>
+          <select id="sidebar-filter" class="filter" aria-label="Show the work items of one state, or those with a decision to act on"></select>
         </label>
         <button id="new-work-item" class="icon-button" aria-label="New work item"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg></button>
       </div>
@@ -529,7 +571,7 @@
             <p data-part="last-here" class="hint" hidden></p>
             <p data-part="match" class="hint" hidden></p>
           </div>
-          <select data-part="filter" class="filter" aria-label="Show the work items of one state"></select>
+          <select data-part="filter" class="filter" aria-label="Show the work items of one state, or those with a decision to act on"></select>
         </div>
         <p data-part="empty" class="list-empty" hidden></p>
         <div data-part="lines" class="lines"></div>
@@ -586,6 +628,15 @@
             <h2 id="view-facts-title" class="head"></h2>
             <span id="view-state" class="state-words"></span>
           </div>
+          <section id="questions" aria-labelledby="questions-head" hidden>
+            <h3 id="questions-head" class="caption"></h3>
+            <p id="questions-age" class="hint"></p>
+            <form id="questions-form">
+              <div id="questions-list"></div>
+              <p id="questions-error" class="refusal" role="alert"></p>
+              <button type="submit" id="questions-submit" class="primary">Send answers</button>
+            </form>
+          </section>
           <dl id="view-fact-list"></dl>
           <div id="view-detail" class="detail"></div>
         </div>
@@ -781,6 +832,21 @@
         <div class="row end">
           <button type="button" id="remove-cancel" class="quiet">Cancel</button>
           <button type="submit" id="remove-submit" class="primary">Remove</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="reverse-dialog">
+      <form id="reverse-form">
+        <h2 class="head">Reverse the decision</h2>
+        <p id="reverse-decision" class="says"></p>
+        <label>
+          Why you reverse it. The message is kept with the decision.
+          <span class="row"><input id="reverse-message" autocomplete="off" /></span>
+        </label>
+        <p id="reverse-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="reverse-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="reverse-submit" class="primary">Reverse</button>
         </div>
       </form>
     </dialog>

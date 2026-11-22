@@ -38,6 +38,7 @@ import {
   daemonEnding,
   daemonLists,
   daemonNotice,
+  decisionLines,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -49,6 +50,7 @@ import {
   menuKey,
   menuTarget,
   notificationFor,
+  parkNotifications,
   notificationOpens,
   PLAN_AWAITED,
   planAnswer,
@@ -79,7 +81,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeHeadless, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -159,6 +161,8 @@ const iconDialog = byId<HTMLDialogElement>("icon-dialog");
 const iconField = byId<HTMLInputElement>("icon-field");
 const groupDialog = byId<HTMLDialogElement>("group-dialog");
 const groupName = byId<HTMLInputElement>("group-name");
+const reverseDialog = byId<HTMLDialogElement>("reverse-dialog");
+const reverseMessage = byId<HTMLInputElement>("reverse-message");
 const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
 const removeDialog = byId<HTMLDialogElement>("remove-dialog");
 const sessionsDialog = byId<HTMLDialogElement>("sessions-dialog");
@@ -181,6 +185,7 @@ const FORM: Asking = { dialog: workItemDialog, error: formError, button: createB
 const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
 const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button: byId<HTMLButtonElement>("group-submit") };
+const REVERSE: Asking = { dialog: reverseDialog, error: byId("reverse-error"), button: byId<HTMLButtonElement>("reverse-submit") };
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
@@ -193,6 +198,8 @@ const asking = new Map<number, Asking>();
 let settingsOf: number | undefined;
 let iconOf: number | undefined;
 let groupOf: number | undefined;
+// The decision the dialog that reverses one was opened on, with its work item.
+let reversing: { workItemId: number; decisionId: number } | undefined;
 let removing: number | undefined;
 // What the removal's dialog names, which is what its request tells the daemon the person was told of.
 let removal: Removal | undefined;
@@ -726,6 +733,22 @@ function openGroup(repositoryId: number): void {
   groupName.focus();
 }
 
+/**
+ * Opens the dialog that takes the message a person reverses a decision
+ * with, as a press of "Reverse" on the decision's line in its work item's
+ * view asks. The dialog names the decision, and its field is empty. Nothing
+ * opens for a decision the window no longer lists as standing.
+ */
+function openReverse(workItemId: number, decisionId: number): void {
+  const workItem = held.workItems.find((item) => item.id === workItemId);
+  const line = workItem && decisionLines(workItem, Date.now()).find((listed) => listed.id === decisionId);
+  if (!line || line.reversed !== null || !opened(REVERSE)) return;
+  reversing = { workItemId, decisionId };
+  byId("reverse-decision").textContent = `${line.kind}: ${line.says}`;
+  reverseMessage.value = "";
+  reverseMessage.focus();
+}
+
 function openHidden(): void {
   if (dialogOpen()) return;
   showHidden();
@@ -1181,9 +1204,10 @@ function onNotificationClick(session: Pick<SessionInfo, "id" | "workItemId">): v
   if (opens) openView(opens.workItemId, opens.pane ?? undefined);
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed and of each work item that was parked with questions, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
+  const heldBefore = [...held.workItems, ...held.archived];
   held.sessions = next.sessions;
   held.workItems = next.workItems;
   takeRepositories(next);
@@ -1193,6 +1217,13 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     const notification = notificationFor(before.get(session.id) ?? null, session, inFront, held.workItems, held.paneKinds, held.archived);
     if (!notification) continue;
     new Notification(notification.title, { body: notification.body }).onclick = () => onNotificationClick(session);
+  }
+  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification brings the window forward and opens the work item's view, where its questions are answered, where the lists still hold it.
+  for (const parked of parkNotifications(heldBefore, held.workItems, front === "view" && document.hasFocus() ? held.viewing : undefined)) {
+    new Notification(parked.title, { body: parked.body }).onclick = () => {
+      void window.owlery.comeForward();
+      if (held.workItems.some((workItem) => workItem.id === parked.workItemId)) openView(parked.workItemId);
+    };
   }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
   showSidebar();
@@ -1493,6 +1524,8 @@ function onMessage(message: ServerMessage): void {
         return;
       }
       if (answered(message.requestId, null)) return;
+      // The answers a person sent to a parked work item's questions were taken.
+      if (takeAnswers(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -1521,6 +1554,8 @@ function onMessage(message: ServerMessage): void {
       if (takeSettingsPlan(message.requestId, { error: message.message })) return;
       // A read of a loss that was refused is its dialog's to show.
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
+      // The refusal of the answers to a parked work item's questions is its view's section's to show.
+      if (takeAnswers(message.requestId, message.message)) return;
       // A refused plan of the records place is its dialog's to show.
       if (takeRecordsPlan(message.requestId, { error: message.message })) return;
       if (registering?.requestId === message.requestId) registering = undefined;
@@ -1611,7 +1646,7 @@ initSidebar(
   MAC,
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
-initView(() => openList("inbox"), MAC, openView);
+initView(() => openList("inbox"), MAC, openView, openReverse);
 initKeepAwake();
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
@@ -1704,6 +1739,13 @@ byId<HTMLFormElement>("group-form").addEventListener("submit", (event) => {
   // The daemon stores the name without the white space at its ends, and refuses an empty one.
   const repoId = groupOf;
   if (repoId !== undefined) ask(GROUP, (requestId) => ({ type: "addGroup", requestId, repoId, name: groupName.value }));
+});
+byId("reverse-cancel").addEventListener("click", () => reverseDialog.close());
+byId<HTMLFormElement>("reverse-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  // The daemon stores the message without the white space at its ends, and refuses an empty one. Its `done` closes the dialog, and the `inbox` after it carries the decision as reversed.
+  const of = reversing;
+  if (of !== undefined) ask(REVERSE, (requestId) => ({ type: "reverseDecision", requestId, ...of, message: reverseMessage.value }));
 });
 byId("hidden-close").addEventListener("click", () => hiddenDialog.close());
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());
