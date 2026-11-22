@@ -51,7 +51,7 @@ The cases are `test/claude-adapter.test.ts`, which puts a script in the CLI's pl
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1, 3 and 15, and item 2 for a role launch, with their parts of *Data & interfaces* | Scenarios 1, 3 and 16 as cases, each seen red before its code | |
+| 1 | `frame/design.md` *Scope* items 1, 3 and 15, and item 2 for a role launch, with their parts of *Data & interfaces* | Scenarios 1, 3 and 16 as cases, each seen red before its code | `cc30449` |
 | 2 | *Scope* items 4 to 14 and 17, and item 2 for a launch with no role, with their parts of *Data & interfaces*, and every row of *Removes* | Scenarios 2, 4 to 15 and 21 as cases, each seen red before its code. Scenario 20 by the one real run, made once at the close of this phase | |
 | 3 | *Scope* item 16, with its part of *Data & interfaces* | Scenarios 17, 18, 19 and 22 as cases, each seen red before its code, and the two built-app cases scenarios 18 and 19 name | |
 
