@@ -73,5 +73,4 @@ Review round 4 left two things, each with an issue in `release: 0.0.3`.
 
 The merge of the base at `0d3c5e0`, which brought the worktree's setup (#155), left two things within reach.
 
-- **A line that carries both marks leaves its own text almost no room.** The second row holds the text, then the decisions' mark, then the setup's words, and neither mark shrinks. In the screenshot run at `0d3c5e0` the line of the work item with "2 decisions without asking, 1 reversed" and "Setup failed" shows its agent's question as "Shou…". No document names which of the three gives way.
-- **`frame/plan.md` *Overlap with the release* holds no row for #155.** `seal/threads/1795339001-worktree-setup/frame/plan.md` holds the row for this work, and the merge followed it.
+- **A line that carries both marks leaves its own text almost no room.** The second row holds the text, then the decisions' mark, then the setup's words, and neither mark shrinks. In the screenshot run at `0d3c5e0` the line of the work item with "2 decisions without asking, 1 reversed" and "Setup failed" shows its agent's question as "Shou…". No document names which of the three gives way. #157 in `release: 0.0.3` holds it.
