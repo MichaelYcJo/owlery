@@ -958,7 +958,7 @@ describe("the setup of a new worktree", () => {
     expect(exited.workItems[0]!.setup).toMatchObject({ paneId: answer.workItem.setup!.paneId, state: "running", exitCode: null });
   });
 
-  it("leaves a setup that runs as the daemon stops for the next daemon to read as failed, since the daemon stopped before it ended", async () => {
+  it("leaves a setup that runs as the daemon stops for the next daemon to read as failed, since the daemon stopped before it ended, and naming no pane", async () => {
     const made = repositoryNaming({ command: "sleep 30" });
     const runDir = join(made.base, "run");
     mkdirSync(runDir);
@@ -968,7 +968,29 @@ describe("the setup of a new worktree", () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor });
     const ready = await (await client(url)).message("ready");
-    expect(ready.workItems[0]!.setup).toEqual({ ...answer.workItem.setup, state: "failed", failure: "The daemon stopped before the setup command ended." });
+    expect(ready.workItems[0]!.setup).toEqual({ ...answer.workItem.setup, paneId: null, state: "failed", failure: "The daemon stopped before the setup command ended." });
+  });
+
+  it("names after a restart no pane of the setup, so the pane the next daemon gives the same id is no setup pane, and a run again leaves it listed", async () => {
+    const made = repositoryNaming({ command: "true" });
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { d, c, answer } = await createdIn(made, { runDir });
+    const old = answer.workItem.setup!.paneId!;
+    await setupEnded(c);
+    await d.close();
+    // The next daemon counts its pane ids from 1 again, and its panes exit at once.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const next = await client(url);
+    expect((await next.message("ready")).workItems[0]!.setup).toMatchObject({ paneId: null, state: "succeeded" });
+    next.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: answer.workItem.id });
+    const pane = (await next.message("started", (m) => m.requestId === 2)).session.id;
+    expect(pane).toBe(old);
+    await next.message("inbox", (m) => m.sessions.some((s) => s.id === pane && !s.alive));
+    next.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24 });
+    const started = await next.message("started", (m) => m.requestId === 3);
+    const ended = await setupEnded(next, started.session.id);
+    expect(ended.sessions.map((s) => s.id)).toEqual([pane, started.session.id]);
   });
 
   it("runs the setup again at a person's request: copies what is missing, takes the earlier setup pane off the lists, answers with the new pane, and records the new setup in place of the old", async () => {

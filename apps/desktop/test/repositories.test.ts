@@ -127,20 +127,21 @@ describe("RepositoryStore", () => {
     const { item } = store.addWorkItem(PLACE);
     expect(store.setWorkItem(item.id, { setup: SETUP })).toBe(true);
     expect(store.setWorkItem(item.id, { setup: store.workItem(item.id)?.item.setup ?? null })).toBe(false);
-    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, setup: SETUP });
+    // The pane did not outlive the daemon that started it, so the next daemon reads none.
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, setup: { ...SETUP, paneId: null } });
     const { setup: _none, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
     writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [before] }] }));
     expect(new RepositoryStore(dir).workItem(1)?.item).toEqual({ ...before, setup: null });
   });
 
-  it("reads a setup that was running when the daemon stopped as failed, and says why, and keeps one that ended as it ended", () => {
+  it("reads a setup that was running when the daemon stopped as failed, and says why, keeps one that ended as it ended, and names the pane of neither", () => {
     const dir = runDir();
     const running: WorktreeSetup = { ...SETUP, state: "running", exitCode: null, endedAt: null };
     const workItems = [{ id: 1, ...OWN, createdAt: 1, ...UNSET, setup: running }, { id: 2, ...OWN, createdAt: 1, ...UNSET, setup: SETUP }];
     writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems }] }));
     const store = new RepositoryStore(dir);
-    expect(store.workItem(1)?.item.setup).toEqual({ ...running, state: "failed", failure: "The daemon stopped before the setup command ended." });
-    expect(store.workItem(2)?.item.setup).toEqual(SETUP);
+    expect(store.workItem(1)?.item.setup).toEqual({ ...running, paneId: null, state: "failed", failure: "The daemon stopped before the setup command ended." });
+    expect(store.workItem(2)?.item.setup).toEqual({ ...SETUP, paneId: null });
   });
 
   it("adds a group to a repository under an id no group bears, after the groups it has, writes the store, and gives a group's id to no group made after, though its repository was removed", () => {

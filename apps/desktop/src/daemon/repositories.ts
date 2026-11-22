@@ -152,12 +152,14 @@ function past(ids: readonly number[]): number {
 
 /**
  * A setup as the store reads it at the daemon's start: none where the file
- * held none, and a failed one where it was running, since its pane did not
- * outlive the daemon that started it.
+ * held none, a failed one where it was running, and in each case naming no
+ * pane: the pane did not outlive the daemon that started it, and the next
+ * daemon counts its pane ids from 1 again, so the id would name another
+ * pane.
  */
 function setupRead(setup: WorktreeSetup | null | undefined): WorktreeSetup | null {
   if (setup === undefined || setup === null) return null;
-  const read = setupOf(setup);
+  const read = { ...setupOf(setup), paneId: null };
   return read.state === "running" ? { ...read, state: "failed", failure: DAEMON_STOPPED } : read;
 }
 
@@ -189,7 +191,8 @@ function readJson(file: string): unknown {
  * highest id of its kind. A file that is neither is read as no repository.
  * A work item written before the setup was recorded is read with none, and
  * one whose setup was running is read with that setup failed: its pane
- * ended with the daemon that started it.
+ * ended with the daemon that started it. Every setup is read naming no
+ * pane, since the next daemon gives that pane's id to another.
  *
  * Where that file does not exist, the store starts from `work-items.json`,
  * the list a build before the repositories wrote: one repository for each

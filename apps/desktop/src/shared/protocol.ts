@@ -142,7 +142,7 @@ export interface WorktreeSetup {
   failedCopies: { path: string; why: string }[];
   /** The command `.worktreesetup` held, whole, or null where it named none. */
   command: string | null;
-  /** The pane the command runs in, a pane of the kind `shell`, or null where no command stands or its pane could not start. */
+  /** The pane the command runs in, a pane of the kind `shell`, or null where no command stands, where its pane could not start, and once the daemon that started the pane has stopped, since the next daemon gives its id to another pane. */
   paneId: number | null;
   /** `running` from the pane's start until its process exits. `succeeded` where the command exited with 0, or no command stands, no copy failed and the daemon did not end the pane, and `failed` otherwise. */
   state: "running" | "succeeded" | "failed";

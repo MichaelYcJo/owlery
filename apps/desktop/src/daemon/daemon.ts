@@ -693,9 +693,10 @@ export class Daemon {
             if (setup === null) throw new Error(`${held.repository.folder} names no setup: it holds neither ${INCLUDE_FILE} nor ${SETUP_FILE}.`);
             // An archive or a delete may have begun during the copy, and no pane starts in either.
             if (this.worktreeFor(socket, message.requestId, workItemId) === undefined) return;
-            // The earlier setup pane, which has exited, leaves the lists, and the record names the new one.
+            // The earlier setup pane of this work item, which has exited, leaves the lists, and the record names the new one.
             const before = earlier?.paneId ?? null;
-            if (before !== null && this.sessions.get(before)?.info.alive === false) this.sessions.delete(before);
+            const prior = before === null ? undefined : this.sessions.get(before);
+            if (before !== null && prior?.info.workItemId === workItemId && prior.info.alive === false) this.sessions.delete(before);
             const recorded = this.startSetup(socket, message, workItemId, held.item.worktree, setup);
             const pane = recorded?.paneId === null || recorded?.paneId === undefined ? undefined : this.sessions.get(recorded.paneId);
             // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
