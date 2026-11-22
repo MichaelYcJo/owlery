@@ -19,9 +19,10 @@ import {
   writeRecord,
 } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
-import { temporaryRepository } from "./repositories";
+import { git, temporaryRepository } from "./repositories";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
+const DOCS = join(__dirname, "..", "..", "..", "docs");
 
 const F = "```";
 /** A `seal` block of those lines, with the blank line that follows a block. */
@@ -396,6 +397,25 @@ describe("the writer of a work item's record", () => {
       expect(readFileSync(join(path, RECORD_FILE), "utf8")).toBe(withAnswer(withReversal(RECORD, 1, "No."), 2, "yes"));
       expect(record).toEqual(readDecisionRecord(readFileSync(join(path, RECORD_FILE), "utf8")));
       expect(readdirSync(path)).toEqual([RECORD_FILE]);
+    });
+
+    it("writes a reversed decision and an open question so that the search the policy document gives a settle prints each, and prints nothing once each is closed", () => {
+      const command = "git grep -n -e '^state: reversed$' -e '^state: open$' -- '*/threads/*/decisions.md'";
+      for (const edition of ["architecture.md", "architecture.ko.md"]) expect(readFileSync(join(DOCS, edition), "utf8"), edition).toContain(command);
+      const path = directory();
+      const repo = join(path, "..", "..", "..");
+      /** What the document's command prints in the repository, with its exit code: git exits 1 where no line matches. */
+      const search = (): { exit: number | null; printed: string[] } => {
+        git(repo, "add", "--all");
+        const run = spawnSync("git", ["grep", "-n", "-e", "^state: reversed$", "-e", "^state: open$", "--", "*/threads/*/decisions.md"], { cwd: repo, encoding: "utf8" });
+        return { exit: run.status, printed: run.stdout.split("\n").filter((line) => line !== "") };
+      };
+
+      writeRecord(path, (text) => withQuestion(withReversal(withDecision(text, { kind: "scope", decided: "No push.", grounds: "None asked." }), 1, "Push it."), { asks: "Go on?", grounds: "None stands." }));
+      expect(search()).toEqual({ exit: 0, printed: ["seal/threads/1-x/decisions.md:9:state: reversed", "seal/threads/1-x/decisions.md:17:state: open"] });
+
+      writeRecord(path, (text) => withAnswer(withApplied(text, 1, "0123abc"), 2, "yes"));
+      expect(search()).toEqual({ exit: 1, printed: [] });
     });
 
     it("leaves the file as it is where the change throws, and creates none", () => {
