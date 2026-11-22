@@ -1,0 +1,89 @@
+# Implementation Plan: 1795338001-records-place-and-pr-check
+
+## Technical context
+
+The tree as read at `dd938de`.
+
+`apps/desktop`. The protocol is `src/shared/protocol.ts`: `Repository` (line 71), `ClientMessage` (line 288), whose `addRepository` (line 299) and `readLoss` are the shapes this work follows, and `ServerMessage` (line 338). The daemon is `src/daemon/daemon.ts`: `handle` (line 330), the case `addRepository` (line 406), `lists` (line 1093), `repositoryOf` (line 1103), `readCommits` (line 1207), which is the pass that reads every work item's branch, and `readBranch` (line 1224). Git is reached through `src/daemon/worktrees.ts#git` (line 42), and `readLoss` (line 772) makes the stamp a delete compares. The daemon's files are written whole through `src/daemon/whole-file.ts`. The build is `build.mjs`, which gives the daemon no version today.
+
+The window registers a repository in `src/renderer/renderer.ts#registerRepository` (line 1217), from the form of `src/renderer/index.html` (`work-item-dialog`, line 572). The repository's menu is `src/renderer/view.ts#repositoryMenu` (line 1172). The window's words come from pure functions of `view.ts`, which `test/view.test.ts` reads.
+
+The cases build temporary repositories with `test/repositories.ts` (`temporaryRepository`, `temporaryClone`, `commitFile`), and `test/daemon.test.ts` builds a `Daemon` and reads what a client receives. A test file that starts the built app imports `buildApp` from `test/built-app.ts`, and `vitest.config.ts` then runs it in the `app` project, one file at a time.
+
+The check's source is AgenticSeal 0.38.4, installed at `/Users/yc/.claude/plugins/cache/agenticseal/agentic/0.38.4` and tagged `v0.38.4` in `https://github.com/MichaelYcJo/AgenticSeal`. `chain_check.py` finds its readers through `lib/sibling.py`, by paths from its own file, so the files keep their paths under `pr-check/`. It needs Python 3.12 or newer and the standard library alone.
+
+The policy documents are `docs/architecture.md` and `docs/architecture.ko.md`: *What we take from AgenticSeal* (line 122), its row on the scripts (line 133), *What changes because Owlery is not a plugin* (line 137, the row at line 150), *State lives in three places* (line 158), *Records are committed to the repository* (line 169), *Compatibility with AgenticSeal* (line 179), *Taking in AgenticSeal's changes* (line 217) and *Open decisions* (line 351, the row at line 357). The headings and the table rows stand at the same lines in the Korean edition.
+
+**The failure scenario of the chosen approach.** In six months the daemon reads a record one way and the check reads it another. The daemon's reader of a `seal` block is TypeScript and the check's is Python, and Owlery now changes both as its own. A field added to the verdict block in one and not the other shows a seal in the inbox that the pull request's check refuses. The design bounds this with the case that reads the same fixtures through both readers (`frame/design.md` scenario 18), and a kind added to one reader is added to that case. The second failure: a repository connected at one release keeps the check of that release while the app writes records of a later one, and the check refuses a field it does not know. `frame/design.md` *Scope* item 26 names the move of the pin as work no issue carries yet. The third: the workflow's fallback fetches a release's branch after the branch is deleted and before the tag exists, and the check fails at the fetch. The release's own pull request makes the tag at the merge, so the gap is the minutes between the two.
+
+## Alternatives considered
+
+| Approach | Failure scenario | Verdict |
+|---|---|---|
+| Take AgenticSeal's check scripts into Owlery's repository as an owned copy, and adapt them from there (chosen) | The first failure of *Technical context*: two readers of one grammar, in two languages | Chosen. The copy judges every record of the chain today, before the daemon writes one, and the suite runs it as GitHub does. Owlery owns it from the day it is taken (the owner, 2026-11-22), so it is a start and not a tie |
+| Rewrite the check in TypeScript, shared with the daemon and run on GitHub by Node | The check holds only the arms rewritten so far, so a pull request of a declared work item is not held to the four invariants until #41 to #43 have each rewritten their arm, and each arm is rewritten with none of the 2,348 lines' cases behind it | Rejected for now, and weighed as the equal of the row above: one reader for the daemon and the check is what this row would give. The premise that keeps the Python is that the check must be whole in release 0.0.2, where #41 to #43 write the first records: checked in the probe of `frame/design.md` *Grounding*, where the taken check refused a declared work item with no round record. A rewrite comes in as an issue of Owlery's once the daemon's readers cover the records |
+| Fetch AgenticSeal's own repository at a tag, as this repository's `hygiene.yml` does | Owlery cannot change a line of the check, and #42's fields for the judging session are refused by a reader Owlery does not own | Rejected. `docs/architecture.md` *What we take from AgenticSeal* says Owlery does not depend on AgenticSeal's version, and the owner's decision of 2026-11-22 says Owlery follows no release |
+| The workflow fetches the check from Owlery's repository at the release's tag, with the release's branch until the tag exists (chosen) | The second and the third failure of *Technical context* | Chosen. The connected repository gains one workflow file a person can read. The fallback is there because #43 and #48 run the check on GitHub before `v0.0.2` exists |
+| Commit the check's files into the connected repository | The person reads a commit of every Python file of the check, and every later change of the check is another commit in every connected repository | Rejected. AgenticSeal's own workflow clones for the same reason |
+| The setup is a request on a repository the daemon keeps, and a registration opens its dialog (chosen) | A person closes the dialog, and the repository is kept with no place for records until they open the entry of its menu | Chosen. The repositories kept before this build have no place either, and a work item's creation also adds a repository, so a kept repository without the place exists whatever the registration does. `Repository.records` says what each holds |
+| Refuse to add a repository until its setup is committed | The work items of a repository kept by release 0.0.1 would have to be refused or left as a second kind of repository | Rejected for the premise above |
+| The setup commits on the branch the main checkout stands on, and pushes nothing (chosen) | A person on a protected default branch holds a local commit they must move to a branch of their own before they push | Chosen. The dialog names the branch before the commit, and the daemon has no push before #43 |
+| The setup cuts a branch and a worktree of its own for the commit | The app makes a branch nobody asked for, and the place reaches the default branch only through a pull request the app cannot open yet | Rejected until #43 gives the daemon a pull request |
+| Write the files and leave the commit to the person | Work items cut from the base hold no place, and `docs/architecture.md` says Owlery always commits its records | Rejected |
+| One file `decisions.md` of blocks with a `state:` field, changed in place (chosen) | The daemon writes a reversal into the file while a stage's session is editing it, and one of the two writes is lost | Chosen. The file is put back whole, and a session's edit tool refuses a file that changed since it read it. A person and a search both read the state on one line, which the settle's search of P10 needs |
+| An append-only file, where a reversal and an answer are blocks of their own that name an id | The state of a decision is spread over two or three blocks, so no single line says that a decision stands reversed | Rejected for the premise above |
+| The decisions as a table of `frame/questions.md` or of `frame/plan.md` *Judgments of the run* | A reader of a table's prose decides by a spelling, which is what #119's frame refused | Rejected. The owner's decision names a block of fixed fields |
+| A block whose info string is `seal`, read by the grammar the round records use (keeps AgenticSeal's block) | AgenticSeal later reads a `decisions.md` of its own with other kinds, and its check refuses Owlery's | Kept. The premise is that AgenticSeal's check does not read the file: checked by the probe on 0.38.2 and 0.38.4 in `frame/design.md` *Grounding*, and held by scenario 3. Owlery owns its format, so a later clash is settled in Owlery's check |
+| A block of Owlery's own, with another info string and another grammar | The daemon holds two readers of fenced fields, one for decisions and one for the verdict and the run it reads from #42 on | Rejected for the premise above |
+| A work item's directory is found by the `Branch` row of `routing.md` in its worktree (chosen) | A work item whose first stage has not run has no directory, so a decision made before it has nowhere to stand | Chosen. It is the fact the check reads, and it is read from the worktree, so nothing is kept beside the tree. *Scope* item 21 gives the first stage the directory |
+| The daemon stores each work item's directory in `repositories.json` | The stored name and the tree disagree after a rename of the branch or a settle | Rejected |
+| The policy text is written in this pull request, as part of each phase (chosen) | A later design quotes a `from` out of a section this work rewrote | Chosen. The grounds are in `frame/design.md` *Rule changes*. The pull request moves no section |
+
+## Phases
+
+| Phase | Delivers | Verified by | Status |
+|---|---|---|---|
+| 1 | `frame/design.md` *Scope* items 1 to 6, with entries P1 to P5 and the rows of *Removes* they name | Scenarios 1 to 4 as cases of `test/pr-check.test.ts`, each seen red before the folder holds its file, scenario 6 by `test/role-bundle.test.ts`, and the two searches of scenario 6 and those of scenario 5 printing nothing | |
+| 2 | *Scope* items 7 to 12 and 19, with entries P6 to P8 and the parts of *Data & interfaces* on the protocol and the connection | Scenarios 7 to 16 as cases, each seen red before its code, and scenario 17 by its one case in the built app | |
+| 3 | *Scope* items 13 to 18, with entries P9 to P12 and the parts of *Data & interfaces* on the block grammar and the record | Scenarios 18 to 21 as cases, each seen red before its code, and the two searches of scenario 22 printing nothing | |
+
+Phase 1 comes first because phase 2's workflow names a file of `pr-check/` and phase 3's reader is compared with `pr-check/lib/fields.py`. Phases 2 and 3 share no file but the two policy documents. Each phase writes its entries of the policy text with the code they describe, so every `check:` line names a test file that stands in the same commit. The broad gate, which compares the two editions, is the orchestrator's.
+
+## Overlap with the release
+
+The spawn names #119, #41, #42, #38 and #39, and the worktrees of #39 and #119. #43, #49, #51 and #53 are read as issues.
+
+| Work item | Where both change | Merges first | Grounds |
+|---|---|---|---|
+| #119, `1795330500-no-question-holds-the-run` | The fact of where a decision and a question live. `apps/desktop/src/shared/protocol.ts`, `src/daemon/daemon.ts`, `src/renderer/view.ts`, `renderer.ts` and `index.html`. `docs/architecture.md` *State lives in three places*, *What changes because Owlery is not a plugin* and *Code runs the order, the orchestrator judges*, and the Korean edition | #40 | Decided by the orchestrator on the owner's word (2026-11-22). #119 is reframed on this frame, so it reads the record's module and the policy text as merged |
+| #39, `1795338000-role-tools-and-permissions` | `apps/desktop/src/shared/protocol.ts` and `src/daemon/daemon.ts`, in other declarations and other cases of `handle`. Its *Rule changes* name `docs/architecture.md` *What changes because Owlery is not a plugin*, where this work rewrites the row on moving records and no other | #39 | Its first phase is built, and #41 waits on it. This work reads nothing #39 changes, and takes the merge inside a phase's commits |
+| #38, `1795329620-role-bundle`, merged | `apps/desktop/role-bundle/README.md`, `apps/desktop/test/role-bundle.test.ts`, and its design's *Rule changes* | #38, already | This work rewrites what #38 stated on following AgenticSeal (*Scope* items 5 and 6) |
+| #41, review rounds and fix passes | Its first stage creates the work item's directory and `routing.md`, its stages write decision blocks through `decision-record.ts` and commit them, and it writes `applied` for a reversal it took in. Its round records are what the taken check reads | #40 | #41 depends on #40 by its issue |
+| #42, the gate and the sealer | It reads `Repository.records.broadGate` for the command, reads the verdict kind and the run kind of `record-blocks.ts`, writes a question block where the sealer cannot go on, and adds its fields for the judging session to both readers | #40 | #42 depends on #41 |
+| #43, the pull request and the seal check | The workflow `owlery-seal.yml` and its job `seal`, which is the check a person makes required, and `pr-check/`'s body arm, which reads the body the daemon composes | #40 | #43 depends on #42 |
+| #49, the release's pull request | Its body lists the decisions of the release, read from every `decisions.md` (P10) | #40 | #49 is the release's last pull request |
+| #51 and #53, release 0.0.3 | #51 writes its route as a decision block, and #53's question screen reads the question blocks | #40 | Release 0.0.2 merges before 0.0.3 opens its work |
+
+**What #119 keeps and what it replaces.** The rows below name #119's units as its branch holds them at `0b32790`.
+
+| #119's unit | Kept or replaced |
+|---|---|
+| The rule's text in `docs/product.md` and in `docs/architecture.md` *Code runs the order, the orchestrator judges* | Kept, with the sentence "The daemon keeps each decision made in place of asking with its grounds" rewritten: the record holds it, and the daemon reads it |
+| Its edit of the cell of the row "The daemon" in *State lives in three places* | Replaced by P11, which this work writes first |
+| `Daemon#decided` and `Daemon#park`, as entries of the daemon's own code | Kept. Each writes a block through `decision-record.ts` into the work item's worktree, and refuses a work item with no directory |
+| `src/daemon/decisions.ts` and `src/daemon/asked.ts`, the files `decisions.json` and `asked.json`, and their cases `test/decisions.test.ts` and `test/asked.test.ts` | Replaced by `decision-record.ts` and `decisions.md`. The drop of a work item's decisions at its delete goes with them: the worktree holds the record |
+| The protocol's `Decision` and `Asked` on `WorkItem` | Kept as what a work item carries, read from the record. `Decision.id` is the block's id, one over the work item's record. `Decision.reversed` gives way to the block's state and its message. The clocks `at`, `reversed.at` and `Asked.answeredAt` have no field in the record: #119's reframe says what the inbox's ages read. `Asked` becomes the work item's `open` questions, each a block of its own |
+| `reverseDecision` and `answerQuestions` | Kept. Each writes the person's word into the record, and the work item's next stage commits it, or the daemon commits the records alone where no stage runs |
+| The inbox line, the preview, the view and the summary | Kept. The summary's "new since the look" stays a comparison of ids. The inbox shows the decisions the person has not seen, the `open` questions and the `reversed` decisions, and a work item leaves it at its archive or, from #43, when its pull request merges |
+| What the person has seen | New in the reframe: the daemon's state in its run folder, under the work item's id. It stands in no record |
+| The blocks the reader refuses | New in the reframe: the work item's view names each, with its line |
+
+## Operational impact
+
+The repository gains the folder `pr-check/`, Python files that no part of the app loads. The desktop suite now runs `python3`, version 3.12 or newer, and `.github/workflows/check.yml` gains a step that sets it up. No dependency of the app and no environment variable is added. The protocol gains the field `records` on a repository, the client messages `planRecords` and `setUpRecords` and the server message `recordsPlan`. A window of this build offers no setup to a daemon that sends no `records`. A connected repository gains one commit of its `seal/` root and of `.github/workflows/owlery-seal.yml`, and its pull requests then fetch `pr-check/` from `https://github.com/MichaelYcJo/owlery` at the tag `v<version>`. The version does not move: `apps/desktop/package.json` reads `0.0.2`.
+
+## Judgments of the run
+
+| Date | Judgment | Grounds | Judged against |
+|---|---|---|---|
+| | | | |
