@@ -43,7 +43,7 @@ The spawn names #40, whose frame and code were read on its branch at `85b6c50`, 
 
 | Work item | Where both change | Merges first | Grounds |
 |---|---|---|---|
-| #40, `1795338001-records-place-and-pr-check` | This work reads `decision-record.ts`, `record-blocks.ts` and `records-place.ts#rootOf`, which #40 adds. It rewrites a sentence of P10 in `docs/architecture.md` *Records are committed to the repository* and the Korean edition, which #40 writes. It removes a case of `test/decision-record.test.ts`, which #40 adds | #40 | This work cannot build without #40's modules, and R2 amends text #40 writes. #40 is in its review rounds (`trail/rounds/round-1.md` on its branch), so its merge comes before this work's first phase. #40's design *Scope* item 24 names this gap, and this work closes it |
+| #40, `1795338001-records-place-and-pr-check` | This work reads `decision-record.ts`, `record-blocks.ts` and `records-place.ts#rootOf`, which #40 adds. It rewrites a sentence of P10 in `docs/architecture.md` *Records are committed to the repository* and the Korean edition, which #40 writes. It removes a case of `test/decision-record.test.ts`, which #40 adds | #40 | This work cannot build without #40's modules, and R2 amends text #40 writes. #40 merged into `release/v0.0.2` at `cc0b938` (#142), and this branch took it in at `9e415bd`, before this work's first phase. #40's design *Scope* item 24 names this gap, and this work closes it |
 | #49, the release's pull request | #49's settle runs `settle --apply` and its pull request and note carry what `settle --list` prints | #131 | #49 is the release's last pull request, and its settle runs the procedure R1 writes |
 | #119, `1795330500-no-question-holds-the-run` | No file. #119 writes decision blocks and question blocks through #40's writers, which this work reads | Either | This work reads the blocks as #40's grammar holds them, whoever writes them. #119 edits no file this work edits |
 | #136, release 0.0.3 | Its fourth line reads the person's reversals across releases at this settle | #131 | #136 is in `release: 0.0.3`, and it extends `settle.ts` (`frame/design.md` *What the daemon could do beyond the issue*) |
@@ -57,3 +57,4 @@ A new script, `pnpm --filter @owlery/desktop run settle`, needs Node, esbuild fr
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
 | | | | |
+| 2026-11-22 | Fold phase 1: `settle.ts` exports `command` and `Printer` beside the reader, and `settle-main.ts` is the entry point alone; #40 is merged. The crafter's eight choices stand as recorded in `trail/phases/phase-1.md` | The phase 1 crafter's hand-back | the plugin's `skills/implement/orchestration.md` *A decision made after the frame is committed is folded* |

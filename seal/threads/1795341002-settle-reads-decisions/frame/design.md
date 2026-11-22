@@ -115,6 +115,8 @@ export function listMarkdown(reading: SettleReading): string;
 
 ### The command, `apps/desktop/src/daemon/settle-main.ts` and `apps/desktop/scripts/settle.mjs`
 
+The command's function, `command(args, cwd, print)`, and its `Printer` are exported by `settle.ts`, beside the reader, so a case can import them; `settle-main.ts` is the entry point that calls it and does nothing else (phase 1, folded by the orchestrator).
+
 ```
 pnpm --filter @owlery/desktop run settle                  kept directories, notices, then the list; exit 1 where it keeps one
 pnpm --filter @owlery/desktop run settle --list           the list alone, as Markdown
