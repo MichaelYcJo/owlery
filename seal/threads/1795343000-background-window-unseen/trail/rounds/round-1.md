@@ -47,6 +47,12 @@ Every run here is an agent's. The app starts under `OWLERY_BACKGROUND=1`, and th
 
 Rewrite `routing.md:18` to say the session wrote `frame/design.md` and `frame/plan.md`, and that the crafter built the plan's one phase. The snippet stops there. Two more statements are owed. The fix pass owes `gaps.md:15`'s second paragraph, which no longer stands once the frame carries the lines. The frame's author owes the roadmap and design lines named above, where it changes them.
 
+```seal
+verdict: fixed cafb67e
+location: `seal/threads/1795343000-background-window-unseen/trail/phases/phase-1.md:43`
+answer: Three commits close it, and the verdict can name one. The framer's `cafb67e` wrote `frame/design.md`, `frame/plan.md` and `frame/questions.md`; its `## Rule changes` carries the two operations of this finding's snippet, the operations on `docs/architecture.md` *Screen framework: Electron* that finding 2 owes, and the operations on `docs/design.md:487` and its Korean edition, and its *Scope* (out) keeps `docs/roadmap.md:29` with its grounds. The orchestrator's `dbe30c4` set `routing.md:7` to `Planning | framer` and rewrote `routing.md:18`: a framer wrote the frame after round 1, and the crafter builds phase 2 against it. That is the route the orchestrator took in place of this snippet's "the session wrote `frame/design.md`". This pass's `304b2ac` rewrote `apps/desktop/measurements/memory.md:37` as the snippet gives it, five things with the window on the screen as the fifth. It also removed `gaps.md`'s paragraph on the policy lines, which stood at `gaps.md:15` at the target, and corrected `trail/phases/phase-1.md:43`, whose "None is made false by this phase" did not hold for `memory.md:37`. That last path is not in this finding's location.
+```
+
 ### 2. Under the switch the folder dialog still opens as a sheet the person can see, while the changelog says the run draws nothing
 
 ```seal
@@ -100,6 +106,12 @@ describe("chooseFolderDialog", () => {
 
 The snippet stops at the code. Four more statements are owed with it. The first is the frame's rule change on `docs/architecture.md:365` and `docs/architecture.ko.md:365`: "opens nothing in the system browser or in Finder" becomes "opens nothing in the system browser or in Finder, and no folder dialog". The other three are the fix pass's. `gaps.md:13`'s paragraph goes. `changelog.md:5` gains the dialog. `changelog.md:1` names the window: "an agent's run of the built app no longer draws its window over yours". The title needs that change either way, because the app's system notifications (row 2 of *Not judged*) are not covered either. Where the orchestrator chooses not to take the code change for this item, the changelog's title and `:5` still owe that narrowing, and `gaps.md:13` owes a named answerer.
 
+```seal
+verdict: fixed 4fa599c
+location: `apps/desktop/src/shared/ipc.ts:70`
+answer: `4fa599c` applied the paste-ready fix after reading it against `frame/design.md` *Scope* item 2 and the handler's one input, `background` from `takeBackground(process.env)`. It adds `chooseFolderDialog` to `pick-folder.ts` and passes the handler's dialog through it in `main.ts`, with the comment and the import the snippet gives. The case stands in `pick-folder.test.ts` as its own `describe` beside `pickFolder`. It was seen red with the background branch absent from the function, at `pick-folder.test.ts:31`, "expected '/r/project' to be null" (executed). `seal mutate` on the committed guard, with the branch removed, the condition flipped and the stand-in answering a folder, gave three red and no survivor (executed). The same commit rewrote `changelog.md:1` to "an agent's run of the built app no longer draws its window over yours", named the folder dialog in the first item at `changelog.md:5`, and removed `gaps.md:13`'s paragraph. `main.ts`'s opening comment now says the main process opens the folder dialog outside a background start. The sweep found `ipc.ts:70`, the channel's comment, saying the call opens the native dialog, and `6efb9e9` adds that a background start opens none. That path is not in this finding's location. The rule change on `docs/architecture.md:365` and its Korean edition is the framer's, in `cafb67e`.
+```
+
 ### 3. The phase record misreports the window watcher's count
 
 ```seal
@@ -112,6 +124,11 @@ Why it matters: the phase claims "Of 375 samples, 373 read `alpha=0 onscreen=1` 
 
 ```markdown
 Of 375 samples, 372 read `alpha=0 onscreen=1` at 1440 by 900. The other three read `alpha=1 onscreen=false` at 0 by 0, each the first sample of its app: the window before it is shown.
+```
+
+```seal
+verdict: fixed 304b2ac
+answer: `304b2ac` replaced the two sentences at `phase-1.md:27` with the snippet's. The count was taken again over the watcher's log in the crafter's `phase-1/` scratch directory: `awk '{print $5,$6,$7,$8}' watch.log | sort | uniq -c` printed 372 at `alpha=0 onscreen=1` and 3 at `alpha=1 onscreen=false`, and `grep -n "alpha=1" watch.log` printed lines 1, 6 and 185, for pids 59272, 59723 and 89482 (executed).
 ```
 
 ## Confirmations
