@@ -1,0 +1,230 @@
+# Design: 1795339001-worktree-setup, a new worktree gets its ignored files and runs a setup command (#97)
+
+The ticket is issue #97, split from #59 on 2026-11-20. A new work item's worktree holds only what git tracks, so a person or the agent installs the dependencies and copies `.env` by hand for each one. The issue asks that a repository name the ignored files a new worktree gets from its main checkout and the command a new worktree runs, that the command runs in a pane the person can see with its result on the inbox line, that a failed command leaves the work item created and usable, and that a repository that names nothing gets its worktree as today. #59 keeps the ports of each worktree and the setup again at a restore.
+
+This frame decides the place: `.worktreeinclude` and `.worktreesetup` at the top of the repository's main checkout. The first is the file Claude Code, Codex, Conductor, Orca and Paseo already read for the same purpose. The second is a file of its own beside it, outside any place where Owlery keeps its records or its configuration, so #40's choice of that place moves neither (`frame/plan.md` *Overlap with the release*).
+
+## Grounding
+
+The tree as read at `6c63736`.
+
+| Policy clause | What it fixes for this work |
+|---|---|
+| `docs/architecture.md` *State lives in three places* | The user's repository holds the work records, and the daemon holds progress, session events and output. What a person sets on a repository or a work item in the app is the daemon's state and is written nowhere in the person's repository. So the two files are the person's own, read and never written by Owlery, and what a setup gave is the daemon's state, kept with its work item |
+| `docs/architecture.md` *Records are committed to the repository* | Owlery commits work records to the repository, and connecting a repository creates the place for records (#40). The setup files are not records and are not placed there |
+| `docs/product.md` *Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call* | Each work item shows its state on one line, and a person who comes back first sees what needs them. So a failed setup is said on the line, and a setup that succeeded adds nothing a person acts on |
+| `docs/product.md` *File explorer and editor* | A worktree is a separate folder checked out from the same repository, and a new one has no `.env` of its own. That sentence changes with this work (*Rule changes*) |
+| `docs/product.md` *What we deliberately don't do*, the bullet that opens "Owlery deletes nothing of a person's work" | The ignored files of a worktree go with it at a delete, named, and without the force. The copied files are ignored files, so a delete names them and they make no delete a forced one, with no change to the delete |
+| `docs/architecture.md` *Overall layout*, the bullet "Agent state is judged from events, never guessed from what the terminal screen prints" | The setup's result is read from the exit of the pane's process and from the daemon's own acts, never from what the pane prints |
+| `docs/architecture.md` *Rules that keep it portable*, rules 1 and 2 | The window names no pane kind of its own. So the setup pane is a pane of the kind `shell`, and its tab says "Setup" because the work item's setup record names it, not because the window knows a kind |
+| `docs/roadmap.md` *Milestones*, rows 2 and 4 | Row 4 builds "A setup script and ports of its own for each worktree". The owner moved the setup's first half into release 0.0.2, the release of milestone 2 (issue #97's opening paragraph), so rows 2 and 4 change (*Rule changes*) |
+
+The facts below were read or run for this frame. Each line number is at `6c63736`.
+
+| Fact | How it was established |
+|---|---|
+| Issue #97 has no comment, and its body is the one this frame reads. The spawn carried a line on #59's split and none on comments | `executed`: `gh issue view 97 --json title,body,comments,state,milestone`, whose `comments` held none, and `gh issue view 59 --json title,body,state` |
+| `routing.md` stands: Planning framer, Implementation crafter, through the review chain, automation yes, branch `feat/97-a-new-worktree-has-no-ignored-files` | `read`: `seal/threads/1795339001-worktree-setup/routing.md` |
+| The policy root is `docs/` with no index `docs/README.md`. No `seal/follow-up.md` stands. The latest release, `v0.0.1`, holds no `### Process changes` table, and no changelog fragment under `seal/threads/` holds one | `executed`: `ls docs seal`; `gh release view --json tagName,body` with the body tested for the heading, which gave `false`; `grep -rln 'Process changes' seal/threads/*/changelog.md`, which printed nothing |
+| No design on `release/v0.0.2` states a rule change to a section this work changes. Two committed designs stand: `1795268972-headless-failure-and-limit` names *Agent adapters* and *Memory design*, and `1795329620-role-bundle` names five sections of `docs/architecture.md` about role sessions | `executed`: `grep -n '^  section:'` over `seal/threads/*/frame/design.md` |
+| Nothing in the daemon or the window copies a file into a worktree or runs a command when a work item is created. The one read of ignored files is the delete's | `executed`: `git grep -n -i -E 'setup\|worktreeinclude\|copyFile\|cpSync\|fs\.cp\|ignored' 6c63736 -- apps/desktop/src`, which printed `worktrees.ts` lines 517, 769, 773, 792, 798, 808, 809 and 818 (the word `branch.autoSetupMerge`, `readLoss` and `removeWorktree`), `view.ts` lines 344 and 355 (the delete dialog) and 1285 (a docstring on a pane's size), and `protocol.ts` lines 116, 117 and 126 (`WorkItemLoss` and `losesWork`) |
+| No code of the app reads `seal/config.json` or any configuration file of the person's repository | `executed`: `git grep -n -i 'config.json\|Broad gate\|worktreeinclude\|\.owlery' -- apps docs README.md`, whose matches are all in `apps/desktop/role-bundle/`, the agents' documents, and `apps/desktop/src/daemon/main.ts` line 16, `OWLERY_RUN_DIR` |
+| A creation cuts the branch, runs `git worktree add`, and returns. The daemon then stores the work item and starts the one pane the creation names, of the kind the message gives | `read`: `apps/desktop/src/daemon/worktrees.ts#createWorktree` (lines 521 to 536), `apps/desktop/src/daemon/daemon.ts`, the `createWorkItem` case (lines 352 to 374) |
+| A pane's command comes from `DaemonOptions.commandFor`, and the app's is `paneCommands`: a Claude Code pane is `$SHELL -l -i -c "exec claude --settings <file>"`, and a shell pane is `$SHELL -l`, each with the environment `terminalEnv` gives | `read`: `apps/desktop/src/daemon/hooks.ts` lines 87 to 104, `apps/desktop/src/daemon/pty.ts#terminalEnv` and `#loginShell`, `apps/desktop/src/daemon/main.ts` lines 47 to 57 |
+| A pane's exit reaches the daemon as its exit code alone, and a closed pane leaves the lists before its process ends, so its exit is told to no client | `read`: `apps/desktop/src/daemon/pty.ts#TerminalSession.onExit`, `apps/desktop/src/daemon/daemon.ts` lines 1031 to 1043 and the `close` case (lines 686 to 696) |
+| Through node-pty 1.1.0 under Electron 45's Node, the person's login shell run as `-l -i -c <command>` exits with 0 for `echo ok`, 3 for `exit 3`, 127 for a command not found, and 1 when the pane is killed during `sleep 30`. `signal` was 0 in all four. The shell took 0.85 to 2.1 seconds from its start to its end | `executed`: `test_tmp_pty.mjs` in the scratch directory, run with `ELECTRON_RUN_AS_NODE=1` and the main clone's Electron 45.3.3 binary, loading node-pty from a `git clone --no-local` of `6c63736` installed with `pnpm install --frozen-lockfile --offline` |
+| Git's own matcher gives the semantics this frame states. The probe's repository has a `.gitignore` that ignores `node_modules/`, `.env` and `.env.*` but not `.env.example`, and a `.worktreeinclude` that holds `.env`, `**/.env.local`, `node_modules/`, `notes.txt`, `src/a.ts`, `.env.example`, `debug.log` and `!debug.log`. There, `git ls-files --others --ignored --exclude-from=.worktreeinclude --directory -z` piped to `git check-ignore --stdin -z` printed `.env`, `apps/web/.env.local` and `node_modules/`. It left out the untracked `notes.txt`, which git does not ignore, the tracked `src/a.ts` and `.env.example`, and the negated `debug.log`. The first command alone also printed `apps/` and `apps/web/`, which the second left out. `git check-ignore --stdin` exits 1 where it prints nothing, and `--exclude-from` with a missing file exits 128 | `executed`: `test_tmp_include.sh` in the scratch directory, git 2.54.0 |
+| Owlery's own repository installs in a fresh checkout in about four seconds: `pnpm install --frozen-lockfile --offline` took 4.0 seconds, the `electron-rebuild --only node-pty` of its `postinstall` among it | `executed`: `time pnpm install --frozen-lockfile --offline` in the scratch clone. `read`: the orchestrator's logs `pnpm-install-119.txt` and `install-121.log` in the session's scratchpad, each "Done in 3.5s" |
+| Copying the clone's `node_modules` (177 MB, 3,784 entries, 209 links) took 0.7 to 1.2 seconds with Node's `fs.cpSync` and `verbatimSymlinks`, 0.93 seconds with `/bin/cp -c -R -P`, which clones on APFS, and 1.45 seconds with `/bin/cp -R -P`. Node's `COPYFILE_FICLONE_FORCE` failed with `ENOSYS` on this Mac, so Node's copy writes the bytes | `executed`: `test_tmp_copy.mjs` with Node 22.14.0, and `/usr/bin/time -p /bin/cp` in the scratch directory, on an APFS volume |
+| Electron 45's Node is 24.22.3 and has `fs.promises.cp` | `executed`: `ELECTRON_RUN_AS_NODE=1 <Electron> -e`, printing `process.versions.node` and `typeof fs.promises.cp` |
+| Claude Code, Codex, Conductor, Orca, Paseo, agentbox and cmux read `.worktreeinclude` to copy ignored files into a new worktree, and agentbox checks each match again with `git check-ignore`. Conductor moved its setup scripts out of the repository into the app on 2026-11-16. Orca reads its own `orca.yaml` `scripts.setup` and Conductor's files | `read`: the main clone's `etcs/research/competitors/` (`claude-code-desktop.md` lines 50 and 136, `codex-app.md` line 43, `conductor.md` lines 33, 43, 152 and 157, `orca.md` lines 43, 148 and 177, `paseo.md` line 43, `agentbox.md` lines 43 and 122, `cmux.md` line 46), which read those products' documents and code. Which folder Claude Code reads the file from was not established (Q3) |
+| A work item as the window receives it is pinned field by field by a case, and a look's file is read by fields, the ones that came with the repositories being allowed to be absent | `read`: `apps/desktop/test/daemon.test.ts` `WORK_ITEM_FIELDS` (line 25) and the case at line 452, `apps/desktop/src/daemon/last-look.ts` lines 41 to 104 |
+| The store keeps each work item in `repositories.json` and reads one whose fields are not its own as no work item | `read`: `apps/desktop/src/daemon/repositories.ts#StoredWorkItem` (lines 12 to 27) and `#isStoredWorkItem` (lines 61 to 76) |
+| A work item's line is drawn in two rows: the state icon, the title, the pin and mute marks and the age, then the text, the badge and the seal's place | `read`: `apps/desktop/src/renderer/list.ts` lines 136 to 140, `apps/desktop/src/renderer/view.ts#inboxLine` (line 73) and `#lineMarks` (line 150) |
+| The "New work item" form shows the branch and the folder a plan answers, and the plan is asked as the person types | `read`: `apps/desktop/src/renderer/renderer.ts#askPlan` (line 1164) and the `workItemPlan` case (line 1289), `apps/desktop/src/renderer/view.ts#planLine` (line 1492) |
+| The broad gate compares, for each document of `docs/` and its Korean edition, the count of headings and the count of table rows | `read`: `seal/config.json`, the key `Broad gate` |
+| The operations of *Rule changes* are well formed: the plugin's reader read each of them, refused no line and named none as unread, and `apply_op` changed each one's document at `6c63736` without an error. Each `from` stands once in its document | `executed`: `python3 -I test_tmp_rule_changes.py` in the scratch directory, calling `skills/settle/scripts/rule_changes.py#parse` and `#apply_op` of AgenticSeal 0.38.4; `git grep -n -F` of each `from` at `6c63736 -- docs`, one line each |
+
+No check of the repository's was run for this frame: no test, no linter, no typecheck and no `seal gate`.
+
+The issue's "with its result in the inbox line" is read as the framer's judgment: the line says "Setting up" while the setup runs and "Setup failed" where it failed, and a setup that succeeded leaves the line as it is. The grounds are `docs/product.md` *Foundation*, where the line carries what a person acts on, and the row "A mark for every outcome" of `frame/plan.md` *Alternatives considered*.
+
+## Scope
+
+**In.** Items 1 to 6 are the daemon's, items 7 to 10 the window's, item 11 Owlery's own repository, and item 12 the policy documents' text. The exact shapes are in *Data & interfaces*.
+
+1. **Two files at the top of the repository's main checkout name the setup.** `.worktreeinclude` holds patterns in the syntax of `.gitignore`. `.worktreesetup` holds the command, as shell text. The daemon reads both from the repository's folder, `Repository.folder`, whether git tracks them or not, at each creation, each plan and each run again. A `.worktreesetup` that holds only white space names no command. A repository that holds neither file gets its worktree as today: nothing is copied, no setup pane starts, and the work item's setup record is null.
+2. **The daemon copies the ignored paths the patterns match from the main checkout into the new worktree, after `git worktree add` and before any pane starts.** The paths are those that `git ls-files --others --ignored --exclude-from=<main checkout>/.worktreeinclude --directory -z`, run in the main checkout, lists and `git check-ignore --stdin -z`, run there, prints. A folder is one path and is copied whole. A link is copied as a link. A path that already stands in the worktree is not written over. A path that fails to copy is recorded with its error, and the other paths and the command go on. A failure of either git command is recorded as the copy's failure and refuses nothing.
+3. **The setup record is the daemon's state, kept with its work item.** `WorkItem.setup` holds what was copied, what was not and why, the command, the pane it runs in, the state, the exit code, why it failed, and the times. The store keeps it in `repositories.json`. A stored work item without the field is read with `setup: null`.
+4. **The command runs in a pane of the work item, through the person's login shell.** Where `.worktreesetup` names a command, the daemon starts a pane in the worktree whose process is `$SHELL -l -i -c <command>`, with the environment a terminal pane gets. The pane is of the kind `shell`, the record names its id, and the creating client receives its output as it receives the pane it asked for. It starts before the pane the creation names, and the creation's answer still carries the pane the creation names.
+5. **The record's state follows the pane's process and the daemon's own acts.** It is `running` from the pane's start. At the process's exit it is `succeeded` where the code is 0, no copy failed and the daemon did not end the pane, and `failed` otherwise. A pane the daemon ended, at a `close`, an archive, a repository's removal or a delete, makes the setup `failed` with the sentence "The setup pane ended before its command did." A record that reads `running` when the store is read at the daemon's start is `failed` with "The daemon stopped before the setup command ended." Where only `.worktreeinclude` stands, the state is `succeeded` or `failed` at once, by the copy. A failed setup changes nothing else of the work item: its panes, its archive, its delete and its headless sessions are served as before.
+6. **A person runs the setup again.** The client message `runSetup` names the work item and the pane's size. The daemon refuses it for a work item it does not list, an archived one, one being deleted, one whose setup pane's process is alive, and one whose repository holds neither file now. Otherwise it takes the earlier setup pane off the lists, copies what is missing, starts a new setup pane where a command stands, records the new setup in place of the old, and answers `started` with the new pane, or `done` where no command stands.
+7. **The "New work item" form names the command before the person creates the work item.** The `workItemPlan` answer carries the command `.worktreesetup` holds and whether `.worktreeinclude` stands, and the form says both under the folder.
+8. **The inbox line says "Setting up" while the setup runs and "Setup failed" where it failed.** The words stand in the line's second row. They change neither the line's state nor its group, and they raise no notification.
+9. **The preview and the work item's view hold a "Setup" section.** It says how the command ended, or that it runs and for how long, lists the copied paths and each path that was not copied with why, and in the view offers "Run setup again" while no setup pane's process is alive.
+10. **The tab of the pane the setup record names reads "Setup".**
+11. **Owlery's own repository gets `.worktreesetup` holding `pnpm install`.** It installs the dependencies and rebuilds node-pty for Electron in a new worktree of Owlery's (*Grounding*, the install's four seconds). Owlery's repository needs no ignored file but `node_modules/`, which the install makes, so it gets no `.worktreeinclude`.
+12. **The rules of *Rule changes* are written into the policy documents at the settle.** This work's subject is the code, so it states them and edits no document of `docs/`.
+
+**Out.**
+
+- Ports of each worktree, the setup again when a work item is restored, and the variables a command receives, such as its ports: #59.
+- Reading another tool's schema, such as `orca.yaml`, `conductor.json` or `.conductor/settings.toml`. `.worktreeinclude` is the one file another tool reads for the same purpose, and another product's schema changes on that product's schedule (`etcs/research/competitors/conductor.md` line 157: Conductor moved its setup three times).
+- An archive or teardown script. The issue asks for none.
+- A copy that clones on write. Node's copy took about a second for Owlery's `node_modules` (*Grounding*). How a far larger tree fares is Q4.
+- Holding the pane the creation names until the setup ends (`frame/plan.md` *Alternatives considered*, the row "Hold the person's pane").
+- A confirmation before a repository's command runs. The default is Q1's.
+- A notification when a setup fails, a mark on the sidebar's line, and a count of setups in the summary of what changed. The issue names the inbox line alone.
+- The README's sentence on where the files are kept. #59's done criteria name it with the ports.
+
+## User scenarios & acceptance *(mandatory)*
+
+| Scenario | Given / When / Then | Verifiable how |
+|---|---|---|
+| 1. The patterns copy ignored paths and nothing else | Given a temporary repository whose `.gitignore` ignores `.env`, `.env.*` and `node_modules/` and keeps `.env.example`, and whose `.worktreeinclude` names `.env`, `**/.env.local`, `node_modules/`, an untracked `notes.txt` and the tracked `.env.example`, when a work item is created, then its worktree holds `.env`, `apps/web/.env.local` and `node_modules/` with the main checkout's bytes and holds no `notes.txt`, and the record's copied list names those three paths | a case of `apps/desktop/test/worktree-setup.test.ts` |
+| 2. A link stays a link, and an existing path is not written over | Given a `node_modules/` that holds a relative link, and a path that the checkout already holds in the worktree, when the paths are copied, then the link is a link with the same target and the existing file keeps its bytes | a case of `apps/desktop/test/worktree-setup.test.ts` |
+| 3. A path that fails to copy does not stop the others | Given an included ignored file the daemon cannot read, when a work item is created, then the other paths are copied, the failed one is listed with its error, the command still runs, and the setup ends `failed` | a case of `apps/desktop/test/worktree-setup.test.ts`, and one of `apps/desktop/test/daemon.test.ts` for the state |
+| 4. The command runs in a pane, and its success is recorded | Given `.worktreesetup` holding a command that writes a file, when a work item is created, then the inbox lists a second pane of the work item, of the kind `shell`, which the record names, the creating client receives its output, the file stands in the worktree once the pane exits, and the record reads `succeeded` with exit code 0 | a case of `apps/desktop/test/daemon.test.ts`, with a `setupCommandFor` that runs `/bin/sh -c` |
+| 5. A failed command leaves the work item usable | Given `.worktreesetup` holding `exit 3`, when a work item is created, then the work item is listed, the pane the creation named is alive, a `start` in the work item opens a pane, and the record reads `failed` with exit code 3 | a case of `apps/desktop/test/daemon.test.ts` |
+| 6. A repository that names nothing gets the worktree as today | Given a repository with neither file, when a work item is created, then the record is null, the sessions are the one pane the creation named, and the worktree's ignored files, as the delete reads them, are none | a case of `apps/desktop/test/daemon.test.ts`. The case that pins a creation's sessions today (`apps/desktop/test/daemon.test.ts` line 449) runs in a repository with neither file and stays as it is |
+| 7. A pane ended by the daemon is a failed setup | Given a setup pane whose command runs, when the person closes the pane, or archives the work item, then the record reads `failed` with "The setup pane ended before its command did." | cases of `apps/desktop/test/daemon.test.ts` |
+| 8. A setup the daemon's stop cut short is failed at the next start | Given a `repositories.json` whose work item's setup reads `running`, when the daemon starts, then the work item's setup reads `failed` with "The daemon stopped before the setup command ended." | a case of `apps/desktop/test/repositories.test.ts` |
+| 9. A person runs the setup again | Given a failed setup whose pane has exited, when the repository's command is fixed and a `runSetup` arrives, then the earlier setup pane is off the lists, a new one runs, the answer is `started` with it, and the record reads `succeeded`. A `runSetup` while the setup pane runs, for an archived work item, and in a repository that holds neither file, is answered with an `error` and changes nothing | cases of `apps/desktop/test/daemon.test.ts` |
+| 10. The plan names the command | Given `.worktreesetup` holding `pnpm install`, when the form asks a plan, then the answer carries `pnpm install` and whether `.worktreeinclude` stands, and the form's sentence under the folder names both. Given neither file, the answer carries null and false, and the form says no more than today | a case of `apps/desktop/test/daemon.test.ts`, and cases of `apps/desktop/test/view.test.ts` for the sentence |
+| 11. The line and the view say the setup's state | Given a work item whose setup runs, the line's setup words are "Setting up"; failed, "Setup failed"; succeeded or null, empty. The line's state and its group are those of its panes in each case. The view's section offers "Run setup again" only while no setup pane's process is alive | cases of `apps/desktop/test/view.test.ts` |
+| 12. The setup pane's tab reads "Setup" | Given a work item whose setup record names a pane, its tab and the removal and archive dialogs name it "Setup", and every other pane keeps the label it has today | cases of `apps/desktop/test/view.test.ts` |
+| 13. The command runs as a terminal pane's would | The app's setup command for `pnpm install` is the person's `$SHELL` with `-l`, `-i`, `-c` and the command, with the pane's id in its environment | a case of `apps/desktop/test/hooks.test.ts` |
+| 14. The work item's fields are the protocol's | The pinned list of a work item's fields names `setup`, and a look's file written before this build, without it, is still a look, read with `setup: null` | `apps/desktop/test/daemon.test.ts` `WORK_ITEM_FIELDS` and its case, and a case of `apps/desktop/test/last-look.test.ts` |
+| 15. Owlery's own repository names its setup | `.worktreesetup` at the top of Owlery's repository holds `pnpm install` | `read` at review, in the diff |
+
+## Data & interfaces
+
+**The two files.** Both stand at the top of the main checkout, `Repository.folder`. `.worktreeinclude` is read by git alone, through `--exclude-from`, so its syntax is `.gitignore`'s, negation and `**` among it. `.worktreesetup` is read whole as UTF-8 text. Its text, where it holds more than white space, is the command. It is passed whole as one argument after `-c`, so the person's shell reads it as it reads a line typed in a pane, several lines and comments among it.
+
+**A new module, `apps/desktop/src/daemon/worktree-setup.ts`.**
+
+- `readSetup(repo: string): Promise<{ include: boolean; command: string | null }>`: whether `.worktreeinclude` stands as a file, and the command `.worktreesetup` names.
+- `copyIncluded(repo: string, worktree: string): Promise<{ copied: string[]; copiedCount: number; failed: { path: string; why: string }[] }>`: the copy of *Scope* item 2, with `fs.promises.cp(source, target, { recursive: true, verbatimSymlinks: true, force: false, errorOnExist: false })` for each path. `copied` and `failed` hold 500 entries at most, as a loss's lists do (`worktrees.ts#LOSS_LISTED`), and `copiedCount` says how many paths were copied in all.
+
+**The protocol, `apps/desktop/src/shared/protocol.ts`.**
+
+```ts
+/** What the daemon did to set up a work item's worktree, as the repository's two files named it when the setup began. */
+export interface WorktreeSetup {
+  /** The ignored paths copied from the main checkout, a folder as one path, 500 at most. */
+  copied: string[];
+  copiedCount: number;
+  /** The paths that could not be copied, each with the error, 500 at most. */
+  failedCopies: { path: string; why: string }[];
+  /** The command `.worktreesetup` held, or null where it named none. */
+  command: string | null;
+  /** The pane the command runs in, or null where no command stands or its pane could not start. */
+  paneId: number | null;
+  state: "running" | "succeeded" | "failed";
+  /** The code the command's process exited with, or null while it runs and where no process exited. */
+  exitCode: number | null;
+  /** Why the setup failed where the exit code does not say it: the pane ended before its command did, the daemon stopped, a git command or the shell's start failed. Null otherwise. */
+  failure: string | null;
+  startedAt: number;
+  endedAt: number | null;
+}
+```
+
+- `WorkItem` gains `setup: WorktreeSetup | null`.
+- `ClientMessage` gains `{ type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number }`, answered by `started`, `done` or `error` (*Scope* item 6).
+- The `workItemPlan` answer gains `setupCommand: string | null` and `includes: boolean`.
+- The comments above `createWorkItem` and `workItemCreated` say that a creation copies the paths and starts the setup pane, and that `workItemCreated.session` is the pane the creation named.
+
+**The daemon.** `DaemonOptions` gains `setupCommandFor?: (command: string, id: number) => PaneCommand`. Where it is absent the daemon uses `setupPaneCommand(process.env, command)`, a new function of `apps/desktop/src/daemon/hooks.ts` beside `claudePaneCommand`: `{ command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", command] }`, with `OWLERY_PANE_ID` in its environment as `paneCommands` gives it. The daemon knows a setup pane by the record's `paneId`, and ends the record at that pane's exit, whether or not the pane is still listed.
+
+**The store.** `StoredWorkItem` gains `setup: WorktreeSetup | null`, `isStoredWorkItem` accepts its absence, and the read gives an absent one null and a `running` one the failure of *Scope* item 5. `RepositoryStore#setWorkItem` takes `setup` among its fields.
+
+**The look.** `setup` joins the work item's fields a look's file may lack (`apps/desktop/src/daemon/last-look.ts`, the type #119 names `CameLater`), and `lookOf` gives an absent one null.
+
+**The window, `apps/desktop/src/renderer/view.ts` and `shared.ts`.**
+
+- `setupMark(workItem: WorkItem): string` gives "Setting up", "Setup failed" or an empty string, drawn as `part("setup", …)` in the line's second row (`apps/desktop/src/renderer/list.ts` line 140).
+- `setupSection(workItem: WorkItem, now: number)` gives the head "Setup", a sentence of how the command ended or that it runs and for how long, the copied paths with "and N more" where the list is cut, the failed paths with why, and whether "Run setup again" is offered. `detail` draws it, and takes a callback for the button as #119's `detail` takes one for "Reverse".
+- `tabLabel` takes the work item's setup pane id and returns "Setup" for that pane.
+- `planLine` gains the setup's sentence: "Copies the ignored files .worktreeinclude names from the main checkout." where `includes` is true, and "Then runs: <command>" where `setupCommand` is not null.
+
+## Rule changes
+
+- add
+  file: docs/architecture.md
+  section: State lives in three places
+  to: **A repository names in its own tree the ignored files a new worktree gets and the command it runs, and Owlery writes neither file.** `.worktreeinclude` at the top of the repository's main checkout holds patterns in the syntax of `.gitignore`, the file Claude Code, Codex, Conductor and Orca read for the same purpose. A new worktree gets a copy of each path of the main checkout that a pattern matches and git ignores, so a tracked file, and an untracked file git does not ignore, are never copied. `.worktreesetup` beside it holds a command, which runs once the worktree exists, in the person's login shell as a terminal pane's process does, in a pane of the work item's view. Owlery reads both from the main checkout when it creates the work item, whether git tracks them or not. A repository that holds neither gets its worktree as git checks it out. The files belong to the repository, so a team shares them through it, and what a setup gave is the daemon's state, kept with its work item.
+    check: apps/desktop/test/worktree-setup.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/hooks.test.ts
+- add
+  file: docs/architecture.ko.md
+  section: 상태는 세 곳에 둡니다
+  to: **새 worktree가 받을, git이 무시하는 파일과 새 worktree에서 돌릴 명령은 저장소가 자기 트리에 적고, Owlery는 두 파일을 쓰지 않습니다.** 저장소 메인 체크아웃의 맨 위에 있는 `.worktreeinclude`는 `.gitignore`와 같은 문법의 패턴을 담습니다. Claude Code, Codex, Conductor, Orca가 같은 목적으로 읽는 파일입니다. 새 worktree는 메인 체크아웃에서 패턴에 맞고 git이 무시하는 경로를 하나씩 복사해 받습니다. 그래서 git이 추적하는 파일과, 추적하지 않지만 git이 무시하지도 않는 파일은 복사하지 않습니다. 그 옆의 `.worktreesetup`은 명령을 담습니다. 이 명령은 worktree가 생긴 뒤, 터미널 칸의 프로세스처럼 사람의 로그인 셸에서, 작업 화면의 칸 하나에서 돕니다. Owlery는 작업을 만들 때 두 파일을 메인 체크아웃에서 읽고, git이 추적하는지는 따지지 않습니다. 둘 다 없는 저장소는 git이 체크아웃한 그대로의 worktree를 받습니다. 두 파일은 저장소의 것이라 팀이 저장소로 함께 쓰고, 설정이 무엇을 했는지는 데몬의 상태로 그 작업과 함께 둡니다.
+    check: apps/desktop/test/worktree-setup.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/hooks.test.ts
+- add
+  file: docs/product.md
+  section: Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call
+  to: **A setup that fails leaves its work item created and usable, and the work item's line says so.** The line says "Setting up" while the command a repository names runs, and "Setup failed" where a copy failed, where the command ended with a code other than 0, and where its pane ended before the command did, as when the person closed it or the daemon stopped. A setup that succeeded leaves the line as it is, since the line carries what a person acts on. The work item's view says what was copied, what was not and why, and how the command ended, and offers to run the setup again, which copies what is missing and runs the command in a new pane. The "New work item" form names the command before the person creates the work item ([State lives in three places](architecture.md#state-lives-in-three-places)).
+    check: apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
+- add
+  file: docs/product.ko.md
+  section: 바탕: 작업함, AgenticSeal 프로세스, 인장의 뒷면, 그리고 불러 쓰는 터미널
+  to: **설정이 실패해도 작업은 만들어지고 쓸 수 있으며, 그 작업의 줄이 실패를 알립니다.** 저장소가 적은 명령이 도는 동안 줄에는 "Setting up"이 뜹니다. 복사가 실패했거나, 명령이 0이 아닌 코드로 끝났거나, 사람이 칸을 닫거나 데몬이 멈춰서 명령보다 칸이 먼저 끝났으면 "Setup failed"가 뜹니다. 설정이 성공하면 줄은 그대로입니다. 줄에는 사람이 할 일만 싣기 때문입니다. 작업 화면은 무엇을 복사했는지, 무엇을 왜 복사하지 못했는지, 명령이 어떻게 끝났는지를 보여 주고, 설정을 다시 돌리게 해 줍니다. 다시 돌리면 빠진 것을 복사하고 명령을 새 칸에서 돌립니다. "New work item" 양식은 사람이 작업을 만들기 전에 그 명령을 보여 줍니다([상태는 세 곳에 둡니다](architecture.ko.md#상태는-세-곳에-둡니다)).
+    check: apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
+- change
+  file: docs/product.md
+  section: File explorer and editor
+  from: A new worktree has no `.env` of its own, which is often the first thing a person fills in.
+  to: A new worktree gets the ignored files its repository names in `.worktreeinclude`, such as `.env`, copied from the main checkout. Where the repository names none, a new worktree has no `.env` of its own, which is often the first thing a person fills in ([State lives in three places](architecture.md#state-lives-in-three-places)).
+- change
+  file: docs/product.ko.md
+  section: 파일 탐색기와 편집기
+  from: 새로 만든 worktree에는 `.env`가 따로 없어서, 사람이 맨 먼저 채우는 파일인 경우가 많습니다.
+  to: 새로 만든 worktree는 저장소가 `.worktreeinclude`에 적은, git이 무시하는 파일을 `.env`처럼 메인 체크아웃에서 복사해 받습니다. 저장소가 아무것도 적지 않았으면 새 worktree에는 `.env`가 따로 없어서, 사람이 맨 먼저 채우는 파일인 경우가 많습니다([상태는 세 곳에 둡니다](architecture.ko.md#상태는-세-곳에-둡니다)).
+- change
+  file: docs/roadmap.md
+  section: Milestones
+  from: The back of the seal, with the cost of each stage beside the defects each round caught
+  to: The back of the seal, with the cost of each stage beside the defects each round caught. A new worktree that gets the ignored files its repository names and runs the command it names, which the owner moved here from milestone 4 on 2026-11-20
+- change
+  file: docs/roadmap.ko.md
+  section: 마일스톤
+  from: 단계별 비용을 회차마다 잡은 결함과 나란히 보여 주는 인장의 뒷면
+  to: 단계별 비용을 회차마다 잡은 결함과 나란히 보여 주는 인장의 뒷면. 저장소가 적은, git이 무시하는 파일을 받고 저장소가 적은 명령을 돌리는 새 worktree. 2026-11-20에 소유자가 마일스톤 4에서 이리로 옮겼습니다
+- change
+  file: docs/roadmap.md
+  section: Milestones
+  from: A setup script and ports of its own for each worktree.
+  to: Ports of its own for each worktree, and the setup again when an archived work item is restored.
+- change
+  file: docs/roadmap.ko.md
+  section: 마일스톤
+  from: worktree마다의 설정 스크립트와 그 worktree만의 포트.
+  to: 그 worktree만의 포트, 그리고 보관한 작업을 복원할 때 다시 도는 설정.
+- change
+  file: docs/roadmap.md
+  section: Milestones
+  from: A new worktree runs its setup script and gets its own ports.
+  to: A new worktree gets its own ports, and a restored work item runs its setup again.
+- change
+  file: docs/roadmap.ko.md
+  section: 마일스톤
+  from: 새 worktree에서 설정 스크립트가 돌고, 그 worktree만의 포트가 잡힙니다.
+  to: 새 worktree에 그 worktree만의 포트가 잡히고, 복원한 작업에서 설정이 다시 돕니다.
+
+## Removes
+
+The work adds a feature: two files the daemon reads, a copy, a pane, a record on the work item, a client message, two fields of a plan's answer and the window's words for them. It adds no gate, check, hook or process mark. Nothing stands in the tree that the feature replaces, since no code copies a file or runs a command at a creation today (*Grounding*). What goes are the texts that state the old fact.
+
+| Removes | Coordinate | Where it lands, or why it can go |
+|---|---|---|
+| The pinned list of a work item's field names, which holds no `setup` | `apps/desktop/test/daemon.test.ts#WORK_ITEM_FIELDS` | The same constant with `setup` added (scenario 14) |
+| The comment above the `createWorkItem` message, which says a creation cuts the branch and checks it out and nothing after | `apps/desktop/src/shared/protocol.ts`, the `createWorkItem` member of `ClientMessage` | Rewritten with the copy and the setup pane (*Data & interfaces*) |
+| The comment "Answers a creation and carries the pane it opened" above `workItemCreated` | `apps/desktop/src/shared/protocol.ts`, the `workItemCreated` member of `ServerMessage` | Rewritten: the pane the creation named, and the setup pane in the inbox |
+| The docstring of `tabLabel`, which says a tab's label is the pane's kind as the daemon labels it | `apps/desktop/src/renderer/view.ts#tabLabel` | Rewritten with "Setup" for the pane the setup record names (*Scope* item 10) |
+| The docstring of `planLine`, which says the form shows the branch and the folder | `apps/desktop/src/renderer/view.ts#planLine` | Rewritten with the setup's sentence (*Scope* item 7) |
+| The docstring of `detail`, which lists what the preview and a view say of a work item | `apps/desktop/src/renderer/shared.ts#detail` | Rewritten with the "Setup" section (*Scope* item 9) |
+| The sentence that a look's file lacking a field is no look but for the fields that came later | `apps/desktop/src/daemon/last-look.ts#LastLook`, and the type of those fields beside `isWorkItem` | Rewritten to name `setup` as well |
+| The sentence "A new worktree has no `.env` of its own, which is often the first thing a person fills in.", with the same sentence of the Korean edition | `docs/product.md` *File explorer and editor* | Rewritten by the settle (*Rule changes*) |
+| The texts "A setup script and ports of its own for each worktree." and "A new worktree runs its setup script and gets its own ports.", with the same texts of the Korean edition | `docs/roadmap.md` *Milestones*, row 4 | Rewritten by the settle: the setup moves to row 2, and row 4 keeps the ports and the setup at a restore (*Rule changes*) |
+
+Framed 2026-11-22 by framer, before the build.
