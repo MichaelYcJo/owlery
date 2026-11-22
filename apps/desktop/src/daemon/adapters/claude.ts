@@ -11,7 +11,7 @@ import type { RoleAdapter, RoleEvent } from "./adapter";
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
 export const ERROR_OUTPUT_CHARS = 2000;
 
-/** How long a stop waits, after it signalled the CLI's process group to end, before it kills the group. */
+/** How long a stop waits, after it signalled the CLI's process group to end, before it kills the group where the CLI has not exited by then. */
 export const KILL_AFTER_MS = 2000;
 
 /** How long after the CLI's exit the run's `exit` waits for the CLI's streams to close, which a child the CLI started can hold open. */
@@ -199,6 +199,12 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         if (reported) return;
         reported = true;
         clearTimeout(grace);
+        // Nothing follows the exit. A child the CLI started may still hold the streams, and what it prints is not the
+        // run's: the daemon's ends of the pipes close here, so the child's later writes fail. At a `close` the streams
+        // have ended already, and this changes nothing.
+        lines.close();
+        child.stdout.destroy();
+        child.stderr.destroy();
         listener({ type: "exit", exitCode: code ?? 1, errorOutput });
       };
       const exit = new Promise<void>((resolve) => {

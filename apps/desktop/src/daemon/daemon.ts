@@ -951,7 +951,13 @@ export class Daemon {
         if (this.closed || info.state !== "working") void run.stop();
         else session.run = run;
       },
-      (error: unknown) => failed(error instanceof Error ? error.message : String(error)),
+      (error: unknown) => {
+        // A session that ended while its adapter was starting keeps what ended it, and is told to nobody again. One the
+        // list no longer holds ended first: the bound drops only ended sessions, and a delete or a removal stops its
+        // working ones before it drops them.
+        if (info.state !== "working") return;
+        failed(error instanceof Error ? error.message : String(error));
+      },
     );
   }
 

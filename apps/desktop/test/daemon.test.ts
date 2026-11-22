@@ -3537,6 +3537,49 @@ describe("headless sessions", () => {
     expect(c.messages.slice(before)).toEqual([]);
     expect((await (await client(url)).message("ready")).headless.map((h) => [h.id, h.errorOutput])).toEqual([[2, ""]]);
   });
+
+  it("changes nothing at a start that fails after its session ended: a session a stop ended keeps what ended it, and one that left the list is told to nobody and counts toward the bound no more", async () => {
+    const quick = fakeAdapter();
+    const rejects: (() => void)[] = [];
+    // A start for the prompt "Slow?" fails only when the case says so, and any other prompt is answered at once.
+    const roleAdapter: RoleAdapter = {
+      name: "fake",
+      features: [],
+      start: (options, listener) =>
+        options.prompt !== "Slow?" ? quick.start(options, listener) : new Promise((_, reject) => rejects.push(() => reject(new Error("the login shell found no CLI")))),
+    };
+    const { c, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 1 });
+    const ask = async (requestId: number, prompt: string) => {
+      c.send({ type: "ask", requestId, workItemId: workItem.id, prompt });
+      return (await c.message("asked", (m) => m.requestId === requestId)).headless.id;
+    };
+    const stop = async (requestId: number, id: number) => {
+      c.send({ type: "stopHeadless", requestId, id });
+      await c.message("done", (m) => m.requestId === requestId);
+    };
+    const listed = async () => (await (await client(url)).message("ready")).headless.map((h) => [h.id, h.error, h.stopped]);
+    // What the daemon told of headless sessions after the client's `before`th message. The work item's pane prints meanwhile.
+    const toldSince = (before: number) => c.messages.slice(before).filter((m) => m.type === "headless" || m.type === "headlessDropped");
+    // A session stopped while its adapter starts, and still listed.
+    const first = await ask(1, "Slow?");
+    await stop(2, first);
+    let before = c.messages.length;
+    rejects[0]!();
+    await pause(100);
+    expect(toldSince(before)).toEqual([]);
+    expect(await listed()).toEqual([[first, "the session was stopped at a request before it finished", "request"]]);
+    // A session stopped while its adapter starts, then dropped by the bound once a later session ended.
+    const second = await ask(3, "Slow?");
+    await stop(4, second);
+    const third = await ask(5, "Quick?");
+    await c.message("headless", (m) => m.headless.id === third && m.headless.state === "finished");
+    await c.message("headlessDropped", (m) => m.id === second);
+    before = c.messages.length;
+    rejects[1]!();
+    await pause(100);
+    expect(toldSince(before)).toEqual([]);
+    expect((await listed()).map(([id]) => id)).toEqual([third]);
+  });
 });
 
 describe("idle exit", () => {

@@ -333,6 +333,20 @@ describe("the Claude adapter's run", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(alive(childPid)).toBe(true);
   });
+
+  it("reports nothing after the exit, though a child the CLI started prints a line on the output stream and the error stream after it", async () => {
+    const folder = temporaryFolder();
+    // The child ignores SIGPIPE, so it goes on to write its mark whether or not the streams are still open to it.
+    const late = `{"type":"result","is_error":false,"result":"late","total_cost_usd":0}`;
+    const cli = script(folder, "cli", `cat > /dev/null\n(trap '' PIPE; sleep 1; echo '${late}'; echo 'late' >&2; echo x > '${folder}/printed') &\nexit 0`);
+    const events: RoleEvent[] = [];
+    await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    const end = Date.now() + 5000;
+    while (!existsSync(join(folder, "printed")) && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    expect(existsSync(join(folder, "printed"))).toBe(true);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events).toEqual([{ type: "exit", exitCode: 0, errorOutput: "" }]);
+  });
 });
 
 describe("the output stream of a run with no login, as Claude Code 2.1.330 printed it", () => {
