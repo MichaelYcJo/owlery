@@ -12,4 +12,4 @@
 
 ## Not done
 
-`linkAt`'s negative readings in the path case were not given a wait of their own. The wait for the pane's last line comes before them, and the window draws the pane's output in the order it was printed.
+`linkAt`'s negative readings in the path case were not given a wait of their own. The wait for the pane's last line comes before them, and the window draws the pane's output in the order it was printed. The clear-screen case's two negative readings were moved after `pasteOnceBack`, the case's own wait for the replay, and given no wait of their own either.
