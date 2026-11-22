@@ -59,6 +59,15 @@ const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]
   { name: "a reason that opens with a next-line character", text: `${F}seal\ntarget: 0123abc against main\nVerdict: withheld reason: \u0085late\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
   { name: "a line of a unit separator alone inside a block", text: `${F}seal\ntarget: 0123abc against main\n\u001f\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
   { name: "a closing fence followed by a no-break space", text: `${F}seal\nrun: 0123abc against 89abcde\n${F} \n`, blocks: 0, refusals: [1, 3], notices: [] },
+  { name: "a key with no space after its colon", text: `${F}seal\ntarget: 0123abc against main\nVerdict:sealed\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
+  { name: "a fence of backticks whose info string holds a backtick", text: `${F}seal \`verdict\`\ntarget: 0123abc against main\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [4], notices: [] },
+  { name: "a block inside an HTML comment block", text: `<!--\n${RUN}-->\n`, blocks: 0, refusals: [1], notices: [] },
+  // A fence run whose info string holds a backtick opens no fence, so the walk reads the line as a paragraph's and says where it is not sure of it.
+  { name: "a fence run on the line after a comment left open", text: `prose <!-- open\n${F}a\`b\n`, blocks: 0, refusals: [2], notices: [] },
+  { name: "a fence run on the line after a tag left open", text: `prose <span\n${F}a\`b\n`, blocks: 0, refusals: [2], notices: [] },
+  { name: "a fence run after a comment left open and a blank line", text: `prose <!-- open\n\n${F}a\`b\n`, blocks: 0, refusals: [], notices: [] },
+  { name: "a fence run after a comment left open and closed on the next line", text: `prose <!-- open\nclosed --> here\n${F}a\`b\n`, blocks: 0, refusals: [], notices: [] },
+  { name: "a fence run after a tag left open and a comment's closer", text: `prose <span\nmore -->\n${F}a\`b\n`, blocks: 0, refusals: [3], notices: [] },
 ];
 
 /** What a reader returned, in the one shape both readers are compared in. */

@@ -108,8 +108,8 @@ function declaredBranch(text: string): string | null {
   const walked = walk(lines);
   const rows = new Map<string, string[]>();
   for (const [index, raw] of lines.entries()) {
-    // A line the walk is sure a renderer hides is no row. Where it is not sure, the row is read.
-    if (walked.kinds[index] !== "live" && !walked.uncertain[index]) continue;
+    // A line the walk is sure a renderer hides is no row. Where it is not sure, it calls the line live, and the row is read.
+    if (walked.kinds[index] !== "live") continue;
     const line = stripped(raw);
     if (!line.startsWith("|")) continue;
     const [label, value] = line
@@ -138,7 +138,7 @@ function declaredBranch(text: string): string | null {
  */
 export function workItemDirectory(worktree: string, branch: string): string | null {
   const root = rootOf(worktree);
-  if (root === null || branch === "") return null;
+  if (root === null) return null;
   const threads = join(worktree, root, "threads");
   let names: string[];
   try {

@@ -216,9 +216,9 @@ describe("the reader of a work item's record", () => {
 
   it("keeps the first of two blocks of one id, and refuses a third of that id too", () => {
     const again = block("decision: 1 scope", "decided: Again.", "grounds: None.", "state: decided");
-    const record = readDecisionRecord(`${ROUTE}${again}${again}`);
+    const record = readDecisionRecord(`${ROUTE}${again}${again}${block("decision: 2 scope", "not a field")}`);
     expect(record.decisions.map((decision) => [decision.id, decision.kind])).toEqual([[1, "route"]]);
-    expect(record.refusals.map((refusal) => refusal.line)).toEqual([9, 16]);
+    expect(record.refusals.map((refusal) => refusal.line)).toEqual([9, 16, 25]);
   });
 
   it("names as not read a fence that looks like a block and is not one, and decides nothing on it", () => {
