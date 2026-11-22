@@ -1,5 +1,5 @@
 // The one way the daemon reads a file of a person's repository whose text it
-// acts on. Six files are read through it: a work item's `decisions.md` and
+// acts on, but for the setup's command (below). Six files are read through it: a work item's `decisions.md` and
 // each `routing.md` under `threads/` of its worktree, and, in a repository's
 // main checkout, the `README.md` at each name of a records root, the root's
 // `config.json`, `.github/workflows/hygiene.yml`, and `package.json`. The
@@ -10,6 +10,10 @@
 // read takes a plain file of a bounded size and nothing else: a link where
 // the caller follows none, a pipe, a device and a folder are refused before a
 // byte is read.
+// `.worktreesetup` of the main checkout, whose command a worktree's setup
+// runs, is read by `worktree-setup.ts#readSetup` with `readFile`, at a plan,
+// a creation and a "Run setup again", off this thread and outside the pass,
+// and none of these bounds holds it.
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 
