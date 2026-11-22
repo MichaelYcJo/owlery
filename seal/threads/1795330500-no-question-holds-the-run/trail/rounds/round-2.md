@@ -33,6 +33,11 @@ The hole round 1 named is an id given a second time, and an id is given in one p
             this.keptChange("questions", () => this.asked.drop([stored.item.id]));
 ```
 
+```seal
+verdict: fixed e94d523
+answer: The finding holds, and the paste-ready fix was applied as written after reading it against Scope item 15 and scenario 9 as folded at 5aaaf7e: the constructor drops nothing, and the createWorkItem case drops what both stores hold under the id addWorkItem has just given, before workItemOf reads the stores. workItemIds() is gone from both stores. The case at apps/desktop/test/daemon.test.ts was rewritten to scenario 9's new form and seen red against 5d26696 on its first assertion on the files after the start. With either drop taken out, or made to take a second id, it fails. The docstrings of DecisionStore, AskedStore and dropWorkItems and changelog.md line 12 say "when a new work item is given the id" and that the start drops nothing. The same commit closes in gaps.md the four rows this round says may close.
+```
+
 The snippet does not reach every statement of the fact, and the fix pass owes the rest:
 
 - `workItemIds()` in both stores has no caller once the constructor's drop goes, and goes with it.
