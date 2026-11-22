@@ -122,6 +122,11 @@ After each copy, failed or not, `removeStaging` removes the staging folder: its 
 
 Where the fix pass closes finding 1 by deleting the `EPERM` half, "or `EPERM`" leaves the second snippet as well.
 
+```seal
+verdict: fixed f71ff5c
+answer: `frame/design.md:57` and `frame/design.md:107` are rewritten as the two snippets give them, checked against `removeStaging`, `removeCopy` and `writable` at HEAD; "or `EPERM`" stays, since the branch stays until #144 decides.
+```
+
 ## Confirmations
 
 ```seal
