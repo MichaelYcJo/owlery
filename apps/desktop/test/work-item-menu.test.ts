@@ -94,6 +94,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
       const arrive = (element) => element.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
       arrive(item("Copy path"));
       const onCopyPath = document.querySelector('${SUBMENU}') !== null;
+      if (!onCopyPath) return { onCopyPath, back: false };
       arrive(document.querySelector('${SUBMENU}'));
       arrive(item("Finder"));
       return { onCopyPath, back: document.querySelector('${SUBMENU}') !== null };
