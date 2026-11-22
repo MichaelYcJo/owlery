@@ -90,7 +90,7 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
           const asked = asks[Number(id.slice("ask-".length)) - 1];
           const take = waiting.get(id);
           if (!asked || !take) return;
-          waiting.delete(id);
+          // A second answer to the same request changes nothing: its line was taken at the first.
           take(answer.allow ? `allowed: ${asked.tool}\n` : `refused: ${asked.tool}: ${answer.reason}\n`);
         },
       });

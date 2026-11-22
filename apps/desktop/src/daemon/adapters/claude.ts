@@ -422,11 +422,8 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         else if (control) respond({ subtype: "error", request_id: control.id, error: `Owlery answers no control request of the subtype ${String(control.subtype)}` });
         for (const event of eventsForLine(line)) {
           if (event.type === "permission-withdrawn") waiting.delete(event.id);
-          if (event.type === "result") {
-            // Nothing is answered after the result: the turn is over, and the end of the input ends the session.
-            waiting.clear();
-            child.stdin.end();
-          }
+          // The turn is over, and the end of the input ends the session. An answer given after it is written nowhere: the ended stream takes none.
+          if (event.type === "result") child.stdin.end();
           listener(event);
         }
       });

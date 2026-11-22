@@ -3771,13 +3771,17 @@ describe("headless sessions", () => {
     const cleared = (c: Client, since: number, workItemId: number) => c.until(() => c.messages.slice(since).find((m) => m.type === "inbox" && asksIn(m, workItemId)?.length === 0));
 
     it("keeps a request of a session with no role for the person: every client's `inbox` carries it on its work item with the session's id, the session stays working, and a client that connects later is given it", async () => {
-      const { clients, url, workItem, headless, asked } = await waiting();
+      const { clients, c, url, workItem, headless, asked } = await waiting();
       expect(asked).toEqual([{ id: 1, headlessId: headless.id, tool: "Bash", action: "run", text: "printf x >> README.md", at: 1234 }]);
+      // Another work item of the repository holds none of it.
+      c.send({ type: "createWorkItem", requestId: 64, repo: workItem.repo, title: "Beside it", kind: "shell", cols: 80, rows: 24 });
+      const beside = (await c.message("workItemCreated", (m) => m.requestId === 64)).workItem;
+      expect(beside.permissions).toEqual([]);
       await clients[1]!.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
       await pause(100);
       expect(told(clients[0]!).map((h) => h.state)).toEqual(["working"]);
       const later = await (await client(url)).message("ready");
-      expect(later.workItems.find((item) => item.id === workItem.id)?.permissions).toEqual(asked);
+      expect(later.workItems.map((item) => [item.id, item.permissions])).toEqual([[workItem.id, asked], [beside.id, []]]);
       expect(later.headless.map((h) => h.state)).toEqual(["working"]);
       // The request names no adapter and no path of the adapter's event.
       expect(Object.keys(asked[0]!).sort()).toEqual(["action", "at", "headlessId", "id", "text", "tool"]);
@@ -3811,19 +3815,22 @@ describe("headless sessions", () => {
     });
 
     it("lists the requests of a work item the oldest first, each under an id of the daemon's own, and an allowance covers the one call it names: the same call of the same session waits on", async () => {
-      const { c, workItem, headless, asked } = await waiting({}, [SHELL, SHELL]);
-      expect(asked.map((ask) => [ask.id, ask.headlessId, ask.text])).toEqual([[1, headless.id, SHELL.text], [2, headless.id, SHELL.text]]);
-      // A second session of the work item raises the same two requests, under the adapter's same ids.
+      // Two sessions of the work item raise the same two requests each, under the adapter's same ids, a moment apart: the first of each, then the second of each.
+      const { held, adapter } = asking({ delayMs: 150 });
+      held.asks = [SHELL, SHELL];
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      c.send({ type: "ask", requestId: 60, workItemId: workItem.id, prompt: "Q" });
       c.send({ type: "ask", requestId: 62, workItemId: workItem.id, prompt: "Q" });
+      const headless = (await c.message("asked", (m) => m.requestId === 60)).headless;
       const second = (await c.message("asked", (m) => m.requestId === 62)).headless;
       const four = asksIn(await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 4), workItem.id)!;
-      expect(four.map((ask) => [ask.id, ask.headlessId])).toEqual([[1, headless.id], [2, headless.id], [3, second.id], [4, second.id]]);
+      expect(four.map((ask) => [ask.id, ask.headlessId, ask.text])).toEqual([[1, headless.id, SHELL.text], [2, second.id, SHELL.text], [3, headless.id, SHELL.text], [4, second.id, SHELL.text]]);
       c.send({ type: "answerPermission", requestId: 63, workItemId: workItem.id, id: 1, allow: true });
       const before = c.messages.length;
       await c.message("done", (m) => m.requestId === 63);
       const three = asksIn(await c.until(() => c.messages.slice(before).find((m): m is Inbox => m.type === "inbox" && asksIn(m, workItem.id)?.length === 3)), workItem.id)!;
       expect(three.map((ask) => ask.id)).toEqual([2, 3, 4]);
-      await pause(100);
+      await pause(400);
       // The session took the one allowance and still works, waiting on the same call's second request.
       expect(told(c).filter((h) => h.id === headless.id).map((h) => [h.state, h.answer])).toEqual([["working", ""], ["working", "allowed: Bash\n"]]);
     });
