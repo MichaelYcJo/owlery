@@ -3583,7 +3583,8 @@ describe("the questions a work item is parked with", () => {
       { ...ASKING, questions: [{ ...FREE, default: "main" }] },
       { ...ASKING, questions: [{ ...BASE, options: {} }] },
       { ...ASKING, questions: [{ ...BASE, options: [null, BASE.options[1]] }] },
-      { ...ASKING, questions: [{ ...BASE, options: [{ label: " ", implies: "x" }, BASE.options[1]] }] },
+      // No default, so the empty label is what refuses it, and not a default that names no option.
+      { ...ASKING, questions: [{ ...BASE, default: null, options: [{ label: " ", implies: "x" }, BASE.options[1]] }] },
       { ...ASKING, questions: [{ ...BASE, options: [{ label: 3, implies: "x" }, BASE.options[1]] }] },
       { ...ASKING, questions: [{ ...BASE, options: [{ label: "main" }, BASE.options[1]] }] },
       { ...ASKING, by: "" },
