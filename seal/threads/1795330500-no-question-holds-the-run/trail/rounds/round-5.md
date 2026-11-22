@@ -62,6 +62,12 @@ The fix pass owes more than the snippets reach:
 - The docstrings of `commitWord` and `commitAlone` change.
 - The sentence of `changelog.md:68` changes.
 
+```seal
+verdict: fixed c623b81
+location: `apps/desktop/src/shared/protocol.ts`, `apps/desktop/test/daemon.test.ts`
+answer: The fix is the round's, written in the pass's own words where the snippets stop. `worktrees.ts#whyNoCommit` holds the two checks, `commitAlone` throws its reason, and `Daemon#personWrote` asks it before `writeRecord`, so a `reverseDecision` or an `answerQuestions` is answered `error` with nothing written where the worktree is off its branch or in the middle of an operation. The window shows "Nothing was written: a rebase is under way in the worktree. Send it again once the worktree is on its branch and nothing is under way in it." in the dialog or the section, which keeps what was typed. Beyond the snippets: the words of one worktree are taken in a chain of their own, `Daemon#words`, so they are written in the order they came, and `Daemon#close` waits for that chain and then for the commits. The work item is read from the store again after git has answered. The seven cases of `NOT_COMMITTED` expect the `error` for a reversal and for an answer, the record byte for byte, no inbox and an empty log; one new case detaches HEAD behind a commit held in a hook and holds `commitAlone`'s guard; one holds the close's wait; and one, added in `4a5c0b1`, holds the order. Each guard was seen red under `seal mutate`. The two protocol comments, the docstrings of `commitWord` and `commitAlone` and the sentence of `changelog.md` say the new behaviour, which is why this block names two paths more. *Scope* items 4, 9 and 22, scenario 20 and the paragraph "The commit of *Scope* item 22" of `frame/design.md`, and the row of `frame/plan.md` *Alternatives considered* on the commit, still state the old behaviour: the frame is not the fix pass's to write, and the hand-back names each for the orchestrator's fold.
+```
+
 ### 2. The pull request's text still shows eleven of the eighteen committed screenshots
 
 ```seal
@@ -84,6 +90,11 @@ Why the close does not hold: round 4's finding gave five lines to add, and then 
 ````
 
 The seven lines go after line 54, before the attribution line. The commit `d3fef2a` holds each of the seven files, as round 4 listed it.
+
+```seal
+verdict: fixed 806a87f
+answer: `pr.md` now shows the round's seven lines after the eleven, so each of the eighteen committed screenshots stands in the text, as `docs/design.md:489` asks.
+```
 
 ### 3. The fold's account of the bounded read names three files where six go through it, and says a link swapped in is written through where it is replaced
 
@@ -119,6 +130,11 @@ Its callers are `Daemon#readRecord` and `decision-record.ts#writeRecord` for `de
 ```
 
 The fix pass owes the same two corrections in the other places. In `frame/plan.md:17`, the sixth failure names the six files, and its last sentence says the swapped-in link is replaced and the partial file's link is written through. `frame/plan.md:87` names the six files. `gaps.md:71` takes the corrected limit in place, as a row of *Not done* that is reworded and not removed. The head comment of `repository-file.ts` lists the six files. The docstring of `writeRecord` at `decision-record.ts:382-383` ends "so a write never replaces a link it read with a file".
+
+```seal
+verdict: fixed e81a64e
+answer: The head comment of `repository-file.ts` names the six files and says which the pass reads, the docstring of `writeRecord` says a write never replaces a link it read and names the two links that stand, the docstring of `repositoryFileText` takes the same limit, and the row of `gaps.md` *Not done* is reworded in place. The four sentences of `frame/design.md:65` and `:215` and `frame/plan.md:17` and `:87` stand as they were: the frame is not the fix pass's to write, and the hand-back names each for the orchestrator's fold, with the round's paste-ready text.
+```
 
 ## Confirmations
 
