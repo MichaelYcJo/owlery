@@ -1,12 +1,17 @@
 // The role bundle: the plugin folder the app ships, which a role session
 // loads for itself alone. Its files are taken from AgenticSeal, and the
 // bundle's README.md says at which release and with which changes.
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
-import { PLUGIN_NAME, roleDocuments } from "../src/daemon/adapters/claude-roles";
-import { ROLE_STAGES } from "../src/shared/protocol";
-import { buildApp } from "./built-app";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import { claudeArgs } from "../src/daemon/adapters/claude";
+import { PLUGIN_NAME, roleDocuments, rulesText } from "../src/daemon/adapters/claude-roles";
+import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
+import { alive, buildApp, untilGone } from "./built-app";
+import { temporaryRepository } from "./repositories";
 
 const APP_DIR = join(__dirname, "..");
 const BUNDLE = join(APP_DIR, "role-bundle");
@@ -114,10 +119,87 @@ describe("the role bundle", () => {
 describe("the built app's role bundle", () => {
   beforeAll(() => buildApp(), 60_000);
 
+  const cleanups: (() => Promise<void> | void)[] = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  });
+
   it("is the bundle of the tree at dist/bundle, each file with the same bytes and no file more", () => {
     const built = join(APP_DIR, "dist", "bundle");
     const files = filesOf(BUNDLE);
     expect(filesOf(built)).toEqual(files);
     for (const file of files) expect(readFileSync(join(built, file)).equals(readFileSync(join(BUNDLE, file))), file).toBe(true);
   });
+
+  it("is what the built daemon launches a role with: the bundle beside its script, and a rules file it writes into its run folder", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const runDir = realpathSync(mkdtempSync(join(tmpdir(), "owlery-role-run-")));
+    cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
+    const script = (name: string, body: string): string => {
+      const file = join(made.base, name);
+      writeFileSync(file, `#!/bin/sh\n${body}\n`);
+      chmodSync(file, 0o755);
+      return file;
+    };
+    // Stands for the CLI: records its arguments, then prints the first line of a session that holds the bundle's agents, and a result.
+    const cli = script(
+      "cli",
+      [
+        `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
+        "cat > /dev/null",
+        `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
+        `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
+      ].join("\n"),
+    );
+    // Stands for the login shell, and is the shell of the work item's pane too: it names the CLI and ends.
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const built = join(APP_DIR, "dist");
+    const daemon = spawn(process.execPath, [join(built, "daemon.js")], {
+      env: { ELECTRON_RUN_AS_NODE: "1", OWLERY_RUN_DIR: runDir, OWLERY_WORKTREES: made.root, SHELL: shell, HOME: made.base, USER: "person", PATH: process.env.PATH ?? "/usr/bin:/bin" },
+      stdio: "ignore",
+    });
+    const pid = daemon.pid!;
+    cleanups.push(async () => {
+      if (alive(pid)) process.kill(pid, "SIGTERM");
+      for (const left of await untilGone([pid], 5_000)) process.kill(left, "SIGKILL");
+    });
+    const discovery = join(runDir, "daemon.json");
+    const end = Date.now() + 10_000;
+    while (!existsSync(discovery) && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    const { port, token } = JSON.parse(readFileSync(discovery, "utf8")) as { port: number; token: string };
+
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    cleanups.push(() => socket.close());
+    const messages: ServerMessage[] = [];
+    socket.on("message", (raw) => messages.push(JSON.parse(String(raw)) as ServerMessage));
+    await new Promise<void>((resolve, reject) => {
+      socket.once("open", () => resolve());
+      socket.once("error", reject);
+    });
+    const message = async <K extends ServerMessage["type"]>(type: K, where: (m: Extract<ServerMessage, { type: K }>) => boolean = () => true): Promise<Extract<ServerMessage, { type: K }>> => {
+      const until = Date.now() + 10_000;
+      for (;;) {
+        const found = messages.find((m): m is Extract<ServerMessage, { type: K }> => m.type === type && where(m as Extract<ServerMessage, { type: K }>));
+        if (found) return found;
+        if (Date.now() > until) throw new Error(`no ${type}; got ${JSON.stringify(messages)}`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+    socket.send(JSON.stringify({ type: "hello", token }));
+    await message("ready");
+    socket.send(JSON.stringify({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Reviewed", kind: "shell", cols: 80, rows: 24 }));
+    const { workItem } = await message("workItemCreated");
+    const role = { role: "proofer", stage: "round" } as const;
+    socket.send(JSON.stringify({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Read it.", role }));
+    const { headless } = await message("headless", (m) => m.headless.state !== "working");
+    expect([headless.state, headless.answer, headless.error, headless.role]).toEqual(["finished", "read", null, role]);
+
+    const bundleDir = join(built, "bundle");
+    const rulesFile = join(runDir, "roles", "proofer-round.md");
+    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(workItem.worktree, { bundleDir, agent: "owlery:proofer", rulesFile }));
+    // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
+    expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
+    expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
+  }, 30_000);
 });
