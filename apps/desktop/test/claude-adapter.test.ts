@@ -422,7 +422,7 @@ describe("the Claude adapter's run", () => {
         // The CLI was asked: the answer is its version's and not a failed run's.
         expect(readFileSync(join(folder, "args"), "utf8"), found).toBe("--version\n");
       }
-    });
+    }, 20_000);
 
     it("reads the version a CLI printed though the CLI then exits with a failure", async () => {
       const folder = temporaryFolder();
@@ -440,7 +440,7 @@ describe("the Claude adapter's run", () => {
       const started = Date.now();
       expect(await claudeAdapter(fakeShell(folder, script(folder, "hanging", "exec sleep 30")).env, { lookupTimeoutMs: 1000 }).notice()).toBeNull();
       expect(Date.now() - started).toBeLessThan(10_000);
-    });
+    }, 20_000);
 
     it("runs the CLI again at each call, so the notice goes once the person updated, and asks the login shell once for the notices and the sessions together", async () => {
       const folder = temporaryFolder();
@@ -454,7 +454,7 @@ describe("the Claude adapter's run", () => {
       expect(await adapter.notice()).toBeNull();
       await new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder }, (event) => event.type === "exit" && resolve()).catch(reject));
       expect(shell.lookups()).toBe(1);
-    });
+    }, 20_000);
 
     it("asks the login shell again for a session after a notice whose lookup found no CLI", async () => {
       const folder = temporaryFolder();

@@ -1263,7 +1263,7 @@ function onMessage(message: ServerMessage): void {
       showStatus();
       return;
     case "agentNotice":
-      // The daemon read its agent's version again, at its start or as a window connected, and the answer changed.
+      // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
       held.agentNotice = message.notice;
       showStatus();
       return;
