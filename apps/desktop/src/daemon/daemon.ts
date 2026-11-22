@@ -204,11 +204,6 @@ export class Daemon {
     this.keepAwake = new KeepAwakeStore(options.runDir);
     this.decisions = new DecisionStore(options.runDir);
     this.asked = new AskedStore(options.runDir);
-    // The two stores are keyed by a work item's id, which `repositories.json` gives. An entry of a work item that file does not hold is dropped here, since the id is given again to a new work item where the file was lost or read as no repository.
-    const kept = new Set(this.store.workItems().map(({ item }) => item.id));
-    const gone = (ids: readonly number[]): number[] => ids.filter((id) => !kept.has(id));
-    this.keptChange("decisions", () => this.decisions.drop(gone(this.decisions.workItemIds())));
-    this.keptChange("questions", () => this.asked.drop(gone(this.asked.workItemIds())));
   }
 
   listen(port: number): Promise<number> {
@@ -453,6 +448,9 @@ export class Daemon {
             const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
+            // The two stores are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the stores hold under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
+            this.keptChange("decisions", () => this.decisions.drop([stored.item.id]));
+            this.keptChange("questions", () => this.asked.drop([stored.item.id]));
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.item.id, 0);
             if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, 0);
@@ -959,7 +957,7 @@ export class Daemon {
     return `An archive of work item ${String(id)} is ending its sessions. Try again.`;
   }
 
-  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch, the decisions made for each, which leave `decisions.json` with them, and the questions each is parked with, which leave `asked.json`. A delete and a repository's removal call it. The decisions and the questions of a work item the repositories do not hold at the daemon's start are dropped in the constructor. The store of the repositories is not touched. */
+  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch, the decisions made for each, which leave `decisions.json` with them, and the questions each is parked with, which leave `asked.json`. A delete and a repository's removal call it. What the two stores hold under an id that is given to a new work item is dropped where the id is given, in the `createWorkItem` case. The store of the repositories is not touched. */
   private dropWorkItems(ids: ReadonlySet<number>): void {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;

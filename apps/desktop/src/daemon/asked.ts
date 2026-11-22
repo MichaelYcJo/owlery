@@ -66,8 +66,9 @@ function isWritten(value: unknown): value is Written {
  * id>":<record>, …}}`, readable by the user alone, written whole at each
  * change and read at start, so a park and its answers outlive the daemon. A
  * work item's record leaves the file when the daemon drops it: at the work
- * item's delete, at its repository's removal, and at the daemon's start for
- * a work item the list of repositories does not hold. A
+ * item's delete, at its repository's removal, and when a new work item is
+ * given the id, which happens where the list of repositories was lost and
+ * its ids began again. The daemon's start drops nothing. A
  * file of another shape, one whose entries lack a field of the protocol's
  * among them, is read as no record and replaced at the next change. Given no
  * run directory, the records are kept in memory alone.
@@ -117,11 +118,6 @@ export class AskedStore {
     asked.answeredAt = at;
     this.write();
     return askedOf(asked);
-  }
-
-  /** The ids of the work items the store holds entries of. */
-  workItemIds(): number[] {
-    return [...this.workItems.keys()];
   }
 
   /** Takes the records of the work items given out of the store, held before written as a park is. Where it holds none of them, nothing is written. */

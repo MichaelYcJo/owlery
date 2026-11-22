@@ -54,8 +54,9 @@ function isWritten(value: unknown): value is Written {
  * decision's id is given once over the whole file and never again, the ids of
  * the decisions a removal took out among them. A work item's decisions leave
  * the file when the daemon drops them: at the work item's delete, at its
- * repository's removal, and at the daemon's start for a work item the list
- * of repositories does not hold. A file of another shape, one
+ * repository's removal, and when a new work item is given the id, which
+ * happens where the list of repositories was lost and its ids began again.
+ * The daemon's start drops nothing. A file of another shape, one
  * whose entries lack a field of the protocol's among them, is read as no
  * decision and replaced at the next change. Given no run directory, the
  * decisions are kept in memory alone.
@@ -98,11 +99,6 @@ export class DecisionStore {
     decision.reversed = { at, message };
     this.write();
     return decisionOf(decision);
-  }
-
-  /** The ids of the work items the store holds entries of. */
-  workItemIds(): number[] {
-    return [...this.workItems.keys()];
   }
 
   /** Takes the decisions of the work items given out of the store, held before written as a decision is. Where it holds none of them, nothing is written. */
