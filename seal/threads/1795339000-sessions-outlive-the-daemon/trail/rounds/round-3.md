@@ -43,6 +43,11 @@ Before it does, the daemon checks that the cut stage's process no longer runs in
 Check: the round-3 probe, run again, prints "departing spans: 0", and each edition keeps 27 heading lines and 122 table lines.
 ```
 
+```seal
+verdict: fixed dba18c4
+answer: Line 55 of both editions now says that before the daemon starts the cut stage again it checks that the cut stage's process no longer runs in that worktree, and ends it or waits where it still does, with the grounds that a role session's end at a crash was not run and one worktree does not hold two agents. The two editions say the same, and each keeps 27 heading lines and 122 table lines. The frame is synced in the next commit, the orchestrator's: frame/plan.md:161 and :210 and frame/design.md:132 were not edited by this pass.
+```
+
 ## Confirmations
 
 ```seal
