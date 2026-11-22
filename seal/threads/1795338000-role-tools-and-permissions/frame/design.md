@@ -267,6 +267,8 @@ export interface PermissionAsk {
 What the build added beside the sections above, folded by the orchestrator on 2026-11-22:
 
 - `PairKey` moves from `claude-roles.ts` to `role-grants.ts` and is exported, with `pairKey(role)`, so that the grant table is keyed by the same pairs as the documents' table and a new pair without a grant row fails the typecheck (phase 1).
+- `claude.ts` gains `controlRequestOf`, `INITIALIZE_LINE` and `PERMISSION_TEXT_CHARS`; `fake.ts` gains `FakeAsk`; `answerPermission` answers `error` where `allow` is not a boolean (phase 2).
+- A link whose target does not exist is read as outside the worktree, and a write that names no path is refused with the sentence for any other call (phase 2; *Scope* 9 reads with this).
 
 ## Rule changes
 
