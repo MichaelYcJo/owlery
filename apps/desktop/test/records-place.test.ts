@@ -191,6 +191,12 @@ describe("the records place", () => {
     expect(readdirSync(join(repo, "seal"))).toEqual(["README.md"]);
     expect(readFileSync(join(repo, "seal/README.md"), "utf8")).toBe("# The seals of the harbour\n");
     expect(readRecordsPlace(repo)).toEqual({ root: "agentic-seal", check: WORKFLOW, broadGate: "pnpm test" });
+    // The project's file is named in small letters: it is no `README.md` of the place, on a disk that tells the two names apart and on one that does not.
+    const small = repository();
+    write(small, "seal/readme.md", "# The seals of the harbour\n");
+    commitAll(small, "docs: the seals");
+    const beside = await planRecords(small, "pnpm test", VERSION);
+    expect([beside.files.map((file) => file.path), beside.blocked]).toEqual([["agentic-seal/README.md", "agentic-seal/config.json", WORKFLOW], null]);
   });
 
   it("blocks a plan where both root names hold something of the project's own, and a setup of it writes nothing", async () => {
@@ -335,6 +341,12 @@ describe("the records place", () => {
     // A file of the project's stands below the second name, untracked: the commit holds nothing there, and the setup does not write a root around it.
     write(repo, "agentic-seal/notes.txt", "the project's\n");
     expect((await planRecords(repo, "pnpm test", VERSION)).blocked).toBe(differs("agentic-seal/notes.txt"));
+    // A file git ignores below the name is named too.
+    const cached = repository();
+    write(cached, ".gitignore", "seal/cache/\n");
+    commitAll(cached, "chore: ignore the cache");
+    write(cached, "seal/cache/built.bin", "x\n");
+    expect((await planRecords(cached, "pnpm test", VERSION)).blocked).toBe(differs("seal/cache/built.bin"));
     // Staged alone and gone from the checkout, it is named the same.
     git(repo, "add", "agentic-seal/notes.txt");
     rmSync(join(repo, "agentic-seal"), { recursive: true });
@@ -425,6 +437,10 @@ describe("the records place", () => {
     // Restored, the repository holds every part again.
     git(removed, "checkout", "--quiet", "--", "seal");
     expect((await planRecords(removed, "pnpm test", VERSION)).blocked).toBeNull();
+    // Where the commit holds a root at each name, the first is the one kept, as the check takes it.
+    write(removed, "agentic-seal/README.md", `${MARKER}\n`);
+    commitAll(removed, "chore: a second root");
+    expect((await planRecords(removed, "pnpm test", VERSION)).files).toEqual(kept);
 
     // A sparse checkout of everything but `seal/`: git reports no change, and the checkout shows no root.
     const sparse = rooted();

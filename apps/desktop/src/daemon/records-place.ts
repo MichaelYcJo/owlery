@@ -321,11 +321,11 @@ export async function planRecords(folder: string, broadGate: string, version: st
   files.push({ path: check ?? WORKFLOW, text: check === null ? workflowText(version) : null });
   const written = files.filter((file) => file.text !== null).map((file) => file.path);
 
-  // The paths at which the checkout does not hold the place as the commit does. Status is asked of the files the plan lists or read and of everything below a new root, so every entry it prints is one of them; an ignored folder is printed with a slash at its end.
+  // The paths at which the checkout does not hold the place as the commit does. Status is asked of the files the plan lists or read and of everything below a new root, so every entry it prints is one of them.
   const place = [...new Set([...files.map((file) => file.path), ...readmes, WORKFLOW, PLUGIN_WORKFLOW])];
   const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--ignored", "--untracked-files=all", "--", ...place, ...(kept === null && root !== null ? [root] : [])]);
   if (status.code !== 0) throw new Error(status.stderr.trim() || "git could not say how the checkout differs from its commit");
-  const reported = status.stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.slice(3).replace(/\/$/, ""));
+  const reported = status.stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.slice(3));
   const differing = [...place.filter((path) => reported.includes(path) || holdsFile(path) !== shows(folder, path)), ...reported.filter((path) => !place.includes(path))];
   // The folders above the written paths at which the checkout, the index or the commit holds a file, a link or a submodule.
   const above = new Set<string>();
