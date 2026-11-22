@@ -568,7 +568,10 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     );
     expect(readdirSync(tmp)).toEqual([]);
     expect(existsSync(join(repo, "seal/threads/1-a"))).toBe(false);
+    // The run in this process gets a stand-in that kills nothing: one that sent SIGKILL to its group here would end the test runner's group, not fail the case.
+    const seal = standIn(REMOVE_ALL);
     const again = run(repo, "--apply");
+    expect(seal.ran()).toBe(false);
     expect(again).toEqual({
       code: 2,
       out: "",
