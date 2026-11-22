@@ -51,7 +51,7 @@ function livePanes(workItem: WorkItem, sessions: readonly SessionInfo[]): Sessio
   return sessions.filter((session) => session.workItemId === workItem.id && session.alive).sort((a, b) => b.id - a.id);
 }
 
-/** The pane a work item's line reads its state from: its most recent live pane of a kind that reports state, or nothing where it has none. */
+/** The pane a work item's line reads its state from where the work item is not parked: its most recent live pane of a kind that reports state, or nothing where it has none. */
 export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): SessionInfo | undefined {
   return livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
 }
