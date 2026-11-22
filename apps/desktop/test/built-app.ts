@@ -3,7 +3,7 @@
 // reads the window as a person sees it starts here, and so does one that
 // reads what the main process holds, through that process's inspector.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -170,10 +170,25 @@ export class BuiltApp {
    * its own, for `evaluateMain`. An app started in the background has its
    * window at the size the app makes it at (src/main/window-size.ts) on any
    * screen, and the start fails where its page has another size: the cases
-   * read the screens as they are drawn at that size.
+   * read the screens as they are drawn at that size. A caller whose daemon
+   * is to start on state no message of the protocol puts there, such as a
+   * decision made without asking, passes `writeRun`: it is called with the
+   * daemon's run folder, made new and empty and readable by the user alone,
+   * before the app starts, and the daemon reads at its start what the
+   * function wrote there.
    */
-  static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false } = {}): Promise<BuiltApp> {
+  static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false, writeRun }: { keepBackground?: boolean; inspectMain?: boolean; writeRun?: (runDir: string) => void } = {}): Promise<BuiltApp> {
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
+    if (writeRun) {
+      const runDir = join(userData, "run");
+      mkdirSync(runDir, { mode: 0o700 });
+      try {
+        writeRun(runDir);
+      } catch (error) {
+        rmSync(userData, { recursive: true, force: true });
+        throw error;
+      }
+    }
     const port = await freePort();
     const mainPort = inspectMain ? await freePort() : undefined;
     const appEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
