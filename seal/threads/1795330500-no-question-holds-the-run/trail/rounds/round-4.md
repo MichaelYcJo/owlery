@@ -42,6 +42,12 @@ export async function commitAlone(worktree: string, branch: string, path: string
 
 In `daemon.ts#commitWord`, the call becomes `commitAlone(worktree, held.item.branch, relative(...), subject, ...)`. The fix pass owes three more things that the snippet does not cover. The first is a case in `apps/desktop/test/daemon.test.ts`, group "the commit of a person's word": a worktree on a detached HEAD gets no new commit, the record stays written, and the log names the branch. The second is the docstrings of `commitAlone` and `commitWord`. The third is the sentence "The commit of *Scope* item 22" of `frame/design.md` *Data & interfaces*, line 239, which is the orchestrator's to fold.
 
+```seal
+verdict: fixed e47b44d
+location: `apps/desktop/src/shared/protocol.ts`, `apps/desktop/test/daemon.test.ts`
+answer: The finding holds, and the fix is written in the pass's own words, not pasted. `commitAlone` takes the work item's branch and, before the `git add`, throws where a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in the worktree (one `git rev-parse --git-path` for the five markers) and then where `git symbolic-ref --quiet HEAD` is not `refs/heads/<branch>`. The markers are read first, so a stopped rebase is logged as "a rebase is under way in the worktree" and not as a detached HEAD. `BISECT_LOG` is left out: a bisect that moved HEAD is detached and refused by the branch test, and one that has not moved it is on the branch. Seven cases of the group "the commit of a person's word" hold one state each, each seen red against the code as it stood. The docstrings of `commitAlone` and `commitWord`, the two protocol comments (the path this block's `location:` adds) and `changelog.md` state it. `pr.md:9` agrees with HEAD as it stands. `frame/design.md` lines 95, 147 and 239 and `frame/plan.md` line 85 are the orchestrator's to fold.
+```
+
 ### 2. The pass reads `decisions.md` through a link, and a file of any size or kind, on the daemon's one thread, and a write replaces a link with a file
 
 ```seal
@@ -98,6 +104,12 @@ export function recordText(file: string): string | null {
 
 `writeRecord` already throws where `recordText` throws, so `personWrote` answers `error` and `Daemon#decided` and `Daemon#park` log and return nothing. No other change is needed there. The snippet does not reach `textOf` of `decision-record.ts:91`, which reads each `routing.md` under `threads/` through a link and with no bound in the same pass. The fix pass owes that read the same guard, and a case in `apps/desktop/test/decision-record.test.ts` or `daemon.test.ts` that reads a linked record as one unread line and leaves the link standing after a refused write.
 
+```seal
+verdict: fixed e47b44d
+location: `apps/desktop/src/daemon/repository-file.ts`, `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/repository-file.test.ts`
+answer: The finding holds. The read went to a module of its own, `repository-file.ts#repositoryFileText`, in place of `recordText`, since three readers of the pass share the defect: the record (`Daemon#readRecord` and `writeRecord`), each `routing.md` (`decision-record.ts#textOf`) and the `README.md` a root is told by (`records-place.ts#textOf`, which `rootOf` calls for every work item in every pass). It opens with `O_NONBLOCK`, and with `O_NOFOLLOW` for the first two, and reads only a plain file of 1,048,576 bytes at most. Its refusals name the file, as in "decisions.md is a link, and Owlery reads it only as a file of its own", so the unread line and the `error` of a refused write read alone. A link that leads nowhere is refused too, where the old read took it for no record and wrote a new one over it. `records-place.ts` still follows a link, as #40's cases of a linked root ask, and is held to the plain file and the size alone. A folder under `threads/` that is itself a link is still followed, as the finding's precondition says. The unread line of a folder at the record's path now reads "decisions.md is not a plain file" in place of `EISDIR`. Cases in `repository-file.test.ts`, `decision-record.test.ts`, `records-place.test.ts` and `daemon.test.ts`, each seen red. `frame/design.md` lines 65 and 227 are the orchestrator's to fold.
+```
+
 ### 3. The pull request's text shows six of the eighteen screenshots, and none of Night watch's light inbox or view
 
 ```seal
@@ -117,6 +129,12 @@ evidence: read `docs/design.md:485-490`, `seal/threads/1795330500-no-question-ho
 ````
 
 Line 490 says the body shows each committed file, so the fix pass also adds the seven that neither list names, in the same form: `register-dark-parked.png`, `register-dark-view.png`, `register-light-inbox.png`, `desk-dark-inbox.png`, `desk-dark-view.png`, `desk-light-inbox.png` and `desk-light-parked.png`. The sentence above the images ends "in Night watch", and it then names the three themes.
+
+```seal
+verdict: fixed b924a4f
+answer: `pr.md` now shows the round's five lines after the six, Night watch light's inbox and view and Register's and Desk's decisions among them, and its sentence above them names the two appearances and the other themes.
+```
+
 
 ## Confirmations
 
