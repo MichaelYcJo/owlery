@@ -946,6 +946,12 @@ describe("the setup of a new worktree", () => {
     expect(after.archived[0]!.setup).toMatchObject({ paneId: archived, state: "failed", failure: "The setup pane ended before its command did." });
   });
 
+  it("keeps a setup running while its command runs, though another pane of the work item exits", async () => {
+    const { c, answer } = await createdIn(repositoryNaming({ command: "sleep 30" }), { commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 4"], env: {} }) });
+    const exited = await c.message("inbox", (m) => m.sessions.some((s) => s.id === answer.session.id && !s.alive));
+    expect(exited.workItems[0]!.setup).toMatchObject({ paneId: answer.workItem.setup!.paneId, state: "running", exitCode: null });
+  });
+
   it("leaves a setup that runs as the daemon stops for the next daemon to read as failed, since the daemon stopped before it ended", async () => {
     const made = repositoryNaming({ command: "sleep 30" });
     const runDir = join(made.base, "run");
