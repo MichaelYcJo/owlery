@@ -3919,6 +3919,8 @@ describe("headless sessions", () => {
       const held1 = asksIn(await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1), workItem.id)!;
       const before = c.messages.length;
       await cleared(c, before, workItem.id);
+      // The withdrawal took it off, and not the session's end: the session still works.
+      expect(told(c).map((h) => h.state)).not.toContain("finished");
       c.send({ type: "answerPermission", requestId: 2, workItemId: workItem.id, id: held1[0]!.id, allow: true });
       expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(`no permission request ${held1[0]!.id} waits in this work item`);
       expect((await c.message("headless", (m) => m.headless.state === "finished")).headless.answer).toBe('You asked: "Q"');
