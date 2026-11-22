@@ -17,7 +17,7 @@ import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { repositoryFileText } from "./repository-file";
-import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
+import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, whyNoCommit, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
 const STATE_TEXT_CHARS = 2000;
@@ -200,6 +200,8 @@ export class Daemon {
   private readonly aheadCounts = new Map<number, number | null>();
   // The last commit of a person's word that was asked for in each worktree, by the worktree: it ends once every one before it has, so two commits of one worktree never run git at once.
   private readonly wordCommits = new Map<string, Promise<void>>();
+  // The last word of a person that was taken for each worktree, by the worktree: it ends once git has said where the worktree stands and the word is written or refused, after every one before it, so the words of one worktree are written in the order they came.
+  private readonly words = new Map<string, Promise<void>>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
   /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
@@ -452,8 +454,9 @@ export class Daemon {
     this.hold?.release();
     this.hold = undefined;
     for (const client of this.clients.keys()) client.terminate();
-    // A commit of a person's word that is under way is waited for, so the close leaves no git at work in a worktree.
-    await Promise.all([new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve())), ...stops, ...this.wordCommits.values()]);
+    // A person's word whose worktree git is still reading is waited for, and then its commit and every other under way, so the close leaves no git at work in a worktree.
+    const words = Promise.all(this.words.values()).then(() => Promise.all(this.wordCommits.values()));
+    await Promise.all([new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve())), ...stops, words]);
   }
 
   private accept(socket: WebSocket): void {
@@ -761,47 +764,55 @@ export class Daemon {
         return;
       }
       case "reverseDecision": {
-        try {
-          const { workItemId, decisionId, message: typed } = message as { workItemId: unknown; decisionId: unknown; message: unknown };
-          if (typeof workItemId !== "number" || typeof decisionId !== "number" || typeof typed !== "string") throw new Error("a reversal names a work item, a decision of it and a message");
-          const said = cutText(typed.trim());
-          if (said === "") throw new Error("Say why the decision is reversed.");
-          // The writer refuses an id the record holds no decision of and a decision that does not stand `decided`, in its own words.
-          this.personWrote(workItemId, `chore: record the person's reversal of decision ${String(decisionId)}`, (text) => withReversal(text, decisionId, said));
-          // The answer first, so the client that asked knows its request was carried out when the inbox carries the reversal.
-          this.send(socket, { type: "done", requestId: message.requestId });
-          this.broadcastInbox();
-        } catch (error) {
-          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
-        }
+        const reverse = async (): Promise<void> => {
+          try {
+            const { workItemId, decisionId, message: typed } = message as { workItemId: unknown; decisionId: unknown; message: unknown };
+            if (typeof workItemId !== "number" || typeof decisionId !== "number" || typeof typed !== "string") throw new Error("a reversal names a work item, a decision of it and a message");
+            const said = cutText(typed.trim());
+            if (said === "") throw new Error("Say why the decision is reversed.");
+            // The writer refuses an id the record holds no decision of and a decision that does not stand `decided`, in its own words.
+            await this.personWrote(workItemId, `chore: record the person's reversal of decision ${String(decisionId)}`, (text) => withReversal(text, decisionId, said));
+            // The answer first, so the client that asked knows its request was carried out when the inbox carries the reversal.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // Git says where the worktree stands before the word is written, so the answer comes after this call has returned.
+        void reverse();
         return;
       }
       case "answerQuestions": {
-        try {
-          const { workItemId, answers } = message as { workItemId: unknown; answers: unknown };
-          const given = Array.isArray(answers) ? (answers as unknown[]).map((answer) => (typeof answer === "object" && answer !== null ? answer : {}) as { questionId?: unknown; answer?: unknown }) : undefined;
-          if (typeof workItemId !== "number" || !given || !given.every((answer) => typeof answer.questionId === "number" && typeof answer.answer === "string")) throw new Error("an answer names a work item and gives an answer to each of its open questions");
-          this.personWrote(workItemId, "chore: record the person's answers", (text) => {
-            // The open questions are read from the text the write is applied to, so the answers are held against the record as it stands at the write.
-            const open = readDecisionRecord(text).questions.filter((question) => question.state.is === "open");
-            if (open.length === 0) throw new Error(`Work item ${String(workItemId)} waits for no answer.`);
-            const said = new Map<number, string>();
-            for (const { questionId, answer } of given as { questionId: number; answer: string }[]) {
-              if (!open.some((question) => question.id === questionId)) throw new Error(`Work item ${String(workItemId)} holds no open question ${String(questionId)}.`);
-              if (said.has(questionId)) throw new Error(`Question ${String(questionId)} is answered twice.`);
-              said.set(questionId, cutText(answer.trim()));
-              if (said.get(questionId) === "") throw new Error(`Give an answer to question ${String(questionId)}.`);
-            }
-            const left = open.find((question) => !said.has(question.id));
-            if (left) throw new Error(`Question ${String(left.id)} has no answer.`);
-            return [...said].reduce((next, [questionId, answer]) => withAnswer(next, questionId, answer), text);
-          });
-          // The answer first, so the client that asked knows its request was carried out when the inbox carries the answers.
-          this.send(socket, { type: "done", requestId: message.requestId });
-          this.broadcastInbox();
-        } catch (error) {
-          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
-        }
+        const answer = async (): Promise<void> => {
+          try {
+            const { workItemId, answers } = message as { workItemId: unknown; answers: unknown };
+            const given = Array.isArray(answers) ? (answers as unknown[]).map((answer) => (typeof answer === "object" && answer !== null ? answer : {}) as { questionId?: unknown; answer?: unknown }) : undefined;
+            if (typeof workItemId !== "number" || !given || !given.every((answer) => typeof answer.questionId === "number" && typeof answer.answer === "string")) throw new Error("an answer names a work item and gives an answer to each of its open questions");
+            await this.personWrote(workItemId, "chore: record the person's answers", (text) => {
+              // The open questions are read from the text the write is applied to, so the answers are held against the record as it stands at the write.
+              const open = readDecisionRecord(text).questions.filter((question) => question.state.is === "open");
+              if (open.length === 0) throw new Error(`Work item ${String(workItemId)} waits for no answer.`);
+              const said = new Map<number, string>();
+              for (const { questionId, answer } of given as { questionId: number; answer: string }[]) {
+                if (!open.some((question) => question.id === questionId)) throw new Error(`Work item ${String(workItemId)} holds no open question ${String(questionId)}.`);
+                if (said.has(questionId)) throw new Error(`Question ${String(questionId)} is answered twice.`);
+                said.set(questionId, cutText(answer.trim()));
+                if (said.get(questionId) === "") throw new Error(`Give an answer to question ${String(questionId)}.`);
+              }
+              const left = open.find((question) => !said.has(question.id));
+              if (left) throw new Error(`Question ${String(left.id)} has no answer.`);
+              return [...said].reduce((next, [questionId, answer]) => withAnswer(next, questionId, answer), text);
+            });
+            // The answer first, so the client that asked knows its request was carried out when the inbox carries the answers.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            this.broadcastInbox();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        // As a reversal is: the answer comes after git has said where the worktree stands.
+        void answer();
         return;
       }
       case "planRename": {
@@ -1424,19 +1435,42 @@ export class Daemon {
    * Writes a person's word, a reversal or their answers, into the record of
    * a work item, through the record's writer, reads the record again for
    * the lists, and has the record committed under the subject given
-   * (`commitWord`). It throws, with the file as it stood and no commit, for
-   * a work item the daemon does not keep, one whose worktree holds no
-   * directory of its own, and whatever the change or the writer throws.
+   * (`commitWord`). It first asks git where the worktree stands
+   * (`worktrees.ts#whyNoCommit`), and the words of one worktree are read and
+   * written one after another, in the order they came. It throws, with the
+   * file as it stood and no commit, for a work item the daemon does not
+   * keep, for a worktree that is not on the work item's branch or has a
+   * rebase, a merge, a cherry-pick, a revert or a `git am` under way, for a
+   * worktree that holds no directory of the work item, and whatever the
+   * change or the writer throws. A word written into a worktree in the
+   * middle of a rebase would be lost where the rebase is aborted, and would
+   * hold its continue as a change not staged, so it is refused before it is
+   * written and the person sends it again.
    */
-  private personWrote(workItemId: number, subject: string, change: (text: string) => string): void {
-    const held = this.store.workItem(workItemId);
-    if (!held) throw new Error(`no work item ${String(workItemId)}`);
-    const directory = workItemDirectory(held.item.worktree, held.item.branch);
-    if (directory === null) throw new Error(`Work item ${String(workItemId)} has no record of decisions.`);
-    writeRecord(directory, change);
-    this.readRecord(held);
-    this.flushTimes();
-    this.commitWord(held, directory, subject);
+  private personWrote(workItemId: number, subject: string, change: (text: string) => string): Promise<void> {
+    const asked = this.store.workItem(workItemId);
+    if (!asked) throw new Error(`no work item ${String(workItemId)}`);
+    const { worktree, branch } = asked.item;
+    const write = async (): Promise<void> => {
+      const why = await whyNoCommit(worktree, branch);
+      if (why !== null) throw new Error(`Nothing was written: ${why}. Send it again once the worktree is on its branch and nothing is under way in it.`);
+      // The work item is read again: git answered in a later turn of the daemon's thread than the one that took the message.
+      const held = this.store.workItem(workItemId);
+      if (!held) throw new Error(`no work item ${String(workItemId)}`);
+      const directory = workItemDirectory(held.item.worktree, held.item.branch);
+      if (directory === null) throw new Error(`Work item ${String(workItemId)} has no record of decisions.`);
+      writeRecord(directory, change);
+      this.readRecord(held);
+      this.flushTimes();
+      this.commitWord(held, directory, subject);
+    };
+    const written = (this.words.get(worktree) ?? Promise.resolve()).then(write);
+    // The next word of the worktree waits for this one whether it was written or refused.
+    this.words.set(
+      worktree,
+      written.catch(() => undefined),
+    );
+    return written;
   }
 
   /**
@@ -1445,11 +1479,11 @@ export class Daemon {
    * the subject given and the trailer `Seal-Routing:` that names the work
    * item's directory, which the pull request check reads. It returns at
    * once, and the commit is made after every earlier one of the same
-   * worktree has ended. Where the worktree is not on the work item's branch
-   * when the commit's turn comes, or a rebase, a merge, a cherry-pick, a
-   * revert or a `git am` is under way in it, nothing is staged and nothing
-   * is committed: the file stands written, and the log says which
-   * (`worktrees.ts#commitAlone`). Where a live pane of the work item says it is working, or a
+   * worktree has ended. `personWrote` refused the word where the worktree
+   * was off the work item's branch or in the middle of an operation, so the
+   * commit meets either only where it arose after the write: nothing is
+   * then staged and nothing is committed, the file stands written, and the
+   * log says which (`worktrees.ts#commitAlone`). Where a live pane of the work item says it is working, or a
    * headless session of it is working, when the commit's turn comes, nothing is
    * committed: the file stands written, and the session's own commit, or the
    * next commit made here, carries it. A commit carries the file as it stands

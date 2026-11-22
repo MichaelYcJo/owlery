@@ -3787,7 +3787,7 @@ describe("the commit of a person's word", () => {
   /** Runs git in a worktree where the command is expected to stop on a conflict, and gives its exit code. */
   const stopping = (worktree: string, ...args: string[]): number | null => spawnSync("git", args, { cwd: worktree, encoding: "utf8" }).status;
   /**
-   * Each state of a worktree in which nothing is committed, with the commands that bring it about and what the log then says.
+   * Each state of a worktree in which a person's word is refused before it is written and nothing is committed, with the commands that bring it about and the reason the refusal gives.
    * The work item's branch holds the commit "mine" and the branch `theirs` the commit "theirs", which change one line of `README.md` each, so each of the two taken onto the other stops on a conflict.
    */
   const NOT_COMMITTED: { name: string; bring: (worktree: string) => void; says: (branch: string) => string }[] = [
@@ -3807,11 +3807,15 @@ describe("the commit of a person's word", () => {
     },
   ];
 
-  it.each(NOT_COMMITTED)("commits nothing where the worktree is $name: the reversal is answered `done` and stays written, no branch and no HEAD moves, the index stands as it stood, and the log says why", async ({ bring, says }) => {
+  /** The refusal of a person's word for the reason given, as the window shows it. */
+  const refusal = (why: string): string => `Nothing was written: ${why}. Send it again once the worktree is on its branch and nothing is under way in it.`;
+
+  it.each(NOT_COMMITTED)("refuses a reversal and an answer where the worktree is $name: each is answered with an `error` that says why, the record stands byte for byte as it stood, no inbox follows, no branch and no HEAD moves, the index stands as it stood, and the log holds nothing", async ({ bring, says }) => {
     const { d, c, workItems } = await withWorkItems(["Elsewhere"]);
     const a = workItems[0]!;
     const directory = withDirectory(a);
     d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May the session push?", grounds: "A push needs the person's approval." }] });
     git(a.worktree, "checkout", "--quiet", "-b", "theirs");
     writeFileSync(join(a.worktree, "README.md"), "theirs\n");
     git(a.worktree, "commit", "--quiet", "-am", "theirs");
@@ -3820,16 +3824,64 @@ describe("the commit of a person's word", () => {
     git(a.worktree, "commit", "--quiet", "-am", "mine");
     bring(a.worktree);
     /** Where every branch and the worktree's HEAD stand, and what git says of the worktree's changes. */
-    const stands = (): unknown[] => [git(a.worktree, "for-each-ref", "refs/heads"), git(a.worktree, "rev-parse", "HEAD"), status(a.worktree)];
+    const stands = (): unknown[] => [git(a.worktree, "for-each-ref", "refs/heads"), git(a.worktree, "rev-parse", "HEAD"), status(a.worktree), readFileSync(join(directory, RECORD_FILE), "utf8")];
     const stood = stands();
     const said = logged();
+    await settled(c);
+    const before = c.messages.length;
     c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
-    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
-    // The close waits for the commit's turn, whatever it did.
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: refusal(says(a.branch)) });
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "Yes, push." }] });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: refusal(says(a.branch)) });
+    await settled(c);
+    // The third is the refusal `settled` waits for.
+    expect(c.messages.slice(before).map((m) => m.type)).toEqual(["error", "error", "error"]);
     await d.close();
-    expect(said).toEqual([`the person's word was not committed: ${says(a.branch)}`]);
+    expect(said).toEqual([]);
     expect(stands()).toEqual(stood);
+  });
+
+  it("commits nothing where the worktree leaves its branch after a word was written: a HEAD detached while an earlier commit is held leaves the later word written and answered `done`, moves the work item's branch nowhere, and the log says why", async () => {
+    const { d, c, made: repository, workItems } = await withWorkItems(["Left"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    for (const says of ["One.", "Two."]) d.decided(a.id, { ...DEFAULT, says });
+    // The hook holds the first commit until the case lets it go.
+    const [started, go] = [join(repository.base, "hook-started"), join(repository.base, "hook-go")];
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${go}' ]; do sleep 0.05; done\n`, { mode: 0o755 });
+    const said = logged();
+    const reverse = (decisionId: number): void => c.send({ type: "reverseDecision", requestId: decisionId, workItemId: a.id, decisionId, message: `Not ${String(decisionId)}.` });
+    reverse(1);
+    await c.until(() => (existsSync(started) ? true : undefined), 3000);
+    // The second word is written while the worktree is on its branch, and its commit waits behind the first.
+    reverse(2);
+    expect(await c.message("done", (m) => m.requestId === 2)).toEqual({ type: "done", requestId: 2 });
+    // HEAD is detached where it stands, with no read of the index the held commit has locked.
+    git(a.worktree, "update-ref", "--no-deref", "HEAD", git(a.worktree, "rev-parse", "HEAD").trim());
+    const branchAt = (): string => git(a.worktree, "rev-parse", `refs/heads/${a.branch}`);
+    const stood = branchAt();
+    writeFileSync(go, "");
+    await d.close();
+    expect(said).toEqual([`the person's word was not committed: the worktree is not on the branch ${a.branch}`]);
+    expect(branchAt()).toBe(stood);
+    // The held commit, which passed its checks on the branch, is the one commit made, and the second word is in the file alone.
+    expect(git(a.worktree, "log", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the person's reversal of decision 1", "first"]);
+    expect(recordIn(directory)?.decisions.map(({ state }) => state)).toEqual([1, 2].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+  });
+
+  it("waits at its close for a word whose worktree is still being read: a reversal sent just before the close is written and committed when the close has ended", async () => {
+    const { d, c, workItems } = await withWorkItems(["Closing"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    d.decided(a.id, DEFAULT);
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    // A socket's messages are taken in the order they came, so the answer to the second says the daemon has the first, whose read of the worktree by git takes longer than that answer.
+    c.send({ type: "setWorkItem", requestId: 2, id: a.id, pinned: true });
+    await c.message("done", (m) => m.requestId === 2);
+    await d.close();
     expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 1");
   });
 
   it("leaves the record written and not committed while a headless session of the work item is working, and while a pane of it is: the other work item's word is committed meanwhile, and the first commit made once nothing works carries what was left", async () => {
