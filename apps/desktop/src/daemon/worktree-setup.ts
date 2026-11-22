@@ -229,16 +229,23 @@ export function endedSetup(setup: WorktreeSetup, end: { exitCode: number | null;
   return { ...setup, state: failed ? "failed" : "succeeded", exitCode: end.exitCode, failure, endedAt: now };
 }
 
+/** The sentence of a setup whose `.worktreesetup` held another command than the one shown before the press, or one where none was shown, or none where one was: no command ran. */
+export const COMMAND_CHANGED = ".worktreesetup changed after the setup was shown, so no command ran.";
+
 /**
  * Begins the setup of a worktree of the repository `repo` names: reads the
  * two files, and copies the included paths where `.worktreeinclude` stands.
- * Null where the repository names neither. Where a command stands, the
- * setup is `running` and names no pane yet: the daemon starts the pane. Where
- * none does, it has ended by the copy. A `.worktreesetup` that cannot be
- * read is a setup that failed, and nothing is copied. `now` is read when the
- * setup begins, before the copy, and again where it ends, after it.
+ * Null where the repository names neither. Where a command stands and it is
+ * `shown`, the text the person was shown before the press, whole, the setup
+ * is `running` and names no pane yet: the daemon starts the pane. Where none
+ * does, it has ended by the copy. Where the command the file holds is not
+ * the one shown, the setup has ended by the copy too, failed with
+ * `COMMAND_CHANGED`, and names the command the file holds, so the next
+ * showing names it. A `.worktreesetup` that cannot be read is a setup that
+ * failed, and nothing is copied. `now` is read when the setup begins, before
+ * the copy, and again where it ends, after it.
  */
-export async function beginSetup(repo: string, worktree: string, now: () => number): Promise<WorktreeSetup | null> {
+export async function beginSetup(repo: string, worktree: string, now: () => number, shown: string | null): Promise<WorktreeSetup | null> {
   const begun = { copied: [], copiedCount: 0, failedCopies: [], command: null, paneId: null, state: "running" as const, exitCode: null, failure: null, startedAt: now(), endedAt: null };
   let named: { include: boolean; command: string | null };
   try {
@@ -249,6 +256,8 @@ export async function beginSetup(repo: string, worktree: string, now: () => numb
   if (!named.include && named.command === null) return null;
   const copy = named.include ? await copyIncluded(repo, worktree) : { copied: [], copiedCount: 0, failed: [], failure: null };
   const setup: WorktreeSetup = { ...begun, copied: copy.copied, copiedCount: copy.copiedCount, failedCopies: copy.failed, command: named.command, failure: copy.failure };
+  // The command runs with the person's rights, so only as they were shown it.
+  if (named.command !== shown) return endedSetup(setup, { exitCode: null, failure: COMMAND_CHANGED }, now());
   return named.command === null ? endedSetup(setup, { exitCode: null, failure: null }, now()) : setup;
 }
 

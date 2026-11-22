@@ -68,6 +68,7 @@ import {
   pinnedFirst,
   pathCandidates,
   pathTarget,
+  PLAN_AWAITED,
   planAnswer,
   planLine,
   recentKept,
@@ -79,6 +80,7 @@ import {
   replayStep,
   repositoryMenu,
   rowButtons,
+  RUN_SETUP_SAYS,
   runningSessions,
   screenMoves,
   screenTurns,
@@ -87,6 +89,7 @@ import {
   settingsFields,
   setupMark,
   setupSection,
+  shownSetup,
   sidebarTree,
   stageOf,
   stateHeading,
@@ -884,7 +887,15 @@ describe("setupMark", () => {
 
 describe("setupSection", () => {
   it("says the command has run, and for how long, while it runs, and offers no run again", () => {
-    expect(setupSection({ ...LOGIN, setup: RUNNING_SETUP }, 1000 + 3 * 60_000)).toEqual({ says: "The command has run for 3 min.", copied: [".env", "node_modules/"], more: "", failed: [], runAgain: false });
+    expect(setupSection({ ...LOGIN, setup: RUNNING_SETUP }, 1000 + 3 * 60_000)).toEqual({ says: "The command has run for 3 min.", command: "pnpm install", copied: [".env", "node_modules/"], more: "", failed: [], runAgain: false });
+  });
+
+  it("names the command the record holds, which a run again carries, and none where the record names none", () => {
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 3, endedAt: 2000 } }, 9000)).toMatchObject({ command: "pnpm install", runAgain: true });
+    // A command the file held in place of the one shown did not run, and is the one the section names now.
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, command: "make\n", paneId: null, state: "failed", failure: ".worktreesetup changed after the setup was shown, so no command ran.", endedAt: 2000 } }, 9000)).toMatchObject({ says: ".worktreesetup changed after the setup was shown, so no command ran.", command: "make" });
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, command: null, state: "succeeded", endedAt: 2000 } }, 9000)).toMatchObject({ command: "" });
+    expect(RUN_SETUP_SAYS).toBe("Copy what is missing from the main checkout and run the command this section names in a new pane. Where .worktreesetup holds another command now, none runs, and the section names the new one.");
   });
 
   it("says how the command ended, and offers to run the setup again", () => {
@@ -897,7 +908,7 @@ describe("setupSection", () => {
 
   it("lists the paths that were not copied with why, and says how many copied paths the list leaves out", () => {
     const setup = { ...RUNNING_SETUP, copied: ["a.log", "b.log"], copiedCount: 7, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], state: "failed" as const, exitCode: 0, endedAt: 2000 };
-    expect(setupSection({ ...LOGIN, setup }, 9000)).toEqual({ says: "The command ended with code 0.", copied: ["a.log", "b.log"], more: "and 5 more", failed: [{ path: ".env.secret", why: "EACCES: permission denied" }], runAgain: true });
+    expect(setupSection({ ...LOGIN, setup }, 9000)).toEqual({ says: "The command ended with code 0.", command: "pnpm install", copied: ["a.log", "b.log"], more: "and 5 more", failed: [{ path: ".env.secret", why: "EACCES: permission denied" }], runAgain: true });
   });
 
   it("is nothing for a work item whose repository named no setup, and for one a daemon of an earlier build sent without the field", () => {
@@ -1474,6 +1485,20 @@ describe("planLine", () => {
     expect(planLine(null, "/r/project")).toEqual(nothing);
     expect(planLine(PLAN, "/r/other")).toEqual(nothing);
     expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project")).toEqual(nothing);
+  });
+});
+
+describe("shownSetup", () => {
+  it("gives the command the form shows for the repository field's text, whole, and none where the daemon refused the plan, so a creation carries what the person read", () => {
+    expect(shownSetup({ ...PLAN, setupCommand: "pnpm install\n" }, " /r/project ")).toEqual({ setupCommand: "pnpm install\n" });
+    expect(shownSetup(PLAN, "/r/project")).toEqual({ setupCommand: null });
+    expect(shownSetup({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ setupCommand: null });
+  });
+
+  it("gives nothing while the form holds no answer for the field's text, as after a key in the folder field and before the plan answers, so the form creates nothing yet", () => {
+    expect(shownSetup(null, "/r/project")).toBeNull();
+    expect(shownSetup({ ...PLAN, setupCommand: "pnpm install\n" }, "/r/project-2")).toBeNull();
+    expect(PLAN_AWAITED).toBe("Wait until the form shows what this folder's work item gets, its setup among it.");
   });
 });
 

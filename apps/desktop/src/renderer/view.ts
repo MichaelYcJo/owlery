@@ -35,6 +35,8 @@ export function setupMark(workItem: WorkItem): string {
 export interface SetupSection {
   /** How the command ended, or that it runs and for how long. */
   says: string;
+  /** The command the setup's record holds, without the white space at its ends, which "Run setup again" carries, or nothing where it names none. */
+  command: string;
   /** The paths copied from the main checkout, as the daemon listed them. */
   copied: string[];
   /** How many more paths were copied than are listed, as "and 5 more", or nothing. */
@@ -50,7 +52,8 @@ export interface SetupSection {
  * no setup or a daemon of an earlier build sent none. Its sentence is the
  * daemon's own where the daemon said why the setup failed, and otherwise
  * says how long the command has run, that no command was named, or the code
- * the command ended with.
+ * the command ended with. It names the command the record holds, the one a
+ * run again carries.
  */
 export function setupSection(workItem: WorkItem, now: number): SetupSection | null {
   const setup = workItem.setup ?? null;
@@ -59,8 +62,11 @@ export function setupSection(workItem: WorkItem, now: number): SetupSection | nu
   const ended = setup.command === null ? "No command runs: .worktreesetup names none." : setup.exitCode === null ? "The command ended." : `The command ended with code ${setup.exitCode}.`;
   const says = running ? `The command has run for ${ageOf(setup.startedAt, now)}.` : (setup.failure ?? ended);
   const more = setup.copiedCount - setup.copied.length;
-  return { says, copied: [...setup.copied], more: more > 0 ? `and ${more} more` : "", failed: setup.failedCopies.map(({ path, why }) => ({ path, why })), runAgain: !running };
+  return { says, command: setup.command?.trim() ?? "", copied: [...setup.copied], more: more > 0 ? `and ${more} more` : "", failed: setup.failedCopies.map(({ path, why }) => ({ path, why })), runAgain: !running };
 }
+
+/** The tooltip of "Run setup again", which runs the command the section names and no other. */
+export const RUN_SETUP_SAYS = "Copy what is missing from the main checkout and run the command this section names in a new pane. Where .worktreesetup holds another command now, none runs, and the section names the new one.";
 
 /** The first kind of pane that reports its agent's state: the one the "New work item" form starts on. */
 export function agentKind(paneKinds: readonly PaneKindInfo[]): PaneKind | undefined {
@@ -1540,6 +1546,22 @@ export function planLine(plan: FormPlan | null, repo: string): { branch: string;
   if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", failed: true };
   const setup = [shown.includes ? "Copies the ignored files .worktreeinclude names from the main checkout." : null, shown.setupCommand === null ? null : `Then runs: ${shown.setupCommand.trim()}`].filter((sentence) => sentence !== null).join(" ");
   return { branch: shown.branch, worktree: shown.worktree, setup, failed: false };
+}
+
+/** What the form says where Create is pressed before it shows the plan of the repository field's text. */
+export const PLAN_AWAITED = "Wait until the form shows what this folder's work item gets, its setup among it.";
+
+/**
+ * The setup command the form shows for the repository field's text, whole,
+ * which a creation carries so the daemon runs no other: the plan's, or none
+ * where the daemon refused the plan. Nothing while the form holds no answer
+ * for the field's text, as after a key in it and before the plan answers,
+ * and the form then creates nothing.
+ */
+export function shownSetup(plan: FormPlan | null, repo: string): { setupCommand: string | null } | null {
+  const shown = planOf(plan, repo);
+  if (shown === null) return null;
+  return { setupCommand: "error" in shown ? null : shown.setupCommand };
 }
 
 /** A base a person chose in the form's menu, and the repository field's text it was chosen under. */

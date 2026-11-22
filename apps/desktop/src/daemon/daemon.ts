@@ -28,6 +28,11 @@ function cutText(text: string | null): string | null {
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? STATE_TEXT_CHARS - 1 : STATE_TEXT_CHARS);
 }
 
+/** The setup command a creation or a run again carries, the one its client showed the person: none where it carries no text, so no command runs that nobody was shown. */
+function shownCommand(message: { setupCommand?: unknown }): string | null {
+  return typeof message.setupCommand === "string" ? message.setupCommand : null;
+}
+
 /**
  * Refuses the fields that name a work item, in a creation and in a plan, where
  * they are not the protocol's. An empty title is one of the protocol's. A
@@ -362,8 +367,8 @@ export class Daemon {
             // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
             const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
-            // The included paths are copied before the work item is listed, so no pane of it starts before they stand.
-            const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now);
+            // The included paths are copied before the work item is listed, so no pane of it starts before they stand. The command runs only as the form showed it.
+            const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now, shownCommand(message));
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
@@ -689,7 +694,7 @@ export class Daemon {
             if (!held) throw new Error(`no work item ${String(workItemId)}`);
             const earlier = held.item.setup;
             if (earlier?.state === "running") throw new Error(`The setup of work item ${String(workItemId)} is still running.`);
-            const setup = await beginSetup(held.repository.folder, held.item.worktree, this.options.now ?? Date.now);
+            const setup = await beginSetup(held.repository.folder, held.item.worktree, this.options.now ?? Date.now, shownCommand(message));
             if (setup === null) throw new Error(`${held.repository.folder} names no setup: it holds neither ${INCLUDE_FILE} nor ${SETUP_FILE}.`);
             // An archive or a delete may have begun during the copy, and no pane starts in either.
             if (this.worktreeFor(socket, message.requestId, workItemId) === undefined) return;
@@ -1099,17 +1104,18 @@ export class Daemon {
   }
 
   /**
-   * Starts the pane of a setup that names a command, in the work item's
+   * Starts the pane of a setup that runs a command, in the work item's
    * worktree, of the kind `shell` and at the size the request gives, with the
    * command `setupCommandFor` gives, and records the setup with its pane.
    * The client that asked receives the pane's output. Where the pane cannot
-   * start, the setup has failed and says why. A setup with no command, which
-   * has ended by its copy, and none at all, are recorded as they are.
+   * start, the setup has failed and says why. A setup that has ended already,
+   * by its copy or because its command was not the one shown, and none at
+   * all, are recorded as they are.
    */
   private startSetup(socket: WebSocket, size: { cols: number; rows: number }, workItemId: number, cwd: string, setup: WorktreeSetup | null): WorktreeSetup | null {
     let recorded = setup;
     const { command } = setup ?? { command: null };
-    if (setup !== null && command !== null) {
+    if (setup?.state === "running" && command !== null) {
       const commandFor = this.options.setupCommandFor ?? ((text: string, id: number) => setupPaneCommand(process.env, text, id));
       try {
         const info = this.startSession(socket, { kind: "shell", cols: size.cols, rows: size.rows }, cwd, workItemId, false, (id) => commandFor(command, id));

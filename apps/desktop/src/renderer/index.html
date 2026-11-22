@@ -160,9 +160,10 @@
       .file { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); min-height: var(--detail-line); }
       .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
       .file .counts { flex: none; }
-      /* The setup's section: how its command ended, the paths it copied, and each it could not with why. */
+      /* The setup's section: how its command ended, the command a run again carries, the paths it copied, and each it could not with why. */
       .detail .setup h3 .quiet { margin-left: auto; }
       .setup-says { padding: var(--space-3) 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      .setup-command { padding-bottom: var(--space-3); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       .copied, .not-copied { display: flex; align-items: center; gap: var(--space-5); min-height: var(--detail-line); }
       .not-copied .why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-caption); color: var(--state-failed); }
 

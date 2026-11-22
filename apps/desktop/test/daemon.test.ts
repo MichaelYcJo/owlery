@@ -11,6 +11,7 @@ import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "..
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
+import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItemLoss } from "../src/shared/protocol";
@@ -871,12 +872,12 @@ describe("the setup of a new worktree", () => {
     return made;
   }
 
-  /** A daemon and a client, and the answer to a creation of a Claude Code pane's work item in the repository. */
-  async function createdIn(made: { repo: string; root: string }, options: Partial<DaemonOptions> = {}) {
+  /** A daemon and a client, and the answer to a creation of a Claude Code pane's work item in the repository, which carries `shown`, or where none is given the command `.worktreesetup` holds, as the form shows it from its plan. */
+  async function createdIn(made: { repo: string; root: string }, options: Partial<DaemonOptions> = {}, shown?: string | null) {
     const { url, daemon: d } = await daemon({ worktreesRoot: made.root, setupCommandFor, now: () => 1234, ...options });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up", kind: "claude", cols: 80, rows: 24 });
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up", kind: "claude", cols: 80, rows: 24, setupCommand: shown === undefined ? (await readSetup(made.repo)).command : shown });
     return { url, d, c, answer: await c.message("workItemCreated", (m) => m.requestId === 1) };
   }
 
@@ -935,6 +936,18 @@ describe("the setup of a new worktree", () => {
     expect((await readLoss(made.repo, answer.workItem.branch, answer.workItem.worktree)).ignored).toEqual([]);
   });
 
+  it("runs at a creation no command but the one the creation carries: where .worktreesetup changed after the plan, or the creation carries none, it copies, starts no setup pane and says why", async () => {
+    const changed = ".worktreesetup changed after the setup was shown, so no command ran.";
+    const made = repositoryNaming({ include: ".env\n", command: "echo ran > ran.txt" });
+    const { url, c, answer } = await createdIn(made, {}, "pnpm install\n");
+    expect(answer.workItem.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "echo ran > ran.txt", paneId: null, state: "failed", exitCode: null, failure: changed, startedAt: 1234, endedAt: 1234 });
+    // A client that carries no command showed none.
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Unshown", kind: "shell", cols: 80, rows: 24 });
+    const second = await c.message("workItemCreated", (m) => m.requestId === 2);
+    expect(second.workItem.setup).toMatchObject({ command: "echo ran > ran.txt", paneId: null, state: "failed", failure: changed });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id, second.session.id]);
+  });
+
   it("records a setup whose pane the person closed, and one whose work item was archived, as failed: its pane ended before its command did", async () => {
     const made = repositoryNaming({ command: "sleep 30" });
     const { c, answer } = await createdIn(made);
@@ -943,7 +956,7 @@ describe("the setup of a new worktree", () => {
     const afterClose = await setupEnded(c, closed);
     expect(afterClose.workItems[0]!.setup).toMatchObject({ paneId: closed, state: "failed", failure: "The setup pane ended before its command did." });
     expect(afterClose.sessions.map((s) => s.id)).toEqual([answer.session.id]);
-    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Archived", kind: "shell", cols: 80, rows: 24 });
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Archived", kind: "shell", cols: 80, rows: 24, setupCommand: "sleep 30" });
     const second = await c.message("workItemCreated", (m) => m.requestId === 2);
     const archived = second.workItem.setup!.paneId!;
     c.send({ type: "archiveWorkItem", requestId: 3, id: second.workItem.id, running: { panes: [archived, second.session.id], headless: [] } });
@@ -987,30 +1000,38 @@ describe("the setup of a new worktree", () => {
     const pane = (await next.message("started", (m) => m.requestId === 2)).session.id;
     expect(pane).toBe(old);
     await next.message("inbox", (m) => m.sessions.some((s) => s.id === pane && !s.alive));
-    next.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24 });
+    next.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "true" });
     const started = await next.message("started", (m) => m.requestId === 3);
     const ended = await setupEnded(next, started.session.id);
     expect(ended.sessions.map((s) => s.id)).toEqual([pane, started.session.id]);
   });
 
-  it("runs the setup again at a person's request: copies what is missing, takes the earlier setup pane off the lists, answers with the new pane, and records the new setup in place of the old", async () => {
+  it("runs the setup again at a person's request: copies what is missing, takes the earlier setup pane off the lists, runs only the command the press carries, answers with the new pane, and records the new setup in place of the old", async () => {
     const made = repositoryNaming({ include: ".env\n", command: "test -e fixed" });
     const { c, answer } = await createdIn(made);
     const first = answer.workItem.setup!.paneId!;
     expect((await setupEnded(c, first)).workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 1 });
     writeFileSync(join(made.repo, ".worktreesetup"), "touch fixed");
+    // The press carries the command the view showed, which the file no longer holds: the earlier pane leaves the lists, and no command runs.
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "test -e fixed" });
+    await c.message("done", (m) => m.requestId === 2);
+    const refused = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === "touch fixed");
+    expect(refused.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: "touch fixed", paneId: null, state: "failed", exitCode: null, failure: ".worktreesetup changed after the setup was shown, so no command ran.", startedAt: 1234, endedAt: 1234 });
+    expect(refused.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    expect(existsSync(join(answer.workItem.worktree, "fixed"))).toBe(false);
+    // The next press carries the command the view shows now.
     rmSync(join(answer.workItem.worktree, ".env"));
-    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24 });
-    const started = await c.message("started", (m) => m.requestId === 2);
+    c.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "touch fixed" });
+    const started = await c.message("started", (m) => m.requestId === 3);
     expect(started.session).toMatchObject({ kind: "shell", alive: true, workItemId: answer.workItem.id });
     const ended = await setupEnded(c, started.session.id);
     expect(ended.workItems[0]!.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "touch fixed", paneId: started.session.id, state: "succeeded", exitCode: 0, failure: null, startedAt: 1234, endedAt: 1234 });
     expect(ended.sessions.map((s) => s.id)).toEqual([answer.session.id, started.session.id]);
     expect(readFileSync(join(answer.workItem.worktree, ".env"), "utf8")).toBe("KEY=main\n");
-    // Where only .worktreeinclude stands, the setup ends by the copy and the answer is `done`.
+    // Where only .worktreeinclude stands and the press shows no command, the setup ends by the copy and the answer is `done`.
     rmSync(join(made.repo, ".worktreesetup"));
-    c.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24 });
-    await c.message("done", (m) => m.requestId === 3);
+    c.send({ type: "runSetup", requestId: 4, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: null });
+    await c.message("done", (m) => m.requestId === 4);
     const copied = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === null);
     expect(copied.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: null, paneId: null, state: "succeeded", exitCode: null, failure: null, startedAt: 1234, endedAt: 1234 });
     expect(copied.sessions.map((s) => s.id)).toEqual([answer.session.id]);

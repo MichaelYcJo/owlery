@@ -158,19 +158,29 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     await app.until(`!document.getElementById("work-item-dialog").open`, "the form closed");
   });
 
-  it("names the repository's setup before the creation, and shows its pane's tab, its words on the line and its section in the view, which runs it again", async () => {
+  it("names the repository's setup before the creation and creates nothing before it does, and shows its pane's tab, its words on the line and its section in the view, which names the command and runs it again", async () => {
     // The two files stand untracked in the main checkout. The setup pane's process is the receiver too, so the setup runs until its pane is closed.
     writeFileSync(join(clone.repo, ".worktreeinclude"), "notes.txt\n");
     writeFileSync(join(clone.repo, ".worktreesetup"), "make setup\n");
     try {
       const TABS = `[...document.querySelectorAll("#tabs .tab .label")].map((label) => label.textContent).join(", ")`;
       const SAYS = `document.querySelector("#view-detail .setup .setup-says")?.textContent`;
+      const COMMAND = `document.querySelector("#view-detail .setup .setup-command")?.textContent`;
       const RUN_AGAIN = `(document.querySelector("#view-detail .setup button")?.textContent ?? null)`;
+      const SETUP_LINE = `document.getElementById("work-item-setup").textContent === "Copies the ignored files .worktreeinclude names from the main checkout. Then runs: make setup"`;
       const { name } = await openForm();
-      await app.until(`document.getElementById("work-item-setup").textContent === "Copies the ignored files .worktreeinclude names from the main checkout. Then runs: make setup"`, "the setup under the name");
+      await app.until(SETUP_LINE, "the setup under the name");
+      // Create pressed at once after a key in the folder field, before the plan of the field's new text answers, creates nothing.
+      const setRepo = (folder: string, press: boolean) =>
+        app.evaluate(`(() => { const field = document.getElementById("work-item-repo"); field.value = ${JSON.stringify(folder)}; field.dispatchEvent(new Event("input")); if (${String(press)}) document.getElementById("work-item-create").click(); })()`);
+      await setRepo(`${clone.repo}/`, true);
+      expect(await text("work-item-error")).toBe("Wait until the form shows what this folder's work item gets, its setup among it.");
+      expect(await app.evaluate<boolean>(`document.getElementById("work-item-dialog").open`)).toBe(true);
+      await setRepo(clone.repo, false);
+      await app.until(SETUP_LINE, "the setup under the name again");
       await create(name);
       await app.until(`${TABS} === "Setup, Shell"`, "the setup pane's tab before the shell's");
-      await app.until(`${SAYS} === "The command has run for less than a minute."`, "the setup's section");
+      await app.until(`${SAYS} === "The command has run for less than a minute." && ${COMMAND} === "Command: make setup"`, "the setup's section, naming the command");
       expect(await app.evaluate<string | null>(RUN_AGAIN)).toBeNull();
       const lineSetup = `[...document.querySelectorAll("#inbox-lines button.line")].find((line) => line.querySelector(".title")?.textContent === ${JSON.stringify(name)})?.querySelector(".setup")`;
       await app.click("#nav-inbox");
