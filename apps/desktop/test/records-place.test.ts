@@ -271,6 +271,17 @@ describe("the records place", () => {
     commitAll(linked.repo, "chore: a link and the workflow");
     expect(readRecordsPlace(linked.repo).root).toBe("seal");
     expect((await planRecords(linked.repo, "pnpm test", VERSION)).blocked).toBe(unheld("seal/README.md and seal/config.json"));
+
+    // The commit holds `seal/README.md` itself as a link to a file outside the repository, which a clone does not get.
+    const file = temporaryRepository();
+    cleanups.push(file.remove);
+    mkdirSync(join(file.repo, "seal"));
+    symlinkSync(join(linked.base, "elsewhere", "README.md"), join(file.repo, "seal", "README.md"));
+    write(file.repo, "seal/config.json", '{ "Broad gate": "make check" }\n');
+    write(file.repo, WORKFLOW, "name: seal\n");
+    commitAll(file.repo, "chore: a link for the root's file");
+    expect(readRecordsPlace(file.repo).root).toBe("seal");
+    expect((await planRecords(file.repo, "pnpm test", VERSION)).blocked).toBe(unheld("seal/README.md"));
   });
 
   it("blocks a plan that writes a path git holds and the checkout does not: one staged and then deleted, one committed and then deleted, and one staged for removal; a setup of each leaves the index and the commit as they were", async () => {
@@ -334,9 +345,15 @@ describe("the records place", () => {
     expect(plan.blocked).toBe(says);
     await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(says);
     expect([head(repo), tree(repo), status(repo)]).toEqual(before);
-    // The file is gone from the checkout, and the commit still holds it.
-    rmSync(join(repo, ".github"));
+    // Its removal is staged, so the checkout and the index hold nothing there, and the commit still holds the file.
+    git(repo, "rm", "--quiet", ".github");
     expect((await planRecords(repo, "pnpm test", VERSION)).blocked).toBe(says);
+    // A file that was staged there and then deleted: the index alone holds it.
+    const staged = repository();
+    write(staged, ".github", "a file of the project's\n");
+    git(staged, "add", ".github");
+    rmSync(join(staged, ".github"));
+    expect((await planRecords(staged, "pnpm test", VERSION)).blocked).toBe(says);
     // A link stands there, which the setup does not write through.
     const linked = temporaryRepository();
     cleanups.push(linked.remove);
