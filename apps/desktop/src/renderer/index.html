@@ -107,17 +107,19 @@
       .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
       /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and a fact where the theme sets its facts in it. */
       .branch { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
-      /* A state's colour, which its icon and its words take. */
-      .state.waiting { --state: var(--state-waiting); }
-      .state.working { --state: var(--state-working); }
-      .state.finished { --state: var(--state-finished); }
-      .state.no-agent { --state: var(--state-no-agent); }
-      .state.failed { --state: var(--state-failed); }
+      /* A state's colour, which its icon and its words take, and the shapes of its mark, which are the theme's: a line, a filled part, and for work the faint track and the part that turns. The fill of a wait and of a failure is a colour the theme names beside the state's. */
+      .state.waiting { --state: var(--state-waiting); --part-line: var(--shape-waiting); --part-fill: var(--shape-waiting-fill); --part-fill-colour: var(--state-waiting-fill); }
+      .state.working { --state: var(--state-working); --part-line: var(--shape-working); --part-fill: var(--shape-working-fill); --part-track: var(--shape-working-track); --part-turn: var(--shape-working-turn); }
+      .state.finished { --state: var(--state-finished); --part-line: var(--shape-finished); --part-fill: var(--shape-finished-fill); }
+      .state.no-agent { --state: var(--state-no-agent); --part-line: var(--shape-no-agent); --part-fill: var(--shape-no-agent-fill); }
+      .state.failed { --state: var(--state-failed); --part-line: var(--shape-failed); --part-fill: var(--shape-failed-fill); --part-fill-colour: var(--state-failed-fill); }
       .state { color: var(--state, inherit); }
-      /* A state's icon: a speech mark for waiting, a ring that turns for working, a check in a circle for finished, a crescent for no agent, and a triangle for a failure. */
-      .state-icon { flex: none; display: block; width: var(--icon); height: var(--icon); }
-      .state-icon .track { opacity: 0.28; }
-      .state-icon .turn { transform-origin: 8px 8px; animation: turn 1.1s linear infinite; }
+      /* A state's icon. Each part takes its shape from its own state, and a part the state does not name draws nothing. */
+      .state-icon { flex: none; display: block; width: var(--icon); height: var(--icon); --part-line: none; --part-fill: none; --part-track: none; --part-turn: none; --part-fill-colour: currentColor; }
+      .state-icon .line { d: var(--part-line); }
+      .state-icon .fill { d: var(--part-fill); fill: var(--part-fill-colour); stroke: none; }
+      .state-icon .track { d: var(--part-track); opacity: 0.28; }
+      .state-icon .turn { d: var(--part-turn); transform-origin: 8px 8px; animation: turn 1.1s linear infinite; }
       @keyframes turn { to { transform: rotate(360deg); } }
       .state-words { display: flex; align-items: center; gap: var(--space-3); font-size: var(--size-second); font-weight: 600; }
 

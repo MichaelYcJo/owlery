@@ -93,6 +93,16 @@ function layoutMeasures(): [string, string][] {
   return declarations(layout[1] ?? "");
 }
 
+/** The states a mark is drawn for, as the classes the page's style gives a state's colour to name them. */
+function markedStates(): string[] {
+  return caught(pageParts().style, /\.state\.([a-z-]+)\s*\{/g);
+}
+
+/** Whether a property is a shape of this state's mark: `--shape-<state>`, or that name with a part's after it. */
+function shapeOf(state: string, name: string): boolean {
+  return name === `--shape-${state}` || name.startsWith(`--shape-${state}-`);
+}
+
 // A row of a table of tokens: the token's name, then its values, each in backticks in a cell of its own.
 const TOKEN_ROW = /^\| `--[^`]*`(?: \| `[^`]*`)+ \|$/;
 
@@ -159,6 +169,18 @@ describe("themes.css", () => {
   it("defines only custom properties", () => {
     expect(themeBlocks().flatMap(({ properties }) => properties.map(([name]) => name).filter((name) => !name.startsWith("--")))).toEqual([]);
   });
+
+  it("holds a mark for every state in every block: each shape is one state's, and a path or nothing, and no state is left with nothing", () => {
+    const states = markedStates();
+    expect(states).toEqual(["waiting", "working", "finished", "no-agent", "failed"]);
+    const blocks = themeBlocks().map(({ theme, properties }) => ({ theme, shapes: properties.filter(([name]) => name.startsWith("--shape-")) }));
+    for (const { shapes } of blocks) expect(shapes.length).toBeGreaterThan(0);
+    const named = blocks.flatMap(({ theme, shapes }) => shapes.map(([name, value]) => ({ name: `${theme} ${name}`, value, state: states.find((state) => shapeOf(state, name)) })));
+    expect(named.filter(({ state }) => state === undefined).map(({ name }) => name)).toEqual([]);
+    expect(named.filter(({ value }) => value !== "none" && !/^path\("[^"]+"\)$/.test(value)).map(({ name }) => name)).toEqual([]);
+    const unmarked = blocks.flatMap(({ theme, shapes }) => states.filter((state) => !shapes.some(([name, value]) => shapeOf(state, name) && value !== "none")).map((state) => `${theme} ${state}`));
+    expect(unmarked).toEqual([]);
+  });
 });
 
 describe("the page", () => {
@@ -210,6 +232,13 @@ describe("the page", () => {
     expect(read.filter((name) => !own.has(name) && !local.has(name) && !themed(name))).toEqual([]);
     // No theme defines a name the page's own block defines: a measure has one home.
     expect(blocks.flatMap(({ properties }) => properties.map(([name]) => name)).filter((name) => own.has(name))).toEqual([]);
+  });
+
+  it("draws a state's mark from the theme: its style reads every shape a block defines, and the fill of a wait and of a failure", () => {
+    const { style } = pageParts();
+    const shapes = [...new Set(themeBlocks().flatMap(({ properties }) => properties.map(([name]) => name).filter((name) => name.startsWith("--shape-"))))];
+    expect(shapes.length).toBeGreaterThan(0);
+    expect([...shapes, "--state-waiting-fill", "--state-failed-fill"].filter((name) => !style.includes(`var(${name})`))).toEqual([]);
   });
 
   it("carries the first run's theme and appearance in its markup, which the preload replaces with the saved choice before the page is drawn", () => {

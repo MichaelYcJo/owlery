@@ -111,7 +111,7 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     expect(await recorded()).toEqual([]);
     feed("PermissionRequest");
     await app.until(`window.__notifications.length === 1`, "a notification");
-    expect(await recorded()).toEqual([{ title: "Alpha", body: "Waiting for you" }]);
+    expect(await recorded()).toEqual([{ title: "Alpha", body: "Needs you" }]);
 
     await app.evaluate(`window.__notifications[0].onclick()`);
     expect(await text("view-title")).toBe("Alpha");

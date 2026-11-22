@@ -266,10 +266,10 @@ describe("inboxSummary", () => {
 
 describe("stateHeading", () => {
   it("says each state in the words of its group's heading, and a line with no state as having no agent", () => {
-    expect(stateHeading("waiting")).toBe("Waiting for you");
+    expect(stateHeading("waiting")).toBe("Needs you");
     expect(stateHeading("working")).toBe("Working");
     expect(stateHeading("finished")).toBe("Finished");
-    expect(stateHeading(null)).toBe("No agent");
+    expect(stateHeading(null)).toBe("Asleep");
   });
 });
 
@@ -281,10 +281,10 @@ describe("inboxGroups", () => {
   it("puts the lines under the heading of their state, the groups in the order a person acts on them and the lines with no state last", () => {
     const groups = inboxGroups([entry(1, null), entry(2, "finished"), entry(3, "working"), entry(4, "waiting")]);
     expect(groups.map((group) => [group.state, group.heading, group.entries.map((held) => held.id)])).toEqual([
-      ["waiting", "Waiting for you", [4]],
+      ["waiting", "Needs you", [4]],
       ["working", "Working", [3]],
       ["finished", "Finished", [2]],
-      [null, "No agent", [1]],
+      [null, "Asleep", [1]],
     ]);
   });
 
@@ -297,7 +297,7 @@ describe("inboxGroups", () => {
   });
 
   it("leaves out a group no line is in, heading and all", () => {
-    expect(inboxGroups([entry(1, null), entry(2, "working")]).map((group) => group.heading)).toEqual(["Working", "No agent"]);
+    expect(inboxGroups([entry(1, null), entry(2, "working")]).map((group) => group.heading)).toEqual(["Working", "Asleep"]);
     expect(inboxGroups([])).toEqual([]);
   });
 });
@@ -1286,7 +1286,7 @@ describe("screenTurns", () => {
 
 describe("notificationFor", () => {
   it("names the work item and says it waits, when a session's state becomes waiting", () => {
-    expect(notificationFor("working", session(3, { state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    expect(notificationFor("working", session(3, { state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Needs you" });
   });
 
   it("says a session finished, when its state becomes finished", () => {
@@ -1294,7 +1294,7 @@ describe("notificationFor", () => {
   });
 
   it("is titled with the tab's label for a pane without a work item", () => {
-    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Claude Code", body: "Waiting for you" });
+    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Claude Code", body: "Needs you" });
   });
 
   it("shows nothing when the state becomes working or none", () => {
@@ -1306,9 +1306,9 @@ describe("notificationFor", () => {
     const waits = session(3, { state: "waiting" });
     expect(notificationFor("working", waits, false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
     expect(notificationFor("working", session(3, { state: "finished" }), false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
-    expect(notificationFor("working", waits, false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    expect(notificationFor("working", waits, false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Needs you" });
     // Another work item's mute says nothing of this session.
-    expect(notificationFor("working", waits, false, [LOGIN, { ...SEARCH, muted: true }], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    expect(notificationFor("working", waits, false, [LOGIN, { ...SEARCH, muted: true }], KINDS)).toEqual({ title: "Fix the login bug", body: "Needs you" });
   });
 
   it("shows nothing for a session of an archived work item, which the list of work items does not hold, and the notification for a session of another", () => {
@@ -1316,7 +1316,7 @@ describe("notificationFor", () => {
     expect(notificationFor("working", session(3, { state: "finished" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
     expect(notificationFor("working", session(3, { state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
     expect(notificationFor("working", session(3, { workItemId: 2, state: "finished" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Speed up search", body: "Finished" });
-    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Claude Code", body: "Waiting for you" });
+    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Claude Code", body: "Needs you" });
   });
 
   it("shows nothing for a state the session was already in", () => {
@@ -1916,10 +1916,10 @@ describe("filterChoices", () => {
   it("offers every state at once and then each group's heading, in the inbox's order", () => {
     expect(filterChoices()).toEqual([
       { value: "all", label: "All" },
-      { value: "waiting", label: "Waiting for you" },
+      { value: "waiting", label: "Needs you" },
       { value: "working", label: "Working" },
       { value: "finished", label: "Finished" },
-      { value: "none", label: "No agent" },
+      { value: "none", label: "Asleep" },
     ]);
   });
 });
@@ -2407,13 +2407,13 @@ describe("ageOf", () => {
 
 describe("stateWithAge", () => {
   it("says the state in its heading's words and how long it has lasted", () => {
-    expect(stateWithAge("waiting", NOW - 12 * MINUTE, NOW)).toBe("Waiting for you, 12 min");
+    expect(stateWithAge("waiting", NOW - 12 * MINUTE, NOW)).toBe("Needs you, 12 min");
     expect(stateWithAge("finished", NOW - 3 * HOUR, NOW)).toBe("Finished, 3 h");
   });
 
   it("says the state alone where it has no time, and that no agent runs where there is no state", () => {
     expect(stateWithAge("working", null, NOW)).toBe("Working");
-    expect(stateWithAge(null, null, NOW)).toBe("No agent");
+    expect(stateWithAge(null, null, NOW)).toBe("Asleep");
   });
 });
 

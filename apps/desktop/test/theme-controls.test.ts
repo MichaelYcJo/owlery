@@ -176,4 +176,67 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(register.fact).toMatch(/^ui-monospace/);
     expect(register.words).toBe(desk.words);
   });
+
+  it("draws each state's mark in the shapes and the fill the theme in use gives the state", async () => {
+    await app.click("#nav-inbox");
+    await app.until(`document.querySelector("#inbox-lines .state-icon.no-agent path.line")`, "the mark of Alpha's line in the inbox");
+    /** A mark's parts as the page draws them, and as the theme's properties give them. The mark of each state is the line's own mark under that state's class. */
+    interface Mark {
+      line: string;
+      fill: string;
+      track: string;
+      turn: string;
+      fillColour: string;
+    }
+    const marks = (): Promise<Record<string, { drawn: Mark; themed: Mark }>> =>
+      app.evaluate(
+        `(() => {
+          const real = document.querySelector("#inbox-lines .state-icon.no-agent");
+          const theme = getComputedStyle(document.documentElement);
+          // What the engine reads back for a shape or a colour the theme names: a path of the same svg, with nothing but that value.
+          const probe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          real.querySelector("svg").append(probe);
+          const shape = (name) => { probe.style.setProperty("d", name === null ? "none" : theme.getPropertyValue(name).trim()); return getComputedStyle(probe).getPropertyValue("d"); };
+          const colour = (name) => { probe.style.setProperty("fill", theme.getPropertyValue(name).trim()); return getComputedStyle(probe).fill; };
+          const found = {};
+          for (const state of ["waiting", "working", "finished", "no-agent", "failed"]) {
+            const mark = real.cloneNode(true);
+            mark.className = "state-icon state " + state;
+            mark.querySelector("svg").lastElementChild.remove();
+            document.body.append(mark);
+            const part = (name) => getComputedStyle(mark.querySelector("path." + name));
+            const works = state === "working";
+            found[state] = {
+              drawn: { line: part("line").getPropertyValue("d"), fill: part("fill").getPropertyValue("d"), track: part("track").getPropertyValue("d"), turn: part("turn").getPropertyValue("d"), fillColour: part("fill").fill },
+              themed: { line: shape("--shape-" + state), fill: shape("--shape-" + state + "-fill"), track: shape(works ? "--shape-working-track" : null), turn: shape(works ? "--shape-working-turn" : null), fillColour: colour(state === "waiting" || state === "failed" ? "--state-" + state + "-fill" : "--state-" + state) },
+            };
+            mark.remove();
+          }
+          probe.remove();
+          return found;
+        })()`,
+      );
+    const seen: Record<string, Record<string, Mark>> = {};
+    for (const [theme, appearance] of [
+      ["night-watch", "light"],
+      ["register", "dark"],
+      ["desk", "dark"],
+    ] as const) {
+      await choose("theme", theme);
+      await choose("appearance", appearance);
+      const found = await marks();
+      seen[theme] = {};
+      for (const [state, { drawn, themed }] of Object.entries(found)) {
+        expect({ theme, state, ...drawn }).toEqual({ theme, state, ...themed });
+        // Every state has a part that is drawn.
+        expect([drawn.line, drawn.fill, drawn.track, drawn.turn].filter((part) => part !== "none").length).toBeGreaterThan(0);
+        seen[theme][state] = drawn;
+      }
+    }
+    // The comparison reads shapes: a wait is Night watch's eye with its pupil, Register's filled box and Desk's filled disc, and the eye's pupil is filled in a colour of its own in the light appearance.
+    expect(seen["night-watch"]?.waiting?.line).toMatch(/^path\(/);
+    expect(seen.register?.waiting?.line).toBe("none");
+    expect(new Set([seen["night-watch"]?.waiting?.fill, seen.register?.waiting?.fill, seen.desk?.waiting?.fill]).size).toBe(3);
+    expect(seen["night-watch"]?.waiting?.fillColour).toBe(rgb("#e9b61a"));
+  });
 });

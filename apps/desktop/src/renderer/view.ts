@@ -113,8 +113,8 @@ export function inboxSummary(lines: readonly InboxLine[]): string {
 
 /** A line's state in words: the heading of its group in the inbox, which the preview and a view say as well, with the state's age. */
 export function stateHeading(state: AgentState | null): string {
-  if (state === null) return "No agent";
-  return { waiting: "Waiting for you", working: "Working", finished: "Finished" }[state];
+  if (state === null) return "Asleep";
+  return { waiting: "Needs you", working: "Working", finished: "Finished" }[state];
 }
 
 export interface InboxGroup<Entry> {
@@ -631,7 +631,7 @@ export function lastHere(at: number, now: number): string {
   return `You were last here ${ageOf(at, now)} ago.`;
 }
 
-/** A state in its heading's words and how long it has lasted, as in "Waiting for you, 12 min": the state alone where it has no time. */
+/** A state in its heading's words and how long it has lasted, as in "Needs you, 12 min": the state alone where it has no time. */
 export function stateWithAge(state: AgentState | null, since: number | null | undefined, now: number): string {
   const age = ageOf(since, now);
   return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
@@ -1422,7 +1422,7 @@ export function notificationFor(
   if (workItem?.muted || archived.some((item) => item.id === session.workItemId)) return null;
   return {
     title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
-    body: session.state === "waiting" ? "Waiting for you" : "Finished",
+    body: session.state === "waiting" ? stateHeading("waiting") : stateHeading("finished"),
   };
 }
 
