@@ -278,13 +278,17 @@ export function askedSection(workItem: WorkItem, now: number): AskedSection | nu
     by: [by === null ? "" : `Asked by ${by}`, age === "" ? "" : parked ? age : `answered ${age}`].filter((words) => words !== "").join(", "),
     parked,
     key: `${workItem.id}:${parked ? "open" : "answered"}:${shown.map(({ id }) => id).join(",")}`,
-    questions: shown.map(({ id, asks, options, default: taken, answer }) => ({
-      id,
-      asks,
-      options: parked ? options.map(({ label, implies }) => ({ label, implies, mark: label === taken ? "Default" : "" })) : [],
-      chosen: parked && taken !== null && options.some(({ label }) => label === taken) ? options.findIndex(({ label }) => label === taken) : null,
-      answer,
-    })),
+    questions: shown.map(({ id, asks, options, default: taken, answer }) => {
+      // A default that names no option of its question chooses none.
+      const fallback = options.findIndex(({ label }) => label === taken);
+      return {
+        id,
+        asks,
+        options: parked ? options.map(({ label, implies }) => ({ label, implies, mark: label === taken ? "Default" : "" })) : [],
+        chosen: parked && fallback >= 0 ? fallback : null,
+        answer,
+      };
+    }),
   };
 }
 

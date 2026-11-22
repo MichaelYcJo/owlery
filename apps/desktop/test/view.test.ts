@@ -1007,6 +1007,9 @@ describe("a work item parked with its questions", () => {
     // While one question of the record is open, the section holds the open ones alone, and says who asked only where a question says it.
     expect(askedSection(AGAIN, NOW)).toMatchObject({ head: "Waiting for your answer", by: "1 min ago", parked: true, key: "1:open:3", questions: [{ id: 3, answer: null }] });
     expect(askedSection({ ...LOGIN, questions: [OPEN] }, NOW)?.by).toBe("");
+    // Who asked is the first asker a question of the section names, and a default that names no option of its question chooses none.
+    expect(askedSection({ ...LOGIN, questions: [OPEN, FREE] }, NOW)?.by).toBe("Asked by sealer, 10 min ago");
+    expect(askedSection({ ...LOGIN, questions: [{ ...BASE, default: "develop" }] }, NOW)?.questions.map(({ chosen, options }) => [chosen, options.map(({ mark }) => mark)])).toEqual([[null, ["", ""]]]);
     // The key differs between two work items, two sets of questions of one, and a park and its answer, so the section is drawn again at each.
     const keys = [askedSection(PARKED, NOW), askedSection(DONE, NOW), askedSection({ ...PARKED, id: 2 }, NOW), askedSection(AGAIN, NOW)].map((section) => section?.key);
     expect(new Set(keys).size).toBe(4);
