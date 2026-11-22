@@ -245,3 +245,4 @@ None for a deployer: the pull request changes no code, no dependency and no sett
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
 | | | | |
+| 2026-11-22 | Adopt the study's recommendation whole; Q5 stands at its default (#61 stays whole in `release: 0.0.4`); phase 2 done by the orchestrator: issue #133 opened in `release: 0.0.3`, the comments posted on #61, #55 and #78; `DAEMON-ISSUE` is #133 | The owner's answer of 2026-11-22 to adopt #36's recommendation and open its issues; the owner's rule of 2026-11-22 that no question holds the run, decided from the code and the policy and recorded; milestone order is `docs/roadmap.md` *Milestones* as it stands | `docs/roadmap.md` *Milestones*; the plugin's `skills/implement/orchestration.md` *Under agentic* |
