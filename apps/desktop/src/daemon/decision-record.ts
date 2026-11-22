@@ -14,7 +14,7 @@
 // the daemon's state.
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
-import { DECISION_BLOCK, QUESTION_BLOCK, assemble, field, gfmLines, read, stripped, walk, type Block } from "./record-blocks";
+import { DECISION_BLOCK, QUESTION_BLOCK, assemble, field, gfmLines, read, stripped, walk, type Block, type Kind } from "./record-blocks";
 import { rootOf } from "./records-place";
 import { writeWholeFile } from "./whole-file";
 
@@ -293,7 +293,7 @@ function moved(block: Block, state: string, after: [string, string][] = []): [st
 }
 
 /** The block of that kind and id, or a throw where the record holds none the reader returns. */
-function found(text: string, kind: typeof DECISION_BLOCK, id: number): Block {
+function found(text: string, kind: Kind, id: number): Block {
   const block = blocksOf(text).blocks.find((each) => each.kind === kind && idOf(each) === id);
   if (block === undefined) throw new Error(`the record holds no ${kind.name} ${id}`);
   return block;
