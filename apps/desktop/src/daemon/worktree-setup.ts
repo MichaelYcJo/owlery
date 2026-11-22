@@ -186,7 +186,7 @@ async function removeStaging(staging: string): Promise<void> {
 }
 
 /** What the error of a path that failed to copy adds where its staging folder, `name`, could not be removed, for `why`. */
-export function stagingStayed(name: string, why: string): string {
+function stagingStayed(name: string, why: string): string {
   return `its staging folder ${name} stayed beside it, which git ignores: ${why}`;
 }
 
@@ -220,9 +220,9 @@ async function removeLeftCopies(folder: string): Promise<void> {
  * folder, which holds a `.gitignore` of `*` and the copy one folder further
  * down, so a command in the person's pane neither lists nor adds the copy
  * before it stands in its place, nor a folder a stopped daemon left. The
- * folder goes in every case, with whatever a failed copy left in it, by
- * `removeStaging`. Where a failed copy's folder cannot be removed, the
- * error it throws names the folder, which stays with its `.gitignore`.
+ * folder goes, with whatever a failed copy left in it, by `removeStaging`.
+ * Where a failed copy's folder cannot be removed, the error it throws names
+ * the folder, which stays with its `.gitignore`.
  */
 async function copyPath(clone: string, source: string, target: string): Promise<void> {
   const staging = await mkdtemp(join(dirname(target), STAGING));
