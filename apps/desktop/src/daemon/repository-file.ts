@@ -1,6 +1,10 @@
 // The one way the daemon reads a file of a person's repository whose text it
-// acts on in its pass: a work item's `decisions.md`, each `routing.md` under
-// `threads/`, and the `README.md` a records root is told by. What a checkout
+// acts on. Six files are read through it: a work item's `decisions.md` and
+// each `routing.md` under `threads/` of its worktree, and, in a repository's
+// main checkout, the `README.md` at each name of a records root, the root's
+// `config.json`, `.github/workflows/hygiene.yml`, and `package.json`. The
+// pass reads every one but `package.json`, which is read where a setup of
+// the records place is planned. What a checkout
 // holds at such a path is input the daemon did not write, and the read is
 // synchronous, on the thread that serves every pane and every client. So the
 // read takes a plain file of a bounded size and nothing else: a link where
@@ -19,7 +23,7 @@ export const REPOSITORY_FILE_BYTES = 1024 * 1024;
  * more than `REPOSITORY_FILE_BYTES`, and it throws what refused the read
  * otherwise. A link that leads nowhere is a link, and not a path where
  * nothing stands, so a caller that writes where it read null never replaces a
- * link. The last part of the path alone is held to be no link: a folder
+ * link it read. The last part of the path alone is held to be no link: a folder
  * above it that is one is followed. With `links` given as `followed`, a link
  * is read as what it leads to, which is held to the same two bounds.
  */

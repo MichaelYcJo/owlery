@@ -68,5 +68,5 @@ Phase 7 left six things within reach.
 
 Review round 4 left two things, each with an issue in `release: 0.0.3`.
 
-- **A work item directory that is a link is followed, and a link put at the record's path between the read and the rename is written through.** #152.
+- **A work item directory that is a link is followed, the write's rename replaces a link put at the record's path between the write's read and its rename, and a link put at the partial file's path `decisions.md.<pid>` is written through.** #152.
 - **The commit of a person's word has no time limit, is not retried, and is not made once a working session ends without it.** #150.

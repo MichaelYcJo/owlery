@@ -380,8 +380,10 @@ function head(workItem: string): string {
  * stands and cannot be read throws, and is left as it is: one that is a
  * link, one that is no plain file and one over `REPOSITORY_FILE_BYTES` among
  * them, as `repositoryFileText` refuses each, so a write never replaces a
- * link with a file. A change that throws leaves the file as it is, and
- * creates none.
+ * link it read with a file. The write's rename does replace a link put at
+ * the record's path after that read, and a link put at the partial file's
+ * path `decisions.md.<pid>` is written through (`whole-file.ts`). A change
+ * that throws leaves the file as it is, and creates none.
  */
 export function writeRecord(directory: string, change: (text: string) => string): DecisionRecord {
   const file = join(directory, RECORD_FILE);
