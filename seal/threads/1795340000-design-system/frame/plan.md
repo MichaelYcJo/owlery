@@ -49,7 +49,7 @@ The failure scenario of the chosen approach, six months on: a person changes a c
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 2 and 3 | `docs/design.md` and `docs/design.ko.md` exist, the paragraph of item 2 stands in `docs/product.md` and `docs/product.ko.md`, and the two loops of the `Broad gate` command over `docs/*.md` and `README.md` pass, which the orchestrator runs | |
+| 1 | *Scope* items 2 and 3 | `docs/design.md` and `docs/design.ko.md` exist, the paragraph of item 2 stands in `docs/product.md` and `docs/product.ko.md`, and the two loops of the `Broad gate` command over `docs/*.md` and `README.md` pass, which the orchestrator runs | 2947bb7 |
 | 2 | *Scope* items 4 and 5 | The cases of `apps/desktop/test/appearance.test.ts` on the themes, the choices of appearance, the earlier file's three values and the ground of each pair, each new one seen red; the case that drives the two controls in the built app; the cases of `apps/desktop/test/themes.test.ts` over six blocks; and `git grep -n -e '\[data-theme' -e '\[data-appearance' -- apps/desktop/src/renderer/index.html 'apps/desktop/src/renderer/*.ts'` prints nothing | |
 | 3 | *Scope* item 6 | The new case of `apps/desktop/test/themes.test.ts`, seen red with one value of one block changed and with one property the document does not name added | |
 | 4 | *Scope* item 9, the command and the rule in `docs/design.md` | The command exits 0 and writes a PNG for each screen the item names, in Night watch's two appearances, and in every theme where it is asked for all | |
