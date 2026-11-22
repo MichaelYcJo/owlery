@@ -1,0 +1,29 @@
+# Closing memo: 1795329620-role-bundle
+
+## Not verified
+
+| Item | Who must answer |
+|---|---|
+| The whole suite, the typecheck over the whole app and the documents' checks of the `Broad gate` key, at the work item's last commit. Phase 1 ran the ten test files `trail/phases/phase-1.md` *Runs and their scope* names, and phase 2 the ten `trail/phases/phase-2.md` *Runs and their scope* names, each with a typecheck of the changed files and what they import | the orchestrator's broad gate, after the review rounds |
+| The five built-app test files no phase and no fix pass ran: `daemon-restart`, `korean-input`, `memory`, `terminal-basics` and `work-item-form`. Each starts `dist/daemon.js`, whose `main.ts` gives the adapter a bundle folder and a rules folder, and which now asks its `SHELL` for the CLI at its start. Each runs after a build that copies the bundle | the orchestrator's broad gate |
+| Whether the read at each daemon start slows the suite or unsettles a built-app case (`frame/questions.md` Q6). Phase 2 ran four built-app files, each with a stand-in shell that ends at once, and all passed. It has no time of the same files before the change to compare with. Since round 1's fix pass no case the suite runs asks the person's login shell: `keep-awake.test.ts`, the one file that did, starts its app with a `SHELL` that prints nothing | a measurement: the time of the orchestrator's broad run beside the last broad run of `release/v0.0.2`, and whether a built-app case fails that passed there |
+| The read of the version through a person's own login shell and their own `claude`. Phase 2 ran no real `claude`: every case finds a stand-in CLI through a stand-in shell. No case the suite runs reaches either | the owner, by opening the built app: with Claude Code 2.1.330 the status line shows the daemon's state and no notice |
+| The notice for a real Claude Code older than 2.1.326. The sentence is held against stand-ins that print `2.1.300 (Claude Code)`, the form 2.1.330 prints its version in (`frame/design.md` *Grounding*). What an older release prints for `--version` was not read | a measurement on such a version, by whoever meets one; the owner's machine has 2.1.330 alone |
+| The stand-in CLI of `apps/desktop/test/role-session.test.ts` after phase 2 changed it. It now answers the daemon's `--version` run without copying it into the stream it keeps. The file runs only through `role:run`, on a real login, and phase 2 did not run it | the owner, or whoever next runs `role:run` |
+| A real launch of the crafter at a fix pass and of the sealer at the seal. One real session ran, the proofer at a round. The other two pairs are held by script CLIs and the fake adapter alone, and their appended files' cost at a session's start is not measured (`frame/questions.md` Q5) | a measurement, when #41 and #42 run those stages |
+| Whether the sealer's session runs on the model its definition names. `agents/sealer.md` keeps `model: opus` from the source, and no sealer was launched | a measurement, when #42 runs the sealer |
+| The share of the appended rules file in the 33,249 tokens a proofer's round starts with. The run gave the total, and a comparison with a plain session recorded on another version of the CLI (`trail/phases/phase-1.md`) | a measurement, by the issue that cuts the core or the contract down (Q5) |
+| Whether Claude Code 2.1.326 to 2.1.329 list a plugin's agents as `owlery:<role>` under `agents` on the `init` line, and print `plugin_errors`, as 2.1.330 does. The recorded plain session of 2.1.327 (`apps/desktop/test/fixtures/claude-stream.jsonl`) has the `agents` key, and no session with a plugin was recorded on those versions. On a version that lists them otherwise, every role launch fails with `the session does not hold the agent owlery:<role>` | a measurement on such a version, by whoever meets one; the owner's machine has 2.1.330 alone |
+| The cases that stop a script CLI and read how soon the run ended, and phase 2's cases that start a stand-in shell and a stand-in CLI and its drive of the built app, were run on the owner's machine alone | the `macos-latest` runner of the pull request's `check` workflow (`.github/workflows/check.yml`) |
+
+## Not done
+
+No case holds each unchanged bundle file to its source. `frame/design.md` scenario 2 leaves that comparison to a reader, because the suite has no copy of AgenticSeal. Phase 1 made the comparison once, at `f56fb32`, and `trail/phases/phase-1.md` names its result.
+
+The taken documents were not rewrapped where a change shortened a sentence. One line of `agents/sealer.md`, one of `skills/agent-contract/SKILL.md` and two frontmatter lines are longer than their neighbours. Rewrapping would add lines to the difference from the tag that carry no change of meaning, and `frame/design.md` *Scope* item 3 keeps that difference a short list.
+
+The real role session's case does not check Claude Code's own state file. `frame/design.md` *Scope* item 13 names the four files it compares, and `~/.claude.json` is rewritten by every session of the CLI. The entry `owlery@inline` under `pluginUsage` was read once by hand after the run (`trail/phases/phase-1.md`).
+
+The notice is not read again while a window stays connected. `frame/design.md` *Scope* item 12 has the daemon ask again at a hello, so a person who updates with the window open keeps the line until a window connects again. A timer that reads the version while a notice stands was within reach. It was not built, because the frame names the hello as the moment and each read starts a process.
+
+The daemon does not guard against an adapter whose `notice` rejects. `frame/design.md` *Data & interfaces* says the method does not reject, the Claude adapter catches every failure of its read, and the fake adapter cannot fail. A rejection would end the daemon's process as any unhandled rejection does.

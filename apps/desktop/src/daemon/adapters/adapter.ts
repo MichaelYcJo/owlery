@@ -3,6 +3,8 @@
 // adapter reports names its vendor (docs/architecture.md, "Agent adapters" and
 // "Rules that keep it portable").
 
+import type { RoleStage } from "../../shared/protocol";
+
 export type RoleEvent =
   // A piece of the agent's answer, in order.
   | { type: "text"; text: string }
@@ -25,8 +27,17 @@ export interface RoleAdapter {
   readonly features: readonly string[];
   /**
    * Starts one session that answers `prompt` in the folder `cwd`, and reports
-   * its events to `listener`, none of them before the promise resolves. The
-   * promise rejects, with a message a person can read, where no session started.
+   * its events to `listener`, none of them before the promise resolves. With
+   * `role`, the session is launched as that role at that stage, with whatever
+   * the adapter's agent takes a role through; without it the session has no
+   * role. The promise rejects, with a message a person can read, where no
+   * session started.
    */
-  start(options: { prompt: string; cwd: string }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
+  start(options: { prompt: string; cwd: string; role?: RoleStage }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
+  /**
+   * What a person should know of the adapter's agent before any session
+   * starts, as a sentence a window shows as it is, or null where there is
+   * nothing to say. It is read anew at each call, and it does not reject.
+   */
+  notice(): Promise<string | null>;
 }

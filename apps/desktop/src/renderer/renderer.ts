@@ -1238,6 +1238,8 @@ function onMessage(message: ServerMessage): void {
       // A daemon of an earlier build, and one that can hold nothing, send no such choice, and the control is then hidden.
       held.keepAwake = message.keepAwake ?? null;
       showKeepAwake();
+      // A daemon of an earlier build sends no notice of its agent.
+      held.agentNotice = message.agentNotice ?? null;
       // The counts of this `ready` were read from git at this window's hello, so the changes are worked out here, once.
       held.changes = held.lastLook ? changesSince(held.lastLook, held.workItems, held.sessions, held.paneKinds) : [];
       showPaneButtons();
@@ -1258,6 +1260,11 @@ function onMessage(message: ServerMessage): void {
       // The daemon's choice changed, here or in another client, or its hold began or ended.
       held.keepAwake = message.keepAwake;
       showKeepAwake();
+      showStatus();
+      return;
+    case "agentNotice":
+      // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
+      held.agentNotice = message.notice;
       showStatus();
       return;
     case "started":

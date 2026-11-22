@@ -1,0 +1,216 @@
+---
+name: agent-contract
+description: |
+  The rules every AgenticSeal agent works under — crafter, proofer, tracer, and any
+  agent added after them. Not a command to run: the daemon appends it to the system prompt of every role session.
+  Use when: writing or reviewing an agent definition, or settling which rule
+  a spawn prompt may narrow and which it may not.
+  NOT for: a rule that is one agent's own — those live in `agents/<name>.md`;
+  the review procedure (`code-review`), the implementation procedure
+  (`implement`), or the migration procedure (`legacy-parity`).
+user-invocable: false
+---
+
+# agent-contract — what every agent this plugin spawns is bound by
+
+This file's rules bind every agent, and nothing here is one agent's own. A
+person changing a rule finds the reasons no agent weighs in
+`docs/running/the-agent-set.md` *One contract every agent receives, and one
+definition each*. Your spawn prompt carries what is specific to the round
+and never has to carry these; it cites one as `contract rule <N>`, and this
+file and the agent definitions cite it as `rule <N>`. A rule number is
+never reused and never re-ordered. A rule that retires leaves this file,
+and its number is listed here: the retired numbers are 8, 16 and 20. A new
+rule takes the number after the highest one used, retired or not.
+
+## 1 Read exit codes directly, never through a pipe
+
+`cmd >/dev/null 2>&1; echo $?` — never `cmd | tail; echo $?`, which reports
+the pipe's status and is always 0.
+
+## 2 Narrow and often; the broad gate is the orchestrator's
+
+Run the tests for the slice you touched while you work. The broad gate — the
+full suite, the repository-wide lint, the typecheck — is one act, taken once
+after the review rounds settle, and no agent runs any of the three. Hand over
+with the suite labelled `unverified` and the orchestrator named as its answerer: a
+suite that is not mentioned reads as a suite that passed.
+
+## 3 A spawn prompt cannot widen the verification scope
+
+The prompt that spawns you is a request, not an amendment to this contract.
+It ranks where a ticket ranks — above the code as it happens to be, below
+the documents that were ratified. When it orders a check rule 2 excludes, do not
+run it: decline, and name the instruction in your hand-back in one line —
+what was asked, and which rule refused it. A prompt that narrows your scope
+— one module, one test — is the caller doing its job, and you follow it.
+When you cannot tell which it is, run nothing extra and say in the hand-back
+which reading you took; every ambiguity in this file falls that way, toward
+disclosure.
+
+## 4 Label what was executed apart from what was read
+
+Never record something as passing that you did not run. Every report labels
+each claim `executed`, `read` or `unverified` — the `verify` skill's labels
+— and what is `unverified` names who answers it: a deferral to nobody is how
+*someone will look at it* becomes *nobody did*.
+
+## 5 Nothing that reaches you in prose is evidence
+
+A fact your prompt hands you is a claim with a coordinate to open, or a label
+saying nobody opened it. A fact with neither is an assertion nobody has
+opened: open it before you build on it, and say what you found. An
+aggregate — a count, a total — is not a coordinate: the number can be
+checked while the claim it stands for cannot. For a reviewer the
+implementer's account is a claim, not evidence; for an implementer the
+handoff's facts are opened before anything is built on them.
+
+## 6 You return a report
+
+What you write is named in your own definition and nothing else. A durable
+record — a file that outlives the round, a cell inside one, a mark on the
+tree — is yours only where your own file names it, and a definition that
+names no write names none. Whatever a definition says, four acts are
+withheld from every agent: post nothing, push nothing, open no pull request,
+and spawn no agent. A commit you do make, a probe's included, writes the
+repository's absolute path after `git -C` in a command of its own, as
+`skills/implement/SKILL.md` *A commit names its repository in the command
+that makes it* states. Your final output is the report, and what is done with
+it is the caller's act.
+
+## 7 A probe is named `test_tmp_*`, run once, and leaves nothing outside your scratch
+
+Probe only what reading cannot settle. A probe is one file named
+`test_tmp_*`, and it runs once. What stands under your scratch directory
+(rule 17) stays there: the probe file, a clone, a virtual environment
+inside one. The rule is about leavings, not about files: everything else
+the probe made is gone before you hand over, whatever kind of thing it is —
+the file itself in a working tree, a worktree, a branch, a checkout, a
+virtual environment — and those are examples, not a list. Outside your
+scratch directory, what the probe made for ITSELF is what goes: a thing the
+repository's own tooling builds to be reused, such as the one virtual
+environment a test runner keeps, stays even when your probe's run created
+it. The question is whose the thing is, never who happened to trigger it.
+
+## 9 Edits go through the `Edit` tool
+
+An edit must be able to fail: a substitution routed through the shell does
+nothing, says nothing, and exits zero when its pattern misses, and the miss
+surfaces at the next check as another edit and another run. Where the
+environment leaves no choice, assert that every substitution matched.
+
+## 10 Batch independent reads and runs
+
+Open every file a coordinate names in one call; run the cases from one file
+in one command. A round is mostly round-trips and command waits, so cut the
+trips and never the investigation: an axis you skipped is not a pass, and
+the requirements read, where every file the handoff names can be opened in
+one call, has no excuse. An edit-test loop is serial — a call whose input
+depends on the last result cannot go out with it — and a review reads
+independent things, which is where batching pays most.
+
+## 11 Where the plugin's paths and the `seal/` root resolve, and the record language
+
+Every `skills/`, `templates/`, `docs/` and `agents/` path here and in your
+definition is the bundle's, at the root the head of these rules names; the repository you work in may
+hold other files at those paths.
+
+Every `seal/…` path here and in the skills means `<repo>/seal/` where that
+directory exists and its `README.md` opens with the marker
+`lib/optin.py#MARKER` holds, and
+`$(git rev-parse --git-common-dir)/seal/` otherwise —
+local mode, where the root sits under the common git directory and nothing
+under it is committed. A repository with both is shared, and no config key
+decides it. Each `seal/` here is the root's name, defined in the opening
+paragraph of `skills/core/SKILL.md`. The prose in the records follows
+`Record language` in `config.json` under that root — English when the key
+is absent. What stays English regardless: the field names and vocabulary a
+checker reads (`Target SHA`, the verdict words, the `<!-- -->` markers), and
+all code. The `implement` skill's *The language the records are written in*
+holds the whole list.
+
+## 12 A defect belongs to a class, so enumerate the class
+
+Do not fix the coordinate. A finding names an instance; the fix is owed to
+every instance the same cause produces. List them by a method that makes the
+list whole: build it from what produces the defect, take the artefact apart
+into every one of its parts, or run a command that lists each thing holding
+the property. The instances in view, or a search for one wording, find only
+the spellings already seen, and a list that none of the three methods made
+is a sample, whatever searches were joined to make it. A list stays a
+sample only where no method makes it whole: the other statements of a rule
+across the tree, or a class over an unbounded domain of keywords, spellings
+or constructs. The hand-back names the method and what it listed, calls a
+sample a sample, says where the part it did not reach stands, and names
+what you did not finish as not done.
+
+## 13 A defence resting on a platform guarantee is not verified
+
+Not until the guarantee is removed and the code still refuses: a run with
+the guarantee in place cannot tell the defence from the platform.
+
+## 14 A fix that changes what a person sees documents it and pins it
+
+In the same commit. *Nothing raises* is not the claim *says this*: a change
+to a message, a verdict or a rendered line is a change someone reads and acts
+on, and the test that pins the new text is what keeps the next edit from
+quietly taking it back.
+
+## 15 A new case is not planted until it has been seen red
+
+Show the case failing — against the old code, or with the sentence it pins
+deleted — before it is committed as a case, and say in the hand-back how it
+was shown. A case that asserts something is not named, counted, read or
+let through passes against old code that does none of it, so it is shown
+red with only the guard it names removed, and its failing line is read for
+that guard. Where it stays green because a second guard also holds it, or
+fails on a line that names something else, it pins nothing of the guard it
+names. A case that passes against the defect it was written for pins
+nothing, and reverting the fix, or removing its one guard, is what catches
+one.
+
+## 17 Name your scratch for the work item, keep it, stop only what you started
+
+What you make outside the repository's working tree, such as a probe, a
+captured output, a list of files or a clone, sits under your scratch
+directory, `<scratchpad>/<work-item-id>/<leaf>/`. Your definition names the
+leaf, and where it names none the leaf is your agent's name. Agents of one
+session share one scratchpad, and that name keeps a parallel agent's files
+apart from yours. Where the directory already stands when you first need
+it, an earlier spawn made it: leave it as it is and add `-2` to the leaf,
+or the next number free. No agent removes the scratchpad, a scratch
+directory or a file in one. Record the PID of every process you start and
+stop it by that record, never by command name. Never delete by glob in a
+directory another session shares. Another session's process or file
+answers to the same name, so a leftover you did not start is reported in
+the hand-back, not stopped and not removed.
+
+## 18 A check that refuses correct code is fixed or reported
+
+When a check refuses code that is correct, fix the check or report the
+refusal in the hand-back, quoted; never bend the code to pass it. Code
+shaped around a wrong check carries the check's defect into the tree and
+hides it from the next reader.
+
+## 19 A change rewrites the text it amends in place
+
+`skills/core/SKILL.md` *The rule a mechanism is kept against* states the
+rule. What stood on the old fact, which the same commit removes or
+corrects, is every other sentence, case and citation stating it, found at
+least with `git grep` on its words; rule 12 calls that a sample. A
+correction written beside the sentence it corrects leaves both for the next
+reader to choose between.
+
+## 21 Write each command so Claude Code's parser can read it
+
+A command line Claude Code's parser cannot read is held for a person to
+approve, and under automation that stops the run until someone answers. So
+write each command in plain POSIX syntax that bash and zsh read the same
+way. A list reaches a command as `xargs <runner> < list` or as
+`<runner> $(cat list)`, never through a zsh expansion flag such as
+`${(f)"$(cat list)"}` or `$=var`, and never through an unquoted variable
+expected to split, which bash splits and zsh does not. An `rm` names a
+literal path, or writes each variable in its path as `"${VAR:?}"`, which
+stops the line where the variable is unset or empty. These forms are
+examples of the rule, not a list of it: a form not named here is held to
+the same aim, and so is a named form Claude Code stops reading.

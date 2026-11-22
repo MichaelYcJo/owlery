@@ -113,7 +113,8 @@ describe.skipIf(process.platform !== "darwin")("keeping the Mac awake in the bui
   it("offers the three choices in the sidebar's foot, shows the daemon's, and says in the status line that the daemon holds while its one `caffeinate` child runs", async () => {
     buildApp();
     // No work item and no pane: the app starts once, in the background, with a user data folder of its own.
-    const app = await BuiltApp.start({});
+    // `SHELL` is a program that prints nothing, so the daemon's lookup at its start finds no `claude`, and the status line does not depend on the person's Claude Code.
+    const app = await BuiltApp.start({ SHELL: "/usr/bin/true" });
     let child: number | undefined;
     let left: number[];
     try {

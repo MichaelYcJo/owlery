@@ -1,9 +1,11 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RoleEvent } from "../src/daemon/adapters/adapter";
-import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, parseLookup, promptLine } from "../src/daemon/adapters/claude";
+import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
+import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText } from "../src/daemon/adapters/claude-roles";
+import { ROLE_STAGES, type RoleStage } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -44,10 +46,39 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
-  it("turns no permission check off", () => {
-    const args = claudeArgs("/work/tree");
-    expect(args[args.indexOf("--permission-mode") + 1]).toBe("default");
-    for (const off of ["bypassPermissions", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--bare"]) expect(args).not.toContain(off);
+  it("adds to a role launch the bundle, the role's agent and the rules file after the permission mode, and the bundle's folder after the worktree, and nothing else", () => {
+    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md" };
+    expect(claudeArgs("/work/tree", role)).toEqual([
+      "-p",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--setting-sources",
+      "",
+      "--settings",
+      '{"disableAllHooks":true,"autoMemoryEnabled":false}',
+      "--strict-mcp-config",
+      "--permission-mode",
+      "default",
+      "--plugin-dir",
+      "/app/dist/bundle",
+      "--agent",
+      "owlery:proofer",
+      "--append-system-prompt-file",
+      "/run/roles/proofer-round.md",
+      "--add-dir",
+      "/work/tree",
+      "/app/dist/bundle",
+    ]);
+  });
+
+  it("turns no permission check off, with a role and without", () => {
+    for (const args of [claudeArgs("/work/tree"), claudeArgs("/work/tree", { bundleDir: "/bundle", agent: "owlery:crafter", rulesFile: "/rules.md" })]) {
+      expect(args[args.indexOf("--permission-mode") + 1]).toBe("default");
+      for (const off of ["bypassPermissions", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--bare"]) expect(args).not.toContain(off);
+    }
   });
 
   it("gives the session five names of the environment and nothing else of the daemon's", () => {
@@ -348,6 +379,380 @@ describe("the Claude adapter's run", () => {
     expect([out === "0", err === "0"]).toEqual([false, false]);
     await new Promise((r) => setTimeout(r, 100));
     expect(events).toEqual([{ type: "exit", exitCode: 0, errorOutput: "" }]);
+  });
+
+  describe("the notice of an old CLI", () => {
+    const older = (found: string): string => `Claude Code ${found} is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
+    /** A CLI that prints `printed` where its one argument is `--version`, and records how it was run. */
+    const versionCli = (folder: string, printed: string): string =>
+      script(folder, "cli", [`for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`, `env | sort > '${folder}/env'`, `[ "$*" = "--version" ] && printf '%s\\n' '${printed}'`, "exit 0"].join("\n"));
+
+    it("names 2.1.326 as the oldest version checked, and says of an older one which was found and what to run", () => {
+      expect(MIN_CLAUDE_VERSION).toBe("2.1.326");
+      for (const found of ["2.1.325", "2.1.300", "2.1.99", "2.0.999", "1.99.999"]) expect(versionNotice(`${found} (Claude Code)`), found).toBe(older(found));
+    });
+
+    it("says nothing of the oldest version checked or a newer one, each number compared as a number", () => {
+      for (const found of ["2.1.326", "2.1.330", "2.1.1000", "2.2.0", "2.10.0", "3.0.0", "10.0.0"]) expect(versionNotice(`${found} (Claude Code)`), found).toBeNull();
+    });
+
+    it("reads the first three numbers joined by dots out of what the CLI printed, and says nothing where it printed none", () => {
+      expect(versionNotice("a warning of 1 line\nv2.1.300-beta.4 (Claude Code)\n")).toBe(older("2.1.300"));
+      for (const printed of ["", "Claude Code", "2.1", "2.1.x"]) expect(versionNotice(printed), printed).toBeNull();
+    });
+
+    it("runs the CLI the shell found with --version alone and a session's five names, and names an older version it printed", async () => {
+      const folder = temporaryFolder();
+      const cli = versionCli(folder, "2.1.300 (Claude Code)");
+      expect(await claudeAdapter(fakeShell(folder, cli).env).notice()).toBe(older("2.1.300"));
+      expect(readFileSync(join(folder, "args"), "utf8")).toBe("--version\n");
+      const names = readFileSync(join(folder, "env"), "utf8")
+        .split("\n")
+        .flatMap((line) => (line.includes("=") ? [line.slice(0, line.indexOf("="))] : []))
+        // What `sh` sets for itself.
+        .filter((name) => !["PWD", "SHLVL", "_", "OLDPWD"].includes(name));
+      expect(names).toEqual(["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "HOME", "LANG", "PATH", "USER"]);
+    });
+
+    it("has no notice for a CLI that prints 2.1.326, 2.2.0 or 2.10.0", async () => {
+      for (const found of ["2.1.326", "2.2.0", "2.10.0"]) {
+        const folder = temporaryFolder();
+        const adapter = claudeAdapter(fakeShell(folder, versionCli(folder, `${found} (Claude Code)`)).env);
+        expect(await adapter.notice(), found).toBeNull();
+        // The CLI was asked: the answer is its version's and not a failed run's.
+        expect(readFileSync(join(folder, "args"), "utf8"), found).toBe("--version\n");
+      }
+    }, 20_000);
+
+    it("reads the version a CLI printed though the CLI then exits with a failure", async () => {
+      const folder = temporaryFolder();
+      const cli = script(folder, "cli", "echo '2.1.300 (Claude Code)'\nexit 3");
+      expect(await claudeAdapter(fakeShell(folder, cli).env).notice()).toBe(older("2.1.300"));
+    });
+
+    it("has no notice, and rejects nothing, where no CLI is found, where the login shell does not answer, where the CLI prints no version, and where the CLI does not answer in time", async () => {
+      const folder = temporaryFolder();
+      expect(await claudeAdapter(fakeShell(folder, "").env).notice()).toBeNull();
+      const silent = script(folder, "silent-shell", "exec sleep 30");
+      expect(await claudeAdapter({ SHELL: silent }, { lookupTimeoutMs: 100 }).notice()).toBeNull();
+      expect(await claudeAdapter(fakeShell(folder, script(folder, "wordy", "echo 'Claude Code'")).env).notice()).toBeNull();
+      expect(await claudeAdapter(fakeShell(folder, script(folder, "failing", "echo 'error: unknown option' >&2\nexit 1")).env).notice()).toBeNull();
+      const started = Date.now();
+      expect(await claudeAdapter(fakeShell(folder, script(folder, "hanging", "exec sleep 30")).env, { lookupTimeoutMs: 1000 }).notice()).toBeNull();
+      expect(Date.now() - started).toBeLessThan(10_000);
+    }, 20_000);
+
+    it("runs the CLI again at each call, so the notice goes once the person updated, and asks the login shell once for the notices and the sessions together", async () => {
+      const folder = temporaryFolder();
+      const version = join(folder, "version");
+      writeFileSync(version, "2.1.300 (Claude Code)\n");
+      const cli = script(folder, "cli", `if [ "$1" = "--version" ]; then cat '${version}'; exit 0; fi\ncat > /dev/null\nexit 0`);
+      const shell = fakeShell(folder, cli);
+      const adapter = claudeAdapter(shell.env);
+      expect(await adapter.notice()).toBe(older("2.1.300"));
+      writeFileSync(version, "2.1.326 (Claude Code)\n");
+      expect(await adapter.notice()).toBeNull();
+      await new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder }, (event) => event.type === "exit" && resolve()).catch(reject));
+      expect(shell.lookups()).toBe(1);
+    }, 20_000);
+
+    it("asks the login shell again for a session after a notice whose lookup found no CLI", async () => {
+      const folder = temporaryFolder();
+      const shell = fakeShell(folder, "");
+      const adapter = claudeAdapter(shell.env);
+      expect(await adapter.notice()).toBeNull();
+      await expect(adapter.start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow(`claude was not found by the login shell (${shell.env.SHELL})`);
+      expect(shell.lookups()).toBe(2);
+    });
+  });
+});
+
+/** A folder that stands for the role bundle: each document a rules file can hold, with a frontmatter and a body that names it. */
+function scratchBundle(folder: string): string {
+  const bundle = join(folder, "bundle");
+  for (const document of new Set(ROLE_STAGES.flatMap(roleDocuments))) {
+    mkdirSync(dirname(join(bundle, document)), { recursive: true });
+    writeFileSync(join(bundle, document), `---\nname: taken\ndescription: |\n  Read by the harness.\n---\n\n# The body of ${document}\n\n---\n\nIts last line.\n`);
+  }
+  return bundle;
+}
+
+describe("a role's rules file", () => {
+  const PROOFER: RoleStage = { role: "proofer", stage: "round" };
+
+  it("names each role's agent as the bundle's plugin names it, and its file by the role and the stage", () => {
+    expect(ROLE_STAGES.map(agentOf)).toEqual(["owlery:proofer", "owlery:crafter", "owlery:sealer"]);
+    expect(ROLE_STAGES.map(rulesFileName)).toEqual(["proofer-round.md", "crafter-fix-pass.md", "sealer-seal.md"]);
+  });
+
+  it("holds the core and the agent contract for every pair, then the documents the role opens first at its stage", () => {
+    expect(ROLE_STAGES.map((pair) => [pair.role, roleDocuments(pair)])).toEqual([
+      ["proofer", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "skills/code-review/SKILL.md"]],
+      ["crafter", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "skills/implement/SKILL.md", "skills/implement/fix-pass.md"]],
+      ["sealer", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md"]],
+    ]);
+  });
+
+  it("opens with a head that names the role, the stage, the bundle's root and the documents, and says what to do where a step names what the bundle does not hold", () => {
+    expect(rulesHead("/app/dist/bundle", PROOFER)).toBe(
+      [
+        "# Owlery role session: proofer, round",
+        "",
+        "You are the proofer of the Owlery role bundle, at the stage `round`. Your definition is `agents/proofer.md` of the bundle.",
+        "",
+        "The bundle's root is `/app/dist/bundle`. Every `agents/`, `skills/`, `docs/` and `templates/` path that your definition and the rules below cite is a path under that root, and you read it there.",
+        "",
+        "The documents below follow this head whole, in this order. Each is in your context already, so do not open it again:",
+        "",
+        "- `skills/core/SKILL.md`",
+        "- `skills/agent-contract/SKILL.md`",
+        "- `skills/code-review/SKILL.md`",
+        "",
+        "The bundle holds documents only. A path under those four directories that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+        "",
+      ].join("\n"),
+    );
+    const head = rulesHead("/elsewhere", { role: "crafter", stage: "fix-pass" });
+    for (const named of ["# Owlery role session: crafter, fix-pass\n", "the crafter of the Owlery role bundle, at the stage `fix-pass`", "`agents/crafter.md`", "`/elsewhere`", "- `skills/implement/fix-pass.md`\n"]) expect(head, named).toContain(named);
+  });
+
+  it("holds the head, then each document after a line that names it, whole and without its frontmatter, in the table's order", () => {
+    const bundle = scratchBundle(temporaryFolder());
+    for (const pair of ROLE_STAGES) {
+      const body = (document: string) => `===== ${document} =====\n\n# The body of ${document}\n\n---\n\nIts last line.\n`;
+      expect(rulesText(bundle, pair), pair.role).toBe([rulesHead(bundle, pair), ...roleDocuments(pair).map(body)].join("\n"));
+    }
+    expect(rulesText(bundle, PROOFER)).not.toContain("Read by the harness.");
+  });
+
+  it("takes a document that opens with no frontmatter as it is", () => {
+    const bundle = scratchBundle(temporaryFolder());
+    writeFileSync(join(bundle, "skills/code-review/SKILL.md"), "# No frontmatter\n\n---\nname: a rule's own lines\n---\n");
+    expect(rulesText(bundle, PROOFER).endsWith("===== skills/code-review/SKILL.md =====\n\n# No frontmatter\n\n---\nname: a rule's own lines\n---\n")).toBe(true);
+  });
+
+  it("names the document a bundle lacks", () => {
+    const bundle = scratchBundle(temporaryFolder());
+    rmSync(join(bundle, "skills/agent-contract/SKILL.md"));
+    expect(() => rulesText(bundle, PROOFER)).toThrow(`the role bundle lacks skills/agent-contract/SKILL.md (${bundle})`);
+  });
+});
+
+describe("the first line of a role launch", () => {
+  // The keys of the `init` line Claude Code 2.1.330 printed for a role launch (the probe of 2026-11-22, case 1).
+  const init = (fields: object): string => JSON.stringify({ type: "system", subtype: "init", plugins: [{ name: "owlery", source: "owlery@inline" }], agents: ["claude", "Explore", "owlery:crafter", "owlery:proofer", "owlery:sealer"], skills: ["owlery:core"], ...fields });
+
+  it("passes where the session lists the role's agent and no plugin that did not load", () => {
+    expect(roleCheck(init({}), "owlery:proofer")).toEqual({ seen: true, failure: null });
+    expect(roleCheck(init({ plugin_errors: [] }), "owlery:sealer")).toEqual({ seen: true, failure: null });
+  });
+
+  it("fails where the session does not list the role's agent: another's name, the bare name, or no list", () => {
+    const failure = "the session does not hold the agent owlery:proofer";
+    expect(roleCheck(init({ agents: ["claude", "owlery:crafter"] }), "owlery:proofer")).toEqual({ seen: true, failure });
+    expect(roleCheck(init({ agents: ["proofer", "owlery:proofer-2"] }), "owlery:proofer")).toEqual({ seen: true, failure });
+    expect(roleCheck(init({ agents: "owlery:proofer" }), "owlery:proofer")).toEqual({ seen: true, failure });
+    expect(roleCheck(init({ agents: undefined }), "owlery:proofer")).toEqual({ seen: true, failure });
+  });
+
+  it("passes where the session lists the role's agent though a plugin did not load: the session holds other plugins beside the bundle, and the agent's name decides", () => {
+    const errors = [{ plugin: "cc-plugin-telemetry@builtin", type: "path-not-found", message: "Path not found: /elsewhere" }];
+    expect(roleCheck(init({ plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: null });
+    expect(roleCheck(init({ plugin_errors: [{ type: "unknown" }] }), "owlery:sealer")).toEqual({ seen: true, failure: null });
+  });
+
+  it("fails with the first plugin error's message where the session does not list the role's agent and a plugin did not load", () => {
+    const errors = [{ type: "path-not-found", message: "Path not found: /app/dist/bundle" }, { type: "other", message: "second" }];
+    const agents = ["claude", "Explore"];
+    expect(roleCheck(init({ agents, plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: "the role bundle did not load: Path not found: /app/dist/bundle" });
+    expect(roleCheck(init({ agents, plugin_errors: [{ type: "unknown" }] }), "owlery:proofer")).toEqual({ seen: true, failure: 'the role bundle did not load: {"type":"unknown"}' });
+    expect(roleCheck(init({ agents: undefined, plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: "the role bundle did not load: Path not found: /app/dist/bundle" });
+    // An empty list names no plugin, so the agent's name is the reason.
+    expect(roleCheck(init({ agents, plugin_errors: [] }), "owlery:proofer")).toEqual({ seen: true, failure: "the session does not hold the agent owlery:proofer" });
+  });
+
+  it("fails where a result arrives and no init line did", () => {
+    expect(roleCheck('{"type":"result","is_error":false,"result":"owl"}', "owlery:proofer")).toEqual({ seen: true, failure: "the session did not say which agents it holds" });
+  });
+
+  it("waits for another line where the line is neither: another system line, a message, or no JSON", () => {
+    for (const line of ['{"type":"system","subtype":"hook_started"}', '{"type":"assistant","message":{"content":[]}}', "not json", "null", ""]) expect(roleCheck(line, "owlery:proofer"), line).toEqual({ seen: false, failure: null });
+  });
+});
+
+describe("the Claude adapter's role launch", () => {
+  const PROOFER: RoleStage = { role: "proofer", stage: "round" };
+  const INIT = '{"type":"system","subtype":"init","agents":["claude","owlery:proofer"],"plugins":[{"name":"owlery"}]}';
+  const ANSWER = '{"type":"assistant","message":{"content":[{"type":"text","text":"owl"}]}}';
+  const RESULT = '{"type":"result","is_error":false,"result":"owl","total_cost_usd":0.5}';
+
+  /** A folder with a script CLI that prints `lines` and then does `then`, a shell that names it, a scratch bundle and a folder for the rules files. */
+  function launch(lines: string[], then = "exit 0") {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", [`for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`, "cat > /dev/null", ...lines.map((line) => `echo '${line}'`), then].join("\n"));
+    const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const bundleDir = scratchBundle(folder);
+    const rulesDir = join(folder, "run", "roles");
+    return { folder, env: { SHELL: shell, HOME: folder, USER: "person" }, bundleDir, rulesDir };
+  }
+
+  /** Starts one run and gives its events once it has exited, and how long that took. */
+  async function run(adapter: ReturnType<typeof claudeAdapter>, cwd: string, role?: RoleStage): Promise<{ events: RoleEvent[]; ms: number }> {
+    const events: RoleEvent[] = [];
+    const at = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      adapter
+        .start({ prompt: "Q", cwd, ...(role ? { role } : {}) }, (event) => {
+          events.push(event);
+          if (event.type === "exit") resolve();
+        })
+        .catch(reject);
+    });
+    return { events, ms: Date.now() - at };
+  }
+
+  it("writes the pair's rules file into its folder, readable by the user alone, launches the CLI with the bundle, the agent and that file, and reports the run of a session that lists the agent", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([INIT, ANSWER, RESULT]);
+    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
+    expect(events).toEqual([
+      { type: "text", text: "owl" },
+      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+    const rulesFile = join(rulesDir, "proofer-round.md");
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, { bundleDir, agent: "owlery:proofer", rulesFile }));
+    expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, PROOFER));
+    expect(statSync(rulesFile).mode & 0o777).toBe(0o600);
+    expect(statSync(rulesDir).mode & 0o777).toBe(0o700);
+    // The file was written whole: no partial file is left beside it.
+    expect(readdirSync(rulesDir)).toEqual(["proofer-round.md"]);
+  });
+
+  it("writes the rules file again before each role launch, so a launch carries the bundle as it stands", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([INIT, RESULT]);
+    const adapter = claudeAdapter(env, { bundleDir, rulesDir });
+    await run(adapter, folder, PROOFER);
+    writeFileSync(join(bundleDir, "skills/core/SKILL.md"), "# The core, changed\n");
+    await run(adapter, folder, PROOFER);
+    expect(readFileSync(join(rulesDir, "proofer-round.md"), "utf8")).toContain("===== skills/core/SKILL.md =====\n\n# The core, changed\n");
+  });
+
+  it("launches a session with no role as before, on an adapter that holds a bundle: the plain arguments, no rules file, and no reading of the first line", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([RESULT]);
+    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder);
+    expect(events).toEqual([
+      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder));
+    expect(existsSync(rulesDir)).toBe(false);
+  });
+
+  it("starts no role session where it was given no bundle folder, or no folder for the rules files, and launches nothing", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([INIT, RESULT]);
+    await expect(claudeAdapter(env).start({ prompt: "Q", cwd: folder, role: PROOFER }, () => {})).rejects.toThrow("this adapter was given no role bundle, so it launches no role");
+    await expect(claudeAdapter(env, { rulesDir }).start({ prompt: "Q", cwd: folder, role: PROOFER }, () => {})).rejects.toThrow("this adapter was given no role bundle, so it launches no role");
+    await expect(claudeAdapter(env, { bundleDir }).start({ prompt: "Q", cwd: folder, role: PROOFER }, () => {})).rejects.toThrow("this adapter was given no folder for the rules files, so it launches no role");
+    expect(existsSync(join(folder, "args"))).toBe(false);
+  });
+
+  it("starts no role session where the bundle lacks a document of the pair, names it, and launches nothing", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([INIT, RESULT]);
+    rmSync(join(bundleDir, "skills/code-review/SKILL.md"));
+    await expect(claudeAdapter(env, { bundleDir, rulesDir }).start({ prompt: "Q", cwd: folder, role: PROOFER }, () => {})).rejects.toThrow(`the role bundle lacks skills/code-review/SKILL.md (${bundleDir})`);
+    expect(existsSync(join(folder, "args"))).toBe(false);
+  });
+
+  it.each([
+    ["does not list the role's agent", '{"type":"system","subtype":"init","agents":["claude","proofer","owlery:crafter"]}', "the session does not hold the agent owlery:proofer"],
+    ["lists a plugin that did not load", '{"type":"system","subtype":"init","agents":["claude"],"plugin_errors":[{"type":"path-not-found","message":"Path not found: /gone"}]}', "the role bundle did not load: Path not found: /gone"],
+  ])("fails a role launch whose session %s: an error result with the reason, the CLI stopped, and nothing else of the run but its exit", async (_, first, reason) => {
+    // The CLI would go on to answer and then work for 30 seconds: the run ends because the adapter stops it.
+    const { folder, env, bundleDir, rulesDir } = launch([first, ANSWER, RESULT], "echo 'still here' >&2\nexec sleep 30");
+    const { events, ms } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
+    expect(events).toEqual([
+      { type: "result", text: reason, isError: true, costUsd: null },
+      // A process ended by a signal has no code.
+      { type: "exit", exitCode: 1, errorOutput: "still here\n" },
+    ]);
+    expect(ms).toBeLessThan(KILL_AFTER_MS);
+  });
+
+  it("fails a role launch whose session gives a result before it said which agents it holds, and stops the CLI", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([RESULT, ANSWER], "exec sleep 30");
+    const { events, ms } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
+    expect(events).toEqual([
+      { type: "result", text: "the session did not say which agents it holds", isError: true, costUsd: null },
+      { type: "exit", exitCode: 1, errorOutput: "" },
+    ]);
+    expect(ms).toBeLessThan(KILL_AFTER_MS);
+  });
+
+  it("reads the first line of a role launch once: a later line that lists no agent fails nothing", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([INIT, '{"type":"system","subtype":"init","agents":[]}', ANSWER, RESULT]);
+    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
+    expect(events.map((event) => event.type)).toEqual(["text", "result", "exit"]);
+  });
+
+  it("gives a stopped role run the same stop as a caller's: a caller's stop after the failure gives the promise of the CLI's end", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch(['{"type":"system","subtype":"init","agents":[]}'], "exec sleep 30");
+    const events: RoleEvent[] = [];
+    const started = await claudeAdapter(env, { bundleDir, rulesDir }).start({ prompt: "Q", cwd: folder, role: PROOFER }, (event) => events.push(event));
+    const end = Date.now() + 5000;
+    while (events.length === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    const at = Date.now();
+    await started.stop();
+    expect(Date.now() - at).toBeLessThan(KILL_AFTER_MS);
+    while (events.length < 2 && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    expect(events.map((event) => event.type)).toEqual(["result", "exit"]);
+  });
+});
+
+describe("the output stream of a role launch, as one real run of Claude Code 2.1.330 printed it", () => {
+  // The proofer at a round, asked three questions on 2026-11-22 through `pnpm run role:run`; each id and each path of the machine is replaced.
+  const fixture = join(__dirname, "fixtures", "claude-role-stream.jsonl");
+  const lines = readFileSync(fixture, "utf8").split("\n").slice(0, -1);
+
+  it("opens with an init line that lists the bundle as a plugin of the session and its three agents by the plugin's name", () => {
+    const init = JSON.parse(lines[0]!) as { type: string; subtype: string; claude_code_version: string; agents: string[]; plugins: { name: string; source: string }[]; plugin_errors?: unknown };
+    expect([init.type, init.subtype, init.claude_code_version]).toEqual(["system", "init", "2.1.330"]);
+    expect(init.agents.filter((agent) => agent.startsWith("owlery:"))).toEqual(["owlery:crafter", "owlery:proofer", "owlery:sealer"]);
+    expect(init.plugins).toContainEqual(expect.objectContaining({ name: "owlery", source: "owlery@inline" }));
+    expect(init.plugin_errors ?? []).toEqual([]);
+  });
+
+  it("passes the check of the role it was launched as, and of no role the bundle does not hold", () => {
+    for (const pair of ROLE_STAGES) expect(roleCheck(lines[0]!, agentOf(pair)), pair.role).toEqual({ seen: true, failure: null });
+    expect(roleCheck(lines[0]!, "owlery:framer")).toEqual({ seen: true, failure: "the session does not hold the agent owlery:framer" });
+    expect(roleCheck(lines[0]!, "proofer")).toEqual({ seen: true, failure: "the session does not hold the agent proofer" });
+  });
+
+  it("gives the answer, which states a fact of the definition, one of the appended rules and the first line of a bundle file the session read", () => {
+    const events = lines.flatMap(eventsForLine);
+    const last = events.at(-1);
+    expect(last).toMatchObject({ type: "result", isError: false, costUsd: expect.any(Number) });
+    const answer = last?.type === "result" ? last.text : "";
+    for (const fact of ["round-<n>/clone", "8, 16 and 20", "# Review round <N>"]) expect(answer, fact).toContain(fact);
+    // The one tool the session used is the read of the bundle's file, in the folder the launch added.
+    const used = lines.flatMap((line) => ((JSON.parse(line) as { message?: { content?: { type: string; name?: string; input?: { file_path?: string } }[] } }).message?.content ?? []).filter((block) => block.type === "tool_use"));
+    expect(used.map((block) => [block.name, block.input?.file_path])).toEqual([["Read", "/app/dist/bundle/templates/records/sdd-round.md"]]);
+  });
+
+  it("goes on as a role launch's run: the adapter reports its text and its result, and fails nothing", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", `cat > /dev/null\ncat '${fixture}'`);
+    const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      claudeAdapter({ SHELL: shell, HOME: folder }, { bundleDir: scratchBundle(folder), rulesDir: join(folder, "roles") })
+        .start({ prompt: "Q", cwd: folder, role: { role: "proofer", stage: "round" } }, (event) => {
+          events.push(event);
+          if (event.type === "exit") resolve();
+        })
+        .catch(reject);
+    });
+    expect(events).toEqual([...lines.flatMap(eventsForLine), { type: "exit", exitCode: 0, errorOutput: "" }]);
+    expect(events.at(-2)).toMatchObject({ type: "result", isError: false });
   });
 });
 
