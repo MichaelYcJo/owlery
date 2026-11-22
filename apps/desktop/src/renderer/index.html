@@ -171,8 +171,11 @@
       .detail .setup h3 .quiet { margin-left: auto; }
       .setup-says { padding: var(--space-3) 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
       .setup-command { padding-bottom: var(--space-3); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      .copied, .not-copied { display: flex; align-items: center; gap: var(--space-5); min-height: var(--detail-line); }
-      .not-copied .why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-caption); color: var(--state-failed); }
+      .copied { display: flex; align-items: center; gap: var(--space-5); min-height: var(--detail-line); }
+      /* A path the setup could not copy stands whole, and under it the error it was given, whole, in the fixed-width face and the failure's colour, as a failed session's error output stands under its error. */
+      .not-copied { display: flex; flex-direction: column; justify-content: center; gap: var(--space-2); min-height: var(--detail-line); padding: var(--space-3) 0; }
+      .not-copied .path { white-space: normal; overflow-wrap: anywhere; }
+      .not-copied .why { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--state-failed); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
       #sidebar { flex: none; display: flex; flex-direction: column; box-sizing: border-box; width: var(--sidebar-width); min-height: 0; border-right: 1px solid var(--rule); background: var(--ground-side); }
       /* As high as the hidden title bar: it holds the window's traffic lights on macOS, drags the window and holds nothing else. */

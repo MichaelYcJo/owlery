@@ -202,6 +202,16 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     for (const fact of facts) expect({ term: fact.term, bottom: fact.termBottom }).toEqual({ term: fact.term, bottom: fact.valueBottom });
   });
 
+  it("draws a path the setup could not copy whole, and under it the error the system gave, whole, wrapped, selectable and in the fixed-width face", async () => {
+    await app.click("#repositories [data-work-item]");
+    await app.until(`!document.getElementById("work-item-view").hidden && document.querySelector("#view-detail")`, "the view of Alpha");
+    // A row built as shared.ts builds it, in a list of the view's detail, with a path and an error longer than the column, neither of which holds a space to break at.
+    const row = await app.evaluate<{ pathCut: boolean; whyCut: boolean; below: boolean; face: boolean; selectable: string; kept: string }>(
+      `(() => { const list = document.createElement("ul"); const row = document.createElement("li"); row.className = "not-copied"; const path = document.createElement("span"); path.className = "path"; path.textContent = "certs/" + "nested/".repeat(30) + "localhost-key.pem"; const why = document.createElement("span"); why.className = "why"; why.textContent = "EACCES: permission denied, copyfile '" + "/private/var/folders/xc/abc/T/owlery/".repeat(6) + "certs/localhost-key.pem'"; row.append(path, why); list.append(row); document.querySelector("#view-detail").append(list); const style = getComputedStyle(why); const found = { pathCut: path.scrollWidth > path.clientWidth, whyCut: why.scrollWidth > why.clientWidth, below: why.getBoundingClientRect().top >= path.getBoundingClientRect().bottom, face: style.fontFamily === getComputedStyle(path).fontFamily, selectable: style.userSelect, kept: style.whiteSpace }; list.remove(); return found; })()`,
+    );
+    expect(row).toEqual({ pathCut: false, whyCut: false, below: true, face: true, selectable: "text", kept: "pre-wrap" });
+  });
+
   it("draws each state's mark in the shapes and the fill the theme in use gives the state", async () => {
     await app.click("#nav-inbox");
     await app.until(`document.querySelector("#inbox-lines .state-icon.no-agent path.line")`, "the mark of Alpha's line in the inbox");

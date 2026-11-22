@@ -428,7 +428,7 @@ check: apps/desktop/test/themes.test.ts
 | 작업함의 줄 | 바탕이 없고 `--radius-line`과 `--line-edge`입니다. 제목은 `--ink`이고, 사람이 마지막으로 본 뒤에 작업이 바뀌었으면 더 굵은 `--ink-strong`입니다. 지난 시간과 개수는 `--font-fact`와 `--ink-faint`입니다. | `--hover`이고, 아무것도 선택하지 않습니다. | `--pressed` | `--selected`와 `--line-edge-selected`입니다. 포인터 아래에서도 바탕을 지킵니다. 지난 시간은 `--ink-muted`입니다. 옅은 잉크는 선택한 바탕에서 도드라지지 않기 때문입니다. | 고리입니다. | — |
 | 사이드바의 항목 | 바탕이 없고 `--radius-line`입니다. | `--hover` | `--pressed` | 앞에 있는 것의 항목이 `--selected`와 `--selected-edge`입니다. 그 항목의 지난 시간과 개수는 `--ink-muted`입니다. | 고리입니다. | — |
 | 묶음의 머리 | 묶음의 이름은 `--ink-muted`, 개수는 `--ink-faint`와 `--font-fact`이고, `--group-ground` 위에 `--group-edge`입니다. | — | — | — | — | — |
-| 기록 목록의 행: 커밋, 바뀐 파일, 작업 화면의 사실, 작업 트리 준비(Setup)가 복사했거나 복사하지 못한 경로 | 바탕이 없고 `--line-edge`입니다. | — | — | — | — | — |
+| 기록 목록의 행: 커밋, 바뀐 파일, 작업 화면의 사실, 작업 트리 준비(Setup)가 복사했거나 복사하지 못한 경로 | 바탕이 없고 `--line-edge`입니다. 복사하지 못한 경로는 잘리지 않고 다 보이고, 그 아래에 복사가 받은 오류가 고정폭 글꼴과 `--state-failed`로 잘리지 않고 줄을 바꿔 가며 놓이며, 사람이 그 오류를 선택할 수 있습니다. | — | — | — | — | — |
 | 메뉴 | `--ground-raised` 위의 카드이고 `--radius-card`, `--card-edge`, `--dialog-shadow`입니다. 항목은 `--radius-line`이고, 메뉴의 다른 부분이 시작하는 곳에 괘선이 있습니다. | 항목이 `--hover`입니다. | 항목이 `--pressed`입니다. | 하위 메뉴가 열린 항목은 포인터 아래의 항목처럼 그립니다. | 키보드가 놓인 항목은 포인터 아래의 항목처럼 그리고, 고리는 없습니다. | — |
 | 대화 상자 | `--backdrop` 위에 놓인 `--ground-raised`의 카드이고 `--radius-card`, `--card-edge`, `--dialog-shadow`입니다. 머리는 무엇을 하는지 말하고, 글은 무슨 일이 일어날지 말하며, 단추는 오른쪽 아래에 있고 주 단추가 마지막입니다. | — | — | — | — | — |
 | 입력 칸 | `--ground-sunken`에 `--field-edge`와 `--radius-control`이고, 글자는 `--ink-strong`입니다. 무엇을 넣을지 알리는 글자는 입력하기 전까지 `--ink-faint`입니다. | — | — | — | 고리입니다. | 시스템이 입력을 받지 않는 칸을 그리는 대로입니다. |
