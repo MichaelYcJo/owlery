@@ -36,6 +36,11 @@ The class was listed from what produces the defect: every caller of `headlessCha
 
 The fix also owes a case in `daemon.test.ts`, *headless sessions*. Probe A's body is that case: an adapter whose start for one prompt rejects only when the case says so, `keptHeadless: 1`, a `stopHeadless` before the rejection and a quick session after it. It asserts that `ready` lists the quick session and that no message follows the rejection. Show it red against `7374426` before the guard goes in (contract rule 15).
 
+```seal
+verdict: fixed 0bd18e0
+answer: The rejection of an adapter's start now returns where the session is no longer `working`, so a session a stop or the limit ended keeps its `error` and `stopped`, is told to nobody, and one the bound dropped is not put back into `endedHeadless`. The fix is written in the pass's own words: the proposed `this.headless.get(info.id) !== session ||` is left out, because a session leaves the list only after it ended (the bound drops only ended sessions, and a delete or a removal stops its working sessions in `endSessions`, refusing where one started during the wait, before `dropWorkItems`), so that conjunct can never decide alone and no case could see it red. The case "changes nothing at a start that fails after its session ended: …" in `daemon.test.ts` *headless sessions* asks two sessions whose start hangs with `keptHeadless: 1`, stops each, rejects the first while it is listed and the second once a quick session made the bound drop it, and asserts that no `headless` or `headlessDropped` follows either rejection, that the first keeps the stop's error, and that `ready` lists the quick session alone. Seen red against `1fa3662` (the tree of `7374426` in its source), on a `headless` message carrying `the login shell found no CLI` with `stopped: "request"`; and with the guard alone removed by `seal mutate` at `8e54ecc`, red at `daemon.test.ts:3569`. Executed. The case narrows its check to headless messages, because the work item's shell pane prints in the same window of time.
+```
+
 ### 2. The Claude adapter sends events after its `exit` where a child of the CLI still holds the output stream
 
 ```seal
@@ -65,6 +70,11 @@ Probe B used a script CLI that leaves a background subshell. The subshell prints
 
 `lines` is declared at `claude.ts:190`, before `report`. The fix owes a case beside "reports the exit of a CLI whose child still holds its streams soon after the exit" in `claude-adapter.test.ts`. Probe B's body is that case: the child prints a line after the grace, and the events are `exit` alone. The fix pass also decides whether that case's `alive(childPid)` check still holds once the pipes are closed. The child there is `sleep 30`, which writes nothing, so it should hold.
 
+```seal
+verdict: fixed 8e54ecc
+answer: At the exit it reports, the Claude adapter now destroys the CLI's `stdout` and `stderr` (`0bd18e0`, then `8e54ecc`), so the reader of the lines gets nothing more and a child's later writes fail. The fix is written in the pass's own words: the proposed `lines.close()` is left out, because a destroyed input gives the reader no more data, so a break of that call alone could not go red. The case "reports nothing after the exit, and closes both streams to a child the CLI started, …" in `claude-adapter.test.ts` has a child that ignores SIGPIPE print a `result` line and an error line a second after the CLI's exit, and write how each write ended. It asserts that the events are the `exit` alone and that neither write succeeded. Seen red against `1fa3662`, on the events `exit` then a `result` with `late`. `seal mutate` at `8e54ecc` over that case, one mutant removing `child.stdout.destroy()` and one removing `child.stderr.destroy()`: 2 red. Executed. The case beside it, whose `alive(childPid)` still holds, passed in the run of the whole file at `a531227`. Executed.
+```
+
 ### 3. No committed case holds the window's "Stop" button, its error output or the drop of a session
 
 ```seal
@@ -90,6 +100,12 @@ The fix:
 
 - Remove the bullet at `pr.md:22`, since the window is then held by a committed case. Where `pr.md` should still say the drive is slow, say that in one sentence instead.
 
+```seal
+verdict: fixed 9668c88
+location: `apps/desktop/test/ask-section.test.ts`
+answer: The drive is committed as `apps/desktop/test/ask-section.test.ts` (`a531227`), without its `log` and `afterAll` print, with a script CLI found through a script login shell and no real `claude`. Its first case now waits for the line as failed before it waits for the error output, so the press and the part fail at lines of their own. Each guard was seen red with `seal mutate`, one built-app run at a time, at `8e54ecc` with the file not yet committed: the `if (line.stop)` block of `showAskSection` removed, red at `ask-section.test.ts:71` (`[]` for `["Stop"]`); the `headlessDropped` case of `renderer.ts` removed, red at line 114 ("the window never showed fifty lines") with the first case green; the press's `send` removed, red at line 73 ("the line as failed"); the `.error-output` append removed, red at line 75 ("the error output under the failed line"). Executed. The row at `gaps.md:8` is closed in place in `9668c88`, which also names the check workflow merged with #115 as the answerer of the timed cases. The bullet at `pr.md:22` is the orchestrator's file and the coordinator let this pass rewrite only `pr.md:8`, so it stands for the orchestrator to remove.
+```
+
 ### 4. `pr.md` says SIGKILL always follows, and the changelog says every child the CLI started stops with it
 
 ```seal
@@ -110,6 +126,11 @@ Why it matters: `pr.md:8` says "The stop signals the CLI's whole process group w
 
 ```ts
 /** How long a stop waits, after it signalled the CLI's process group to end, before it kills the group where the CLI has not exited by then. */
+```
+
+```seal
+verdict: fixed 0bd18e0
+answer: The three texts are rewritten in place with the round's wording: `pr.md:8` says SIGKILL follows 2 seconds later where the CLI has not exited by then, `changelog.md:8` says a child receives the stop while the CLI runs and the kill with the CLI where the CLI ignored the stop, and `claude.ts:14`'s docstring says the stop kills the group where the CLI has not exited by then. The round's `git grep` over the work item, `apps/desktop/src` and `docs`, run again after the rewrite, lists no other statement of the kill without its condition: `design.md:47` and `:98` state it, and `guarantee.md:28` is the sealer's summary of its earlier audit. Executed. This is a sample: a statement of the kill in other words is not reached by that search.
 ```
 
 ## Confirmations

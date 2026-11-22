@@ -12,6 +12,8 @@ A question asked in a work item's "Ask" section runs as a headless Claude sessio
 
 **Quitting the daemon, archiving and deleting a work item wait for the runs they stop**, within the waits they already had, so a delete does not judge what it would lose while a stopped CLI can still write in the worktree.
 
+**The window's "Stop" button, its error output and the drop of a session** are held by `apps/desktop/test/ask-section.test.ts`, which drives the built app with a script CLI (review round 1, finding 3). The decisions behind them are cases of `view.ts`.
+
 **The limit counts from the start, not from the last output.** Counting idle time would miss a run that loops while printing, and would stop a long tool call that prints nothing. `--max-budget-usd` was not used, because it cannot end a CLI that hangs; #41 and #42 choose budgets per stage.
 
 **A daemon of an earlier build** ignores `stopHeadless`, and its failed sessions show no error output, until a person restarts it from the app menu, as the status line asks.
@@ -19,7 +21,6 @@ A question asked in a work item's "Ask" section runs as a headless Claude sessio
 Not verified, as the records state:
 
 - **A real Claude Code under the group kill during a turn**: how long it takes to exit, and whether a tool's process stays in its group (`frame/questions.md` Q2 and Q3). The cases use script CLIs, and no real `claude` turn was run.
-- **The window's "Stop" button, its error output and the drop** are held by one drive of the built app with a script CLI, not by a committed case: no case imports `work-item-view.ts` or `renderer.ts`. The decisions behind them are cases of `view.ts`.
 - **The cases that run against time** were run on the owner's Mac. This pull request's `check` run on the macOS runner reads them there.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
