@@ -197,7 +197,7 @@ export class Daemon {
   private readonly commitCounts = new Map<number, number | null>();
   // How many commits each work item's branch was last read to hold that its base branch does not, by the work item's id.
   private readonly aheadCounts = new Map<number, number | null>();
-  // The commits of a person's word that are under way or wait, by the worktree each is made in: the last of them, which ends once every one before it has. Two commits of one worktree never run git at once.
+  // The last commit of a person's word that was asked for in each worktree, by the worktree: it ends once every one before it has, so two commits of one worktree never run git at once.
   private readonly wordCommits = new Map<string, Promise<void>>();
   // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
@@ -1441,10 +1441,12 @@ export class Daemon {
    * given and the trailer `Seal-Routing:` that names the work item's
    * directory, which the pull request check reads. It returns at once, and
    * the commit is made after every earlier one of the same worktree has
-   * ended. Where a pane of the work item says it is working, or a headless
-   * session of it is working, when the commit's turn comes, nothing is
+   * ended. Where a live pane of the work item says it is working, or a
+   * headless session of it is working, when the commit's turn comes, nothing is
    * committed: the file stands written, and the session's own commit, or the
-   * next commit made here, carries it. A commit that fails leaves the file
+   * next commit made here, carries it. A commit carries the file as it stands
+   * when its turn comes, so where an earlier one carried a later word too,
+   * the later word's turn commits nothing. A commit that fails leaves the file
    * written and says git's words in the log. `Daemon#decided` and
    * `Daemon#park` do not come here: the stage that calls them commits the
    * record with its own commit.
@@ -1460,11 +1462,7 @@ export class Daemon {
         console.error(`the person's word was not committed: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
-    const last = (this.wordCommits.get(worktree) ?? Promise.resolve()).then(commit);
-    this.wordCommits.set(worktree, last);
-    void last.then(() => {
-      if (this.wordCommits.get(worktree) === last) this.wordCommits.delete(worktree);
-    });
+    this.wordCommits.set(worktree, (this.wordCommits.get(worktree) ?? Promise.resolve()).then(commit));
   }
 
   /** Sends every client the whole of the four lists, after one of them changed. */

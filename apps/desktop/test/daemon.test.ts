@@ -3767,12 +3767,14 @@ describe("the commit of a person's word", () => {
   });
 
   it("leaves the record written and not committed while a headless session of the work item is working, and while a pane of it is: the other work item's word is committed meanwhile, and the first commit made once nothing works carries what was left", async () => {
-    const { d, c, workItems } = await withWorkItems(["Worked in", "Quiet"], { roleAdapter: fakeAdapter({ delayMs: 400 }) });
+    // A pane of the kind that reports its state ends by itself after a second and a half, and every other pane stays.
+    const commandFor = (kind: string) => (kind === "claude" ? { command: "/bin/sh", args: ["-c", "sleep 1.5"], env: {} } : silent());
+    const { d, c, workItems } = await withWorkItems(["Worked in", "Quiet"], { roleAdapter: fakeAdapter({ delayMs: 400 }), commandFor });
     const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
     const directory = withDirectory(a);
     withDirectory(b);
     for (const says of ["One.", "Two.", "Three."]) d.decided(a.id, { ...DEFAULT, says });
-    d.decided(b.id, DEFAULT);
+    for (const says of ["One.", "Two."]) d.decided(b.id, { ...DEFAULT, says });
     const reverse = async (requestId: number, workItemId: number, decisionId: number): Promise<void> => {
       c.send({ type: "reverseDecision", requestId, workItemId, decisionId, message: `Not ${String(decisionId)}.` });
       await c.message("done", (m) => m.requestId === requestId);
@@ -3794,15 +3796,58 @@ describe("the commit of a person's word", () => {
     const { session } = await c.message("started", (m) => m.requestId === 4);
     d.agentEvent(session.id, "UserPromptSubmit", {});
     await reverse(5, a.id, 2);
-    d.agentEvent(session.id, "Stop", {});
-    // Nothing works now. The commits of one worktree run one after another, so this one is made after the daemon left the second reversal.
-    await reverse(6, a.id, 3);
+    await reverse(6, b.id, 2);
+    await c.until(() => (commitsIn(b.worktree) === 3 ? true : undefined), 3000);
+    expect(commitsIn(a.worktree)).toBe(1);
+    // The pane's process ends while the pane still says it is working, and a pane that is not alive holds no commit. The commits of one worktree run one after another, so this one is made after the daemon left the second reversal.
+    await c.message("exit", (m) => m.id === session.id);
+    await reverse(7, a.id, 3);
     await d.close();
     expect(commitsIn(a.worktree)).toBe(2);
     expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 3");
     const committed = readDecisionRecord(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md"));
     expect(committed.decisions.map(({ state }) => state)).toEqual([1, 2, 3].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
     expect(recordIn(directory)).toEqual(committed);
+  });
+
+  it("makes the commits of one worktree one after another, each of the file as it stands at its turn: two reversals written while a commit is under way wait for it, the first of them is committed with the second's word in it, the second's turn commits nothing, and the log holds nothing", async () => {
+    const { d, c, made: repository, workItems } = await withWorkItems(["Thrice"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    for (const says of ["One.", "Two.", "Three."]) d.decided(a.id, { ...DEFAULT, says });
+    // The hook holds the first commit, which has the index locked, until the case lets it go.
+    const [started, go] = [join(repository.base, "hook-started"), join(repository.base, "hook-go")];
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${go}' ]; do sleep 0.05; done\n`, { mode: 0o755 });
+    const said = logged();
+    const reverse = (decisionId: number): void => c.send({ type: "reverseDecision", requestId: decisionId, workItemId: a.id, decisionId, message: `Not ${String(decisionId)}.` });
+    reverse(1);
+    await c.until(() => (existsSync(started) ? true : undefined), 3000);
+    reverse(2);
+    reverse(3);
+    await c.message("done", (m) => m.requestId === 3);
+    writeFileSync(go, "");
+    await d.close();
+    expect(git(a.worktree, "log", "--format=%s").trim().split("\n")).toEqual(["chore: record the person's reversal of decision 2", "chore: record the person's reversal of decision 1", "first"]);
+    const committed = (commit: string): unknown[] => readDecisionRecord(git(a.worktree, "show", `${commit}:seal/threads/1-item/decisions.md`)).decisions.map(({ state }) => state.is);
+    expect([committed("HEAD~1"), committed("HEAD")]).toEqual([["reversed", "decided", "decided"], ["reversed", "reversed", "reversed"]]);
+    expect(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md")).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(said).toEqual([]);
+  });
+
+  it("says in the log why a record that git ignores was not committed, and answers `done`", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Ignored"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    writeFileSync(join(repository.repo, ".git", "info", "exclude"), "seal/\n");
+    const said = logged();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (said.length > 0 ? true : undefined), 3000);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^the person's word was not committed: .*ignored/s);
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
   });
 
   it("answers `done` and keeps the record written where the commit fails: a `pre-commit` hook that exits 1 leaves the branch with no new commit and the record not staged, and the log holds git's words, the hook's among them", async () => {
