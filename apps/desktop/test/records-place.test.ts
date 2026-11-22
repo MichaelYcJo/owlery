@@ -2,7 +2,7 @@
 // repository creates them: what a plan names, what a setup writes and
 // commits, and what stands and is kept. Each case runs in a temporary
 // repository, never in Owlery's own.
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MARKER, SUBJECT, planRecords, proposedBroadGate, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
@@ -11,6 +11,12 @@ import { commitFile, git, temporaryRepository } from "./repositories";
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const VERSION = "1.2.3";
+/** The step of AgenticSeal's `hygiene.yml` that runs the check, as its 0.38.4 template writes it. */
+const PLUGIN_CHECK = 'jobs:\n  seal:\n    steps:\n      - run: |\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py" \\\n            --baseline "origin/${{ github.base_ref }}"\n';
+/** The refusal of a plan that keeps a file the commit of the checkout does not hold. */
+const unheld = (names: string): string => `This checkout holds ${names}, and the commit it stands at does not, so a clone of the repository would lack it. Commit or remove what is named, and open this again.`;
+/** The refusal of a plan that writes a path git holds and the checkout does not. */
+const known = (names: string): string => `Git holds ${names}, staged or committed, and this checkout does not, so the setup would replace it. Restore what is named or unstage it, or commit its removal, and open this again.`;
 
 /** Writes a file in a repository, with the folders above it. */
 function write(repo: string, path: string, text: string, mode?: number): void {
@@ -105,7 +111,7 @@ describe("the records place", () => {
     // The marker's line may end as a file of Windows ends its lines.
     write(repo, "seal/README.md", `${MARKER}\r\n\r\nAgenticSeal's own.\r\n`);
     write(repo, "seal/config.json", '{ "Mode": "shared", "Broad gate": "make check" }\n');
-    write(repo, ".github/workflows/hygiene.yml", "name: hygiene\n");
+    write(repo, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
     commitAll(repo, "chore: the plugin's root");
     const before = [head(repo), tree(repo)];
     expect(readRecordsPlace(repo)).toEqual({ root: "seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" });
@@ -120,6 +126,26 @@ describe("the records place", () => {
     expect([head(repo), tree(repo)]).toEqual(before);
     expect(status(repo)).toBe("");
     expect(readFileSync(join(repo, "seal/config.json"), "utf8")).toBe('{ "Mode": "shared", "Broad gate": "make check" }\n');
+  });
+
+  it("takes a hygiene.yml for the check only where it runs AgenticSeal's script: beside a project's own workflow of that name the setup writes Owlery's, and the repository is read as holding no check", async () => {
+    const repo = repository();
+    write(repo, ".github/workflows/hygiene.yml", "name: hygiene\non: pull_request\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm run lint\n");
+    commitAll(repo, "ci: the project's own lint");
+    expect(readRecordsPlace(repo).check).toBeNull();
+    const plan = await planRecords(repo, "pnpm test", VERSION);
+    expect(plan.files.map((file) => [file.path, file.text === null])).toEqual([
+      ["seal/README.md", false],
+      ["seal/config.json", false],
+      [WORKFLOW, false],
+    ]);
+    await setUpRecords(repo, "pnpm test", VERSION, plan.stamp);
+    expect(readRecordsPlace(repo).check).toBe(WORKFLOW);
+    expect(readFileSync(join(repo, ".github/workflows/hygiene.yml"), "utf8")).toContain("npm run lint");
+    // The same name with the step of AgenticSeal's workflow is the check.
+    const plugin = repository();
+    write(plugin, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
+    expect(readRecordsPlace(plugin).check).toBe(".github/workflows/hygiene.yml");
   });
 
   it("writes only what a root lacks: the config.json of a root that holds none, and no Broad gate into a config.json that stands without the key", async () => {
@@ -191,6 +217,133 @@ describe("the records place", () => {
     await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp)).rejects.toThrow("Git ignores seal/README.md");
     expect([head(repo), tree(repo)]).toEqual(before);
     expect(status(repo)).toBe("");
+  });
+
+  it("blocks a plan that keeps a root git ignores, names the files that stand there, and a setup of it writes nothing", async () => {
+    const repo = repository();
+    write(repo, ".gitignore", "seal/\n");
+    commitAll(repo, "chore: ignore seal/");
+    write(repo, "seal/README.md", `${MARKER}\n`);
+    write(repo, "seal/config.json", '{ "Broad gate": "make check" }\n');
+    const before = [head(repo), tree(repo)];
+    const plan = await planRecords(repo, "pnpm test", VERSION);
+    expect(plan.files.map((file) => [file.path, file.text === null])).toEqual([
+      ["seal/README.md", true],
+      ["seal/config.json", true],
+      [WORKFLOW, false],
+    ]);
+    expect(plan.blocked).toBe("Git ignores seal/README.md and seal/config.json in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.");
+    await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp)).rejects.toThrow("Git ignores seal/README.md and seal/config.json in this repository");
+    expect([head(repo), tree(repo)]).toEqual(before);
+  });
+
+  it("blocks a plan that keeps a file the commit of the checkout does not hold: a root left untracked, the files of a setup whose commit never landed, and a root behind a link; a setup of each writes nothing, and the plan is free once the files are committed", async () => {
+    const untracked = repository();
+    write(untracked, "seal/README.md", `${MARKER}\n`);
+    let before = [head(untracked), tree(untracked), status(untracked)];
+    let plan = await planRecords(untracked, "pnpm test", VERSION);
+    expect(plan.blocked).toBe(unheld("seal/README.md"));
+    await expect(setUpRecords(untracked, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(unheld("seal/README.md"));
+    expect([head(untracked), tree(untracked), status(untracked)]).toEqual(before);
+    commitAll(untracked, "chore: the root");
+    expect((await planRecords(untracked, "pnpm test", VERSION)).blocked).toBeNull();
+
+    // The three files stand as a setup wrote them, one of them staged, and no commit holds them: nothing is left to write, and the plan is blocked all the same.
+    const cut = repository();
+    for (const { path, text } of (await planRecords(cut, "pnpm test", VERSION)).files) write(cut, path, text ?? "");
+    git(cut, "add", "seal/README.md");
+    before = [head(cut), tree(cut), status(cut)];
+    plan = await planRecords(cut, "pnpm test", VERSION);
+    expect(plan.files.map((file) => file.text)).toEqual([null, null, null]);
+    expect(plan.blocked).toBe(unheld(`seal/README.md, seal/config.json and ${WORKFLOW}`));
+    await expect(setUpRecords(cut, "pnpm test", VERSION, plan.stamp)).rejects.toThrow("This checkout holds seal/README.md");
+    expect([head(cut), tree(cut), status(cut)]).toEqual(before);
+    commitAll(cut, "chore: the place");
+    expect((await planRecords(cut, "pnpm test", VERSION)).blocked).toBeNull();
+
+    // The commit holds a link named `seal`, and the root's files stand in the folder it leads to, outside the repository.
+    const linked = temporaryRepository();
+    cleanups.push(linked.remove);
+    write(linked.base, "elsewhere/README.md", `${MARKER}\n`);
+    write(linked.base, "elsewhere/config.json", '{ "Broad gate": "make check" }\n');
+    symlinkSync(join(linked.base, "elsewhere"), join(linked.repo, "seal"));
+    write(linked.repo, WORKFLOW, "name: seal\n");
+    commitAll(linked.repo, "chore: a link and the workflow");
+    expect(readRecordsPlace(linked.repo).root).toBe("seal");
+    expect((await planRecords(linked.repo, "pnpm test", VERSION)).blocked).toBe(unheld("seal/README.md and seal/config.json"));
+  });
+
+  it("blocks a plan that writes a path git holds and the checkout does not: one staged and then deleted, one committed and then deleted, and one staged for removal; a setup of each leaves the index and the commit as they were", async () => {
+    const staged = repository();
+    write(staged, WORKFLOW, "name: theirs\n");
+    git(staged, "add", WORKFLOW);
+    rmSync(join(staged, WORKFLOW));
+    // A hook that refuses: were the setup to reach its commit, its cleanup would take the person's staged file out of the index.
+    write(staged, ".git/hooks/pre-commit", "#!/bin/sh\nexit 1\n", 0o755);
+    const index = git(staged, "ls-files", "--stage");
+    expect(index).toContain(WORKFLOW);
+    let plan = await planRecords(staged, "pnpm test", VERSION);
+    expect(plan.blocked).toBe(known(WORKFLOW));
+    await expect(setUpRecords(staged, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(known(WORKFLOW));
+    expect(git(staged, "ls-files", "--stage")).toBe(index);
+    expect(status(staged)).toBe(`AD ${WORKFLOW}\n`);
+
+    const gone = repository();
+    write(gone, "seal/README.md", `${MARKER}\n`);
+    write(gone, "seal/config.json", '{ "Broad gate": "make check" }\n');
+    write(gone, WORKFLOW, "name: seal\n");
+    commitAll(gone, "chore: the place");
+    rmSync(join(gone, "seal/config.json"));
+    const before = head(gone);
+    plan = await planRecords(gone, "pnpm test", VERSION);
+    expect(plan.files[1]?.text).not.toBeNull();
+    expect(plan.blocked).toBe(known("seal/config.json"));
+    await expect(setUpRecords(gone, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(known("seal/config.json"));
+    expect([head(gone), git(gone, "show", "HEAD:seal/config.json"), status(gone)]).toEqual([before, '{ "Broad gate": "make check" }\n', " D seal/config.json\n"]);
+
+    const removed = repository();
+    write(removed, WORKFLOW, "name: theirs\n");
+    commitAll(removed, "ci: theirs");
+    git(removed, "rm", "--quiet", WORKFLOW);
+    plan = await planRecords(removed, "pnpm test", VERSION);
+    expect(plan.blocked).toBe(known(WORKFLOW));
+    await expect(setUpRecords(removed, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(known(WORKFLOW));
+    expect(status(removed)).toBe(`D  ${WORKFLOW}\n`);
+  });
+
+  it("takes a name of the root for the project's own where git holds a file below it that the checkout does not show", async () => {
+    const repo = repository();
+    write(repo, "seal/notes.txt", "the project's\n");
+    commitAll(repo, "docs: notes");
+    rmSync(join(repo, "seal"), { recursive: true });
+    expect((await planRecords(repo, "pnpm test", VERSION)).files.map((file) => file.path)).toEqual(["agentic-seal/README.md", "agentic-seal/config.json", WORKFLOW]);
+    // The second name is taken by a file that is staged alone.
+    write(repo, "agentic-seal/notes.txt", "the project's\n");
+    git(repo, "add", "agentic-seal/notes.txt");
+    rmSync(join(repo, "agentic-seal"), { recursive: true });
+    expect((await planRecords(repo, "pnpm test", VERSION)).blocked).toBe("Both seal/ and agentic-seal/ hold something of this repository's own, so Owlery has no folder to keep work records in.");
+  });
+
+  it("blocks a plan where something other than a folder is at a folder the setup writes below, on disk or in the commit, and a setup of it writes nothing", async () => {
+    const says = "The setup needs a folder at .github, and something else stands there in this repository. Rename or remove it, and open this again.";
+    const repo = repository();
+    write(repo, ".github", "a file of the project's\n");
+    commitAll(repo, "chore: a file named .github");
+    const before = [head(repo), tree(repo), status(repo)];
+    const plan = await planRecords(repo, "pnpm test", VERSION);
+    expect(plan.blocked).toBe(says);
+    await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(says);
+    expect([head(repo), tree(repo), status(repo)]).toEqual(before);
+    // The file is gone from the checkout, and the commit still holds it.
+    rmSync(join(repo, ".github"));
+    expect((await planRecords(repo, "pnpm test", VERSION)).blocked).toBe(says);
+    // A link stands there, which the setup does not write through.
+    const linked = temporaryRepository();
+    cleanups.push(linked.remove);
+    mkdirSync(join(linked.base, "elsewhere"));
+    symlinkSync(join(linked.base, "elsewhere"), join(linked.repo, ".github"));
+    expect((await planRecords(linked.repo, "pnpm test", VERSION)).blocked).toBe(says);
+    expect(readdirSync(join(linked.base, "elsewhere"))).toEqual([]);
   });
 
   it("blocks a plan where no branch is checked out, and a setup of it writes nothing", async () => {

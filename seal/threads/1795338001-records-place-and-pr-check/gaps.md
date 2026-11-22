@@ -14,7 +14,11 @@ No Python linter or formatter runs over `pr-check/`. The repository configures n
 
 The case that pinned the role bundle's file list was removed and not rewritten. `trail/phases/phase-1.md` gives the grounds.
 
-The setup's commit has no time limit. A hook or a signing program that waits for a person holds the daemon's queue of creations, renames and deletes until it ends. A limit needs a choice of what to do with a commit that was ended halfway, which no document makes.
+The setup's commit has no time limit. A hook or a signing program that waits for a person holds the daemon's queue of creations, renames and deletes until it ends. A limit needs a choice of what to do with a commit that was ended halfway, which no document makes. Where the daemon ends during that commit and leaves the files uncommitted, the next plan is blocked and names them, and the person commits or removes them by hand: the setup does not take them up.
+
+The setup asks git about the root and about Owlery's workflow, and not about AgenticSeal's `hygiene.yml`. Where that workflow is committed and gone from the checkout, the setup writes Owlery's workflow beside it, and a clone then holds both. A checkout that moves between the plan's last read and the commit is not guarded either: the commit lands on the branch the checkout stands on when `git commit` starts.
+
+The repository's row still reads the records place from the working folder, as `frame/design.md` *Scope* item 7 says. A root that stands uncommitted is shown on the row and opens no dialog at registration, and the entry of the repository's menu is where the person meets the refusal. In that dialog a file the plan keeps is still said to stand and be kept, beside the refusal that names it as not committed.
 
 The daemon proposes the broad gate command from `package.json` alone. The other manifests and the repository's own CI are a follow-up, and `trail/phases/phase-2.md` lists them with the other things the daemon could do at connection.
 

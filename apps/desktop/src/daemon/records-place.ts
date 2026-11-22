@@ -19,6 +19,10 @@ const ROOTS = ["seal", "agentic-seal"] as const;
 /** The workflow a setup writes, and the one of AgenticSeal's that is kept in its place where it stands. */
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
+/** The script AgenticSeal's workflow runs, by its path in the plugin: a `hygiene.yml` that names it is the check. */
+const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
+/** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
+const FILE_MODES = ["100644", "100755"];
 
 /** What a new root's `README.md` holds. Its first line is the marker. */
 function readmeText(): string {
@@ -117,9 +121,10 @@ export function rootOf(folder: string): string | null {
   return ROOTS.find((name) => textOf(join(folder, name, "README.md"))?.split("\n", 1)[0]?.replace(/\r+$/, "") === MARKER) ?? null;
 }
 
-/** The workflow that stands: Owlery's, or AgenticSeal's where Owlery's does not. Null where neither does. */
+/** The workflow that stands: Owlery's, or AgenticSeal's where Owlery's does not. AgenticSeal's is told by the script it runs, since a project's own workflow may bear its name. Null where neither does. */
 function checkOf(folder: string): string | null {
-  return [WORKFLOW, PLUGIN_WORKFLOW].find((path) => stands(folder, path)) ?? null;
+  if (stands(folder, WORKFLOW)) return WORKFLOW;
+  return textOf(join(folder, PLUGIN_WORKFLOW))?.includes(PLUGIN_CHECK) === true ? PLUGIN_WORKFLOW : null;
 }
 
 /**
@@ -179,6 +184,40 @@ function git(cwd: string, args: string[]): Promise<{ code: number; stdout: strin
   });
 }
 
+/**
+ * What git lists at or below the root's two names and `.github`: each file,
+ * link and submodule by its path, with its mode. `args` is the listing, of
+ * a commit's tree or of the index, and each prints a mode, more, a tab and
+ * the path, with a NUL after each entry. A folder has no entry of its own.
+ */
+async function listed(folder: string, args: string[]): Promise<Map<string, string>> {
+  const list = await git(folder, [...args, "--", ...ROOTS, ".github"]);
+  if (list.code !== 0) throw new Error(list.stderr.trim() || "git could not list what it holds of the records place");
+  const held = new Map<string, string>();
+  for (const entry of list.stdout.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab !== -1) held.set(entry.slice(tab + 1), entry.slice(0, entry.indexOf(" ")));
+  }
+  return held;
+}
+
+/** The paths among those given that git ignores. Git prints each one, and exits 1 where it ignores none. It throws with git's words where git cannot say. */
+async function ignoredAmong(folder: string, paths: readonly string[]): Promise<string[]> {
+  if (paths.length === 0) return [];
+  const ignored = await git(folder, ["check-ignore", "--", ...paths]);
+  if (ignored.code !== 0 && ignored.code !== 1) throw new Error(ignored.stderr.trim() || "git could not say whether it ignores the paths of the records place");
+  return ignored.stdout.split("\n").filter((path) => path !== "");
+}
+
+/** Whether something other than a folder stands at a path of the repository: a file, or a link, which is not followed. */
+function standsAsNoFolder(folder: string, path: string): boolean {
+  try {
+    return !lstatSync(join(folder, path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** The names in a sentence: one, two with "and", or more with commas and "and". */
 function named(names: readonly string[]): string {
   return names.length < 3 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
@@ -191,10 +230,19 @@ function named(names: readonly string[]): string {
  *
  * The root that stands is kept with its `README.md`, and its `config.json`
  * where it has one. A new root is planned at `seal`, or at `agentic-seal`
- * where something stands at `seal`. The workflow is planned only where
- * neither Owlery's nor AgenticSeal's stands. The plan is `blocked` only
- * where it has a file to write: where no branch is checked out, where both
- * names of the root are taken, and where git ignores a path it would write.
+ * where `seal` is taken: something stands there, or git holds a file below
+ * it, staged or committed, that the checkout does not show. The workflow is
+ * planned only where neither Owlery's nor AgenticSeal's stands.
+ *
+ * What stands is asked of the checkout, and git is asked whether it holds
+ * the same, because a clone and the check on GitHub get what is committed.
+ * The plan is `blocked` by the first of these that holds: both names of the
+ * root are taken; git ignores a file the plan keeps; the commit the
+ * checkout stands at holds no file at the path of one the plan keeps, which
+ * may write nothing; git holds, staged or committed, a path the plan
+ * writes; something other than a folder is at a folder above a path it
+ * writes, in the checkout, the index or the commit; no branch is checked
+ * out; git ignores a path it writes.
  * The stamp is made of the commit the checkout stands at, the branch and
  * the files, so it is another once a commit lands, the branch changes, a
  * file of the place appears or the command is another.
@@ -206,8 +254,12 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const head = atHead.code === 0 ? atHead.stdout.trim() : null;
   const branch = onBranch.code === 0 ? onBranch.stdout.trim() : null;
 
+  const [inCommit, inIndex] = await Promise.all([head === null ? new Map<string, string>() : listed(folder, ["ls-tree", "-r", "-z", head]), listed(folder, ["ls-files", "--cached", "--stage", "-z"])]);
+  /** Whether git holds the path or something below it, staged or committed. */
+  const gitHolds = (path: string): boolean => [...inCommit.keys(), ...inIndex.keys()].some((held) => held === path || held.startsWith(`${path}/`));
+
   const kept = rootOf(folder);
-  const root = kept ?? ROOTS.find((name) => !stands(folder, name)) ?? null;
+  const root = kept ?? ROOTS.find((name) => !stands(folder, name) && !gitHolds(name)) ?? null;
   const check = checkOf(folder);
   const files: RecordsPlan["files"] = [];
   if (root !== null) {
@@ -217,17 +269,33 @@ export async function planRecords(folder: string, broadGate: string, version: st
   files.push({ path: check ?? WORKFLOW, text: check === null ? workflowText(version) : null });
 
   const written = files.filter((file) => file.text !== null).map((file) => file.path);
+  // A file is kept only where the commit holds it as a file: one that stands untracked, staged alone, behind a link or inside a submodule is missing from every clone, and the check on GitHub then finds no root.
+  const unheld = files.filter((file) => file.text === null && !FILE_MODES.includes(inCommit.get(file.path) ?? "")).map((file) => file.path);
+  // Where git cannot say whether it ignores one of them, behind a link for one, the file is named as not committed.
+  const unheldIgnored = await ignoredAmong(folder, unheld).catch(() => []);
+  // A path the setup writes that git holds is the person's: a file staged or committed that the checkout no longer shows, or a removal staged. The commit would replace it, and the cleanup of a commit that fails would unstage it.
+  const known = written.filter(gitHolds);
+  // The folders above the written paths at which the checkout, the index or the commit holds a file, a link or a submodule.
+  const above = new Set<string>();
+  for (const path of written) for (let at = dirname(path); at !== "."; at = dirname(at)) above.add(at);
+  const notFolders = [...above].filter((at) => standsAsNoFolder(folder, at) || inCommit.has(at) || inIndex.has(at));
+  const ignores = (paths: readonly string[]): string => `Git ignores ${named(paths)} in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.`;
   let blocked: string | null = null;
   if (root === null) {
     blocked = "Both seal/ and agentic-seal/ hold something of this repository's own, so Owlery has no folder to keep work records in.";
+  } else if (unheldIgnored.length > 0) {
+    blocked = ignores(unheldIgnored);
+  } else if (unheld.length > 0) {
+    blocked = `This checkout holds ${named(unheld)}, and the commit it stands at does not, so a clone of the repository would lack it. Commit or remove what is named, and open this again.`;
+  } else if (known.length > 0) {
+    blocked = `Git holds ${named(known)}, staged or committed, and this checkout does not, so the setup would replace it. Restore what is named or unstage it, or commit its removal, and open this again.`;
+  } else if (notFolders.length > 0) {
+    blocked = `The setup needs a folder at ${named(notFolders)}, and something else stands there in this repository. Rename or remove it, and open this again.`;
   } else if (written.length > 0 && branch === null) {
     blocked = "No branch is checked out in this repository, so the commit has no branch to land on. Check a branch out and open this again.";
-  } else if (written.length > 0) {
-    // Git prints each path it ignores, and exits 1 where it ignores none.
-    const ignored = await git(folder, ["check-ignore", "--", ...written]);
-    if (ignored.code !== 0 && ignored.code !== 1) throw new Error(ignored.stderr.trim() || "git could not say whether it ignores the paths of the records place");
-    const paths = ignored.stdout.split("\n").filter((path) => path !== "");
-    if (paths.length > 0) blocked = `Git ignores ${named(paths)} in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.`;
+  } else {
+    const ignored = await ignoredAmong(folder, written);
+    if (ignored.length > 0) blocked = ignores(ignored);
   }
   const writesConfig = files.some((file) => file.path.endsWith("/config.json") && file.text !== null);
   return { branch, subject: SUBJECT, files, blocked, proposedBroadGate: writesConfig ? proposedBroadGate(folder) : null, stamp: createHash("sha256").update(JSON.stringify([head, branch, files])).digest("hex") };
@@ -240,7 +308,9 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * and the command is empty. A plan that writes no file changes nothing and
  * makes no commit.
  *
- * Each file is created only where nothing stands at its path. Those paths
+ * Each file is created only where nothing stands at its path, and the plan
+ * is blocked where git holds one of the paths, so the commit replaces no
+ * file and its cleanup unstages nothing of the person's. Those paths
  * alone are staged and those paths alone are committed, on the branch the
  * checkout stands on, with the person's git identity and the repository's
  * hooks: no option skips a hook or a signature, and nothing is pushed. What
