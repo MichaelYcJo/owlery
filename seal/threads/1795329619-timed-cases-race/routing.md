@@ -2,7 +2,7 @@
 
 | Axis | Answer |
 |---|---|
-| Review | straight to the PR |
+| Review | through the review chain |
 | Destination | open the pull request |
 | Planning | the session |
 | Implementation | crafter |
@@ -17,6 +17,6 @@ The owner's words that hand the run over, in this session: "알아서 진행하�
 
 - **Planning, the session:** the issue's body and its section "Narrowed by #118, and what it holds" name the three cases, their failing lines and runs, and what *Done when* asks; no `frame/` is written.
 - **Implementation, crafter:** an Opus crafter, the middle tier the owner set; the work is finding out on the owner's Mac and on GitHub's runner, and it may touch the app's renderer where the page is slower than it should be.
-- **Review, straight to the PR:** the change is to three cases and what they wait on, and the sealer reads it against the issue. Where the diff changes the app's behaviour beyond what a case waits on, the route is raised to the review chain.
+- **Review, through the review chain (raised 2026-11-22):** the route was first `straight to the PR`, for a change to three cases and what they wait on, and it said a change to the app's behaviour raises it. Phase 1 found that the link card case failed under the person's own pointer, and changed how the app shows a window started in the background (`src/main/background.ts#showInBackground` ignores the mouse), so a proofer round reads the diff before the sealer.
 - **Automation, yes:** the suite and the runner's `check` read it.
 - **Branch:** the pull request merges into `release/v0.0.2` by squash.
