@@ -4037,6 +4037,34 @@ describe("the commit of a person's word", () => {
     expect(status(a.worktree)).toEqual(left);
   });
 
+  it("rewrites the `Branch` row of the work item's `routing.md` at a rename of its branch, in a commit of that file alone with the trailer that names the directory, so the work item still carries its decision at the reads after it; a rename of the name alone writes and commits nothing", async () => {
+    const { d, c, url, workItems } = await withWorkItems(["First name"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795388700-renamed");
+    const routing = "seal/threads/1795388700-renamed/routing.md";
+    const stood = readFileSync(join(directory, "routing.md"), "utf8");
+    d.decided(a.id, DEFAULT);
+    await c.message("inbox", (m) => m.workItems[0]?.decisions.length === 1);
+
+    c.send({ type: "renameWorkItem", requestId: 1, id: a.id, title: "Another name", branch: false });
+    await c.message("done", (m) => m.requestId === 1);
+    await settled(c);
+    expect([readFileSync(join(directory, "routing.md"), "utf8"), commitsIn(a.worktree)]).toEqual([stood, 1]);
+
+    c.send({ type: "renameWorkItem", requestId: 2, id: a.id, title: "Second name", branch: true });
+    await c.message("done", (m) => m.requestId === 2);
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(stood).toContain(`| Branch | ${a.branch} |\n`);
+    expect(readFileSync(join(directory, "routing.md"), "utf8")).toBe(stood.replace(`| Branch | ${a.branch} |`, "| Branch | owlery/second-name |"));
+    expect(newest(a.worktree)).toEqual({ subject: "chore: name the renamed branch in the work item's routing", body: "Seal-Routing: 1795388700-renamed", by: WHO, paths: [routing] });
+    expect(git(a.worktree, "show", `HEAD:${routing}`)).toBe(readFileSync(join(directory, "routing.md"), "utf8"));
+    expect(status(a.worktree)).toEqual(["?? seal/README.md", "?? seal/threads/1795388700-renamed/decisions.md"]);
+    // The record is read again at each interval, by the branch's new name.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const later = (await (await client(url)).message("ready")).workItems[0];
+    expect([later?.branch, later?.decisions.map((decision) => decision.says)]).toEqual(["owlery/second-name", ["Start from main."]]);
+  });
+
   /** Runs git in a worktree where the command is expected to stop on a conflict, and gives its exit code. */
   const stopping = (worktree: string, ...args: string[]): number | null => spawnSync("git", args, { cwd: worktree, encoding: "utf8" }).status;
   /**

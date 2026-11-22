@@ -4,11 +4,13 @@
 // is one `seal` block, read and built through `record-blocks.ts`, and a line
 // outside every block is prose.
 //
-// This module finds the work item's directory, reads a record, and holds one
-// function for each write. A write takes the file's text and returns the new
+// This module finds the work item's directory by the branch its `routing.md`
+// names, rewrites that name for a renamed branch, reads a record, and holds
+// one function for each write. A write takes the file's text and returns the new
 // text, changes one block, and leaves every other line as it is. It throws
 // for a change the states do not allow. `writeRecord` reads the file, applies
-// a write and puts the whole file back.
+// a write and puts the whole file back, through the writer of a work item's
+// records (`record-writer.ts`).
 //
 // The record holds no clock and nothing of what the person has seen: both are
 // the daemon's state.
@@ -17,10 +19,12 @@ import { basename, join } from "node:path";
 import { DECISION_BLOCK, QUESTION_BLOCK, assemble, field, gfmLines, read, stripped, walk, type Block, type Kind } from "./record-blocks";
 import { rootOf } from "./records-place";
 import { repositoryFileText } from "./repository-file";
-import { writeWholeFile } from "./whole-file";
+import { writeRecordFile } from "./record-writer";
 
 /** The record's file name, in the work item's directory. */
 export const RECORD_FILE = "decisions.md";
+/** The file name of a work item's routing declaration, in its directory. */
+export const ROUTING_FILE = "routing.md";
 
 const KINDS = [DECISION_BLOCK, QUESTION_BLOCK];
 
@@ -97,17 +101,11 @@ function textOf(file: string): string | null {
   }
 }
 
-/**
- * The branch a `routing.md` declares, or null where the text is no
- * declaration, as `pr-check/lib/routing.py#parse` reads it: the rows of two
- * cells or more that a renderer shows, a label written twice holding no value,
- * and a declaration only where `Review` and `Destination` each hold an answer
- * the check knows and `Branch` holds a name.
- */
-function declaredBranch(text: string): string | null {
+/** The rows of a `routing.md` by their label, each with its value and the index of its line: the rows of two cells or more that a renderer shows. */
+function routingRows(text: string): Map<string, { value: string; index: number }[]> {
   const lines = gfmLines(text);
   const walked = walk(lines);
-  const rows = new Map<string, string[]>();
+  const rows = new Map<string, { value: string; index: number }[]>();
   for (const [index, raw] of lines.entries()) {
     // A line the walk is sure a renderer hides is no row. Where it is not sure, it calls the line live, and the row is read.
     if (walked.kinds[index] !== "live") continue;
@@ -119,11 +117,23 @@ function declaredBranch(text: string): string | null {
       .split("|")
       .map((cell) => stripped(cell));
     if (label === undefined || value === undefined || /^[:\- ]*$/.test(label)) continue;
-    rows.set(label, [...(rows.get(label) ?? []), value]);
+    rows.set(label, [...(rows.get(label) ?? []), { value, index }]);
   }
+  return rows;
+}
+
+/**
+ * The branch a `routing.md` declares, or null where the text is no
+ * declaration, as `pr-check/lib/routing.py#parse` reads it: the rows of two
+ * cells or more that a renderer shows, a label written twice holding no value,
+ * and a declaration only where `Review` and `Destination` each hold an answer
+ * the check knows and `Branch` holds a name.
+ */
+function declaredBranch(text: string): string | null {
+  const rows = routingRows(text);
   const one = (label: string): string => {
     const values = rows.get(label) ?? [];
-    return values.length === 1 ? (values[0] ?? "") : "";
+    return values.length === 1 ? (values[0]?.value ?? "") : "";
   };
   if (!REVIEW_ANSWERS.includes(one("Review")) || !DESTINATION_ANSWERS.includes(one("Destination"))) return null;
   return one("Branch") || null;
@@ -151,7 +161,7 @@ export function workItemDirectory(worktree: string, branch: string): string | nu
     return null;
   }
   const naming = names.filter((name) => {
-    const text = textOf(join(threads, name, "routing.md"));
+    const text = textOf(join(threads, name, ROUTING_FILE));
     return text !== null && declaredBranch(text) === branch;
   });
   const [only] = naming;
@@ -243,6 +253,29 @@ export function readDecisionRecord(text: string): DecisionRecord {
 /** The text's lines, each with its own line end. */
 const LINES_WITH_ENDS = /[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g;
 const LINE_END = /\r\n|\r|\n/;
+
+/** The start of a routing row's line to the end of its first cell, the second cell, and the rest. */
+const ROUTING_ROW = /^([^|]*\|+[^|]*\|)([^|\r\n]*)(.*)$/su;
+
+/**
+ * The text of a `routing.md` with its `Branch` row naming the branch given:
+ * the name in the row's second cell is replaced, and the cell's own spaces,
+ * the rest of the line and every other line stay as they are. It throws for
+ * a text that declares no branch, and for a name the row cannot hold, which
+ * the text would then not declare: one with a `|` in it, or with white space
+ * at an end.
+ */
+export function withBranch(text: string, branch: string): string {
+  const row = declaredBranch(text) === null ? undefined : routingRows(text).get("Branch")?.[0];
+  if (row === undefined) throw new Error("the routing declares no branch");
+  const lines = text.match(LINES_WITH_ENDS) ?? [];
+  const [, head = "", cell = "", rest = ""] = ROUTING_ROW.exec(lines[row.index] ?? "") ?? [];
+  const at = cell.indexOf(row.value);
+  lines[row.index] = `${head}${cell.slice(0, at)}${branch}${cell.slice(at + row.value.length)}${rest}`;
+  const next = lines.join("");
+  if (declaredBranch(next) !== branch) throw new Error(`the routing's \`Branch\` row cannot name the branch ${branch}`);
+  return next;
+}
 
 /** A value as a block's line holds it: the white space at its two ends taken off, and each run of line breaks inside it written as one space. */
 function oneLine(value: string): string {
@@ -374,21 +407,23 @@ function head(workItem: string): string {
 }
 
 /**
- * Reads the record of the work item's directory, applies the change and puts
- * the whole file back, then returns the record as it now reads. Where no
- * record stands, the change is given the head of a new one. A record that
- * stands and cannot be read throws, and is left as it is: one that is a
- * link, one that is no plain file and one over `REPOSITORY_FILE_BYTES` among
- * them, as `repositoryFileText` refuses each, so a write never replaces a
- * link it read with a file. The write's rename does replace a link put at
- * the record's path after that read, and a link put at the partial file's
- * path `decisions.md.<pid>` is written through (`whole-file.ts`). A change
- * that throws leaves the file as it is, and creates none.
+ * Reads the record of the work item's directory, a folder of the worktree,
+ * applies the change and puts the whole file back, then returns the record
+ * as it now reads. Where no record stands, the change is given the head of a
+ * new one. A record that stands and cannot be read throws, and is left as it
+ * is: one that is a link, one that is no plain file and one over
+ * `REPOSITORY_FILE_BYTES` among them, as `repositoryFileText` refuses each,
+ * so a write never replaces a link it read with a file. The write goes
+ * through `record-writer.ts#writeRecordFile`, which throws, with nothing
+ * written, where the directory or a folder above it is a link or a link
+ * stands at the partial file's path. The write's rename does replace a link
+ * put at the record's path after the writer's check. A change that throws
+ * leaves the file as it is, and creates none.
  */
-export function writeRecord(directory: string, change: (text: string) => string): DecisionRecord {
+export function writeRecord(worktree: string, directory: string, change: (text: string) => string): DecisionRecord {
   const file = join(directory, RECORD_FILE);
   const before = repositoryFileText(file);
   const after = change(before ?? head(basename(directory)));
-  if (after !== before) writeWholeFile(file, after);
+  if (after !== before) writeRecordFile(worktree, file, after);
   return readDecisionRecord(after);
 }

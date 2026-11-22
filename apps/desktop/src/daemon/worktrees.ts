@@ -849,7 +849,7 @@ function gitIn(worktree: string, args: string[]): Promise<{ failed: boolean; sai
 }
 
 /**
- * Why one file of a worktree cannot now be written and committed on the
+ * Why a file of a worktree cannot now be written and committed on the
  * branch named, or null where it can: a rebase, a merge, a cherry-pick, a
  * revert or a `git am` is under way in the worktree, or the worktree's HEAD
  * is not that branch, a detached HEAD and another branch alike. Where git
@@ -871,32 +871,33 @@ export async function whyNoCommit(worktree: string, branch: string): Promise<str
 }
 
 /**
- * Commits one file of a worktree and nothing else, on the branch named and
- * on no other: `git add` of that path, then a `git commit` that names that
- * path, with the subject and the trailer as its two paragraphs. Before the
- * `git add` it throws the reason `whyNoCommit` gives, with nothing staged
- * and nothing committed. Git runs
+ * Commits the files of a worktree at the paths given, one or more, together
+ * and nothing else, on the branch named and on no other: `git add` of those
+ * paths, then one `git commit` that names them, with the subject and the
+ * trailer as its two paragraphs. Before the `git add` it throws the reason
+ * `whyNoCommit` gives, with nothing staged and nothing committed. Git runs
  * with the person's identity and the repository's hooks, as the setup of the
  * records place commits (`records-place.ts#setUpRecords`): no option skips a
  * hook or a signature, and nothing is pushed.
  * What else is staged stays staged and is not committed, and what else is
- * changed stays changed. Where the newest commit already holds the file as
- * it stands, nothing is committed. Where either command fails it throws
- * git's words, a hook's output among them, and the path is first taken out
- * of the index again, so the file stands written and not staged.
+ * changed stays changed. The commit holds each path that differs from the
+ * branch's newest commit, and where none does, nothing is committed. Where
+ * either command fails it throws git's words, a hook's output among them,
+ * for a path that names no file as well, and every path is first taken out
+ * of the index again, so each file stands written and not staged.
  */
-export async function commitAlone(worktree: string, branch: string, path: string, subject: string, trailer: string): Promise<void> {
+export async function commitPaths(worktree: string, branch: string, paths: readonly [string, ...string[]], subject: string, trailer: string): Promise<void> {
   const run = (args: string[]) => gitIn(worktree, args);
   const why = await whyNoCommit(worktree, branch);
   if (why !== null) throw new Error(why);
   const refused = async (said: string): Promise<never> => {
-    await run(["reset", "--quiet", "--", path]);
+    await run(["reset", "--quiet", "--", ...paths]);
     throw new Error(said);
   };
-  const added = await run(["add", "--", path]);
+  const added = await run(["add", "--", ...paths]);
   if (added.failed) return refused(added.said);
-  // Git exits 0 where the index holds the path as the branch's newest commit does: an earlier commit carried the file as it stands.
-  if (!(await run(["diff", "--cached", "--quiet", "--", path])).failed) return;
-  const committed = await run(["commit", "-m", subject, "-m", trailer, "--", path]);
+  // Git exits 0 where the index holds each path as the branch's newest commit does: an earlier commit carried the files as they stand.
+  if (!(await run(["diff", "--cached", "--quiet", "--", ...paths])).failed) return;
+  const committed = await run(["commit", "-m", subject, "-m", trailer, "--", ...paths]);
   if (committed.failed) return refused(committed.said);
 }

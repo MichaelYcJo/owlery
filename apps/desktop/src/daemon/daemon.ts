@@ -10,17 +10,18 @@ import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/ad
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
-import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withDecision, withQuestion, withReversal, workItemDirectory, writeRecord } from "./decision-record";
+import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectory, writeRecord } from "./decision-record";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
+import { writeRecordFile } from "./record-writer";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, whyNoCommit, worktreesRoot } from "./worktrees";
+import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitPaths, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, whyNoCommit, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
 const STATE_TEXT_CHARS = 2000;
@@ -391,7 +392,7 @@ export class Daemon {
     if (directory === null) return undefined;
     let written: DecisionRecord;
     try {
-      written = writeRecord(directory, change);
+      written = writeRecord(held.item.worktree, directory, change);
     } catch (error) {
       console.error(`the record was not written: ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
@@ -866,6 +867,8 @@ export class Daemon {
             const held = this.store.workItem(message.id);
             if (!held) throw new Error(`no work item ${String(message.id)}`);
             let branch = held.item.branch;
+            // The work item's directory, where the rename wrote the new branch into its routing.
+            let routed: string | null = null;
             if (message.branch) {
               // The conditions the person's dialog read are read again here, at the rename, and nothing is changed where one no longer holds or git refuses.
               const plan = await planBranchRename(held.repository.folder, branch, title);
@@ -873,10 +876,13 @@ export class Daemon {
               this.renaming.add(message.id);
               holds = true;
               await renameBranch(held.repository.folder, branch, plan.branch);
+              // The work item's directory is found by the branch its routing names, so the row follows the branch while the reads are still held off.
+              routed = this.routeRenamed(held.item.worktree, branch, plan.branch);
               branch = plan.branch;
             }
             // What was read of the branch is kept by the work item's id, and its head did not move, so the counts and the commits stand.
             const changed = this.store.setWorkItem(message.id, { title, branch });
+            if (routed !== null) this.commitWord(held, routed, "chore: name the renamed branch in the work item's routing", ROUTING_FILE);
             this.send(socket, { type: "done", requestId: message.requestId });
             if (changed) this.broadcastInbox();
           } catch (error) {
@@ -1620,7 +1626,7 @@ export class Daemon {
       if (!held) throw new Error(`no work item ${String(workItemId)}`);
       const directory = workItemDirectory(held.item.worktree, held.item.branch);
       if (directory === null) throw new Error(`Work item ${String(workItemId)} has no record of decisions.`);
-      writeRecord(directory, change);
+      writeRecord(held.item.worktree, directory, change);
       this.readRecord(held);
       this.flushTimes();
       this.commitWord(held, directory, subject);
@@ -1635,8 +1641,35 @@ export class Daemon {
   }
 
   /**
-   * Commits a work item's record, and that file alone, on the work item's
-   * branch in its worktree, after a person's word was written into it: with
+   * Writes a renamed branch's new name into the `Branch` row of the work
+   * item's `routing.md`, through the writer of a work item's records, and
+   * gives the work item's directory: the one whose routing named the branch's
+   * old name. It gives null, with nothing written, where no one directory's
+   * routing named it, and where the row cannot be rewritten or the writer
+   * refuses the path, which the log then says. The branch is then renamed
+   * all the same, and the work item's records are found again once a person
+   * writes the row.
+   */
+  private routeRenamed(worktree: string, from: string, to: string): string | null {
+    const directory = workItemDirectory(worktree, from);
+    if (directory === null) return null;
+    try {
+      const file = join(directory, ROUTING_FILE);
+      const text = repositoryFileText(file);
+      if (text === null) return null;
+      writeRecordFile(worktree, file, withBranch(text, to));
+      return directory;
+    } catch (error) {
+      console.error(`the renamed branch was not written into the work item's routing: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Commits one file of a work item's directory, its record unless another
+   * is named, and that file alone, on the work item's
+   * branch in its worktree, after a person's word was written into it, or
+   * after a rename of the branch wrote the new name into `routing.md`: with
    * the subject given and the trailer `Seal-Routing:` that names the work
    * item's directory, which the pull request check reads. It returns at
    * once, and the commit is made after every earlier one of the same
@@ -1644,7 +1677,7 @@ export class Daemon {
    * was off the work item's branch or in the middle of an operation, so the
    * commit meets either only where it arose after the write: nothing is
    * then staged and nothing is committed, the file stands written, and the
-   * log says which (`worktrees.ts#commitAlone`). Where a live pane of the work item says it is working, or a
+   * log says which (`worktrees.ts#commitPaths`). Where a live pane of the work item says it is working, or a
    * headless session of it is working, when the commit's turn comes, nothing is
    * committed: the file stands written, and the session's own commit, or the
    * next commit made here, carries it. A commit carries the file as it stands
@@ -1654,15 +1687,15 @@ export class Daemon {
    * `Daemon#park` do not come here: the stage that calls them commits the
    * record with its own commit.
    */
-  private commitWord(held: Held, directory: string, subject: string): void {
+  private commitWord(held: Held, directory: string, subject: string, file: string = RECORD_FILE): void {
     const { id, worktree, branch } = held.item;
     const commit = async (): Promise<void> => {
       const working = [...this.sessions.values()].some(({ info }) => info.alive && info.workItemId === id && info.state === "working") || [...this.headless.values()].some(({ info }) => info.workItemId === id && info.state === "working");
       if (working) return;
       try {
-        await commitAlone(worktree, branch, relative(worktree, join(directory, RECORD_FILE)), subject, `Seal-Routing: ${basename(directory)}`);
+        await commitPaths(worktree, branch, [relative(worktree, join(directory, file))], subject, `Seal-Routing: ${basename(directory)}`);
       } catch (error) {
-        console.error(`the person's word was not committed: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`${file === RECORD_FILE ? "the person's word" : "the renamed branch's routing"} was not committed: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
     this.wordCommits.set(worktree, (this.wordCommits.get(worktree) ?? Promise.resolve()).then(commit));
