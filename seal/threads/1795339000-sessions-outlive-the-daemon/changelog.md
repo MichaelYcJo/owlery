@@ -1,0 +1,7 @@
+# Changelog: how an agent's session survives the daemon and a reboot
+
+Issue #36. Whether closing the window, updating the app, restarting the daemon or restarting the Mac ends an agent's session had no written answer.
+
+- **The architecture documents now say what each event does to a session, in English and in Korean.** Closing the window or quitting the app ends nothing. An update ends no session either: the daemon of the earlier build keeps running and is replaced once it runs nothing, or when you choose "Restart Daemon…". A restart of the daemon, a crash or a restart of the Mac ends the process, and the conversation comes back by its session id when you ask. The text is in `docs/architecture.md` *What a session survives* and in its Korean edition.
+- **The ways of keeping a working agent alive through a restart of the daemon are weighed and none is built.** A process of its own that holds the terminals, handing each terminal to the next daemon, a daemon for each protocol version, tmux or zellij, and Claude Code's background sessions each have a row with what they keep, what they cost and the decision. The choice stands as a row of *Open decisions* with what would settle it.
+- **Nothing in the app changes in this release for this work.** The replacement of an idle daemon and the log line at each end are built by #133, the resume of a pane by #61, and the restart of a run's cut stage by #55.
