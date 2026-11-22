@@ -8,12 +8,15 @@ export type RoleEvent =
   | { type: "text"; text: string }
   // The end of the turn: the whole answer, or the error's text where `isError`; the cost in US dollars where the agent reports one.
   | { type: "result"; text: string; isError: boolean; costUsd: number | null }
-  // The agent's process ended. Nothing follows it.
-  | { type: "exit"; exitCode: number };
+  // The agent's process ended. `errorOutput` is the last of what it printed on its error stream, and empty where it printed nothing there. Nothing follows it.
+  | { type: "exit"; exitCode: number; errorOutput: string };
 
 export interface RoleRun {
-  /** Ends the agent's process if it is still running. */
-  stop(): void;
+  /**
+   * Ends the agent's process if it is still running. The promise settles once
+   * the process has exited, and a second call returns the same promise.
+   */
+  stop(): Promise<void>;
 }
 
 export interface RoleAdapter {

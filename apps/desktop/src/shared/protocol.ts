@@ -219,6 +219,10 @@ export interface HeadlessInfo {
   /** What the turn cost in US dollars, or null where the agent reported none. */
   costUsd: number | null;
   startedAt: number;
+  /** The last of what the agent's process printed on its error stream, once the process has exited; empty until then and where it printed nothing there. */
+  errorOutput: string;
+  /** What stopped a `failed` session before it ended by itself: its time limit, or a request, a client's `stopHeadless` or an archive, a delete or a removal that ended it. Null where the session ended by itself or still works. */
+  stopped: "limit" | "request" | null;
 }
 
 /**
@@ -296,8 +300,10 @@ export type ClientMessage =
   | { type: "forget"; id: number; keepModes?: true }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
-  // Starts a headless session that answers `prompt` in the work item's worktree.
+  // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string }
+  // Stops a headless session that is working: its run is stopped, and it is `failed`, with `stopped` set to `request`. A session that is not working is left as it is. The daemon answers with `done`, and with an `error` for an id it does not list.
+  | { type: "stopHeadless"; requestId: number; id: number }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
@@ -325,6 +331,8 @@ export type ServerMessage =
   | { type: "asked"; requestId: number; headless: HeadlessInfo }
   // One headless session whole, sent to every client whenever it changes.
   | { type: "headless"; headless: HeadlessInfo }
+  // A headless session that ended left the daemon's list, which keeps the sessions that ended last and every one still working. Sent to every client.
+  | { type: "headlessDropped"; id: number }
   // The choice and whether the hold stands, sent to every client whenever either changes.
   | { type: "keepAwake"; keepAwake: KeepAwake }
   // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.
