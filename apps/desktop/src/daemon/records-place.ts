@@ -6,9 +6,10 @@
 // never through a shell.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RecordsPlace, RecordsPlan } from "../shared/protocol";
+import { repositoryFileText } from "./repository-file";
 
 /** The first line of a records root's `README.md`, which the pull request check tells a root by (`pr-check/lib/optin.py`, `MARKER`). */
 export const MARKER = "# What AgenticSeal maintains in seal/";
@@ -114,10 +115,10 @@ function stands(folder: string, path: string): boolean {
   }
 }
 
-/** A file's text, or null where it cannot be read. */
+/** A file's text, or null where it is not read: where none stands, and where `repositoryFileText` refuses what stands, which is what is no plain file and a file over its bound. A link is followed, so a root behind one is seen and the plan can refuse it. */
 function textOf(file: string): string | null {
   try {
-    return readFileSync(file, "utf8");
+    return repositoryFileText(file, "followed");
   } catch {
     return null;
   }

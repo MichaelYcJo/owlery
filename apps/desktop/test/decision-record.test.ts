@@ -3,7 +3,7 @@
 // read a record, write each change of one, and find a work item's directory
 // by its branch, in temporary repositories and never in Owlery's own.
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -19,6 +19,7 @@ import {
   writeRecord,
 } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
+import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
 import { git, temporaryRepository } from "./repositories";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
@@ -439,6 +440,22 @@ describe("the writer of a work item's record", () => {
       expect(readdirSync(path)).toEqual([RECORD_FILE]);
     });
 
+    it("throws where the record is a link, to a file outside the directory and to nothing alike, and leaves the link a link and what it leads to as it was", () => {
+      const path = directory();
+      const file = join(path, RECORD_FILE);
+      const outside = join(path, "..", "outside.md");
+      const decide = (text: string): string => withDecision(text, { kind: "scope", decided: "No push.", grounds: "None asked." });
+      writeFileSync(outside, RECORD);
+      symlinkSync(outside, file);
+      expect(() => writeRecord(path, decide)).toThrow("decisions.md is a link, and Owlery reads it only as a file of its own");
+      expect([lstatSync(file).isSymbolicLink(), readFileSync(outside, "utf8")]).toEqual([true, RECORD]);
+      // A link that leads nowhere is not a record that does not stand: a new record's head is not written over it.
+      const nowhere = directory();
+      symlinkSync(join(nowhere, "..", "no-such-file"), join(nowhere, RECORD_FILE));
+      expect(() => writeRecord(nowhere, decide)).toThrow("decisions.md is a link");
+      expect([lstatSync(join(nowhere, RECORD_FILE)).isSymbolicLink(), readdirSync(nowhere)]).toEqual([true, [RECORD_FILE]]);
+    });
+
     it("leaves the file as it is where the change throws, and creates none", () => {
       const path = directory();
       expect(() => writeRecord(path, (text) => withReversal(text, 1, "No."))).toThrow("the record holds no decision 1");
@@ -509,6 +526,17 @@ describe("a work item's directory", () => {
     const expected = found === null ? null : join(folder, root, "threads", found);
     expect(workItemDirectory(folder, "feature")).toBe(expected);
     expect(checkFinds(folder, "feature")).toBe(expected);
+  });
+
+  it("is none where the `routing.md` that names the branch is a link, or holds more than the daemon reads of a file: the daemon reads neither, though the pull request check reads both", () => {
+    const linked = worktree({ "elsewhere.md": declares("feature") });
+    mkdirSync(join(linked, "seal", "threads", "2-b"));
+    symlinkSync("../elsewhere.md", join(linked, "seal", "threads", "2-b", "routing.md"));
+    expect(workItemDirectory(linked, "feature")).toBeNull();
+    const large = worktree({ "2-b/routing.md": `${declares("feature")}${"a".repeat(REPOSITORY_FILE_BYTES)}\n` });
+    expect(workItemDirectory(large, "feature")).toBeNull();
+    // The same tree with a `routing.md` of its own, of a size that is read.
+    expect(workItemDirectory(worktree({ "2-b/routing.md": declares("feature") }), "feature")).not.toBeNull();
   });
 
   it("is none in a folder with no records root, in one whose `seal/` is the project's own, and for no branch", { timeout: 30_000 }, () => {

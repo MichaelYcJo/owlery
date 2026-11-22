@@ -6,7 +6,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { generateName } from "../shared/names";
 import { BASE_FETCH_MS, type BaseFetch, type Changes, type CommitInfo, type FileChange, type WorkItemLoss } from "../shared/protocol";
 
@@ -832,10 +832,25 @@ export async function removeBranch(repo: string, branch: string): Promise<void> 
   await git(repo, ["branch", "-D", "--", branch]);
 }
 
+/** What git keeps in a worktree's git folder while each of these is under way there, with the words the refusal of a commit names it by. */
+const UNDER_WAY: [marker: string, words: string][] = [
+  ["rebase-merge", "a rebase"],
+  ["rebase-apply", "a rebase or a `git am`"],
+  ["MERGE_HEAD", "a merge"],
+  ["CHERRY_PICK_HEAD", "a cherry-pick"],
+  ["REVERT_HEAD", "a revert"],
+];
+
 /**
- * Commits one file of a worktree and nothing else, on the branch the worktree
- * stands on: `git add` of that path, then a `git commit` that names that
- * path, with the subject and the trailer as its two paragraphs. Git runs
+ * Commits one file of a worktree and nothing else, on the branch named and
+ * on no other: `git add` of that path, then a `git commit` that names that
+ * path, with the subject and the trailer as its two paragraphs. Before the
+ * `git add` it throws, with nothing staged and nothing committed, where a
+ * rebase, a merge, a cherry-pick, a revert or a `git am` is under way in the
+ * worktree, and where the worktree's HEAD is not that branch: a detached
+ * HEAD and another branch alike. A commit made in the middle of a rebase is
+ * dropped with the rebase where it is aborted, and one made on a detached
+ * HEAD is on no branch. Git runs
  * with the person's identity and the repository's hooks, as the setup of the
  * records place commits (`records-place.ts#setUpRecords`): no option skips a
  * hook or a signature, and nothing is pushed.
@@ -845,11 +860,19 @@ export async function removeBranch(repo: string, branch: string): Promise<void> 
  * git's words, a hook's output among them, and the path is first taken out
  * of the index again, so the file stands written and not staged.
  */
-export async function commitAlone(worktree: string, path: string, subject: string, trailer: string): Promise<void> {
-  const run = (args: string[]): Promise<{ failed: boolean; said: string }> =>
-    new Promise((resolve) => {
-      execFile("git", args, { cwd: worktree, encoding: "utf8" }, (error, stdout, stderr) => resolve({ failed: error !== null, said: `${stderr}${stdout}`.trim() || (error?.message ?? "") }));
+export async function commitAlone(worktree: string, branch: string, path: string, subject: string, trailer: string): Promise<void> {
+  const run = (args: string[]): Promise<{ failed: boolean; said: string; printed: string[] }> =>
+    new Promise((done) => {
+      execFile("git", args, { cwd: worktree, encoding: "utf8" }, (error, stdout, stderr) => done({ failed: error !== null, said: `${stderr}${stdout}`.trim() || (error?.message ?? ""), printed: stdout.split("\n").filter((line) => line !== "") }));
     });
+  // Git prints each marker's path in the worktree's own git folder, a line for each, relative to the worktree where it prints a relative one.
+  const markers = await run(["rev-parse", ...UNDER_WAY.flatMap(([marker]) => ["--git-path", marker])]);
+  if (markers.failed || markers.printed.length !== UNDER_WAY.length) throw new Error(markers.said);
+  const under = UNDER_WAY.find((_, index) => existsSync(resolve(worktree, markers.printed[index] ?? "")));
+  if (under !== undefined) throw new Error(`${under[1]} is under way in the worktree`);
+  // A rebase is read first, since HEAD is detached for its length and the log then names the rebase.
+  const head = await run(["symbolic-ref", "--quiet", "HEAD"]);
+  if (head.failed || head.printed[0] !== `refs/heads/${branch}`) throw new Error(`the worktree is not on the branch ${branch}`);
   const refused = async (said: string): Promise<never> => {
     await run(["reset", "--quiet", "--", path]);
     throw new Error(said);

@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, 
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MARKER, SUBJECT, planRecords, proposedBroadGate, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
+import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
@@ -177,6 +178,18 @@ describe("the records place", () => {
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
     write(keyless, "seal/config.json", '{ "Broad gate": 3 }');
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
+  });
+
+  it("reads no root from a `README.md` that holds more than the daemon reads of a file, or that links to what is no plain file, though each opens with the marker or leads to a folder", () => {
+    const large = repository();
+    write(large, "seal/README.md", `${MARKER}\n${"a".repeat(REPOSITORY_FILE_BYTES)}`);
+    expect(readRecordsPlace(large).root).toBeNull();
+    write(large, "seal/README.md", `${MARKER}\n`);
+    expect(readRecordsPlace(large).root).toBe("seal");
+    const folder = repository();
+    mkdirSync(join(folder, "seal"));
+    symlinkSync("..", join(folder, "seal/README.md"));
+    expect(readRecordsPlace(folder).root).toBeNull();
   });
 
   it("leaves a project's own seal/ alone: the root is written at agentic-seal/, and nothing under seal/", async () => {

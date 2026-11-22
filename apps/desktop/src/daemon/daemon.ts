@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -16,6 +16,7 @@ import { LastLook } from "./last-look";
 import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
+import { repositoryFileText } from "./repository-file";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
@@ -387,17 +388,20 @@ export class Daemon {
    * reader refuses and a fence it names as not read are no decision and no
    * question: each is kept as an unread line with the reader's reason, and
    * nothing is decided on it. A record that stands and cannot be read is one
-   * unread line that says why. Each block's time is the daemon's own, from
-   * the store of the times.
+   * unread line that says why: a record that is a link, one that is no plain
+   * file and one over `REPOSITORY_FILE_BYTES` among them, as
+   * `repositoryFileText` refuses each. Each block's time is the daemon's own,
+   * from the store of the times.
    */
   private readRecord({ item }: Held): boolean {
     const directory = workItemDirectory(item.worktree, item.branch);
     let record: Pick<DecisionRecord, "decisions" | "questions" | "refusals" | "notices"> = { decisions: [], questions: [], refusals: [], notices: [] };
     if (directory !== null) {
       try {
-        record = readDecisionRecord(readFileSync(join(directory, RECORD_FILE), "utf8"));
+        const text = repositoryFileText(join(directory, RECORD_FILE));
+        if (text !== null) record = readDecisionRecord(text);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") record = { ...record, refusals: [{ line: 1, why: `the record cannot be read: ${error instanceof Error ? error.message : String(error)}` }] };
+        record = { ...record, refusals: [{ line: 1, why: `the record cannot be read: ${error instanceof Error ? error.message : String(error)}` }] };
       }
     }
     const since = this.times.since(item.id, [...record.decisions, ...record.questions].map(({ id, state }) => ({ id, state: state.is })), (this.options.now ?? Date.now)());
@@ -1436,12 +1440,16 @@ export class Daemon {
   }
 
   /**
-   * Commits a work item's record, and that file alone, in the work item's
-   * worktree, after a person's word was written into it: with the subject
-   * given and the trailer `Seal-Routing:` that names the work item's
-   * directory, which the pull request check reads. It returns at once, and
-   * the commit is made after every earlier one of the same worktree has
-   * ended. Where a live pane of the work item says it is working, or a
+   * Commits a work item's record, and that file alone, on the work item's
+   * branch in its worktree, after a person's word was written into it: with
+   * the subject given and the trailer `Seal-Routing:` that names the work
+   * item's directory, which the pull request check reads. It returns at
+   * once, and the commit is made after every earlier one of the same
+   * worktree has ended. Where the worktree is not on the work item's branch
+   * when the commit's turn comes, or a rebase, a merge, a cherry-pick, a
+   * revert or a `git am` is under way in it, nothing is staged and nothing
+   * is committed: the file stands written, and the log says which
+   * (`worktrees.ts#commitAlone`). Where a live pane of the work item says it is working, or a
    * headless session of it is working, when the commit's turn comes, nothing is
    * committed: the file stands written, and the session's own commit, or the
    * next commit made here, carries it. A commit carries the file as it stands
@@ -1452,12 +1460,12 @@ export class Daemon {
    * record with its own commit.
    */
   private commitWord(held: Held, directory: string, subject: string): void {
-    const { id, worktree } = held.item;
+    const { id, worktree, branch } = held.item;
     const commit = async (): Promise<void> => {
       const working = [...this.sessions.values()].some(({ info }) => info.alive && info.workItemId === id && info.state === "working") || [...this.headless.values()].some(({ info }) => info.workItemId === id && info.state === "working");
       if (working) return;
       try {
-        await commitAlone(worktree, relative(worktree, join(directory, RECORD_FILE)), subject, `Seal-Routing: ${basename(directory)}`);
+        await commitAlone(worktree, branch, relative(worktree, join(directory, RECORD_FILE)), subject, `Seal-Routing: ${basename(directory)}`);
       } catch (error) {
         console.error(`the person's word was not committed: ${error instanceof Error ? error.message : String(error)}`);
       }

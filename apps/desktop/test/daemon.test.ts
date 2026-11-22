@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -3467,17 +3468,34 @@ describe("the decisions made without asking", () => {
     // A folder stands where the record goes, so it is neither read nor replaced.
     mkdirSync(join(directory, RECORD_FILE));
     const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
-    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: expect.stringMatching(/^the record cannot be read: EISDIR/) }] });
+    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: "the record cannot be read: decisions.md is not a plain file" }] });
     expect(d.decided(a.id, DEFAULT)).toBeUndefined();
     expect(d.park(a.id, { questions: [{ asks: "May it push?", grounds: "It needs an approval." }] })).toBeUndefined();
     c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
-    expect((await c.message("error", (m) => m.requestId === 1)).message).toMatch(/^EISDIR/);
-    expect(said.filter((line) => line.startsWith("the record was not written: EISDIR"))).toHaveLength(2);
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("decisions.md is not a plain file");
+    expect(said.filter((line) => line === "the record was not written: decisions.md is not a plain file")).toHaveLength(2);
 
     mkdirSync(join(runDir, "record-times.json"));
     expect(d.decided(b.id, DEFAULT)).toMatchObject({ id: 1, since: 7 });
     expect(said.filter((line) => line.startsWith("the times of the records were not written: "))).toHaveLength(1);
     expect(d.decided(b.id, ROUTE)).toMatchObject({ id: 2, since: 7 });
+  });
+
+  it("reads a record that is a link as one unread line that says so, and lists nothing of the file the link leads to; a reversal of it is refused with the same words, and the link stays a link to a file that reads as it did", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Linked"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    // A file outside the worktree that reads as a record with one decision.
+    const outside = join(repository.base, "outside.md");
+    const text = withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds });
+    writeFileSync(outside, text);
+    symlinkSync(outside, join(directory, RECORD_FILE));
+    const refusal = "decisions.md is a link, and Owlery reads it only as a file of its own";
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) + (itemOf(m, a.id)?.decisions.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: `the record cannot be read: ${refusal}` }] });
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe(refusal);
+    expect([lstatSync(join(directory, RECORD_FILE)).isSymbolicLink(), readFileSync(outside, "utf8")]).toEqual([true, text]);
   });
 });
 
@@ -3764,6 +3782,54 @@ describe("the commit of a person's word", () => {
     expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's answers", body: "Seal-Routing: 1795330500-reversed", by: WHO, paths: [record] });
     expect(git(a.worktree, "show", `HEAD:${record}`)).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
     expect(status(a.worktree)).toEqual(left);
+  });
+
+  /** Runs git in a worktree where the command is expected to stop on a conflict, and gives its exit code. */
+  const stopping = (worktree: string, ...args: string[]): number | null => spawnSync("git", args, { cwd: worktree, encoding: "utf8" }).status;
+  /**
+   * Each state of a worktree in which nothing is committed, with the commands that bring it about and what the log then says.
+   * The work item's branch holds the commit "mine" and the branch `theirs` the commit "theirs", which change one line of `README.md` each, so each of the two taken onto the other stops on a conflict.
+   */
+  const NOT_COMMITTED: { name: string; bring: (worktree: string) => void; says: (branch: string) => string }[] = [
+    { name: "on a detached HEAD", bring: (worktree) => void git(worktree, "checkout", "--quiet", "--detach"), says: (branch) => `the worktree is not on the branch ${branch}` },
+    { name: "on another branch", bring: (worktree) => void git(worktree, "checkout", "--quiet", "theirs"), says: (branch) => `the worktree is not on the branch ${branch}` },
+    { name: "in a rebase that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "rebase", "theirs")).toBe(1), says: () => "a rebase is under way in the worktree" },
+    { name: "in a merge that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "merge", "theirs")).toBe(1), says: () => "a merge is under way in the worktree" },
+    { name: "in a cherry-pick that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "cherry-pick", "theirs")).toBe(1), says: () => "a cherry-pick is under way in the worktree" },
+    { name: "in a revert that has not been committed", bring: (worktree) => void git(worktree, "revert", "--no-commit", "HEAD"), says: () => "a revert is under way in the worktree" },
+    {
+      name: "in a `git am` that stopped on a conflict",
+      bring: (worktree) => {
+        writeFileSync(join(worktree, "..", "theirs.patch"), git(worktree, "format-patch", "-1", "theirs", "--stdout"));
+        expect(stopping(worktree, "am", join(worktree, "..", "theirs.patch"))).not.toBe(0);
+      },
+      says: () => "a rebase or a `git am` is under way in the worktree",
+    },
+  ];
+
+  it.each(NOT_COMMITTED)("commits nothing where the worktree is $name: the reversal is answered `done` and stays written, no branch and no HEAD moves, the index stands as it stood, and the log says why", async ({ bring, says }) => {
+    const { d, c, workItems } = await withWorkItems(["Elsewhere"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    d.decided(a.id, DEFAULT);
+    git(a.worktree, "checkout", "--quiet", "-b", "theirs");
+    writeFileSync(join(a.worktree, "README.md"), "theirs\n");
+    git(a.worktree, "commit", "--quiet", "-am", "theirs");
+    git(a.worktree, "checkout", "--quiet", a.branch);
+    writeFileSync(join(a.worktree, "README.md"), "mine\n");
+    git(a.worktree, "commit", "--quiet", "-am", "mine");
+    bring(a.worktree);
+    /** Where every branch and the worktree's HEAD stand, and what git says of the worktree's changes. */
+    const stands = (): unknown[] => [git(a.worktree, "for-each-ref", "refs/heads"), git(a.worktree, "rev-parse", "HEAD"), status(a.worktree)];
+    const stood = stands();
+    const said = logged();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    // The close waits for the commit's turn, whatever it did.
+    await d.close();
+    expect(said).toEqual([`the person's word was not committed: ${says(a.branch)}`]);
+    expect(stands()).toEqual(stood);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
   });
 
   it("leaves the record written and not committed while a headless session of the work item is working, and while a pane of it is: the other work item's word is committed meanwhile, and the first commit made once nothing works carries what was left", async () => {
