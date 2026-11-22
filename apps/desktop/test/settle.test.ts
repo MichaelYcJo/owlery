@@ -208,7 +208,7 @@ describe("the directories a settle keeps", () => {
     expect(got.out).toContain("Kept no directory.\n");
   });
 
-  it("keeps a directory by the record HEAD holds where the working tree lacks the record, removed with its directory or alone, as an interrupted `--apply` leaves it, and stops where that record is a link", () => {
+  it("keeps a directory by the record HEAD holds where the working tree lacks the record, removed with its directory or alone, as an interrupted `--apply` leaves it, and stops where HEAD holds that record or its directory as a link", () => {
     for (const removed of ["seal/threads/1-a", "seal/threads/1-a/decisions.md"]) {
       const repo = repository();
       write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
