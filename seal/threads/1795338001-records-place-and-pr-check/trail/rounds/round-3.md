@@ -39,6 +39,12 @@ The claim of `gaps.md` and `changelog.md:10` is that the comparison covers a fil
   const differing = [...place.filter((path) => reported.includes(path) || unwatched.includes(path) || holdsFile(path) !== shows(folder, path)), ...reported.filter((path) => !place.includes(path))];
 ```
 
+```seal
+verdict: fixed 4d56a64
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`
+answer: The finding holds. The snippet was read and not pasted, and the fix is in this pass's words. The snippet counts a path as differing on its `ls-files -v` tag alone, so a flagged file that holds the commit's own text would be refused with "This checkout does not hold … as the commit it stands at does", which is false there, and its advice could not be followed. The fix reads the fact the flag hides. For each file the plan keeps, `planRecords` hashes the checkout's text with `git hash-object`, which applies the path's filters as `git add` would, and sets it against the commit's object from `git rev-parse <commit>:<path>`. A kept path at which no file stands, a link among it, differs too. So the reading does not rest on git's status for a kept file's text, whatever tells status not to look. The case "judges the root and the check by what the commit holds…" gained, for each of the two flags, a `config.json` flagged over the commit's text (not blocked), the same file edited with an empty status (blocked, naming it), and a link in its place to a file of the commit's text (blocked). The case was seen red at `e88bc82`'s code on the edited file ("expected null to be 'This checkout does not hold seal/conf…'"). `seal mutate` with the hash comparison removed went red at the edited file's line, and with the no-file guard removed at the link's line. `6b566b1` then dropped the comparison of `holdsFile` with `shows`, which survived its mutant: the status and the reading of a kept file catch everything it caught in the module's cases. `changelog.md` names the two flags.
+```
+
 ### 2. An ignore rule over the root's threads/ is not asked, so the setup commits a root in which no work item's records can be committed
 
 ```seal
@@ -67,6 +73,12 @@ const RECORDS = ["routing.md", "frame/design.md", "frame/plan.md", "frame/questi
   const ignored = await ignoredAmong(folder, [...files.map((file) => file.path), ...records]).catch(() => []);
 ```
 
+```seal
+verdict: fixed 4d56a64
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `apps/desktop/src/renderer/view.ts`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`, `seal/threads/1795338001-records-place-and-pr-check/gaps.md`
+answer: The finding holds. The snippet's `RECORDS` and its 13 paths were taken, and the refusal is this pass's: the snippet would have named up to 13 paths in the sentence written for a file of the plan. `planRecords` asks `git check-ignore` of `<root>/threads/` and of the 12 names of `RECORDS` below `<root>/threads/0-work-item/`, for a new root and for a kept one. Where git ignores a file of the plan, the sentence of that arm stands as it was. Otherwise a second arm says how many of the 13 paths git ignores, names the first, and says that the paths asked are the folder and a sample of the records' names, so a rule that ignores another record is not found. The docstring of `RECORDS` and the comment at the call say the same. A new case holds a new root with `seal/threads/` ignored (13 of 13, the setup writes nothing), a kept root with every part committed (blocked with nothing to write), and a rule on `guarantee.md` alone (1 of 13). It was seen red at `e88bc82`'s code ("expected null to be 'Git ignores 13 of the 13 paths Owlery…'"), and `seal mutate` went red with the question removed, with the folder left out of the paths, and with the names left out. A plan with nothing to write can now be blocked by this arm, so the docstring of `recordsDialog` in `view.ts` names it. `changelog.md:9` says what is asked and that it is a sample, and `gaps.md` *Not done* names the limit. `docs/architecture.md:206` and its Korean edition were not changed by this pass: P7's "whether the setup would write it or it stands in the checkout" names two kinds of path, and a record's path is neither, which the hand-back names for the orchestrator.
+```
+
 ### 3. On a disk that folds case, a committed folder named with other letters makes the plan offer a commit that fails at git commit
 
 ```seal
@@ -93,6 +105,12 @@ Why it matters: the unit is the choice of a new root's name (`records-place.ts:3
 // And in the chain of `blocked`, right after the arm on `notFolders`:
   } else if (otherLetters.length > 0) {
     blocked = `The setup needs a folder at ${named(otherLetters)}, and this disk finds a folder of the repository there under the same name in other letters, which git and GitHub take for another folder. Rename that folder in a commit, and open this again.`;
+```
+
+```seal
+verdict: fixed 4d56a64
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`, `seal/threads/1795338001-records-place-and-pr-check/gaps.md`
+answer: The finding holds, and the fix widens the snippet in two ways. The class was listed from what produces the defect, a path the setup needs that the disk finds and the folder's listing does not name: that is each folder above a written path, as the snippet has it, and each written file. A kept root whose commit holds `Config.json` let the setup's write of `config.json` fail on the disk with Node's words, so `otherLetters` is taken over the folders and the written paths. The snippet also named `.github/workflows` beside `.github` for one folder in other letters, so only the highest such name of a path is named. The sentence says "something of the repository" in place of "a folder", and "Rename it" without "in a commit", since a rename that is not committed frees the name on the disk too. A new case holds `Seal/notes.txt` (blocked naming `seal`, the setup writes nothing), `.GitHub/workflows/ci.yml` (naming `.github` alone) and a kept root with `seal/Config.json` (naming `seal/config.json`). It reads whether the disk takes the two names for one, and expects no refusal where the disk tells them apart. It was seen red at `e88bc82`'s code on this disk, which takes them for one ("expected null to be 'The setup needs seal, and this disk f…'"), and `seal mutate` went red with the arm's condition removed, with the highest-name clause removed (at the `.github` line) and with the written paths left out (at the `Config.json` line). On a disk that tells the names apart the plan does not refuse a `seal/` beside a committed `Seal/`: it lists the commit by the names as they are spelt and does not see `Seal/`, and both folders are valid to git and to the check on GitHub. `gaps.md` *Not done* says so.
 ```
 
 ### 4. The comparison refuses where the checkout holds what the plan reads as the commit does, and gaps.md says the plan cannot tell
@@ -136,6 +154,12 @@ Why it matters: the unit is the comparison of the checkout with the commit, whic
 // In the chain of `blocked`, before the arm on the differing paths:
   } else if (occupied.length > 0) {
     blocked = `The commit this checkout stands at holds something other than a file at ${named(occupied)}, where the setup writes one. Rename it in a commit, and open this again.`;
+```
+
+```seal
+verdict: fixed 4d56a64
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `seal/threads/1795338001-records-place-and-pr-check/gaps.md`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`
+answer: The finding holds. The snippet's two readings and its `occupied` arm with its sentence were taken, and the comparison around them was restated. Git's status is asked of the plan's own files, Owlery's workflow and what stands below a new root, and of nothing else. The `README.md` at each name of the root and `hygiene.yml` are read for one thing each, the marker and the check's step, in the commit, the checkout and the index, and a file differs there only where one of the three answers otherwise. So an edit of the project's own `seal/README.md` or `hygiene.yml` that makes neither a root nor the check blocks nothing, and a marker or a check step written or staged and not committed still blocks the plan, which is round 2's finding 1 and stays held by its case. The spawn's words that such a file "never blocks" were read with that limit: read without it, they reopen round 2's finding 1. A written path at which the commit holds a link, a submodule or a folder is refused by its own arm before the differing paths, with the sentence that the commit holds something other than a file there. Two new cases hold it: an edited and a staged project's own `README.md` and an edited `hygiene.yml` (not blocked, and the setup commits its three files beside them), a marker staged alone (blocked), a committed link at the workflow's path with an empty status, and a committed folder at a kept root's `config.json`. Both were seen red at `e88bc82`'s code ("expected 'This checkout does not hold seal/READ…' to be null", and the false sentence in place of the new one). `seal mutate` went red with the checkout's reading removed, with the index's reading removed and with `occupied` emptied. `6b566b1` dropped the filter that kept the plan's own files out of the reading, which survived its mutant because git's status already names those files. `gaps.md:21` is rewritten: its first two results no longer stand, and it names what is left, a link the checkout reads a root through among it. `changelog.md:10` says that another edit of a `README.md` or a `hygiene.yml` of the person's does not hold the setup back, and a new item names the three refusals for a file that has no place.
 ```
 
 ## Confirmations
