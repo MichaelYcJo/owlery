@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { RoleEvent } from "../src/daemon/adapters/adapter";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
+import type { RoleStage } from "../src/shared/protocol";
 
 /** Starts one run and gives its events once it has exited. */
-async function run(adapter: ReturnType<typeof fakeAdapter>, prompt: string): Promise<RoleEvent[]> {
+async function run(adapter: ReturnType<typeof fakeAdapter>, prompt: string, role?: RoleStage): Promise<RoleEvent[]> {
   const events: RoleEvent[] = [];
   await new Promise<void>((resolve, reject) => {
     adapter
-      .start({ prompt, cwd: "/nowhere" }, (event) => {
+      .start({ prompt, cwd: "/nowhere", ...(role ? { role } : {}) }, (event) => {
         events.push(event);
         if (event.type === "exit") resolve();
       })
@@ -39,6 +40,22 @@ describe("the fake adapter", () => {
       { type: "result", text: "Q: a barn owl", isError: false, costUsd: null },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
+  });
+
+  it("started with a role, answers with a text that names the role and the stage, and with none answers as before", async () => {
+    expect(await run(fakeAdapter(), "Which owl?", { role: "proofer", stage: "round" })).toEqual([
+      { type: "text", text: 'As the proofer at the stage round, you asked: "Which owl?"' },
+      { type: "result", text: 'As the proofer at the stage round, you asked: "Which owl?"', isError: false, costUsd: null },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+    expect((await run(fakeAdapter(), "Q", { role: "crafter", stage: "fix-pass" }))[0]).toEqual({ type: "text", text: 'As the crafter at the stage fix-pass, you asked: "Q"' });
+    expect((await run(fakeAdapter(), "Q"))[0]).toEqual({ type: "text", text: 'You asked: "Q"' });
+  });
+
+  it("gives its pieces the role it was started with, and nothing where it was started with none", async () => {
+    const adapter = fakeAdapter({ pieces: (prompt, role) => [prompt, ": ", role ? `${role.role}/${role.stage}` : "no role"] });
+    expect((await run(adapter, "Q", { role: "sealer", stage: "seal" })).at(-2)).toEqual({ type: "result", text: "Q: sealer/seal", isError: false, costUsd: null });
+    expect((await run(adapter, "Q")).at(-2)).toEqual({ type: "result", text: "Q: no role", isError: false, costUsd: null });
   });
 
   it("reports nothing before the turn in which it was started ends", async () => {
@@ -83,5 +100,12 @@ describe("the fake adapter", () => {
     expect(settled).toBe(true);
     await new Promise((r) => setTimeout(r, 300));
     expect(events).toEqual([{ type: "text", text: "one" }]);
+  });
+
+  it("has no notice of its agent unless it is given one, and gives the one it was given at every call", async () => {
+    expect(await fakeAdapter().notice()).toBeNull();
+    const adapter = fakeAdapter({ notice: "The fake agent is old." });
+    expect(await adapter.notice()).toBe("The fake agent is old.");
+    expect(await adapter.notice()).toBe("The fake agent is old.");
   });
 });

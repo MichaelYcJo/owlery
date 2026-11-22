@@ -95,6 +95,7 @@ import {
   sidebarTree,
   stageOf,
   stateHeading,
+  statusNotice,
   stateSays,
   stateWithAge,
   submenuPlace,
@@ -154,7 +155,7 @@ function session(id: number, fields: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo {
-  return { id, workItemId: 1, prompt: "Which file holds the login form?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, ...fields };
+  return { id, workItemId: 1, prompt: "Which file holds the login form?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null, ...fields };
 }
 
 describe("tabLabel", () => {
@@ -2010,6 +2011,27 @@ describe("daemonNotice", () => {
   it("names the menu's entry that replaces a daemon of another build, and says nothing of a daemon of the running build", () => {
     expect(daemonNotice(true)).toBe(`Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.`);
     expect(daemonNotice(false)).toBe("");
+  });
+});
+
+describe("statusNotice", () => {
+  const OWN = "The theme could not be saved.";
+  const DAEMON = daemonNotice(true);
+  const AGENT = `Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
+
+  it("says the agent's notice where the window and the daemon have none", () => {
+    expect(statusNotice("", "", AGENT)).toBe(AGENT);
+  });
+
+  it("says the window's own notice first, then the daemon's, then the agent's", () => {
+    expect(statusNotice(OWN, DAEMON, AGENT)).toBe(OWN);
+    expect(statusNotice(OWN, "", AGENT)).toBe(OWN);
+    expect(statusNotice("", DAEMON, AGENT)).toBe(DAEMON);
+    expect(statusNotice("", DAEMON, null)).toBe(DAEMON);
+  });
+
+  it("says nothing where none of the three has a notice, so the line shows the daemon's state", () => {
+    expect(statusNotice("", "", null)).toBe("");
   });
 });
 

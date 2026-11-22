@@ -4,7 +4,7 @@
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
 import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, daemonStatus, filterChoices, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, summaryCount, type StateFilter } from "./view";
+import { ageOf, daemonStatus, filterChoices, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -82,9 +82,9 @@ export function untell(text: string): void {
   tell(noticeWithout(notice, text));
 }
 
-/** Draws the status line: the window's own notice first, then what there is to say of the daemon, then the daemon's state, once the daemon said it. */
+/** Draws the status line: the window's own notice first, then what there is to say of the daemon, then what the daemon said of its agent, then the daemon's state, once the daemon said it. */
 export function showStatus(): void {
-  const said = notice || held.daemonNotice;
+  const said = statusNotice(notice, held.daemonNotice, held.agentNotice);
   status.textContent = said || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false) : "");
   status.classList.toggle("notice", said !== "");
 }

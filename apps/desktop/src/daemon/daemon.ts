@@ -5,7 +5,7 @@ import { basename, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Asked, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork } from "../shared/protocol";
+import { type Asked, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type WorkItem, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -187,6 +187,10 @@ export class Daemon {
   private readonly archiving = new Set<number>();
   // The work items a delete is under way for, by their ids, from its first read of the loss until it has removed them or was refused: one delete's, or every work item of a repository whose removal deletes them. No pane and no headless session starts in one meanwhile, in a folder git is about to remove, and no archive ends its sessions beside the delete.
   private readonly deleting = new Set<number>();
+  // What the adapter last said a person should know of its agent, or null where it said nothing or has not answered yet.
+  private agentNotice: string | null = null;
+  // How many times the adapter was asked for its notice. The answer of the last ask is the one kept.
+  private noticeAsks = 0;
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
   // The read of the counts under way, which a hello that arrives meanwhile waits on.
@@ -217,6 +221,8 @@ export class Daemon {
         // A daemon whose choice is `always` holds from its start.
         this.settleHold();
         this.checkIdle();
+        // Read in the background: the adapter may take seconds to find its agent, and no client waits for it.
+        void this.readAgentNotice();
         resolve((server.address() as AddressInfo).port);
       });
     });
@@ -379,6 +385,8 @@ export class Daemon {
         this.clients.set(socket, new Set());
         this.greeting.add(socket);
         this.checkIdle();
+        // A notice that stands is read again as a window connects, so it goes once the person did what it asks. The daemon outlives the app for days, and a notice read once would stay.
+        if (this.agentNotice !== null) void this.readAgentNotice();
         void this.greet(socket, early);
         return;
       }
@@ -411,7 +419,7 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}) });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -833,10 +841,17 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: "asking needs a work item and a prompt" });
           return;
         }
+        // The pair as the protocol lists it, so a session carries the role and the stage and nothing else a client sent with them.
+        const role = message.role === undefined ? null : roleStageOf(message.role);
+        if (role === undefined) {
+          const named = (typeof message.role === "object" && message.role !== null ? message.role : {}) as { role?: unknown; stage?: unknown };
+          this.send(socket, { type: "error", requestId: message.requestId, message: `no role ${String(named.role)} at the stage ${String(named.stage)}` });
+          return;
+        }
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
         if (worktree === undefined) return;
         const session: HeadlessSession = {
-          info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, costUsd: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null },
+          info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, costUsd: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role },
           run: undefined,
           limit: undefined,
         };
@@ -1087,7 +1102,7 @@ export class Daemon {
       info.answer = event.text;
       this.headlessChanged(session);
     };
-    this.options.roleAdapter.start({ prompt: info.prompt, cwd }, onEvent).then(
+    this.options.roleAdapter.start({ prompt: info.prompt, cwd, ...(info.role ? { role: info.role } : {}) }, onEvent).then(
       (run) => {
         // A daemon that closed while the adapter was starting stopped no run of this session, and neither did what ended the session meanwhile.
         if (this.closed || info.state !== "working") void run.stop();
@@ -1378,6 +1393,21 @@ export class Daemon {
     const [commits, changes] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head)]);
     this.branches.set(item.id, { head, commits, changes });
     return true;
+  }
+
+  /**
+   * Asks the adapter what a person should know of its agent, and tells every
+   * client where the answer differs from the one the daemon holds. A client
+   * that has not been sent its `ready` yet reads the answer there. Where the
+   * adapter was asked again meanwhile, this answer is dropped: the later
+   * ask's is the newer reading.
+   */
+  private async readAgentNotice(): Promise<void> {
+    const ask = ++this.noticeAsks;
+    const notice = await this.options.roleAdapter.notice();
+    if (ask !== this.noticeAsks || notice === this.agentNotice) return;
+    this.agentNotice = notice;
+    this.broadcast({ type: "agentNotice", notice });
   }
 
   private send(socket: WebSocket, message: ServerMessage): void {

@@ -34,7 +34,8 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
     writeFileSync(hang, "");
     const cli = script(
       "cli",
-      `if [ -f '${hang}' ]; then printf 'warning: no config\\nerror: the stand-in printed this\\n' >&2; echo $$ > '${join(made.base, "cli-pid")}'; exec sleep 60; fi\nprintf 'error: quick failure\\n' >&2\nexit 3`,
+      // The daemon also runs the CLI at its start, to read its version: that run prints one and is no session.
+      `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nif [ -f '${hang}' ]; then printf 'warning: no config\\nerror: the stand-in printed this\\n' >&2; echo $$ > '${join(made.base, "cli-pid")}'; exec sleep 60; fi\nprintf 'error: quick failure\\n' >&2\nexit 3`,
     );
     // The login shell: it names the stand-in, and a pane it starts ends at once.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);

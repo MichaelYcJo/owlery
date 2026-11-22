@@ -4,7 +4,7 @@
 // from idle sleep while an agent works.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { claudeAdapter } from "./adapters/claude";
 import { HookServer, paneCommands, writeHookSettings } from "./hooks";
 import { Daemon } from "./daemon";
@@ -19,7 +19,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the decisions made without asking and the questions the work items are parked with.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the decisions made without asking, the questions the work items are parked with, and the rules files of role sessions.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
@@ -48,8 +48,9 @@ async function main(): Promise<void> {
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
     commandFor: paneCommands(process.env, hookSettingsFile, hooks.socketPath),
-    // Every headless session is the user's own CLI, found once through their login shell.
-    roleAdapter: claudeAdapter(process.env),
+    // Every headless session is the user's own CLI, found once through their login shell. A role session loads the
+    // role bundle the build put beside this script, and its rules file is written into the run folder.
+    roleAdapter: claudeAdapter(process.env, { bundleDir: process.argv[1] === undefined ? undefined : join(dirname(process.argv[1]), "bundle"), rulesDir: join(runDir, "roles") }),
     onIdle: () => void stop(0),
   });
   hooks.onEvent(({ paneId, name, payload }) => {
