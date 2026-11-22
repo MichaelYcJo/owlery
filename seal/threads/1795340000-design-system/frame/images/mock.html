@@ -1,0 +1,422 @@
+<!doctype html>
+<!--
+  The mock-ups of the study in ../design.md: the three themes of Owlery's window,
+  Night watch (d=watch), Register (d=register) and Desk (d=desk), each in its dark
+  appearance (t=night-desk) and its light one (t=letter), on the inbox and on a
+  work item's view. Open as mock.html?d=<watch|register|desk>&t=<night-desk|letter>&s=<inbox|view>.
+  The layout's measures are the built app's (apps/desktop/src/renderer/index.html
+  at 0d65470). The work items, commits and terminal lines are invented examples.
+  The approval line, a lit seal and a broken seal are drawn here before the app
+  can show them: docs/product.md names them, and no work item can be sealed yet.
+-->
+<html lang="en" data-d="register" data-theme="night-desk" data-s="inbox">
+<head>
+<meta charset="utf-8" />
+<title>Owlery style directions</title>
+<style>
+/* The layout, which no direction and no theme changes. */
+:root {
+  --size-caption: 11px; --size-second: 12px; --size-text: 13px; --size-head: 15px; --size-said: 20px; --size-title: 20px; --size-terminal: 12px;
+  --titlebar: 44px; --sidebar: 256px; --side-line: 28px; --control: 28px; --head: 52px; --tabs: 34px; --strip: 24px; --group: 30px; --line: 46px; --list: 404px; --facts: 420px;
+  --seal-line: 18px; --seal: 64px; --seal-large: 112px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1440px; height: 900px; overflow: hidden; }
+body { display: flex; background: var(--ground); color: var(--ink); font: var(--size-text)/1.35 var(--font-ui); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; text-align: left; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.caption { font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); margin: 0; }
+.hint { font-size: var(--size-caption); color: var(--ink-faint); }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The themes as they stand at 0d65470 (apps/desktop/src/renderer/themes.css), the part the mock-ups draw with. */
+:root[data-theme="night-desk"] {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-ui); --font-said: var(--font-serif); --weight-title: 650;
+  --ground: #1c1a18; --ground-side: #262321; --ground-raised: #262321; --ground-sunken: #171513; --ground-column: #1c1a18; --texture: none;
+  --ink-strong: #f6ecd8; --ink: #e4ddcf; --ink-muted: #a39b8d; --ink-faint: #756e63;
+  --rule: rgba(246,236,216,.09); --rule-soft: rgba(246,236,216,.05);
+  --hover: rgba(246,236,216,.045); --selected: rgba(246,236,216,.1);
+  --control-bg: rgba(246,236,216,.08); --control-edge: inset 0 .5px 0 rgba(246,236,216,.14), 0 .5px 1px rgba(0,0,0,.35);
+  --main: #f6ecd8; --on-main: #201c18;
+  --signal: #f6ecd8; --state-working: #bdb5a5; --state-finished: #7d766a; --state-none: #756e63; --state-failed: #dba545; --added: #a3b47c;
+  --terminal-ground: #151312; --terminal-ink: #d6cfc1; --terminal-strong: #f6ecd8; --terminal-dim: #7d766a; --terminal-yellow: #d2a64a; --terminal-green: #8fae5d;
+  --seal-blank: #292624; --seal-blank-deep: #23201e; --seal-blank-ring: #312d2a; --seal-blank-owl: #3b3632;
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(246,236,216,.07)) drop-shadow(0 -1px 0 rgba(0,0,0,.55));
+  --seal-light: drop-shadow(0 1px 0 rgba(255,150,130,.25)) drop-shadow(0 2px 3px rgba(0,0,0,.6));
+  --r-card: 8px; --r-control: 6px; --r-line: 6px; --r-chip: 4px;
+  --badge: rgba(246,236,216,.12);
+}
+:root[data-theme="letter"] {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-serif); --font-said: var(--font-serif); --weight-title: 600;
+  --ground: #f1e9d8; --ground-side: #e8dfcb; --ground-raised: #faf5e9; --ground-sunken: #fbf7ee; --ground-column: #faf5e9;
+  --texture: repeating-linear-gradient(0deg, rgba(120,95,60,.028) 0 1px, transparent 1px 3px);
+  --ink-strong: #1a1613; --ink: #2e2924; --ink-muted: #665c50; --ink-faint: #857a6b;
+  --rule: #d6cab2; --rule-soft: #e3d9c4;
+  --hover: rgba(46,41,36,.045); --selected: rgba(46,41,36,.09);
+  --control-bg: #faf5e9; --control-edge: inset 0 0 0 1px #cfc2a8, 0 1px 0 rgba(120,95,60,.12);
+  --main: #1f2a44; --on-main: #fbf6ea;
+  --signal: #1a1613; --state-working: #665c50; --state-finished: #857a6b; --state-none: #857a6b; --state-failed: #a2600a; --added: #4f6b2a;
+  --terminal-ground: #1c1815; --terminal-ink: #d8cfbd; --terminal-strong: #f6ecd8; --terminal-dim: #857a6b; --terminal-yellow: #d2a64a; --terminal-green: #8fae5d;
+  --seal-blank: #ebe2ce; --seal-blank-deep: #e6dcc6; --seal-blank-ring: #f4eddd; --seal-blank-owl: #d9ccb2;
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(255,255,255,.95)) drop-shadow(0 -1px 0 rgba(120,95,60,.4));
+  --seal-light: drop-shadow(0 1px 0 rgba(120,10,10,.5)) drop-shadow(0 3px 4px rgba(90,60,30,.35));
+  --r-card: 4px; --r-control: 5px; --r-line: 5px; --r-chip: 3px;
+  --badge: rgba(46,41,36,.1);
+}
+
+/* Direction A, Register: the themes' colours stay, and the form changes. Corners square off, rules divide, facts stand in fixed-width columns. */
+:root[data-d="register"] { --r-card: 2px; --r-control: 2px; --r-line: 0px; --r-chip: 0px; }
+:root[data-d="register"][data-theme="night-desk"] { --rule: rgba(246,236,216,.13); --rule-soft: rgba(246,236,216,.07); --selected: rgba(246,236,216,.06); --control-edge: inset 0 0 0 1px rgba(246,236,216,.18); --control-bg: transparent; }
+:root[data-d="register"][data-theme="letter"] { --selected: rgba(46,41,36,.05); --control-edge: inset 0 0 0 1px #bfb193; --control-bg: transparent; --main: #1a1613; }
+
+/* Direction B, Night watch: the emblem's black and bone replace the browns, the owl's eye gives one signal colour, and no serif is used. */
+:root[data-d="watch"] { --font-title: var(--font-ui); --font-said: var(--font-ui); --weight-title: 650; --texture: none; }
+:root[data-d="watch"][data-theme="night-desk"] {
+  --ground: #0f0f10; --ground-side: #161617; --ground-raised: #1c1c1e; --ground-sunken: #0a0a0b; --ground-column: #0f0f10;
+  --ink-strong: #f3efe6; --ink: #dcd9d1; --ink-muted: #9a978f; --ink-faint: #6b6963;
+  --rule: rgba(243,239,230,.1); --rule-soft: rgba(243,239,230,.055); --hover: rgba(243,239,230,.05); --selected: rgba(243,239,230,.1);
+  --control-bg: rgba(243,239,230,.08); --control-edge: inset 0 0 0 1px rgba(243,239,230,.1);
+  --main: #f3efe6; --on-main: #0f0f10;
+  --signal: #f2c033; --state-working: #dcd9d1; --state-finished: #6b6963; --state-none: #6b6963; --state-failed: #f2c033; --added: #a9b88a;
+  --terminal-ground: #070708; --terminal-ink: #cfccc4; --terminal-strong: #f3efe6; --terminal-dim: #6b6963;
+  --seal-blank: #1b1b1d; --seal-blank-deep: #151516; --seal-blank-ring: #242426; --seal-blank-owl: #2c2c2f;
+  --badge: rgba(243,239,230,.12);
+}
+:root[data-d="watch"][data-theme="letter"] {
+  --ground: #f3efe6; --ground-side: #e9e5db; --ground-raised: #faf8f2; --ground-sunken: #fcfaf5; --ground-column: #f3efe6;
+  --ink-strong: #0f0f10; --ink: #26262a; --ink-muted: #5f5d58; --ink-faint: #85827b;
+  --rule: #d5d0c4; --rule-soft: #e2ded3; --hover: rgba(15,15,16,.045); --selected: rgba(15,15,16,.085);
+  --control-bg: #faf8f2; --control-edge: inset 0 0 0 1px #cbc6b9;
+  --main: #0f0f10; --on-main: #f3efe6;
+  --signal: #8a6400; --signal-fill: #e9b61a; --state-working: #26262a; --state-finished: #85827b; --state-none: #85827b; --state-failed: #8a6400; --added: #4f6b2a;
+  --terminal-ground: #0f0f10; --terminal-ink: #cfccc4; --terminal-strong: #f3efe6; --terminal-dim: #6b6963;
+  --seal-blank: #ebe7dd; --seal-blank-deep: #e4e0d5; --seal-blank-ring: #f6f3ec; --seal-blank-owl: #d6d1c4;
+  --r-card: 8px; --r-control: 6px; --r-line: 6px; --r-chip: 4px;
+  --badge: rgba(15,15,16,.1);
+}
+
+/* The sidebar. */
+#sidebar { flex: none; width: var(--sidebar); display: flex; flex-direction: column; background: var(--ground-side); border-right: 1px solid var(--rule); }
+#lights { height: var(--titlebar); display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+#lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--rule); box-shadow: inset 0 0 0 .5px var(--rule); }
+#search { margin: 0 10px 8px; height: var(--control); display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: var(--r-control); background: var(--ground-sunken); box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-faint); }
+#search kbd { margin-left: auto; font: var(--size-caption) var(--font-ui); padding: 1px 4px; border-radius: var(--r-chip); background: var(--badge); }
+.side { display: flex; align-items: center; gap: 10px; height: var(--side-line); margin: 0 10px; padding: 0 8px; border-radius: var(--r-line); color: var(--ink); }
+.side .count { margin-left: auto; font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.side.on { background: var(--selected); color: var(--ink-strong); }
+.side svg, #search svg { color: var(--ink-muted); }
+#repos-head { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 14px 18px 6px; border-top: 1px solid var(--rule); color: var(--ink-muted); }
+#repos-head .caption { margin-right: auto; }
+.repo { display: flex; align-items: center; gap: 8px; height: var(--side-line); margin: 0 10px; padding: 0 8px; font-weight: 600; color: var(--ink-strong); }
+.repo .count { margin-left: auto; font-weight: 400; font-size: var(--size-caption); color: var(--ink-faint); }
+.side.item { padding-left: 28px; }
+.side.item .t { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#foot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 12px 18px; font-size: var(--size-second); color: var(--ink-muted); }
+#foot span { margin-right: auto; }
+
+/* The state marks. A mark says its state by its shape, and the signal colour stands on what waits for the person. */
+.mark { flex: none; width: 16px; height: 16px; display: block; }
+.mark svg { width: 16px; height: 16px; display: block; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.mark .fill { fill: currentColor; stroke: none; }
+.mark.waiting { color: var(--signal); } .mark.working { color: var(--state-working); } .mark.finished { color: var(--state-finished); }
+.mark.none { color: var(--state-none); } .mark.failed, .mark.broken { color: var(--state-failed); }
+.mark .faint { opacity: .35; }
+.state-words { display: flex; align-items: center; gap: 8px; font-size: var(--size-second); font-weight: 600; color: var(--ink-muted); }
+.state-words.waiting { color: var(--signal); }
+
+/* The seal's place. */
+.seal { flex: none; display: block; position: relative; width: var(--seal-line); height: var(--seal-line); border-radius: 50%; }
+.seal[data-seal="none"] { background: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep)); box-shadow: inset 0 0 0 1px var(--seal-blank-ring); }
+.seal[data-seal="sealed"], .seal[data-seal="broken"] { background: url("../../../../../apps/desktop/assets/seals/owl-icon-cream.svg") center / contain no-repeat; filter: var(--seal-light); }
+.seal.drawn { width: var(--seal); height: var(--seal); border-radius: 0; }
+.seal.drawn.large { width: var(--seal-large); height: var(--seal-large); }
+.seal.drawn[data-seal="none"] { background: none; box-shadow: none; filter: var(--seal-blank-light); }
+.seal.drawn[data-seal="none"]::before, .seal.drawn[data-seal="none"]::after { content: ""; position: absolute; inset: 0; -webkit-mask: url("../../../../../apps/desktop/assets/seals/owl.svg") center / contain no-repeat; mask: url("../../../../../apps/desktop/assets/seals/owl.svg") center / contain no-repeat; }
+.seal.drawn[data-seal="none"]::before { background: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep)); }
+.seal.drawn[data-seal="none"]::after { background: var(--seal-blank-owl); mask-mode: luminance; opacity: .55; }
+.seal.drawn[data-seal="sealed"] { background-image: url("../../../../../apps/desktop/assets/seals/owl.svg"); }
+/* A broken seal has no drawing of its own yet. This one is a placeholder and no proposal: the seal, dimmed, under a stroke of the ground. */
+.seal[data-seal="broken"] { filter: grayscale(.55) brightness(.8); }
+.seal[data-seal="broken"]::after { content: ""; position: absolute; left: 46%; top: -2px; bottom: -2px; width: 2px; background: var(--ground); transform: rotate(24deg); }
+
+/* The list. */
+main { flex: 1; min-width: 0; display: none; }
+:root[data-s="inbox"] #inbox, :root[data-s="view"] #view { display: flex; }
+#list { flex: none; width: var(--list); display: flex; flex-direction: column; border-right: 1px solid var(--rule); }
+.list-head { height: var(--head); display: flex; align-items: center; padding: 0 16px 0 18px; border-bottom: 1px solid var(--rule); }
+.list-head h1 { margin: 0 auto 0 0; font: var(--weight-title) var(--size-head) var(--font-title); color: var(--ink-strong); }
+.select { height: var(--control); min-width: 120px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: var(--r-control); background: var(--control-bg); box-shadow: var(--control-edge); color: var(--ink); }
+.group { height: var(--group); display: flex; align-items: flex-end; gap: 8px; padding: 0 18px 5px; }
+.group .n { font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.line { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; align-items: center; width: calc(100% - 16px); margin: 0 8px; height: var(--line); padding: 0 10px 0 12px; border-radius: var(--r-line); }
+.line .title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+.line.changed .title { color: var(--ink-strong); font-weight: 650; }
+.line .age { font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.line .branch { grid-column: 2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: var(--size-caption) var(--font-mono); color: var(--ink-faint); }
+.line .ahead { display: none; }
+.line .seal { grid-column: 3; justify-self: end; }
+.line.on { background: var(--selected); }
+
+/* The preview and the right column of a view. */
+#preview { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.preview-body { flex: 1; padding: 22px 28px; }
+.preview-top { display: flex; align-items: flex-start; gap: 24px; }
+.preview-heading { flex: 1; min-width: 0; }
+.title-large { margin: 6px 0 8px; font: var(--weight-title) var(--size-title)/1.25 var(--font-title); letter-spacing: -.01em; color: var(--ink-strong); }
+.facts-row { margin: 0; display: flex; gap: 14px; font-size: var(--size-second); color: var(--ink-muted); }
+.facts-row .mono { color: var(--ink); }
+.seal-slot { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: var(--size-caption); color: var(--ink-faint); }
+.said { margin: 22px 0 6px; padding: 14px 16px; border-radius: var(--r-card); background: var(--ground-raised); box-shadow: inset 0 0 0 1px var(--rule-soft); }
+.said .who { font-size: var(--size-caption); color: var(--ink-faint); margin-bottom: 6px; }
+.said p { margin: 0; font: 500 var(--size-said)/1.35 var(--font-said); color: var(--ink-strong); }
+.said .options { display: flex; gap: 8px; margin-top: 12px; }
+.btn { height: var(--control); display: inline-flex; align-items: center; padding: 0 12px; border-radius: var(--r-control); background: var(--control-bg); box-shadow: var(--control-edge); font-weight: 500; color: var(--ink); }
+.btn.main { background: var(--main); color: var(--on-main); box-shadow: none; font-weight: 600; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 20px; }
+.cols h3, .facts h3 { margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
+.rows { margin: 0; padding: 0; list-style: none; }
+.rows li { display: flex; gap: 10px; height: 26px; align-items: center; font-size: var(--size-second); color: var(--ink); white-space: nowrap; overflow: hidden; }
+.rows .mono { color: var(--ink-muted); font-size: var(--size-caption); }
+.rows .plus { margin-left: auto; color: var(--added); font: var(--size-caption) var(--font-mono); }
+.preview-foot { height: 52px; display: flex; align-items: center; gap: 20px; padding: 0 28px; border-top: 1px solid var(--rule); }
+.preview-foot .hint { margin-left: auto; display: flex; gap: 16px; }
+
+/* The approval line: how far the work item has come through framer, crafter, proofer and sealer. */
+.approval { margin-top: 20px; }
+.approval h3 { margin: 0 0 8px; font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
+.stages { display: flex; align-items: center; gap: 10px; font-size: var(--size-second); color: var(--ink-muted); }
+.stage { display: flex; align-items: center; gap: 6px; }
+.stage .note { font: var(--size-caption) var(--font-mono); color: var(--ink-faint); }
+.stage.done { color: var(--ink); } .stage.now { color: var(--ink-strong); font-weight: 600; }
+.stages .sep { width: 18px; height: 1px; background: var(--rule); }
+.stage .box { display: none; }
+
+/* A work item's view. */
+#view-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#view-header { height: var(--head); display: flex; flex-direction: column; justify-content: center; padding: 0 18px; border-bottom: 1px solid var(--rule); }
+#view-header h1 { margin: 0; font: var(--weight-title) var(--size-head) var(--font-title); color: var(--ink-strong); }
+#view-header .mono { font-size: var(--size-caption); color: var(--ink-faint); }
+#pane-bar { height: var(--tabs); display: flex; align-items: stretch; gap: 4px; padding: 0 10px; border-bottom: 1px solid var(--rule); color: var(--ink-muted); font-size: var(--size-second); }
+#pane-bar .tab { display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+#pane-bar .tab.on { background: var(--terminal-ground); color: var(--terminal-strong); font-weight: 600; }
+#pane-bar .more { margin-left: auto; display: flex; align-items: center; gap: 18px; padding-right: 8px; }
+#stage { flex: 1; background: var(--terminal-ground); color: var(--terminal-ink); padding: 12px 18px; font: var(--size-terminal)/1.17 var(--font-mono); white-space: pre; overflow: hidden; }
+#stage b { color: var(--terminal-strong); } #stage .d { color: var(--terminal-dim); } #stage .y { color: var(--terminal-yellow); } #stage .g { color: var(--terminal-green); }
+#strip { height: var(--strip); display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid var(--rule); font-size: var(--size-caption); color: var(--ink-faint); }
+#strip .path { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--font-mono); }
+.facts { flex: none; width: var(--facts); display: flex; flex-direction: column; border-left: 1px solid var(--rule); background: var(--ground-column); background-image: var(--texture); }
+.facts-scroll { flex: 1; padding: 16px; overflow: hidden; }
+.facts .title-large { font-size: var(--size-head); margin: 2px 0 6px; }
+.facts dl { display: grid; grid-template-columns: 76px 1fr; row-gap: 8px; margin: 18px 0; font-size: var(--size-second); }
+.facts dt { color: var(--ink-muted); } .facts dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.facts h3 { margin-top: 18px; }
+#ask { padding: 12px 16px; border-top: 1px solid var(--rule); }
+#ask .row { display: flex; gap: 8px; margin: 8px 0; }
+#ask .field { flex: 1; height: var(--control); border-radius: var(--r-control); background: var(--ground-sunken); box-shadow: inset 0 0 0 1px var(--rule); }
+#view-seal { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-top: 1px solid var(--rule); }
+#view-seal .name { font: var(--weight-title) var(--size-head) var(--font-title); color: var(--ink-strong); }
+#view-seal .note { margin-top: 2px; font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
+
+/* Register: the forms. Each is a value a theme's block can hold (a corner, an edge drawn as a shadow, a ground, a typeface), so no measure of the layout moves. */
+:root[data-d="register"] .line { box-shadow: 0 1px 0 var(--rule-soft); }
+:root[data-d="register"] .line .age, :root[data-d="register"] .group .n, :root[data-d="register"] .side .count, :root[data-d="register"] .repo .count { font-family: var(--font-mono); }
+:root[data-d="register"] .line.on { box-shadow: inset 2px 0 0 var(--ink-strong), 0 1px 0 var(--rule-soft); }
+:root[data-d="register"] .group { background: var(--ground-side); box-shadow: inset 0 -1px 0 var(--rule), inset 0 1px 0 var(--rule-soft); }
+:root[data-d="register"] .side.on { box-shadow: inset 2px 0 0 var(--ink-strong); }
+:root[data-d="register"] .said { background: none; box-shadow: 0 1px 0 var(--rule), 0 -1px 0 var(--rule); }
+:root[data-d="register"] .rows li { box-shadow: 0 1px 0 var(--rule-soft); }
+:root[data-d="register"] .stages { gap: 0; align-items: stretch; box-shadow: inset 0 0 0 1px var(--rule); width: max-content; }
+:root[data-d="register"] .stages .sep { display: none; }
+:root[data-d="register"] .stage { flex-direction: column; align-items: stretch; gap: 0; width: 92px; border-right: 1px solid var(--rule); }
+:root[data-d="register"] .stage:last-child { border-right: 0; }
+:root[data-d="register"] .stage > .mark { display: none; }
+:root[data-d="register"] .stage .name { padding: 4px 8px; border-bottom: 1px solid var(--rule); font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
+:root[data-d="register"] .stage .box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 52px; }
+:root[data-d="register"] .stage > .note { display: none; }
+:root[data-d="register"] .stage .box .seal { width: 34px; height: 34px; }
+:root[data-d="register"] .stage .box .seal.drawn[data-seal="none"] { width: 34px; height: 34px; }
+:root[data-d="register"] .facts .stage { width: 96px; }
+:root[data-d="register"] #pane-bar .tab.on { box-shadow: inset 0 2px 0 var(--ink-strong); }
+
+/* Direction B, Night watch: the forms. */
+:root[data-d="watch"] .stages { gap: 0; }
+:root[data-d="watch"] .stages .sep { width: 28px; }
+:root[data-d="watch"] .stage { gap: 6px; padding: 0 4px; }
+:root[data-d="watch"] .btn, :root[data-d="watch"] .select { border-radius: var(--r-control); }
+:root[data-d="watch"][data-theme="letter"] .mark.waiting .fill, :root[data-d="watch"][data-theme="letter"] .mark.failed .fill { fill: var(--signal-fill); }
+:root[data-d="watch"] .line.on { background: var(--selected); }
+:root[data-d="watch"] .said { box-shadow: inset 2px 0 0 var(--signal); border-radius: 0 var(--r-card) var(--r-card) 0; }
+</style>
+</head>
+<body>
+<nav id="sidebar"></nav>
+<main id="inbox"><section id="list"></section><section id="preview"></section></main>
+<main id="view"><div id="view-main"></div><aside class="facts"></aside></main>
+<script>
+const q = new URLSearchParams(location.search);
+const D = q.get("d") || "register", T = q.get("t") || "night-desk", S = q.get("s") || "inbox";
+const root = document.documentElement;
+root.dataset.d = D; root.dataset.theme = T; root.dataset.s = S;
+
+const svg = (body) => `<svg viewBox="0 0 16 16">${body}</svg>`;
+// The marks of a state, one set for each direction. No set draws a speech mark: a wait is not a chat.
+const MARKS = {
+  desk: {
+    waiting: `<circle class="fill" cx="8" cy="8" r="4.2"/>`,
+    working: `<circle class="faint" cx="8" cy="8" r="5.6"/><path d="M8 2.4A5.6 5.6 0 0 1 13.6 8"/>`,
+    finished: `<circle cx="8" cy="8" r="5.8"/><path d="M5.3 8.2l1.9 1.9 3.6-4"/>`,
+    none: `<path d="M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z"/>`,
+    failed: `<path d="M8 2.3l6 10.5H2z"/><path d="M8 6.6v2.8M8 11.1v.1"/>`,
+  },
+  register: {
+    waiting: `<rect class="fill" x="3" y="3" width="10" height="10"/>`,
+    working: `<rect x="3" y="3" width="10" height="10"/><rect class="fill" x="3" y="3" width="5" height="10"/>`,
+    finished: `<rect x="3" y="3" width="10" height="10"/><path d="M5.6 8.2l1.7 1.7 3.2-3.6"/>`,
+    none: `<rect class="faint" x="3" y="3" width="10" height="10"/>`,
+    failed: `<path d="M8 2.3l6 10.5H2z"/><path d="M8 6.6v2.8M8 11.1v.1"/>`,
+  },
+  watch: {
+    waiting: `<circle cx="8" cy="8" r="5.6"/><circle class="fill" cx="8" cy="8" r="2.5"/>`,
+    working: `<circle class="faint" cx="8" cy="8" r="5.6"/><path d="M8 2.4A5.6 5.6 0 0 1 13.6 8"/>`,
+    finished: `<path d="M2.6 7.2a5.6 5.6 0 0 0 10.8 0"/>`,
+    none: `<path d="M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z"/>`,
+    failed: `<path class="fill" d="M8 2.3l6 10.5H2z"/>`,
+  },
+};
+MARKS.desk.broken = MARKS.desk.failed; MARKS.register.broken = MARKS.register.failed; MARKS.watch.broken = MARKS.watch.failed;
+const mark = (state) => `<span class="mark ${state}">${svg(MARKS[D][state])}</span>`;
+const ICON = {
+  search: `<circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/>`,
+  inbox: `<path d="M2 9.5l1.8-6h8.4l1.8 6v3H2z"/><path d="M2 9.5h3.5a2.5 2.5 0 0 0 5 0H14"/>`,
+  summary: `<path d="M3 4h10M3 8h10M3 12h6"/>`,
+  history: `<path d="M2.6 8a5.6 5.6 0 1 0 1.7-3.9"/><path d="M2.3 2.6v2.7h2.7"/><path d="M8 5.2V8l2 1.3"/>`,
+  bell: `<path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z"/><path d="M6.8 14h2.4"/>`,
+  filter: `<path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3"/>`,
+  plus: `<path d="M8 3.5v9M3.5 8h9"/>`,
+  down: `<path d="M4.5 6.5L8 10l3.5-3.5"/>`,
+  cup: `<path d="M3 6.5h8v3.2a3.3 3.3 0 0 1-3.3 3.3H6.3A3.3 3.3 0 0 1 3 9.7z"/><path d="M11 7.5h1a1.5 1.5 0 0 1 0 3h-1.1"/>`,
+  theme: `<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11M8 5.5h4.6M8 8h5.5M8 10.5h4.6"/>`,
+};
+const i = (name) => `<svg class="i" viewBox="0 0 16 16">${ICON[name]}</svg>`;
+
+// The window's words, one set for every theme: a theme changes no word (docs/product.md).
+const VOICE = { groups: { waiting: "Needs you", working: "Working", broken: "Seal broken", sealed: "Sealed", none: "Asleep" }, state: { waiting: "Needs you", sealed: "Sealed" }, open: "Open the work item", noSeal: "No seal yet", sealed: "Sealed at e4df264", sealNote: "A seal binds to one commit and breaks if another lands after it.", sealedNote: "Judged by a session that did not build it. 2 rounds, and the broad gate passed at e4df264.", foot: "Daemon running, 2 agents", ahead: (n) => `${n} commits ahead of origin/main`, approval: "Approval line" };
+
+const ITEMS = [
+  { id: 1, state: "waiting", title: "Refuse a pane that names no work item", branch: "owlery/refuse-a-pane-that-names-no-work-item", ahead: 3, age: "4m", seal: "none", changed: true },
+  { id: 2, state: "waiting", title: "Every role session has the same tools", branch: "owlery/every-role-session-has-the-same-tools", ahead: 7, age: "31m", seal: "none", changed: true },
+  { id: 3, state: "working", title: "Run the built-app files one at a time", branch: "owlery/run-the-built-app-files-one-at-a-time", ahead: 2, age: "now", seal: "none" },
+  { id: 4, state: "working", title: "A new worktree has no ignored files", branch: "owlery/a-new-worktree-has-no-ignored-files", ahead: 5, age: "now", seal: "none" },
+  { id: 5, state: "broken", title: "A headless run ends at its limit", branch: "owlery/a-headless-run-ends-at-its-limit", ahead: 9, age: "2h", seal: "broken", changed: true },
+  { id: 6, state: "finished", group: "sealed", title: "Run the desktop suite on every pull request", branch: "owlery/run-the-desktop-suite-on-every-pull-request", ahead: 4, age: "3h", seal: "sealed" },
+  { id: 7, state: "finished", group: "sealed", title: "Settle release 0.0.1", branch: "owlery/settle-release-0-0-1", ahead: 6, age: "1d", seal: "sealed" },
+  { id: 8, state: "none", title: "The window has no design system", branch: "owlery/the-window-has-no-design-system", ahead: 0, age: "2d", seal: "none" },
+];
+const selected = S === "inbox" ? 1 : 6;
+
+document.getElementById("sidebar").innerHTML = `
+  <div id="lights"><i></i><i></i><i></i></div>
+  <div id="search">${i("search")}<span>Search</span><kbd>⌘K</kbd></div>
+  <div class="side ${S === "inbox" ? "on" : ""}">${i("inbox")}<span>Inbox</span><span class="count">8</span></div>
+  <div class="side">${i("summary")}<span>Summary</span><span class="count">3 new</span></div>
+  <div class="side">${i("history")}<span>History</span></div>
+  <div id="repos-head"><h2 class="caption">Repositories</h2>${i("bell")}${i("filter")}${i("plus")}</div>
+  <div class="repo">${i("down")}<span>owlery</span><span class="count">8</span></div>
+  ${ITEMS.map((item) => `<div class="side item ${S === "view" && item.id === selected ? "on" : ""}">${mark(item.state)}<span class="t">${item.title}</span></div>`).join("")}
+  <div id="foot"><span>${VOICE.foot}</span>${i("cup")}${i("theme")}</div>`;
+
+const groups = ["waiting", "working", "broken", "sealed", "none"];
+document.getElementById("list").innerHTML = `
+  <div class="list-head"><h1>Inbox</h1><span class="select">All ${i("down")}</span></div>
+  ${groups.map((group) => {
+    const lines = ITEMS.filter((item) => (item.group || item.state) === group);
+    return `<div class="group"><h2 class="caption">${VOICE.groups[group]}</h2><span class="n">${lines.length}</span></div>` + lines.map((item) => `
+      <button class="line ${item.id === selected ? "on" : ""} ${item.changed ? "changed" : ""}">${mark(item.state)}<span class="title">${item.title}</span><span class="age">${item.age}</span><span class="branch">${item.branch}</span><span class="ahead">+${item.ahead}</span><span class="seal" data-seal="${item.seal}"></span></button>`).join("");
+  }).join("")}`;
+
+// The approval line of a work item: each stage as done, at work now, or not reached, and the seal's place at its end.
+function approval(stages, seal) {
+  const cell = ([name, at, note]) => {
+    const state = at === "done" ? "finished" : at === "now" ? "working" : at === "you" ? "waiting" : "none";
+    const inBox = name === "sealer" ? `<span class="seal ${seal === "none" ? "drawn" : ""}" data-seal="${seal}"></span>` : `${mark(state)}<span class="note">${note}</span>`;
+    return `<span class="stage ${at}">${mark(state)}<span class="name">${name}</span><span class="note">${note}</span><span class="box">${inBox}</span></span>`;
+  };
+  return `<div class="approval"><h3>${VOICE.approval}</h3><div class="stages">${stages.map(cell).join(`<span class="sep"></span>`)}</div></div>`;
+}
+
+const first = ITEMS[0];
+document.getElementById("preview").innerHTML = `
+  <div class="preview-body">
+    <div class="preview-top">
+      <div class="preview-heading">
+        <span class="state-words waiting">${mark("waiting")}${VOICE.state.waiting}</span>
+        <h2 class="title-large">${first.title}</h2>
+        <p class="facts-row"><span class="mono">${first.branch}</span><span>${VOICE.ahead(first.ahead)}</span><span>owlery</span></p>
+      </div>
+      <span class="seal-slot"><span class="seal drawn" data-seal="none"></span>${VOICE.noSeal}</span>
+    </div>
+    <div class="said">
+      <div class="who">crafter asked, 4 minutes ago</div>
+      <p>A pane whose message names no work item: refuse it, or open it in the last work item the person looked at?</p>
+      <div class="options"><span class="btn">Refuse it</span><span class="btn">Open it in the last one</span></div>
+    </div>
+    ${approval([["framer", "done", "9c3dfa6"], ["crafter", "you", "asks"], ["proofer", "todo", ""], ["sealer", "todo", ""]], "none")}
+    <div class="cols">
+      <div><h3>Commits</h3><ul class="rows">
+        <li><span class="mono">4c680b2</span>refuse a pane that names no work item</li>
+        <li><span class="mono">a91e07d</span>name the pane's work item in the message</li>
+        <li><span class="mono">9c3dfa6</span>frame: the pane's refusal</li></ul></div>
+      <div><h3>Changes</h3><ul class="rows">
+        <li>src/daemon/panes.ts<span class="plus">+41 −6</span></li>
+        <li>test/daemon.test.ts<span class="plus">+88 −0</span></li>
+        <li>docs/architecture.md<span class="plus">+3 −1</span></li></ul></div>
+    </div>
+  </div>
+  <div class="preview-foot"><span class="btn main">${VOICE.open}</span><span class="hint"><span>J K move through the inbox</span><span>M opens the menu</span><span>⌘N opens a new work item</span></span></div>`;
+
+const sealedItem = ITEMS[5];
+document.getElementById("view-main").innerHTML = `
+  <header id="view-header"><h1>${sealedItem.title}</h1><span class="mono">${sealedItem.branch}</span></header>
+  <div id="pane-bar"><span class="tab on">Claude Code ×</span><span class="tab">Shell ×</span><span class="more"><span>Side by side</span><span>+ Shell</span><span>+ Claude Code</span><span>+ Claude Code (continue)</span></span></div>
+  <div id="stage"><span class="d">~/owlery</span> <b>run-the-desktop-suite</b> $ git log --oneline -4
+<span class="y">e4df264</span> test: run the desktop suite on every pull request
+<span class="y">7b0c1aa</span> ci: start the suite under a virtual display
+<span class="y">31f9d02</span> ci: cache the rebuilt terminal module
+<span class="y">0d2a6e9</span> frame: the desktop suite in CI
+<span class="d">~/owlery</span> <b>run-the-desktop-suite</b> $ pnpm -r run check
+<span class="g"> ok </span> typecheck
+<span class="g"> ok </span> 412 tests in 38 files
+<span class="d">~/owlery</span> <b>run-the-desktop-suite</b> $ seal stamp
+tree   e4df264  owlery/run-the-desktop-suite-on-every-pull-request
+base   dc82f88
+item   1795268298-desktop-suite-in-ci
+gate   e4df264
+rounds 2
+<span class="d">~/owlery</span> <b>run-the-desktop-suite</b> $ <b>▍</b></div>
+  <p id="strip" style="margin:0"><span class="mono">102 × 54</span><span class="path">~/.owlery/worktrees/owlery/run-the-desktop-suite-on-every-pull-request</span><span>Finished</span></p>`;
+document.querySelector("#view .facts").innerHTML = `
+  <div class="facts-scroll">
+    <span class="caption">owlery</span>
+    <h2 class="title-large">${sealedItem.title}</h2>
+    <span class="state-words">${mark("finished")}${VOICE.state.sealed}</span>
+    <dl><dt>Agent</dt><dd>Claude Code, finished</dd><dt>Started</dt><dd>3 hours ago</dd><dt>Base</dt><dd>origin/main · 4 ahead</dd><dt>Worktree</dt><dd>~/.owlery/worktrees/owlery/run-the-desktop-suite-on-every-pull-request</dd></dl>
+    ${approval([["framer", "done", "0d2a6e9"], ["crafter", "done", "7b0c1aa"], ["proofer", "done", "2 rounds"], ["sealer", "done", "e4df264"]], "sealed")}
+    <h3>Commits</h3><ul class="rows">
+      <li><span class="mono">e4df264</span>run the desktop suite on every pull request</li>
+      <li><span class="mono">7b0c1aa</span>start the suite under a virtual display</li>
+      <li><span class="mono">31f9d02</span>cache the rebuilt terminal module</li></ul>
+    <h3>Changes</h3><ul class="rows">
+      <li>.github/workflows/desktop.yml<span class="plus">+64 −0</span></li>
+      <li>apps/desktop/scripts/test-in-electron.mjs<span class="plus">+9 −2</span></li></ul>
+  </div>
+  <section id="ask"><h2 class="caption">Ask</h2><div class="row"><span class="field"></span><span class="btn">Ask</span></div><span class="hint">Nothing asked yet</span></section>
+  <section id="view-seal"><span class="seal drawn large" data-seal="sealed"></span><span><div class="name">${VOICE.sealed}</div><div class="note">${VOICE.sealedNote}</div></span></section>`;
+</script>
+</body>
+</html>

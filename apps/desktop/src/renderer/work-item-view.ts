@@ -145,7 +145,7 @@ function terminalColours(): { background: string; foreground: string; cursor: st
   return { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") };
 }
 
-/** Gives every screen of the pool the colours of the theme now in use, after the theme changed. */
+/** Gives every screen of the pool the colours of the theme now in use, after the theme or the appearance changed. */
 export function showTerminalColours(): void {
   for (const screen of pool) screen.term.options.theme = terminalColours();
 }

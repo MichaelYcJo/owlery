@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="night-desk">
+<html lang="en" data-theme="night-watch" data-appearance="dark">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:*" />
@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./renderer.css" />
     <link rel="stylesheet" href="./themes.css" />
     <style>
-      /* The layout: the widths, the heights, the spacing and the sizes of the type, which no theme changes. Every colour, typeface, texture, radius and shadow is a property of the theme in use, in themes.css, and no rule here names a colour. */
+      /* The layout: the widths, the heights, the spacing and the sizes of the type, which no theme changes. Every colour, typeface, texture, radius and shadow is a property of the theme in use, in themes.css, and no rule here names a colour, a theme or an appearance. */
       :root {
         --size-caption: 11px;
         --size-second: 12px;
@@ -70,7 +70,7 @@
       button:disabled { opacity: 0.45; }
       h1, h2, h3, p, ul, dl { margin: 0; padding: 0; font-size: inherit; font-weight: inherit; }
       ul { list-style: none; }
-      /* The keyboard's focus is a ring, on every control. */
+      /* The keyboard's focus is a ring, on every control: inside the control's edge, on the control's own ground, and outside the edge of the main button, whose fill would hide it. */
       button:focus, input:focus, select:focus { outline: none; }
       button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
       .screen { flex: 1; min-width: 0; min-height: 0; }
@@ -79,6 +79,7 @@
       .primary { background: var(--main); color: var(--on-main); font-weight: 600; }
       .primary:hover:enabled { background: var(--main-hover); transition: background-color var(--motion); }
       .primary:active:enabled { background: var(--main-pressed); }
+      .primary:focus-visible { outline-offset: 2px; }
       .quiet { background: var(--control); font-weight: 500; }
       .quiet:hover:enabled { background: var(--control-hover); transition: background-color var(--motion); }
       .quiet:active:enabled { background: var(--control-pressed); }
@@ -89,9 +90,10 @@
       /* A title is in the plain ink, and in the strong ink at the heavier weight where its work item changed since the person last looked. */
       .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 500; }
       .title.changed { color: var(--ink-strong); font-weight: var(--weight-changed); }
-      /* The letters of a title or a branch that match what is typed in the search field. */
-      mark { border-radius: var(--radius-mark); background: var(--mark); box-shadow: var(--mark-edge); color: inherit; }
-      .count, .age { flex: none; font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+      /* The letters of a title or a branch that match what is typed in the search field, in the strong ink, which stands apart from the mark under them. */
+      mark { border-radius: var(--radius-mark); background: var(--mark); box-shadow: var(--mark-edge); color: var(--ink-strong); }
+      /* A count and an age are facts a person compares down a list, in the typeface the theme sets its facts in. */
+      .count, .age { flex: none; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
@@ -104,22 +106,24 @@
       .icon-button.on { color: var(--ink-strong); }
       /* An icon is a line of 1.5 pixels in the colour of the words beside it. */
       svg.icon, .state-icon svg { flex: none; display: block; width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-      /* The sidebar's filter and the foot's two controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
+      /* The sidebar's filter and the foot's three controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
       .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; }
       .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
-      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and nothing else. */
+      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and a fact where the theme sets its facts in it. */
       .branch { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
-      /* A state's colour, which its icon and its words take. */
-      .state.waiting { --state: var(--state-waiting); }
-      .state.working { --state: var(--state-working); }
-      .state.finished { --state: var(--state-finished); }
-      .state.no-agent { --state: var(--state-no-agent); }
-      .state.failed { --state: var(--state-failed); }
+      /* A state's colour, which its icon and its words take, and the shapes of its mark, which are the theme's: a line, a filled part, and for work the faint track and the part that turns. The fill of a wait and of a failure is a colour the theme names beside the state's. */
+      .state.waiting { --state: var(--state-waiting); --part-line: var(--shape-waiting); --part-fill: var(--shape-waiting-fill); --part-fill-colour: var(--state-waiting-fill); }
+      .state.working { --state: var(--state-working); --part-line: var(--shape-working); --part-fill: var(--shape-working-fill); --part-track: var(--shape-working-track); --part-turn: var(--shape-working-turn); }
+      .state.finished { --state: var(--state-finished); --part-line: var(--shape-finished); --part-fill: var(--shape-finished-fill); }
+      .state.no-agent { --state: var(--state-no-agent); --part-line: var(--shape-no-agent); --part-fill: var(--shape-no-agent-fill); }
+      .state.failed { --state: var(--state-failed); --part-line: var(--shape-failed); --part-fill: var(--shape-failed-fill); --part-fill-colour: var(--state-failed-fill); }
       .state { color: var(--state, inherit); }
-      /* A state's icon: a speech mark for waiting, a ring that turns for working, a check in a circle for finished, a crescent for no agent, and a triangle for a failure. */
-      .state-icon { flex: none; display: block; width: var(--icon); height: var(--icon); }
-      .state-icon .track { opacity: 0.28; }
-      .state-icon .turn { transform-origin: 8px 8px; animation: turn 1.1s linear infinite; }
+      /* A state's icon. Each part takes its shape from its own state, and a part the state does not name draws nothing. */
+      .state-icon { flex: none; display: block; width: var(--icon); height: var(--icon); --part-line: none; --part-fill: none; --part-track: none; --part-turn: none; --part-fill-colour: currentColor; }
+      .state-icon .line { d: var(--part-line); }
+      .state-icon .fill { d: var(--part-fill); fill: var(--part-fill-colour); stroke: none; }
+      .state-icon .track { d: var(--part-track); opacity: 0.28; }
+      .state-icon .turn { d: var(--part-turn); transform-origin: 8px 8px; animation: turn 1.1s linear infinite; }
       @keyframes turn { to { transform: rotate(360deg); } }
       .state-words { display: flex; align-items: center; gap: var(--space-3); font-size: var(--size-second); font-weight: 600; }
 
@@ -144,10 +148,11 @@
       .detail h3 { display: flex; align-items: center; gap: var(--space-4); margin-bottom: 3px; padding-bottom: var(--space-3); border-bottom: 1px solid var(--rule); }
       .detail h3 .sum { font-weight: 500; color: var(--ink-faint); }
       .detail .foot { padding-top: var(--space-3); }
-      /* The agent's own words, as plain text with its line breaks kept, on a card. A text longer than its place scrolls inside it. */
-      .detail .says { padding: 14px var(--space-6) var(--space-5); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge); }
+      /* The agent's own words, as plain text with its line breaks kept, in the form the theme gives what an agent says: its ground, its corners and its edge, and another edge where the work item needs the person. A text longer than its place scrolls inside it. */
+      .detail .says { padding: 14px var(--space-6) var(--space-5); border-radius: var(--radius-said); background: var(--said-ground); box-shadow: var(--said-edge); }
+      .detail .says.waiting { box-shadow: var(--said-edge-waiting); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
-      .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-serif); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       /* A decision made in place of asking: its kind and its age on a row, with "Reverse" in a view, then what was decided, its grounds, and under a reversed one that it was reversed and the person's message. Each text is plain, with its line breaks kept. */
       .decision { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); font-size: var(--size-second); }
       .decision:last-child { border-bottom: 0; }
@@ -173,6 +178,8 @@
       .file { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); min-height: var(--detail-line); }
       .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
       .file .counts { flex: none; }
+      /* A commit and a changed file are rows of a list of records, and each carries the edge the theme gives a line at rest: a rule under it in Register, and nothing in the others. */
+      .commit, .file { box-shadow: var(--line-edge); }
 
       #sidebar { flex: none; display: flex; flex-direction: column; box-sizing: border-box; width: var(--sidebar-width); min-height: 0; border-right: 1px solid var(--rule); background: var(--ground-side); }
       /* As high as the hidden title bar: it holds the window's traffic lights on macOS, drags the window and holds nothing else. */
@@ -219,7 +226,7 @@
       /* A group's heading, under a repository's ungrouped work items: the group's name, and how many work items stand under it. */
       .group-head { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-4) var(--space-2) 26px; font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
       .group-head .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      /* The foot: the status line, the control that chooses when the Mac is kept awake, and the control that chooses the theme. Each control is its icon with the choices laid over it as the filter's are. */
+      /* The foot: the status line, the control that chooses when the Mac is kept awake, the control that chooses the theme and the control that chooses the appearance. Each control is its icon with the choices laid over it as the filter's are. */
       #sidebar-foot { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: var(--sidebar-line); padding: var(--space-3) 10px 10px 18px; }
       #status { flex: 1; min-width: 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
       /* What the window has to tell: that it is reconnecting, or a request the daemon refused. */
@@ -228,8 +235,8 @@
 
       #summary-screen { display: flex; flex-direction: column; box-sizing: border-box; overflow: auto; padding: var(--space-11) var(--space-10) 0; }
       #summary-head { display: flex; flex-direction: column-reverse; gap: var(--space-4); }
-      /* The summary's sentence is the largest text of the screen, in the serif typeface. */
-      #summary-sentence { font-family: var(--font-serif); font-size: var(--size-sentence); font-weight: var(--weight-said); line-height: 1.15; letter-spacing: var(--tracking-title); color: var(--ink-strong); }
+      /* The summary's sentence is the largest text of the screen, in the typeface of what an agent says. */
+      #summary-sentence { font-family: var(--font-said); font-size: var(--size-sentence); font-weight: var(--weight-said); line-height: 1.15; letter-spacing: var(--tracking-title); color: var(--ink-strong); }
       #summary-last-here { font-size: var(--size-second); color: var(--ink-muted); }
       #summary-lines { display: flex; flex-direction: column; margin-top: var(--space-8); border-top: 1px solid var(--rule); }
       #summary-lines button { display: grid; grid-template-columns: var(--icon) minmax(0, var(--summary-title)) minmax(0, 1fr) auto var(--seal-size-line); column-gap: var(--space-5); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border-bottom: 1px solid var(--rule-soft); text-align: left; }
@@ -247,18 +254,21 @@
       .list-head .hint { color: var(--ink-muted); }
       .list-head select { flex: none; height: var(--control-height); font-size: var(--size-second); }
       .lines { flex: 1; min-height: 0; overflow: auto; padding-bottom: var(--space-4); }
-      .lines h2 { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--group-height); padding: 0 18px 5px; }
+      /* A group's head, on the ground and with the edge the theme gives it. */
+      .lines h2 { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--group-height); padding: 0 18px 5px; background: var(--group-ground); box-shadow: var(--group-edge); }
       .lines h2 .word { color: var(--ink-muted); }
       .lines h2 .count { font-weight: 500; }
       .lines ul { display: flex; flex-direction: column; padding: 0 var(--space-4); }
-      /* A line is two rows: the state's icon, the title and the state's age, and under them one text, the badge and the seal's place. */
-      .line { display: flex; flex-direction: column; justify-content: center; gap: 1px; box-sizing: border-box; width: 100%; height: var(--line-height); padding: 0 10px; border-radius: var(--radius-line); text-align: left; }
+      /* A line is two rows: the state's icon, the title and the state's age, and under them one text, the badge and the seal's place. Its edge is the theme's, a whole shadow at rest and another where it is selected. */
+      .line { display: flex; flex-direction: column; justify-content: center; gap: 1px; box-sizing: border-box; width: 100%; height: var(--line-height); padding: 0 10px; border-radius: var(--radius-line); box-shadow: var(--line-edge); text-align: left; }
       /* The pointer over a line gives it a ground and selects nothing. */
       .line:hover { background: var(--hover); transition: background-color var(--motion); }
       .line:active { background: var(--pressed); }
-      .line.selected { background: var(--selected); box-shadow: var(--selected-edge); }
+      .line.selected { background: var(--selected); box-shadow: var(--line-edge-selected); }
       /* The selected line keeps its ground under the pointer and answers the press. */
       .line.selected:active { background: var(--pressed); }
+      /* On the selected line and on the sidebar's item of what is in front, an age and a count are in the muted ink: the faint one does not stand apart from a selected ground. */
+      .line.selected .age, .side-item[aria-current] .age, .side-item[aria-current] .count { color: var(--ink-muted); }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
@@ -307,12 +317,13 @@
       #tabs .tab .label { max-width: var(--tab-width); padding: 0 var(--space-2) 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #tabs .tab.active .label { color: var(--terminal-strong); font-weight: 600; }
       #tabs .tab .close { padding: 0 var(--space-4) 0 var(--space-2); color: var(--ink-faint); }
-      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. On the tab of a pane on the stage the close control takes the terminal's inks, since that tab stands on the terminal's ground. */
+      /* A tab that is not in front answers the press, and a tab's close control the pointer and the press. The tab of a pane on the stage stands on the terminal's ground, which is dark in both appearances, so its close control and the ring of the keyboard's focus take the terminal's inks there. */
       #tabs .tab:not(.active):active { background: var(--pressed); }
       #tabs .tab .close:hover { color: var(--ink); }
       #tabs .tab .close:active { color: var(--ink-strong); }
-      #tabs .tab.shown .close:hover { color: var(--terminal-ink); }
-      #tabs .tab.shown .close:active { color: var(--terminal-strong); }
+      #tabs .tab.shown .close { color: var(--terminal-ink); }
+      #tabs .tab.shown .close:hover, #tabs .tab.shown .close:active { color: var(--terminal-strong); }
+      #tabs .tab.shown button:focus-visible { outline-color: var(--terminal-strong); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
       #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
@@ -337,9 +348,10 @@
       #view-scroll { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); min-height: 0; overflow: auto; padding: var(--space-6); }
       #view-head { display: flex; flex-direction: column; gap: var(--space-2); }
       #view-facts-title { overflow-wrap: anywhere; }
-      #view-fact-list { display: grid; grid-template-columns: var(--fact-label) minmax(0, 1fr); column-gap: 10px; align-items: start; font-size: var(--size-second); }
-      #view-fact-list dt { color: var(--ink-faint); }
-      #view-fact-list dt, #view-fact-list dd { box-sizing: border-box; min-height: var(--detail-line); padding: var(--space-2) 0; }
+      /* A fact is a row of a list of records too: its term and its value carry the line's edge, each is as high as the row, and the space between the two is the term's own, so the rule under a fact runs unbroken where the value runs to several lines too. */
+      #view-fact-list { display: grid; grid-template-columns: calc(var(--fact-label) + 10px) minmax(0, 1fr); align-items: stretch; font-size: var(--size-second); }
+      #view-fact-list dt { padding-right: 10px; color: var(--ink-faint); }
+      #view-fact-list dt, #view-fact-list dd { box-sizing: border-box; min-height: var(--detail-line); padding-top: var(--space-2); padding-bottom: var(--space-2); box-shadow: var(--line-edge); }
       #view-fact-list dd { margin: 0; overflow-wrap: anywhere; }
       /* In the column a commit is its time, its subject and its hash on one row, and its lines under the subject. */
       #view-facts .commit { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "subject hash age" "counts counts counts"; padding: var(--space-2) 0; }
@@ -499,6 +511,10 @@
         <label id="theme-control" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" /><path d="M8 2.5v11M8 5.5h4.6M8 8h5.5M8 10.5h4.6" /></svg>
           <select id="theme" aria-label="Theme"></select>
+        </label>
+        <label id="appearance-control" class="icon-button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.8" /><path d="M8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M3.6 12.4l1-1M11.4 4.6l1-1" /></svg>
+          <select id="appearance" aria-label="Appearance"></select>
         </label>
       </div>
     </nav>

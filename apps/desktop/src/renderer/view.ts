@@ -128,25 +128,30 @@ export function workItemEntries(workItems: readonly WorkItem[], sessions: readon
 /** The agent states in the order a person must act on them, which is the order of the inbox's sentence and of its groups. */
 const STATES_BY_URGENCY: readonly AgentState[] = ["waiting", "working", "finished"];
 
-/** Each agent state as the inbox's sentence says it, after its count. */
-const STATE_IN_SENTENCE: Record<AgentState, string> = { waiting: "waiting for you", working: "working", finished: "finished" };
+/** The waiting state's own words, "Needs you", as they follow a count: one work item needs the person, and two need the person. */
+function needsYou(count: number): string {
+  return count === 1 ? "needs you" : "need you";
+}
+
+/** Each agent state as the inbox's sentence says it, after its count: the state's own words, which agree with the count where the state's words are a verb. */
+const STATE_IN_SENTENCE: Record<AgentState, (count: number) => string> = { waiting: needsYou, working: () => "working", finished: () => "finished" };
 
 /**
  * The inbox's sentence: how many work items are in each agent state, as in
- * "1 waiting for you, 2 working". A state no line is in is left out, and the
+ * "1 needs you, 2 working". A state no line is in is left out, and the
  * sentence is empty where no line has a state.
  */
 export function inboxSummary(lines: readonly InboxLine[]): string {
   return STATES_BY_URGENCY.map((state) => ({ state, count: lines.filter((line) => line.state === state).length }))
     .filter(({ count }) => count > 0)
-    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state]}`)
+    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state](count)}`)
     .join(", ");
 }
 
 /** A line's state in words: the heading of its group in the inbox, which the preview and a view say as well, with the state's age. */
 export function stateHeading(state: AgentState | null): string {
-  if (state === null) return "No agent";
-  return { waiting: "Waiting for you", working: "Working", finished: "Finished" }[state];
+  if (state === null) return "Asleep";
+  return { waiting: "Needs you", working: "Working", finished: "Finished" }[state];
 }
 
 export interface InboxGroup<Entry> {
@@ -690,7 +695,7 @@ export interface Change {
 }
 
 /** Each agent state as a change's sentence opens with it. */
-const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Waits for you.", working: "Is working.", finished: "Finished." };
+const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Needs you.", working: "Is working.", finished: "Finished." };
 
 /** How many decisions were made without asking, as a change's sentence and the summary's sentence end with it. */
 function madeWithoutAsking(decided: number): string {
@@ -753,6 +758,11 @@ export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLin
   return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
 }
 
+/** What the sidebar's bell says to a pointer and to a screen reader: how many work items need the person, in the waiting state's own words, and that a press shows them alone. */
+export function bellSays(waiting: number): string {
+  return waiting > 0 ? `${waiting} ${needsYou(waiting)}. Show them alone.` : "Show the work items that need you alone.";
+}
+
 /** How many work items changed, as the sidebar says it beside "Summary": nothing where none did. */
 export function summaryCount(changed: number): string {
   return changed > 0 ? `${changed} new` : "";
@@ -774,7 +784,7 @@ export function summaryControls(changes: readonly { workItem: WorkItem; line: In
   const inbox = { label: "Open the inbox", opens: "inbox" as const };
   const waits = changes.find((change) => change.line.state === "waiting");
   if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
-  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that waits." };
+  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
 }
 
 /** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */
@@ -821,7 +831,7 @@ export function lastHere(at: number, now: number): string {
   return `You were last here ${ageOf(at, now)} ago.`;
 }
 
-/** A state in its heading's words and how long it has lasted, as in "Waiting for you, 12 min": the state alone where it has no time. */
+/** A state in its heading's words and how long it has lasted, as in "Needs you, 12 min": the state alone where it has no time. */
 export function stateWithAge(state: AgentState | null, since: number | null | undefined, now: number): string {
   const age = ageOf(since, now);
   return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
@@ -837,14 +847,16 @@ function saidBy(session: SessionInfo | undefined): string | null {
 /**
  * What the agent of a work item's line says, under its head: the label of
  * the pane's kind and "asks" while the agent waits, "said" otherwise.
- * Nothing where the state carried neither a text nor, for a pane that waits,
- * a tool's name.
+ * `waiting` says that the agent waits for the person, which the card of its
+ * words shows by its edge. Nothing where the state carried neither a text
+ * nor, for a pane that waits, a tool's name.
  */
-export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string } | null {
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean } | null {
   const text = saidBy(session);
   if (!session || text === null) return null;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
-  return { head: `${kind ? kind.label : session.kind} ${session.state === "waiting" ? "asks" : "said"}`, text };
+  const waiting = session.state === "waiting";
+  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting };
 }
 
 /**
@@ -1728,7 +1740,7 @@ export function notificationFor(
   if (workItem?.muted || archived.some((item) => item.id === session.workItemId)) return null;
   return {
     title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
-    body: session.state === "waiting" ? "Waiting for you" : "Finished",
+    body: session.state === "waiting" ? stateHeading("waiting") : stateHeading("finished"),
   };
 }
 

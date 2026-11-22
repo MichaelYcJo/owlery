@@ -131,31 +131,29 @@ export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
   return place;
 }
 
-/** The class that gives a state its colour. */
+/** The class that gives a state its colour and its mark the theme's shapes. */
 export function stateClass(state: AgentState | null): AgentState | "no-agent" {
   return state ?? "no-agent";
 }
 
 const SVG = "http://www.w3.org/2000/svg";
 
-/** A line icon of the page, 16 units square, from the shapes given: each a path's data, or a circle as its centre and its radius, with a class where the style needs one. */
-export function icon(shapes: readonly (string | { circle: [number, number, number]; className?: string } | { path: string; className: string })[]): SVGElement {
+/** A line icon of the page, 16 units square, from the shapes given: each a path's data, or a circle as its centre and its radius. */
+export function icon(shapes: readonly (string | { circle: [number, number, number] })[]): SVGElement {
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("class", "icon");
   svg.setAttribute("viewBox", "0 0 16 16");
   svg.setAttribute("aria-hidden", "true");
   for (const shape of shapes) {
-    if (typeof shape !== "string" && "circle" in shape) {
+    if (typeof shape !== "string") {
       const circle = document.createElementNS(SVG, "circle");
       circle.setAttribute("cx", String(shape.circle[0]));
       circle.setAttribute("cy", String(shape.circle[1]));
       circle.setAttribute("r", String(shape.circle[2]));
-      if (shape.className) circle.setAttribute("class", shape.className);
       svg.append(circle);
     } else {
       const path = document.createElementNS(SVG, "path");
-      path.setAttribute("d", typeof shape === "string" ? shape : shape.path);
-      if (typeof shape !== "string") path.setAttribute("class", shape.className);
+      path.setAttribute("d", shape);
       svg.append(path);
     }
   }
@@ -187,24 +185,28 @@ export function lineMarkIcons(workItem: WorkItem): HTMLElement[] {
   });
 }
 
-// The shapes of a state's icon: a speech mark for a wait, a ring that turns for work, a check in a circle for an end, a crescent for no agent, and a triangle for a failure.
-type StateShape = "waiting" | "working" | "finished" | "no-agent" | "failed";
-const STATE_SHAPES: Record<StateShape, Parameters<typeof icon>[0]> = {
-  waiting: ["M3.2 3h9.6a1.7 1.7 0 0 1 1.7 1.7v4.6a1.7 1.7 0 0 1-1.7 1.7H8.4l-3.2 2.8V11h-2a1.7 1.7 0 0 1-1.7-1.7V4.7A1.7 1.7 0 0 1 3.2 3z"],
-  working: [{ circle: [8, 8, 5.6], className: "track" }, { path: "M8 2.4A5.6 5.6 0 0 1 13.6 8", className: "turn" }],
-  finished: [{ circle: [8, 8, 5.8] }, "M5.3 8.2l1.9 1.9 3.6-4"],
-  "no-agent": ["M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z"],
-  failed: ["M8 2.3l6 10.5H2z", "M8 6.6v2.8", "M8 11.1v.1"],
-};
+/** The states a mark is drawn for: an agent's three, a work item with no agent, and a headless session's failure. */
+type MarkedState = AgentState | HeadlessState | "no-agent";
+
+/** The parts of a state's mark: a line, a filled part, and for work the faint track and the part that turns. The page's style gives each the shape the theme in use holds for the state, so no shape stands here. */
+const MARK_PARTS = ["line", "fill", "track", "turn"] as const;
 
 /**
  * A state's icon, which says the state in its shape and its colour and, to a
  * pointer and a screen reader, in `words`. A failed headless session has an
  * icon of its own.
  */
-function iconOf(shape: StateShape, words: string): HTMLElement {
-  const element = part(`state-icon state ${shape}`, "");
-  element.append(icon(STATE_SHAPES[shape]));
+function iconOf(state: MarkedState, words: string): HTMLElement {
+  const element = part(`state-icon state ${state}`, "");
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  for (const name of MARK_PARTS) {
+    const path = document.createElementNS(SVG, "path");
+    path.setAttribute("class", name);
+    svg.append(path);
+  }
+  element.append(svg);
   element.setAttribute("role", "img");
   element.setAttribute("aria-label", words);
   element.title = words;
@@ -278,8 +280,8 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 export function detail(entry: Entry, gained: number, reverse?: (decisionId: number) => void): HTMLElement[] {
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
-  // The agent's words are plain text, never markup.
-  if (says) parts.push(section("says", heading(says.head), part("said", says.text)));
+  // The agent's words are plain text, never markup. Where the agent waits for the person the card says so by its class, and the theme gives that card its edge.
+  if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), part("said", says.text)));
   const decisions = decisionLines(entry.workItem, Date.now());
   if (decisions.length > 0) {
     const lines = decisions.map((line) => {

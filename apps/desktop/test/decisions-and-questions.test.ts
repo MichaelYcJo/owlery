@@ -100,7 +100,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 2`, "the two lines of the inbox");
     // The parked work item waits for the person, so its line stands first, under the group's head, and says its first question.
     expect(await texts("#inbox-lines button[data-work-item] .first .title")).toEqual(["Beta", "Alpha"]);
-    expect(await text("#inbox-summary")).toBe("1 waiting for you");
+    expect(await text("#inbox-summary")).toBe("1 needs you");
     expect(await text(`#inbox-lines button[data-work-item="2"] .second .says`)).toBe("Which base does the branch merge into? (and 1 more question)");
     expect(await text(`#inbox-lines button[data-work-item="2"] .second .decided`)).toBe("");
     expect(await text(`#inbox-lines button[data-work-item="1"] .second .decided`)).toBe("1 decision without asking");
