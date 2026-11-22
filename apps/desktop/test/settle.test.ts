@@ -269,13 +269,16 @@ describe("the release's decisions made without asking", () => {
     expect(ids()).toEqual(["1-a", "2-b", "3-c"]);
   });
 
-  it("stops with exit 2 where git cannot read the ref `--since` names, and where a flag is unknown or `--since` names no ref", () => {
+  it("stops with exit 2 where git cannot read the ref `--since` names, and with its usage where a flag is unknown, a ref is missing, or the flags do not run together", () => {
     const { repo } = released();
     expect(() => readSettle(repo, "v9.9.9")).toThrow("v9.9.9");
-    for (const args of [["--since", "v9.9.9"], ["--since"], ["--frobnicate"], ["--apply", "--released-at"], ["--released-at", "HEAD"], ["--apply", "--list"]]) {
+    const unread = run(repo, "--since", "v9.9.9");
+    expect([unread.code, unread.out]).toEqual([2, ""]);
+    expect(unread.err).toContain("v9.9.9");
+    for (const args of [["--since"], ["--frobnicate"], ["--apply", "--released-at"], ["--released-at", "HEAD"], ["--apply", "--list"]]) {
       const got = run(repo, ...args);
       expect([got.code, got.out], args.join(" ")).toEqual([2, ""]);
-      expect(got.err, args.join(" ")).not.toBe("");
+      expect(got.err, args.join(" ")).toContain("\nusage: settle [--list | --apply [--released-at <ref>]] [--since <ref>]\n");
     }
   });
 
@@ -349,10 +352,21 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     const killed = run(repo, "--apply");
     expect(killed.code).toBe(2);
     expect(killed.err).toContain("SIGKILL");
+    // A `seal` whose interpreter does not stand is found and does not start.
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-seal-stand-in-")));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    writeFileSync(join(folder, "seal"), "#!/owlery/no/such/sh\n", { mode: 0o755 });
+    vi.stubEnv("PATH", `${folder}${delimiter}${WITHOUT_SEAL}`);
+    const unstarted = run(repo, "--apply");
+    expect(unstarted.code).toBe(2);
+    expect(unstarted.err).toContain("settle: seal settle --apply did not run: ");
+    // A kept directory the settle left as it was is not put back.
     write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
     commit(repo, "chore: a kept work item");
     standIn("exit 2");
-    expect(run(repo, "--apply").code).toBe(2);
+    const kept = run(repo, "--apply");
+    expect(kept.code).toBe(2);
+    expect(kept.out.endsWith("\nPut back no directory.\n"), kept.out).toBe(true);
   });
 
   it("refuses, runs nothing and names the directory where a kept directory differs from HEAD, by an edit or by a file not committed", () => {
@@ -372,24 +386,27 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     }
   });
 
-  it("puts nothing back and names each kept directory as not put back where AgenticSeal's settle moved HEAD", () => {
-    const repo = settled();
-    standIn(REMOVE_ALL, "git add --all && git commit --quiet -m 'chore: settle'");
-    const got = run(repo, "--apply");
-    expect(got.code).toBe(2);
-    expect(got.err).toContain("settle: not put back seal/threads/1-a/: HEAD moved from ");
-    expect(got.err).toContain("\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; ");
-    expect(existsSync(join(repo, "seal/threads/1-a"))).toBe(false);
-    expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
+  it("puts nothing back and names each kept directory as not put back where AgenticSeal's settle moved HEAD, to a commit or to one git cannot read", () => {
+    for (const move of ["git add --all && git commit --quiet -m 'chore: settle'", "printf 'no ref\\n' > .git/HEAD"]) {
+      const repo = settled();
+      standIn(REMOVE_ALL, move);
+      const got = run(repo, "--apply");
+      expect(got.code, move).toBe(2);
+      expect(got.err, move).toContain("settle: not put back seal/threads/1-a/: HEAD moved from ");
+      expect(got.err, move).toContain("\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; ");
+      expect(existsSync(join(repo, "seal/threads/1-a")), move).toBe(false);
+      expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
+    }
   });
 
   it("refuses and removes nothing where no `seal` on the path can be run", () => {
     const repo = settled();
     const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-seal-stand-in-")));
     cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
-    // A `seal` that cannot be run is not found either.
+    // A `seal` that cannot be run is not found either, and nor is a folder named `seal`.
     writeFileSync(join(folder, "seal"), "#!/bin/sh\nrm -rf seal/threads\n", { mode: 0o644 });
-    for (const path of [WITHOUT_SEAL, `${folder}${delimiter}${WITHOUT_SEAL}`]) {
+    mkdirSync(join(folder, "holder", "seal"), { recursive: true });
+    for (const path of [WITHOUT_SEAL, `${folder}${delimiter}${WITHOUT_SEAL}`, `${join(folder, "holder")}${delimiter}${WITHOUT_SEAL}`]) {
       vi.stubEnv("PATH", path);
       const got = run(repo, "--apply");
       expect([got.code, got.out]).toEqual([2, ""]);
