@@ -144,11 +144,11 @@ export interface WorktreeSetup {
   command: string | null;
   /** The pane the command runs in, a pane of the kind `shell`, or null where no command stands, where its pane could not start, and once the daemon that started the pane has stopped, since the next daemon gives its id to another pane. */
   paneId: number | null;
-  /** `running` from the pane's start until its process exits. `succeeded` where the command exited with 0, or no command stands, no copy failed and the daemon did not end the pane, and `failed` otherwise. */
+  /** `running` from the pane's start until its process exits. `succeeded` where the command exited with 0 and no signal ended it, or no command stands, and no copy failed, the daemon did not end the pane and `.worktreesetup` held the command shown; `failed` otherwise. A process a signal ended reports the code 0. */
   state: "running" | "succeeded" | "failed";
-  /** The code the command's process exited with, or null while it runs and where no process exited. */
+  /** The code the command's process exited with, or null while it runs and where no process exited. A process a signal ended reports 0, and `failure` names the signal. */
   exitCode: number | null;
-  /** Why the setup failed where the exit code does not say it, as a sentence the window shows as it is: the pane ended before its command did, the daemon stopped, a git command failed, or the file or the shell could not be read or started. Null otherwise. */
+  /** Why the setup failed where the exit code does not say it, as a sentence the window shows as it is: the pane ended before its command did, a signal ended the command, the daemon stopped, `.worktreesetup` changed after the setup was shown so no command ran, a git command failed, or the file or the shell could not be read or started. Null otherwise. */
   failure: string | null;
   startedAt: number;
   /** When the setup ended, or null while it runs and where the daemon stopped before it ended. */
