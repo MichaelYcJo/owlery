@@ -21,6 +21,8 @@
 | The merge of `release/v0.0.2` at `b8c1190` into this branch at `e93129c`, outside the files phase 6 ran: the nine unit files and the fourteen built-app files `trail/phases/phase-6.md` names, and no other file of the suite | the orchestrator, by the broad gate after the rounds settle |
 | The filter's choice "Decided without asking" in the sidebar's own control and on the history screen. Both controls are filled from `filterChoices` and both lists are narrowed by `matchWorkItems`, which `apps/desktop/test/view.test.ts` holds, and the built-app case chooses it in the inbox's control alone | the proofer, by a reading of `apps/desktop/src/renderer/sidebar.ts` and `list.ts` |
 | That an "Answered" section leaves a view at the window's next start after a look, in one running app. The built-app case starts with a look that already holds the third work item's question as answered, and no case answers, looks, and starts the window again | the owner, in the running app once a stage parks a work item (#41, #42) |
+| The pull request check's verdict on a branch that holds a commit the daemon made. Phase 7 read `routing_trailers` and `trailer_findings` of `pr-check/skills/code-review/scripts/chain_check.py`, which judge the trailer `Seal-Routing:` against the directories whose `routing.md` the pull request declares, and ran the check over no such branch (`trail/phases/phase-7.md`, the paragraph on Q4) | the builder of #41, whose stage first makes a work item's directory and so first brings such a commit into a pull request, by a case of `apps/desktop/test/pr-check.test.ts` |
+| The daemon's commit in a repository that signs its commits, or whose hook asks the person something or does not end. The cases commit in temporary repositories with `commit.gpgsign` off, one with a `pre-commit` hook that exits 1 and one with a hook that waits for a file | the owner, in the running app, in a repository that signs |
 
 ## Not done
 
@@ -41,18 +43,24 @@ Phase 4 left two things within reach.
 - **A work item that gained a decision alone is counted in "N new" beside "Summary" and has its title in the strong ink**, as every changed work item is. `frame/design.md` *Scope* item 14 makes it a changed work item and names no other mark for it.
 - **No act in the app records a decision or parks a work item.** `frame/plan.md` *Alternatives considered* rejects a client message that records either, and no stage calls `Daemon#decided` or `Daemon#park` until #41, #42 and #51. A running app shows one where a block is written by hand into `decisions.md` of a work item's directory, which the daemon's next pass reads.
 
-Phase 5 left five things within reach.
+Phase 5 left three things within reach.
 
-- **The daemon commits nothing.** A reversal and an answer are written into `decisions.md` and left uncommitted. `frame/design.md` *Scope* item 22 is phase 7's.
-- **`changelog.md` still says the decisions and the questions are kept in `decisions.json` and `asked.json`.** The fragment is the last phase's to write, which is phase 7.
 - **A work item's record is not read at its creation.** The pass reads it within three seconds. A worktree cut from a base holds a directory that names the new branch only where a stage wrote one first, and no stage runs yet.
 - **`decisions.md` is readable by the user alone after the daemon writes it.** The record's writer puts the file back through `apps/desktop/src/daemon/whole-file.ts`, which writes with the mode 0600. Git records only whether a file can be executed. `seal/threads/1795338001-records-place-and-pr-check/gaps.md` *Not done* holds the same line for the writer itself.
 - **A park may give two questions the same text.** `Daemon#park` refuses two options of one question with one label and compares no question with another, in the call or in the record. `frame/design.md` *Scope* item 8 names no such refusal.
 
-Phase 6 left five things within reach.
+Phase 6 left four things within reach.
 
-- **`docs/product.md` *Foundation* still says "The line says how many decisions stand", and its Korean edition says the same.** The line counts the decisions the look does not hold, by the ruling of `frame/plan.md` *Judgments of the run* of 2026-11-22. The paragraph is an entry of `frame/design.md` *Data & interfaces*, the policy documents' text, which gives no new words for it, so the sentence is the orchestrator's to fold.
 - **A line's count of unseen decisions falls only when the window starts again.** The window holds the look its `ready` carried, as `frame/design.md` *Scope* item 11 says of the "Answered" section, and a line's count of new commits is counted against the same look.
 - **A long mark shortens the line's own text.** "2 decisions without asking, 1 reversed" leaves a line of the inbox about a third of its second row for what the agent says, as `screenshots/night-watch-dark-inbox.png` shows. The words are those of `frame/design.md` *Scope* item 23.
 - **The filter's choice does not follow the look.** It leaves every work item with a `decided` or a `reversed` decision, seen or not, as *Scope* item 23 words it: a decision the person has seen can still be reversed.
 - **The preview of a parked work item still holds no question**, as phase 3 left it. `screenshots/register-light-inbox.png` shows the preview of the parked work item with its commits and files alone.
+
+Phase 7 left six things within reach.
+
+- **The commit has no time limit.** A hook that does not end, or a signature that waits for a passphrase, holds that commit, every later commit of a person's word in the same worktree, and the daemon's close. The setup of the records place commits the same way (`apps/desktop/src/daemon/records-place.ts#setUpRecords`), and `frame/design.md` *Scope* item 22 asks for the repository's hooks with no option that skips one. A git that is stopped in the middle of a commit can leave the index locked, so a limit needs its own design.
+- **A word left uncommitted is not committed when the session ends.** Where a session was working at the commit's turn, the file stays written, and the session's own commit, or the commit of the next reversal or answer in that work item, carries it. The daemon does not come back to it by itself. *Scope* item 22 leaves it to the session's or the stage's commit.
+- **A commit carries the whole file under the subject of the word whose turn it was.** A block a stage wrote and did not commit, and a word an earlier turn left, go into that commit. Git commits a path whole, and the frame's command names the path.
+- **A commit that fails is not tried again, and the window is not told.** The daemon's log holds git's words. *Scope* item 22 answers `done` and logs. The commit of the next reversal or answer in that work item carries the file.
+- **Only a pane that reports its state can hold a commit.** A shell pane, and a CLI that sends no events, never say `working`. A person's own git command in a shell pane can meet the daemon's commit on the index's lock, which `frame/plan.md` *Technical context* names as the second failure: the commit then fails and is logged.
+- **The trailer names the work item's directory whether or not its `routing.md` is committed.** The pull request check refuses a `Seal-Routing:` trailer that names no declaration the pull request holds, and says to commit the `routing.md`. A directory made by hand and never committed gives such a commit. The stage that makes the directory (#41, #51) commits its `routing.md`.
