@@ -127,7 +127,7 @@ The searches a cell of this frame states a result for, each run at `98f10be`. Ex
 
 ## User scenarios & acceptance *(mandatory)*
 
-Each case named below is shown failing before its code is written.
+Each case named below is shown failing before its code is written, but for the one case of `apps/desktop/test/ask-section.test.ts` that scenarios 18 and 19 name. That case starts the built app, was committed in `ddff5d0` before its first run, and is shown red with each of its guards taken out alone, in the phase's batch of built-app runs after that commit, each mutant failing on the line of the guard it breaks (`trail/phases/phase-3.md` *Mutation*; `frame/plan.md` *Judgments of the run* accepts it). The cases of `test/view.test.ts` whose failure before their code names no guard, because the function they call was not yet written, are shown red on their guards by mutation after the same commit.
 
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
