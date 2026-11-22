@@ -44,6 +44,12 @@ The class was listed from what produces it: each kept part, `README.md`, `config
     blocked = `This checkout holds ${named(changed)} otherwise than the commit it stands at, so a clone of the repository would get the commit's. Commit or restore what is named, and open this again.`;
 ```
 
+```seal
+verdict: fixed 2a5e9c8
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `apps/desktop/src/shared/protocol.ts`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`, `seal/threads/1795338001-records-place-and-pr-check/gaps.md`
+answer: The finding holds. Its snippet was read and not pasted, because it adds a third arm for a third case of one cause, and the fix restates what `planRecords` decides. The plan is now made from the commit the checkout stands at and from nothing else: the root by the marker of the committed `README.md` (`git cat-file blob`), `config.json` and Owlery's workflow by whether the commit holds them as files, AgenticSeal's `hygiene.yml` by its committed text, and a repository with no commit as one that holds nothing. The checkout is then compared with the commit at the paths of the place, which are the plan's files, the `README.md` of each root name, the two workflows, and every path below a new root. A path differs where `git status --porcelain --ignored --untracked-files=all` over those paths prints it, or where the commit holds a file and the working tree shows none or the reverse. One refusal names every such path, and it replaces the two arms of `dbac467` on a kept file not committed and on a written path git holds. Each instance the finding lists is blocked and has a case in "judges the root and the check by what the commit holds": probe M's root (the plan is `agentic-seal/`, blocked naming `seal/README.md`), probe M's check (the plan writes Owlery's workflow, blocked naming `hygiene.yml`), and a `config.json` whose text differs, in the checkout or in the index alone. The case was seen red at `0997ffd` before the fix, at its first assertion, and with the status half of the comparison removed (`seal mutate`, red at `records-place.test.ts:373`) and with the committed text of `hygiene.yml` replaced by the checkout's (red at `:386`). `829fb57` adds three assertions for guards no case reached. `changelog.md:7` and `:10` and `gaps.md:19` say the rule; `protocol.ts:83` no longer says a kept file stands. Not changed, because the frame and the policy text are the orchestrator's: `frame/design.md:62`, `:161`, `:359` and `:362`, and `docs/architecture.md:203` with `docs/architecture.ko.md:203`, whose sentence on a file "not committed" and a path "git holds" is true and no longer the whole rule.
+```
+
 ### 2. A records root the commit holds and the checkout does not show gets a second root beside it
 
 ```seal
@@ -85,6 +91,12 @@ async function committedRootOf(folder: string, head: string | null, inCommit: Ma
     blocked = `The commit this checkout stands at holds the records root ${committedRoot}/, and the checkout does not show it. Restore it, or widen a sparse checkout to it, and open this again.`;
 ```
 
+```seal
+verdict: fixed 2a5e9c8
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`
+answer: The finding holds, and it is finding 1's cause from the other side, so one change closes both and the snippet's `committedRootOf` arm was not pasted. The root is told from the commit, so a committed root the checkout does not show is the kept root, the plan lists `seal/README.md` and `seal/config.json` as kept and never plans `agentic-seal/`, and the comparison of the checkout with the commit blocks the plan naming both files. Status reports a root removed and not staged. It reports nothing of a sparse checkout, which the second half of the comparison holds: the commit holds a file and the working tree shows none. The case "keeps a root the commit holds and the checkout does not show" covers probe R, probe S without a cone and probe S with a cone of `.github`; it was seen red at `0997ffd` before the fix, with the root read from the checkout again (`seal mutate`, red at `records-place.test.ts:433`), and with the second half of the comparison removed (red at `:452`, the sparse checkout's refusal). The case at the finding's `:325-336` now also holds that a file below a new root's name that the commit does not hold, untracked, ignored or staged alone, blocks the plan and is named, in place of taking the name for the project's own from the disk or the index. `changelog.md:7` says "Where the commit holds a `seal/` folder of your own". `frame/design.md:160` is the orchestrator's to fold: a kept root is one whose committed `README.md` opens with the marker, and a new root's name is the first the commit holds nothing at or below. Not covered: in a sparse checkout that leaves out a root the setup would create, the plan is not blocked and the setup fails at `git add` with git's words, as the round's third bullet of probe S saw, and `gaps.md` *Not done* names it.
+```
+
 ### 3. The fold's list of what blocks a plan leaves out the folder arm, and two sentences say a plan with nothing to write is blocked only for a file not committed
 
 ```seal
@@ -109,6 +121,11 @@ view.ts:1247-1249:
  * shows what it holds, and no button to commit. One that writes none and is
  * blocked keeps a file no commit holds, or has no folder for a root, and is
  * shown as a plan that writes a file is, with the refusal.
+```
+
+```seal
+verdict: fixed 2a5e9c8
+answer: The finding holds for all three places, and this pass changed the one it may write. The docstring of `recordsDialog` at `apps/desktop/src/renderer/view.ts:1247-1250` now says a plan that writes none and is blocked "has no folder for a root, or its checkout does not hold a file of the place as its commit does", which are the two arms such a plan can reach after the fix of findings 1 and 2. The paste-ready lines for `frame/design.md:64` and `:411` were written against the arms of `dbac467` and are not the text to fold now: the arms are, in order, both root names hold something of the project's own in the commit; git ignores a file of the plan; something other than a folder stands at a folder above a written path, in the checkout, the index or the commit; the checkout does not hold a path of the place as the commit does; and, for a plan that writes a file, no branch is checked out. A plan with nothing to write is blocked by the first and the fourth. Both frame lines are the orchestrator's to fold.
 ```
 
 ### 4. P11 gives the daemon's cell without the words #138 put in it, which the merge kept
