@@ -78,6 +78,11 @@ function insideWorktree(path: string, worktree: string): boolean {
 
 This snippet does not cover every statement of the fact, and the fix pass owes the rest. *Scope* item 9 (`frame/design.md:89`) says the daemon "follows symbolic links on the part of the path that exists". It should say what the code then does: it reads the path both ways, it takes a `..` in the part that is not there as outside, and it takes a path that opens with `~` as outside. The fold at `frame/design.md:271` should say the same, and the comment of the case's outside group should name the three new paths. Each new row is seen red against `5d6745d` first.
 
+```seal
+verdict: fixed 1f23e85
+answer: The rule now counts a path as inside only where every reading of it is, in `63c9355` and `1f23e85`. The fix is in this pass's own words, because the snippet leaves paths of the same root allowed. The path function of 2.1.330 trims the text before it reads `~`, so ` ~/a.txt` and a path whose root a leading space hides were allowed, and the rule now reads the text without the white space around it as well. Every path that opens with `~` is outside, `~other/` among them, since an agent may expand another's home folder. A path with a null character is outside. The guard on a `..` in the part that is not there is kept and is pinned by `hop/missing/../../out/a.txt`: the round's own row `missing/../link/a.txt` is already refused by the reading that settles the text, and it stays refused with the guard removed. The crafter case gains eleven refused rows and three allowed ones, the round's three among them. Eight of the eleven were seen allowed against `9450a88`, `~other/a.txt` against `63c9355`, and the other two with their one guard removed by `seal mutate`, each on its own row. Ten mutants of the rule are red at `1f23e85`. The method that listed the class was taking the CLI's path function apart: the trim, the empty text, `~`, the null character, and the resolve against a base. `frame/design.md:89` and `:271` still state the old rule, and they are the orchestrator's to fold.
+```
+
 ### 2. A crafter's request for a tool its launch did not give it is allowed where the tool writes inside the worktree
 
 ```seal
@@ -116,6 +121,11 @@ export function eventsForLine(line: string, held?: readonly string[]): RoleEvent
 
 The fix pass also owes a case in `apps/desktop/test/claude-adapter.test.ts`: a crafter's launch whose script prints a `can_use_tool` line for `NotebookEdit` with a `notebook_path` inside the folder is reported with the action `other` and no path. It also owes a sentence in *Scope* item 5 (`frame/design.md:85`) saying so. The docstring of `eventsForLine` says what its second argument does.
 
+```seal
+verdict: fixed 8cdb20f
+answer: Fixed as the snippet gives it: `eventsForLine` takes the launch's tools, and `start` passes `launch?.tools`. A request for a tool outside them is reported with the action `other`, no path, and its input as JSON for its text, a `Bash` the launch did not name among them. The four places of the test file that passed the function to `flatMap` now call it with the line alone, because `flatMap` would hand it an index in the place of the tools. Two cases were seen failing against `63c9355`: the mapper's, and a crafter's launch whose script asks for `NotebookEdit` and then for `Write`. Two mutants are red. `frame/design.md:85` and `:227` do not say it yet, and they are the orchestrator's to fold.
+```
+
 ### 3. A person reads at most 2,000 characters of a command, with no mark that the rest was cut
 
 ```seal
@@ -147,6 +157,11 @@ function firstOf(text: string): string {
 
 The new text is a change a person reads, so the same commit pins it (contract rule 14). The case at `claude-adapter.test.ts:778` reads the mark at the end of a cut text, and no mark on a text of exactly `PERMISSION_TEXT_CHARS` characters. The comments at `adapter.ts:18` and `protocol.ts:188`, *Data & interfaces* at `frame/design.md:198` and `:247`, and scenario 5 at `frame/design.md:132` each gain "and a cut text ends with a mark that says so".
 
+```seal
+verdict: fixed 8cdb20f
+answer: Fixed as the snippet gives it, with `PERMISSION_CUT_MARK` exported for the case. The case pins the mark's text, a cut text of exactly 2,000 characters with the mark inside the bound, no mark on a text of exactly 2,000, a cut at 2,001, and both sides of the half character. It was seen failing against `63c9355`, and six mutants of `firstOf` are red. The comments at `adapter.ts:18` and `protocol.ts:188` say that a cut text ends with a mark. A whole text that itself ends with the mark's words reads as cut, and nothing in the event tells the two apart. `frame/design.md:132`, `:198` and `:247` do not say it yet, and they are the orchestrator's to fold. The work item has no `changelog.md` yet, so no fragment was updated: the last phase writes it.
+```
+
 ### 4. The frame says no probe on this machine can answer Q5, but the machine holds 2.1.326 to 2.1.329 and the frame's own probe needs no login
 
 ```seal
@@ -168,6 +183,11 @@ Two behaviours no probe of this frame could show, because each needs a model's t
 
 gaps.md:12, the "who must answer" cell:
 the orchestrator, by the probe of `frame/design.md` *Grounding* on each of the four versions, with no login
+```
+
+```seal
+verdict: fixed 2b3de5b
+answer: The probe ran, and `gaps.md` records it: 2.1.326, 2.1.327, 2.1.328 and 2.1.329 each give the lines 2.1.330 gives for `--tools`, for `--permission-prompt-tool stdio` with the `initialize` request, for `--disallowedTools` and for a control request of an unknown subtype. No step needed a login or reached a model: `HOME` was an empty folder, `auth status` of each version said `loggedIn` false before a prompt was written to it, and each result was `Not logged in` with a cost of 0 and no token counted. The probe ran as two files, because the first read `--help` through a pipe, got it cut, and so wrote no prompt to 2.1.326, 2.1.327 and 2.1.328. Q5's answer is its option "The same", so `MIN_CLAUDE_VERSION` stays 2.1.326. Three lines of the frame change with it, and they are the orchestrator's to fold: `frame/questions.md` Q5, whose premise that the machine holds 2.1.330 alone is false and whose status is now answered; `frame/design.md:69`, where two behaviours and not three are beyond a probe; and `frame/plan.md:80`, which says the options were probed on 2.1.330 alone. What the probe cannot show on the four versions, a request that arrives and a `deny` that holds, is a new row of `gaps.md` *Not verified*, with the owner as its answerer.
 ```
 
 ## Confirmations
