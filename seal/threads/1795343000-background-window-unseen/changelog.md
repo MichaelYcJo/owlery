@@ -1,0 +1,6 @@
+# Changelog: an agent's run of the built app no longer draws its window over yours
+
+Issue #148. While an agent ran the desktop suite or the screenshot command on your Mac, the built app's window appeared over your windows for the length of each case, like a pop-up. A start with `OWLERY_BACKGROUND=1` already took neither your keyboard nor your pointer, and it was still drawn.
+
+- **A window started with `OWLERY_BACKGROUND=1` is fully transparent.** Its window is drawn at opacity 0, before it is shown, so nothing of it reaches your screen. Its page still draws: the cases, the screenshots and the memory measurement read and capture the page through Electron's debugging port as before. Such a start opens no folder dialog either: the work item form's Browse button answers that no folder was chosen, so no dialog sheet appears over your windows. A start without the variable, a person's, is unchanged, and its Browse button opens the system's dialog as before.
+- **Such a window's page no longer stops drawing when another window covers it.** At full opacity, a window of yours over it made its page hidden, with no frame drawn. At opacity 0 the page stays visible and keeps drawing (measured on macOS 26.6).
