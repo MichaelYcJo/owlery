@@ -363,7 +363,7 @@ export class Daemon {
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
             const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
             // The included paths are copied before the work item is listed, so no pane of it starts before they stand.
-            const setup = await beginSetup(place.repo, place.worktree, (this.options.now ?? Date.now)());
+            const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now);
             // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
@@ -689,7 +689,7 @@ export class Daemon {
             if (!held) throw new Error(`no work item ${String(workItemId)}`);
             const earlier = held.item.setup;
             if (earlier?.state === "running") throw new Error(`The setup of work item ${String(workItemId)} is still running.`);
-            const setup = await beginSetup(held.repository.folder, held.item.worktree, (this.options.now ?? Date.now)());
+            const setup = await beginSetup(held.repository.folder, held.item.worktree, this.options.now ?? Date.now);
             if (setup === null) throw new Error(`${held.repository.folder} names no setup: it holds neither ${INCLUDE_FILE} nor ${SETUP_FILE}.`);
             // An archive or a delete may have begun during the copy, and no pane starts in either.
             if (this.worktreeFor(socket, message.requestId, workItemId) === undefined) return;

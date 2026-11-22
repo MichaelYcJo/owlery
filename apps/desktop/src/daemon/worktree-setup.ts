@@ -127,20 +127,21 @@ export function endedSetup(setup: WorktreeSetup, end: { exitCode: number | null;
  * Null where the repository names neither. Where a command stands, the
  * setup is `running` and names no pane yet: the daemon starts the pane. Where
  * none does, it has ended by the copy. A `.worktreesetup` that cannot be
- * read is a setup that failed, and nothing is copied.
+ * read is a setup that failed, and nothing is copied. `now` is read when the
+ * setup begins, before the copy, and again where it ends, after it.
  */
-export async function beginSetup(repo: string, worktree: string, now: number): Promise<WorktreeSetup | null> {
-  const begun = { copied: [], copiedCount: 0, failedCopies: [], command: null, paneId: null, state: "running" as const, exitCode: null, failure: null, startedAt: now, endedAt: null };
+export async function beginSetup(repo: string, worktree: string, now: () => number): Promise<WorktreeSetup | null> {
+  const begun = { copied: [], copiedCount: 0, failedCopies: [], command: null, paneId: null, state: "running" as const, exitCode: null, failure: null, startedAt: now(), endedAt: null };
   let named: { include: boolean; command: string | null };
   try {
     named = await readSetup(repo);
   } catch (error) {
-    return endedSetup(begun, { exitCode: null, failure: `${SETUP_FILE} could not be read: ${error instanceof Error ? error.message : String(error)}` }, now);
+    return endedSetup(begun, { exitCode: null, failure: `${SETUP_FILE} could not be read: ${error instanceof Error ? error.message : String(error)}` }, now());
   }
   if (!named.include && named.command === null) return null;
   const copy = named.include ? await copyIncluded(repo, worktree) : { copied: [], copiedCount: 0, failed: [], failure: null };
   const setup: WorktreeSetup = { ...begun, copied: copy.copied, copiedCount: copy.copiedCount, failedCopies: copy.failed, command: named.command, failure: copy.failure };
-  return named.command === null ? endedSetup(setup, { exitCode: null, failure: null }, now) : setup;
+  return named.command === null ? endedSetup(setup, { exitCode: null, failure: null }, now()) : setup;
 }
 
 /** The sentence of a setup whose pane the daemon ended, at a close, an archive, a removal or a delete. */
