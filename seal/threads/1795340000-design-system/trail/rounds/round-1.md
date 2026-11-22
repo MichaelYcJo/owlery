@@ -32,6 +32,11 @@ The class was enumerated from the page's style, by taking each rule that lays ou
 
 The fix pass owes the other statements of the fact as well. `docs/design.md:66` (the line that says what `--line-edge*` is for) becomes "the edges of a line of the inbox at rest and selected, and the edge under a row of a list, a commit and a changed file". *Components and their states* gains a row after `docs/design.md:427`, "A row of a list (a commit, a changed file) | No ground, with `--line-edge`. | — | — | — | — | —". The same two changes go into `docs/design.ko.md` at the same lines, so the two editions keep the same count of table rows that the `Broad gate` command compares. The fourth case of `apps/desktop/test/theme-controls.test.ts` (the `forms` reader at line 159) reads the shadow of a commit's row and of a file's row in Register and in Desk, and is seen red with the new rule removed. `gaps.md:30` leaves *Not done*. The screenshots are made again at the fix's commit, because the view changes.
 
+```seal
+verdict: fixed 82ea412
+answer: The paste-ready rule was applied as written, `.commit, .file { box-shadow: var(--line-edge); }`, and the fix went one list further, as `frame/plan.md` *Judgments of the run* decides for round 1: a fact of a view carries the edge too, on its term and its value, with the space between the two moved into the term so the rule runs unbroken. The sidebar's items carry none. `docs/design.md` and `docs/design.ko.md` say which rows are ruled in *The themes*, in the line on `--line-edge*` and in a new row of *Components and their states*. The fourth case of `apps/desktop/test/theme-controls.test.ts` reads the edge of a commit, a changed file, a term and a value in Desk and in Register, and an item of the sidebar in Register; it was seen red before the rule, on "expected 'none' to match /0px 1px 0px 0px$/", and `seal mutate` removed each row's rule in turn and put the line's edge on a sidebar's item, four mutants, each red. The row left `gaps.md` *Not done*. The screenshots made after the fixes are in `e974e84`.
+```
+
 ### 2. The inbox's head, the summary and the bell say "waiting for you" where the window names the state "Needs you"
 
 ```seal
@@ -69,6 +74,12 @@ const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Needs you.", wor
 
 The fix pass owes these statements too. The cases at `view.test.ts:250`, `:254`, `:884`, `:961` and `:1971`, and the case of the change's sentence, take the new words, and each is seen red against the old one. One case pins the plural "2 need you". The bell's title has no case in the suite (executed: `grep -n bell apps/desktop/test/*.ts` finds two lines, in `daemon.test.ts` and `work-item-menu.test.ts`, and neither reads the title), so one is added where the sidebar's other built-app cases stand. `frame/design.md:120` *The words* gains rows for the inbox's sentence, the summary's sentences, the change's sentence, the hint and the bell, and the sentence "Two texts change" is corrected. That is the orchestrator's fold, since the crafter does not write the frame. `changelog.md:9` names the inbox's head and the bell among the places that now say "Needs you". `gaps.md:31` leaves *Not done*. The screenshots are made again, because the inbox's head changes.
 
+```seal
+verdict: fixed 8d7f33f
+location: `apps/desktop/test/notification-click.test.ts`
+answer: The words are the paste-ready ones, and the code is the fix pass's own: one function, `needsYou`, gives "needs you" or "need you" by the count to `STATE_IN_SENTENCE` and to a new exported `bellSays`, which the sidebar calls for the bell's title and its accessible name, so the bell's words have unit cases. `STATE_IN_CHANGE.waiting` is "Needs you." and the hint is "Enter opens the first that needs you." "No agent is running." and the status line's count stay. The cases at the lines the finding names took the new words and were seen red against the old ones, 11 of 383 failing; the plural stands in "2 need you, 1 working" and in the case of `bellSays`. A new case of `apps/desktop/test/notification-click.test.ts`, a path the finding does not name, reads the bell's title, its `aria-label` and its count in the built app with no work item waiting and with one; it was seen red against the old source on the old sentence. `seal mutate` broke each wording and the bell's wiring, seven mutants, each red. `docs/design.md` and `docs/design.ko.md` *The voice of the window's words* say the words follow a count, `changelog.md` names the places, and the row left `gaps.md` *Not done*. `frame/design.md` *The words* still says "Two texts change": the fold is the orchestrator's.
+```
+
 ### 3. The keyboard's focus ring cannot be seen on the main button, in every theme
 
 ```seal
@@ -91,6 +102,12 @@ A ring drawn outside the main button stands on the ground around it. Against `--
 
 The fix pass owes these statements as well. `docs/design.md:424` and `docs/design.ko.md:424` say "A ring of 2px in `--focus`, 2px outside its edge". A case of `apps/desktop/test/themes.test.ts` holds, for every block, that `--focus` against `--ground` and against `--ground-raised` is at least 3 to 1, and that the page's style gives `.primary:focus-visible` an `outline-offset` that is not negative. It is seen red with the new rule removed. `gaps.md:9` is marked `closed` with the fix's coordinate. A screenshot with the focus on a main button would show it, but the run puts the focus on the form's field, so no file shows it.
 
+```seal
+verdict: fixed 546dc8d
+location: `apps/desktop/test/themes.test.ts`
+answer: The paste-ready rule was applied as written, `.primary:focus-visible { outline-offset: 2px; }`. The class held one more instance, which the fix pass found by listing every ground a control with a ring stands on: a tab of a pane on the stage stands on `--terminal-ground`, dark in both appearances, where `--focus` measured 1.00 in Night watch light and 1.77 in Register and Desk light, so `#tabs .tab.shown button:focus-visible` now draws the ring in `--terminal-strong`. The case "draws the ring of the keyboard's focus at 3 to 1 or more" of `apps/desktop/test/themes.test.ts`, a path the finding's location does not name, holds that every ring of the page's style is in `--focus` or `--terminal-strong`, each at 3 to 1 against every ground around it in every block, and that the main button's offset is above zero. It was seen red before the rules, and `seal mutate` turned the offset negative, the tab's ring to `--focus`, the ring's token to another and `--focus` to a card's colour, each red. `docs/design.md` and `docs/design.ko.md` state both forms in *Components and their states*. A probe run once in the built app at `e974e84` took the focus to "Create" with the Tab key, and its capture shows the ring apart from the fill in Night watch dark and light; `gaps.md` *Not verified* marks the earlier row closed and keeps one row for the main buttons outside a dialog, read and not seen. Not done, and in `gaps.md` *Not done*: a menu's item under the keyboard is drawn by `--hover` alone, with no ring, as the document states for a menu.
+```
+
 ### 4. The faint ink and the words of a finished or sleeping work item fall under the contrast body text needs, in all six blocks, and no rule of the design system states a floor
 
 ```seal
@@ -109,6 +126,12 @@ It is `should` and not `must`: no ratified document states a contrast floor (the
 ```
 
 The values follow from that principle, and the source of a value is `docs/design.md` (`docs/design.md:156`, `:251` and `:346`, with `docs/design.ko.md` and `themes.css` in the same commit). Night watch dark `--ink-faint` near `#85827b` (about 4.6 on `--ground-side`). Night watch light near `#6e6b64`. Register and Desk dark near `#8c8477`. Register and Desk light near `#6f6556`. `--state-finished` and `--state-no-agent` follow the same steps. Each value is to be measured, not taken from this line. A case of `apps/desktop/test/themes.test.ts` holds the floor for the text tokens in every block. Changing Desk's values departs from *Scope* item 5's "Desk's two blocks draw the window as it stands". So the orchestrator either folds that departure into the frame, or keeps Desk as it stood and states the exception in the principle.
+
+```seal
+verdict: fixed 546dc8d
+location: `apps/desktop/src/renderer/index.html`, `apps/desktop/test/themes.test.ts`
+answer: The principle is the ninth of `docs/design.md` and `docs/design.ko.md`, in the fix pass's own words: the paste-ready one named a rule a person must see, which `frame/plan.md` *Judgments of the run* does not hold, and that row decides that Desk's values are raised too. Two cases of `apps/desktop/test/themes.test.ts` compute WCAG 2's ratio for every block: each token the page's style sets words in against each ground its words stand on at 4.5 to 1, a ground under the pointer and a selected one among them, and each state's mark at 3 to 1. Both were seen red on the values as they stood, and `seal mutate` put six values back, each red. Values raised in all six blocks, in the documents and the style sheet together, each measured: `--ink-faint` to `#908e87` and `#62605c` in Night watch and `#9b9385` and `#655c51` in Register and Desk, `--state-finished` and `--state-no-agent` with it, `--state-failed` to `#846000` in Night watch light, with `--state-waiting`, and to `#8f550b` in Register and Desk light. Three departures from the finding's proposal, each the fix pass's judgment. First, `--ink-muted` is raised too, to `#a3a097`, `#53514d`, `#aea697` and `#564d43`, with `--removed` and the light `--state-working` that equal it: it fell under 4.5 on a selected item of the sidebar in three blocks, and a faint ink raised to the floor stood within 1.1 of it, so it keeps a step of 1.25 over the faint one. Second, three rules of the page's style, a path the finding's location does not name: an age and a count on a selected ground take the muted ink, the letters a search matched take the strong one, and the close mark of a tab on the terminal's ground takes the terminal's ink. Third, Night watch light's failure has a line around its fill, `--shape-failed`, because the bright fill alone stood at 1.64 to 1. Not held, and in `gaps.md` *Not done*: a ground under a press, and the edges of a field and of a button. Which word stands on which ground is a list the case holds by hand, a row of `gaps.md` *Not verified* for the proofer.
+```
 
 ### 5. The pull request's body shows eight of the sixteen screenshots the frame names for it
 
@@ -149,6 +172,11 @@ Register and Desk, dark and light:
 ```
 
 Here `<commit>` is the full id of the commit that holds the screenshots made after the fixes, written forty hex digits long, as `docs/design.md` *A pull request that changes the window carries its screenshots* states.
+
+```seal
+verdict: fixed 0a6b067
+answer: `pr.md` now shows all sixteen screenshots the frame names (Night watch's inbox, a work item, its menu and the New work item dialog in both appearances; Register's and Desk's inbox and a work item in both), each linked at `e974e843d0ea2567f5f79bd82229d68cf3b562af`, the commit that holds the PNGs made after round 1's fixes (`git cat-file -e` of one path at that commit, executed). The sentence on the state's words now names every place the window calls the state "Needs you", and a line states the contrast floor.
+```
 
 ## Confirmations
 
