@@ -1079,7 +1079,7 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode) => {
       session.info.alive = false;
-      // Before the wait for the exit resolves, so what waited on it reads the setup as it ended.
+      // A setup ends with its pane's process, whether or not the pane is still listed.
       const setupEnded = this.setupExited(workItemId, id, exitCode, session.ended);
       exited();
       clearTimeout(session.silentStart);

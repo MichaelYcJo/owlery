@@ -1009,6 +1009,32 @@ describe("the setup of a new worktree", () => {
     expect(await refused(6, id)).toBe(`work item ${id} is archived, restore it first`);
   });
 
+  it("records a setup whose pane could not start as failed, and says why", async () => {
+    const { url, answer } = await createdIn(repositoryNaming({ command: "true" }), {
+      setupCommandFor: () => {
+        throw new Error("no shell here");
+      },
+    });
+    expect(answer.workItem.setup).toMatchObject({ command: "true", paneId: null, state: "failed", exitCode: null, failure: "The setup pane could not start: no shell here", endedAt: 1234 });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id]);
+  });
+
+  it("starts no setup pane where an archive of the work item began while the setup ran again copied, and says so", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "true" });
+    const { url, c, answer } = await createdIn(made);
+    await setupEnded(c);
+    const held = heldGit(made.base, '[ "$1" = check-ignore ]');
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "archiveWorkItem", requestId: 3, id: answer.workItem.id, running: { panes: [answer.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    held.release();
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(`work item ${answer.workItem.id} is archived, restore it first`);
+    const ready = await (await client(url)).message("ready");
+    expect(ready.sessions.filter((s) => s.alive)).toEqual([]);
+    expect(ready.archived[0]!.setup).toEqual(answer.workItem.setup && { ...answer.workItem.setup, state: "succeeded", exitCode: 0, endedAt: 1234 });
+  });
+
   it("names in a plan the command .worktreesetup holds, whole, and whether .worktreeinclude stands", async () => {
     const made = repositoryNaming({ include: ".env\n", command: "pnpm install\n" });
     const { url } = await daemon({ worktreesRoot: made.root });

@@ -68,6 +68,27 @@ describe("copyIncluded", () => {
     expect(existsSync(join(worktree, "notes.txt"))).toBe(false);
     // The tracked file is the checkout's, and was not copied over it.
     expect(readFileSync(join(worktree, ".env.example"), "utf8")).toBe("KEY=\n");
+    // Patterns that match no ignored path copy nothing, and nothing failed.
+    writeFileSync(join(repo, ".worktreeinclude"), "notes.txt\n");
+    expect(await copyIncluded(repo, worktree)).toEqual({ copied: [], copiedCount: 0, failed: [], failure: null });
+  });
+
+  it("lists 500 of the paths it copied and of those it could not, and counts every one it copied", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    writeFileSync(join(repo, ".gitignore"), "*.log\n");
+    writeFileSync(join(repo, ".worktreeinclude"), "*.log\n");
+    const names = Array.from({ length: 501 }, (_, at) => `f${String(at).padStart(3, "0")}.log`);
+    for (const name of names) writeFileSync(join(repo, name), "x\n");
+    const copy = await copyIncluded(repo, worktree);
+    expect([copy.copied, copy.copiedCount, copy.failed]).toEqual([names.slice(0, 500), 501, []]);
+    for (const name of names) chmodSync(join(repo, name), 0o000);
+    cleanups.push(() => {
+      for (const name of names) chmodSync(join(repo, name), 0o600);
+    });
+    const other = join(base, "other");
+    git(repo, "worktree", "add", "--quiet", "-b", "owlery/other", other);
+    const refused = await copyIncluded(repo, other);
+    expect([refused.copied, refused.copiedCount, refused.failed.map((entry) => entry.path)]).toEqual([[], 0, names.slice(0, 500)]);
   });
 
   it("copies a link as a link with the same target, and writes over no path that stands in the worktree", async () => {
@@ -108,6 +129,9 @@ describe("copyIncluded", () => {
     const copy = await copyIncluded(plain, worktree);
     expect(copy).toEqual({ copied: [], copiedCount: 0, failed: [], failure: expect.stringContaining("not a git repository") });
     expect(existsSync(join(worktree, ".env"))).toBe(false);
+    // A repository whose .worktreeinclude is gone: git's listing refuses the file it was given.
+    const { repo } = repositoryWithIgnoredFiles();
+    expect((await copyIncluded(repo, worktree)).failure).toMatch(/\.worktreeinclude/);
   });
 });
 
