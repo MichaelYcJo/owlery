@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -1074,7 +1074,7 @@ export type MenuAction =
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
-  | { do: "settings" | "icon" | "archived" | "group" | "hide" | "remove"; id: number };
+  | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -1164,16 +1164,20 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
 }
 
 /**
- * A repository's menu, in its order: Settings and Change icon; Show archived
- * work items and New group; "Open in", whose submenu lists Finder and each
- * installed editor and terminal; Copy path; Hide from sidebar and Remove.
- * The folder that is opened and copied is the repository's.
+ * A repository's menu, in its order: Settings, Change icon and "Records and
+ * check…", which a repository of a daemon of an earlier build, one that
+ * sends no `records`, does not have; Show archived work items and New group;
+ * "Open in", whose submenu lists Finder and each installed editor and
+ * terminal; Copy path; Hide from sidebar and Remove. The folder that is
+ * opened and copied is the repository's.
  */
 export function repositoryMenu(repository: Repository, apps: readonly InstalledApp[]): MenuEntry[] {
   const { id, folder } = repository;
+  const records: MenuItem[] = recordsOf(repository) === null ? [] : [{ label: "Records and check…", description: "See the place for work records and the pull request check of this repository, and set them up where it lacks one.", action: { do: "records", id }, divides: false }];
   return [
     { label: "Settings", description: "Change the name the sidebar shows and the branch new work items start from.", action: { do: "settings", id }, divides: false },
     { label: "Change icon", description: "Choose one character to show before the repository's name.", action: { do: "icon", id }, divides: false },
+    ...records,
     { label: "Show archived work items", description: "List the work items of this repository that were archived.", action: { do: "archived", id }, divides: true },
     { label: "New group", description: "Make a heading to gather some of this repository's work items under.", action: { do: "group", id }, divides: false },
     openEntries(folder, "the repository's", apps),
@@ -1181,6 +1185,109 @@ export function repositoryMenu(repository: Repository, apps: readonly InstalledA
     { label: "Hide from sidebar", description: "Take the repository out of the sidebar. Its work items stay in the inbox.", action: { do: "hide", id }, divides: true },
     { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed unless you choose it in the dialog.", action: { do: "remove", id }, divides: false },
   ];
+}
+
+/** What a repository holds of the records place, or null for a repository of a daemon of an earlier build, which sends none: the window then offers no setup for it. */
+export function recordsOf(repository: Repository): RecordsPlace | null {
+  return (repository as { records?: RecordsPlace }).records ?? null;
+}
+
+/** Whether a repository lacks a part of the records place a setup would write: its root or its check's workflow. A registration of such a repository opens the dialog of the records place. */
+export function lacksRecords(repository: Repository): boolean {
+  const records = recordsOf(repository);
+  return records !== null && (records.root === null || records.check === null);
+}
+
+/**
+ * The repository a registration of `folder` was answered for, given the
+ * repositories the window held when the answer arrived and the ones it holds
+ * now: the one the lists gained, and where they gained none, the repository
+ * whose folder is the one typed. None otherwise: a folder inside a
+ * repository names it only to the daemon, which may read another
+ * repository there than the one the lists hold above it.
+ */
+export function registered(folder: string, before: readonly Repository[], now: readonly Repository[]): Repository | undefined {
+  const gained = now.filter((repository) => !before.some((known) => known.id === repository.id));
+  if (gained.length === 1) return gained[0];
+  const typed = folder.replace(/\/+$/, "");
+  return now.find((repository) => repository.folder === typed);
+}
+
+/** What the daemon answered a plan of the records place with: the plan, or the error it refused the plan with. */
+export type RecordsPlanned = RecordsPlan | { error: string };
+
+/** The words of the dialog of the records place, and the state of its field and of its buttons. */
+export interface RecordsWords {
+  head: string;
+  /** What Owlery does in the repository and what is out of scope, said whatever the plan holds. */
+  scope: string;
+  /** The branch and the subject of the commit a setup makes, or empty where it makes none. */
+  commit: string;
+  /** Why the setup cannot run, or the daemon's refusal of the plan, or empty. */
+  blocked: string;
+  /** Each file of a plan that writes one: a file the setup writes with its whole text, and a file that stands with the sentence that it is kept. */
+  files: { path: string; text: string | null; says: string }[];
+  /** For a repository that holds every part: its root, its workflow and its broad gate command. */
+  holds: string[];
+  /** The field of the broad gate command: off where `config.json` stands, with the key's value. */
+  gate: { shown: boolean; enabled: boolean; label: string; value: string; says: string };
+  submit: { shown: boolean; enabled: boolean; label: string };
+  cancel: string;
+}
+
+/**
+ * What the dialog of the records place says of a repository, given the plan
+ * the daemon answered with, or null until it answers, the command the field
+ * holds, and the command the plan was asked for. The scope's sentence
+ * stands before anything is written, whatever the plan holds. A plan that
+ * writes a file is shown whole, and the button that commits is on only
+ * where the plan is of the command the field holds, is not blocked, and
+ * writes no `config.json` with an empty command. A plan that writes none is
+ * a repository that holds every part: the dialog shows what it holds, and no
+ * button to commit.
+ */
+export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
+  const head = `Records and check: ${repository.name}`;
+  const scope = "Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.";
+  const label = "Broad gate command";
+  const off = { shown: true, enabled: false, label: "Set up and commit" };
+  const unplanned = { head, scope, commit: "", files: [], holds: [], gate: { shown: false, enabled: false, label, value: "", says: "" }, cancel: "Not now" };
+  if (plan === null) return { ...unplanned, blocked: "", submit: off };
+  if ("error" in plan) return { ...unplanned, blocked: plan.error, submit: off };
+  const held = recordsOf(repository);
+  const config = plan.files.find((file) => file.path.endsWith("/config.json"));
+  // The key's place and its value, as the daemon last read them.
+  const kept = config === undefined ? "" : held?.broadGate == null ? `No \`Broad gate\` key in \`${config.path}\`.` : `Kept in \`${config.path}\`, under \`Broad gate\`.`;
+  if (plan.blocked === null && plan.files.every((file) => file.text === null)) {
+    const [readme, , workflow] = plan.files;
+    const gate = config === undefined || held?.broadGate == null ? kept : `Broad gate: \`${held.broadGate}\`, kept in \`${config.path}\` under \`Broad gate\``;
+    return {
+      ...unplanned,
+      blocked: "",
+      holds: [`Records: \`${readme?.path.replace(/README\.md$/, "") ?? ""}\``, `Check: \`${workflow?.path ?? ""}\``, gate],
+      submit: { ...off, shown: false },
+      cancel: "Close",
+    };
+  }
+  const writesConfig = config !== undefined && config.text !== null;
+  const proposed = writesConfig && plan.proposedBroadGate !== null && command === plan.proposedBroadGate;
+  return {
+    head,
+    scope,
+    commit: plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "",
+    blocked: plan.blocked ?? "",
+    files: plan.files.map((file) => ({ ...file, says: file.text === null ? `\`${file.path}\` stands and is kept.` : "" })),
+    holds: [],
+    gate: {
+      shown: config !== undefined,
+      enabled: writesConfig,
+      label,
+      value: writesConfig ? command : (held?.broadGate ?? ""),
+      says: writesConfig ? `Kept in \`${config.path}\`, under \`Broad gate\`.${proposed ? " Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another." : ""}` : kept,
+    },
+    submit: { ...off, enabled: plan.blocked === null && plannedFor === command && (!writesConfig || command.trim() !== "") },
+    cancel: "Not now",
+  };
 }
 
 /** What a pointer over the "+" button at the sidebar's top is told: it creates a work item, and its form is where a repository is registered alone. */

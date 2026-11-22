@@ -11,6 +11,7 @@ import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "..
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
+import { SUBJECT, workflowText } from "../src/daemon/records-place";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItemLoss } from "../src/shared/protocol";
@@ -26,7 +27,9 @@ const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit
 /** What a work item holds of the fields a person sets, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
 /** What a repository holds of the fields a person sets, before any is set. */
-const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
+/** What a repository holds of the records place where its checkout holds none. */
+const NO_RECORDS = { root: null, check: null, broadGate: null };
+const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS };
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -1536,6 +1539,98 @@ describe("repositories", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id });
     expect((await answer(4))?.type).toBe("started");
     expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
+  });
+});
+
+describe("the records place of a repository", () => {
+  const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  const status = (repo: string): string => git(repo, "status", "--porcelain=v1", "--untracked-files=all");
+
+  function repository() {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  /** A daemon of version 1.2.3 that keeps one repository, number 1, and a client that was told so. */
+  async function kept() {
+    const made = repository();
+    const { url } = await daemon({ worktreesRoot: made.root, version: "1.2.3" });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    const inbox = await c.message("inbox");
+    return { ...made, url, c, inbox };
+  }
+
+  it("answers planRecords with a recordsPlan that names the branch, the subject, each file with its text and a stamp, and writes nothing; a repository it does not keep is an error", async () => {
+    const { repo, c, inbox } = await kept();
+    expect(inbox.repositories[0]?.records).toEqual(NO_RECORDS);
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const answer = await c.message("recordsPlan");
+    expect(answer).toMatchObject({ requestId: 2, id: 1, plan: { branch: "main", subject: SUBJECT, blocked: null, proposedBroadGate: null } });
+    expect(answer.plan.stamp).toMatch(/^[0-9a-f]{64}$/);
+    expect(answer.plan.files.map((file) => file.path)).toEqual(["seal/README.md", "seal/config.json", WORKFLOW]);
+    expect(answer.plan.files[1]?.text).toContain('"Broad gate": "pnpm test"');
+    // The workflow is written for the version the daemon was given.
+    expect(answer.plan.files[2]?.text).toBe(workflowText("1.2.3"));
+    expect(status(repo)).toBe("");
+    expect(existsSync(join(repo, "seal"))).toBe(false);
+    c.send({ type: "planRecords", requestId: 3, id: 9, broadGate: "pnpm test" });
+    expect(await c.message("error", (m) => m.requestId === 3)).toMatchObject({ message: "no repository 9" });
+    c.send({ type: "setUpRecords", requestId: 4, id: 9, broadGate: "pnpm test", stamp: answer.plan.stamp });
+    expect(await c.message("error", (m) => m.requestId === 4)).toMatchObject({ message: "no repository 9" });
+  });
+
+  it("sets up at setUpRecords with the plan's stamp: one commit of the plan's files alone, answered with done before the inbox, whose repository carries the root, the workflow and the command", async () => {
+    const { repo, c } = await kept();
+    writeFileSync(join(repo, "other.txt"), "staged by the person\n");
+    git(repo, "add", "other.txt");
+    const before = git(repo, "rev-parse", "HEAD").trim();
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const { plan } = await c.message("recordsPlan");
+    c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
+    const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
+    expect(inbox.repositories[0]?.records).toEqual({ root: "seal", check: WORKFLOW, broadGate: "pnpm test" });
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "recordsPlan", "done", "inbox"]);
+    expect(c.messages[4]).toEqual({ type: "done", requestId: 3 });
+    expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "seal/README.md", "seal/config.json"]);
+    expect(status(repo)).toBe("A  other.txt\n");
+  });
+
+  it("refuses a setup the person did not read: a commit landed since the plan, so the old stamp is answered with an error and the tree holds no file of the setup", async () => {
+    const { repo, c } = await kept();
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const { plan } = await c.message("recordsPlan");
+    const landed = commitFile(repo, "landed.txt");
+    c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "The repository changed since the plan was read. Read the plan again." });
+    expect(git(repo, "rev-parse", "HEAD").trim()).toBe(landed);
+    expect(existsSync(join(repo, "seal"))).toBe(false);
+    expect(existsSync(join(repo, ".github"))).toBe(false);
+    expect(status(repo)).toBe("");
+    // A setup that names no stamp is refused before git is asked.
+    c.send({ type: "setUpRecords", requestId: 4, id: 1, broadGate: "pnpm test" });
+    expect(await c.message("error", (m) => m.requestId === 4)).toMatchObject({ message: "a setup of the records place names the broad gate command and the stamp of the plan the person read" });
+  });
+
+  it("reads what a repository holds of the records place at its addition and in the pass that reads the branches, from the working tree, and a daemon given no version refuses the plan", async () => {
+    const made = repository();
+    mkdirSync(join(made.repo, "seal"));
+    writeFileSync(join(made.repo, "seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 30 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    // Not committed: the place is read from the working tree.
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: null });
+    writeFileSync(join(made.repo, "seal", "config.json"), JSON.stringify({ "Broad gate": "make check" }));
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    // A client that connects later is told the same in its `ready`.
+    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    expect(await c.message("error", (m) => m.requestId === 2)).toMatchObject({ message: "This build of Owlery names no version, so it cannot write the workflow of the pull request check." });
   });
 });
 

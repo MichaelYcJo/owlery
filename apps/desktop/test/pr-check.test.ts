@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { planRecords, setUpRecords } from "../src/daemon/records-place";
 import { git, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
@@ -149,6 +150,24 @@ describe("the pull request check", () => {
     // The root names both languages, so no refusal is about the root's `config.json`.
     expect(ready.output).not.toContain("config.json");
     expect(check(made, "draft").exit).toBe(0);
+  });
+
+  it("reads the root a setup of the records place wrote: a branch that declares a work item with no round record fails as a ready pull request, and no refusal names a key of config.json", async () => {
+    const made = repository();
+    const plan = await planRecords(made.repo, "true", "1.2.3");
+    await setUpRecords(made.repo, "true", "1.2.3", plan.stamp);
+    expect(existsSync(join(made.repo, "seal", "config.json"))).toBe(true);
+    git(made.repo, "checkout", "--quiet", "-b", "feature");
+    write(made.repo, "seal/threads/1-x/routing.md", routing("1-x", "feature"));
+    write(made.repo, "x", "x\n");
+    commitAll(made.repo, "feat: x", "1-x");
+    const ready = check(made, "ready");
+    // The check tells the written root by its marker, so it judges the branch its `routing.md` names.
+    expect(ready.output).toContain("seal/threads/1-x/routing.md:0  declares `through the review chain` and seal/threads/1-x/trail/rounds/ holds no `round-N.md`");
+    expect(ready.exit).toBe(1);
+    // The written `config.json` names both languages, so the check refuses nothing of it.
+    expect(ready.output).not.toContain("config.json");
+    expect(ready.output).not.toContain("language");
   });
 
   it("does not read decisions.md: a reversed decision and an open question in the work item's directory change neither its exit nor its output", () => {
