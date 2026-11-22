@@ -156,7 +156,6 @@ async function removeLeftCopies(folder: string): Promise<void> {
   for (const name of names) {
     if (!STAGING_NAME.test(name)) continue;
     const left = join(folder, name);
-    if (!(await lstat(left).then((entry) => entry.isDirectory(), () => false))) continue;
     // A copy stopped before it wrote the `.gitignore` left the folder empty.
     if (await rmdir(left).then(() => true, () => false)) continue;
     if ((await readFile(join(left, ".gitignore"), "utf8").catch(() => null)) === UNSEEN) await rm(left, { recursive: true, force: true }).catch(() => {});
