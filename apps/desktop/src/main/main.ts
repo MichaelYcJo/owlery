@@ -34,7 +34,7 @@ import { WINDOW_SIZE } from "./window-size";
 // notifications.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
-// A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard, and its window lets the person's pointer through.
+// A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard, and its window lets the person's pointer through and draws nothing on the screen.
 // The variable leaves the environment here, so the daemon and the panes' processes start without it.
 const background = takeBackground(process.env);
 // The program `OWLERY_OPENER` names, which acts in place of the system's browser and of Finder. The variable leaves the environment here too.
@@ -123,7 +123,7 @@ function createWindow(): BrowserWindow {
     // The title bar is hidden and inset: on macOS the traffic lights stand inside the sidebar, whose top drags the window.
     titleBarStyle: "hiddenInset",
     backgroundColor: groundAtStart(readAppearance(userData), nativeTheme.shouldUseDarkColors),
-    // In the background the window is shown below, without the keyboard and letting the system's pointer through (./background, `showInBackground`).
+    // In the background the window is shown below, fully transparent, without the keyboard and letting the system's pointer through (./background, `showInBackground`).
     show: !background,
     webPreferences: {
       preload: join(__dirname, "preload.js"),

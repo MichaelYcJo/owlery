@@ -63,9 +63,13 @@ describe("closeHides", () => {
 });
 
 describe("showInBackground", () => {
-  it("has the window let the system's pointer through to what is under it before it shows the window without the keyboard", () => {
+  it("has the window let the system's pointer through and draw nothing on the screen before it shows the window without the keyboard", () => {
     const calls: string[] = [];
-    showInBackground({ setIgnoreMouseEvents: (ignore) => calls.push(`setIgnoreMouseEvents ${ignore}`), showInactive: () => calls.push("showInactive") });
-    expect(calls).toEqual(["setIgnoreMouseEvents true", "showInactive"]);
+    showInBackground({
+      setIgnoreMouseEvents: (ignore) => calls.push(`setIgnoreMouseEvents ${ignore}`),
+      setOpacity: (opacity) => calls.push(`setOpacity ${opacity}`),
+      showInactive: () => calls.push("showInactive"),
+    });
+    expect(calls).toEqual(["setIgnoreMouseEvents true", "setOpacity 0", "showInactive"]);
   });
 });
