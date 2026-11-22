@@ -79,6 +79,9 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
     const noHeader = Buffer.from(head);
     noHeader.write("IDAT", 12, "latin1");
     expect(() => pngSize(noHeader)).toThrow("the bytes are not a PNG file's");
+    const noSignature = Buffer.from(head);
+    noSignature[0] = 0x88;
+    expect(() => pngSize(noSignature)).toThrow("the bytes are not a PNG file's");
   });
 });
 
