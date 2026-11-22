@@ -90,3 +90,30 @@ Verdict: undecided question: Is #118's Done-when 2 met by the two full runs that
 ```
 
 Answered 2026-11-22 by the owner: yes. #118 Done-when 2 is met by the two full runs in a row at 57434e4; #118 removed its cause, and the link card case's own race is #117's.
+
+## Re-audit at `9367cf0`
+
+`9367cf0` commits the block above as written and adds the `Answered 2026-11-22 by the owner:` line below it; it touches `guarantee.md` alone. Step 1: `trail/gate.md`'s newest run is `7056c39`, an ancestor of HEAD, and only `seal/threads/1795278987-built-apps-one-at-a-time/` paths follow it (executed); `git diff --quiet 7056c39 HEAD -- apps` exits 0, so the broad run's code is HEAD's (executed). Step 2: `seal pr-body … --body <scratchpad>/1795278987-built-apps-one-at-a-time/pr-body.md --check` exited 0 (executed). No coordinate of a claim re-run above was touched since `cf09a2b`, so none is re-run again; the probe's last run, at `d49efc2`, read the same `apps/desktop` tree.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The owner answered the question of the block above: #118 Done-when 2 is met by the two runs in a row at `57434e4`, and the link card case's own race is #117's | the `Answered 2026-11-22 by the owner:` line below the block targeting `cf09a2b` | read the line in `guarantee.md` at HEAD (`git diff cf09a2b HEAD`) | holds: read as the owner's answer, as `agents/sealer.md` step 5 directs; it decides the one question the issue and the tree left open |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the build | `apps/desktop/vitest.config.ts`: `unit` first in parallel, then `app` one at a time with nothing beside it | the listing, the probe, vitest 4.1.12's scheduler, issue #118 Done-when 1 | none |
+| the changelog | `changelog.md:5-6`, as the build, and two passing full runs | the build, the probe | none |
+| the orchestrator's part of the pull request body | `pr.md`: the split, the two passing runs, the race at line 608 going to #117, #117 holding what is left | `gaps.md`, #117's section "Narrowed by #118, and what it holds", the owner's answer | none |
+| issue #118 against the tree | Done-when 1 holds (executed); Done-when 2 is met by the owner's reading of it (read, the `Answered` line), on the orchestrator's two runs at `57434e4` (unverified, answered by the orchestrator) and the broad run at `7056c39` (read, `trail/gate.md`); Done-when 3 holds as #117 now reads (executed, `gh issue view 117`) | the build, the records | none |
+| the design, the last round | none stand: no `frame/`, `Review` reads `straight to the PR` | — | — |
+
+Still unverified, as `gaps.md` names: the `check` run on GitHub's macOS runner, answered by this pull request's `check` run, and whether the split touches #117's runner failures, answered by #117.
+
+```seal
+target: 9367cf0 against e4df264
+Verdict: sealed
+```
