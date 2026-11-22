@@ -37,6 +37,11 @@ Of the files read through `repositoryFileText`, every one but `package.json` is 
 
 The sentences after it ("It reads each only as a plain file …", "It reads `decisions.md` and each `routing.md` never through a link …") then follow this sentence's subject. `frame/plan.md:17`, `:39` and `:89` name the six files without `.worktreesetup`, so they stand. By the plugin's `skills/implement/orchestration.md` *The framer writes a decision's fold*, this sentence is the framer's to fold.
 
+```seal
+verdict: fixed 8f15668
+answer: Agreed, and folded as the round wrote it: `frame/design.md:65` now reads "Of the files read through `repositoryFileText`, every one but `package.json` is read in the pass.". The framer also wrote into the sentence on `.worktreesetup` where it is read, "at a plan, a creation and a "Run setup again", outside the pass and off the daemon's thread" (`daemon.ts:563`, `:594`, `:991`, `worktree-setup.ts:37-48`). The frame then says that `.worktreesetup` is read outside the pass, as the head comment of `repository-file.ts:13-16` does. `:209` was read whole against `daemon.ts:783-832` and `:1552-1575`, and it stands.
+```
+
 ### 2. The `gaps.md` bullet of round 5 states that #41 and #42 refuse or defer a stage's write, which no issue states, and it leaves out #51
 
 ```seal
@@ -56,6 +61,11 @@ Nothing calls either method yet. Their callers are #41 and #42, and #51 for `Dae
 
 By the plugin's `skills/implement/orchestration.md` *The framer writes a decision's fold*, a statement in `gaps.md` goes to a fix pass. Whether #150 should also name #51 is the orchestrator's choice (`## Not judged`).
 
+```seal
+verdict: fixed 05b09be
+answer: Agreed, and folded in place at `gaps.md:76` from the round's text, with its last clause left out: the sentence now names #41 and #42, and #51 for `Daemon#decided` (`frame/plan.md:81`, `:82`, `:85`, *Overlap with the release*), as owing the refusal or the deferral, and ends "#150 holds it.". The round's clause "its comment of 2026-11-23 names #41 and #42 alone" is not written, because it no longer holds: `gh issue view 150 --comments` shows a second comment of 2026-11-23, "Correction to the comment above (round 7 of #119, 2026-11-23)", which names #51, #41 and #42 as each owing the refusal or the deferral. `git grep -n -E "refuse or defer|#41 and #42"` over `seal`, `apps` and `docs` finds no other sentence that says the callers already refuse or defer; `trail/rounds/round-6.md:96` quotes the old bullet as round 6's history and stands. The same reading found `gaps.md:32` naming #41 and #51 alone as the callers of `Daemon#decided`, where `frame/plan.md:82` has #42 call it too; `f82f58b` rewrites it in place to name #41, #42 and #51.
+```
+
 ### 3. The row of round 6 in *Judgments of the run* cites a source that does not hold the judgment it records, and does not name the rule it departs from
 
 ```seal
@@ -74,6 +84,11 @@ In `frame/plan.md:108`, in place of the row:
 ```
 
 The row is the orchestrator's. Whether findings 1 and 2 of this round go to the framer and to a fix pass, as that guide says, or are applied again as literal text and recorded as a departure in the same way, is the orchestrator's judgment. The row above records the departure of round 6 alone.
+
+```seal
+verdict: fixed 075cfc9
+answer: The row now holds the round's text: it names the departure from *The framer writes a decision's fold* and its cost, and findings 1 and 2 of this round go to the framer and a fix pass.
+```
 
 ## Confirmations
 
