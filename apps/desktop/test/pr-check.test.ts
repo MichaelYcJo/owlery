@@ -80,7 +80,8 @@ const DECISIONS = [
   "",
 ].join("\n");
 
-describe("the pull request check", () => {
+// Each run of the check starts Python and its git, which takes seconds while the rest of the suite runs beside it.
+describe("the pull request check", { timeout: 30_000 }, () => {
   const cleanups: (() => void)[] = [];
   afterEach(() => {
     for (const cleanup of cleanups.splice(0).reverse()) cleanup();

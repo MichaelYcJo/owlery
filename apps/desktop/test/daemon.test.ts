@@ -474,7 +474,8 @@ describe("work items", () => {
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
     expect(Object.keys(ready).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
-    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name"]);
+    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
+    expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
     expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
@@ -1018,7 +1019,7 @@ describe("repositories", () => {
     const ready = await c.message("ready");
     expect(ready.repositories).toEqual([
       { id: 1, folder: "/r/project", name: "The project", ...PLAIN, customName: "The project" },
-      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }] },
+      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }], records: NO_RECORDS },
     ]);
     expect(ready.workItems.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.pinned, w.muted, w.groupId, w.archivedAt])).toEqual([
       [1, 1, "/r/project", "The project", false, false, null, null],
