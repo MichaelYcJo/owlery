@@ -69,6 +69,12 @@ async function committed(folder: string, head: string | null, path: string): Pro
   }
 ```
 
+```seal
+verdict: fixed dbac467
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `apps/desktop/src/renderer/view.ts`, `docs/architecture.md`, `docs/architecture.ko.md`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`, `seal/threads/1795338001-records-place-and-pr-check/gaps.md`
+answer: The finding holds, and the fix is written in the pass's own words, not pasted. `planRecords` now lists the commit's tree and the index once each (`git ls-tree -r` and `git ls-files --cached --stage` over the root's two names and `.github`) and blocks, in this order after the arm on both names: a kept file git ignores (P7's sentence, naming it), a kept file the commit does not hold as a file (untracked, staged alone, behind a link, itself a link, inside a submodule), a written path git holds staged or committed, and a folder above a written path at which the checkout, the index or the commit holds something other than a folder. Three things differ from the snippet. It asked the index alone about a written path, which misses a removal the person staged (`git rm`), so the commit is asked too. It read a folder from disk alone, so a file at `.github` that is committed or staged and gone from the checkout is now caught, and a link there is blocked with a sentence in place of git's `beyond a symbolic link`. And the choice of a new root's name asked the checkout alone, so a name under which git holds a file is now taken for the project's own. The sentences are number-neutral, since three files can be named. P6 and P7 are reworded in both editions, with `changelog.md`, and `gaps.md` *Not done* names what stays: AgenticSeal's `hygiene.yml` committed and deleted is not asked of git, a checkout moved between the plan and the commit is not guarded, and the row still reads the working folder. Five new cases in `records-place.test.ts`, each seen red at `a0ccf73`'s source; commit `85b6c50` adds three sub-cases, each seen red by `seal mutate` with its one guard removed. The frame's fold (`frame/design.md:62`, `:160`, `:161`, `:359`, `:362`, `:367`, `:369`, `:411`) and `pr.md:8` are the orchestrator's.
+```
+
 ### 2. A write to a record the daemon cannot read replaces the whole record
 
 ```seal
@@ -96,6 +102,12 @@ function recordText(file: string): string | null {
 // routing.md cannot be read declares nothing, as the check reads it.
 ```
 
+```seal
+verdict: fixed 7cb7a5b
+location: `apps/desktop/src/daemon/decision-record.ts`, `apps/desktop/test/decision-record.test.ts`
+answer: The finding holds and the snippet is applied as written, after reading it against *Scope* item 17 and every caller: `writeRecord` reads through `recordText`, for which only `ENOENT` is no record, and `workItemDirectory` keeps `textOf`. The case "throws where a record stands and cannot be read, and leaves the file as it is" makes the file mode 000, was seen red at `a0ccf73`'s source ("expected [Function] to throw an error"), and `seal mutate` reads red with the guard removed and with `ENOENT` swapped for `EACCES`.
+```
+
 ### 3. Any file named `hygiene.yml` counts as the pull request check, so the setup writes no workflow beside a project's own
 
 ```seal
@@ -114,6 +126,12 @@ function checkOf(folder: string): string | null {
 }
 ```
 
+```seal
+verdict: fixed dbac467
+location: `apps/desktop/src/daemon/records-place.ts`, `apps/desktop/test/records-place.test.ts`, `docs/architecture.md`, `docs/architecture.ko.md`, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`
+answer: The finding holds and the snippet is applied, with the script's path as the constant `PLUGIN_CHECK`. It was read against AgenticSeal 0.38.4's `templates/setup/hygiene.yml:84` and this repository's own `.github/workflows/hygiene.yml`, which both name that path, so *Scope* item 10's "this repository's setup writes no file" still holds. The fixture of the case on an AgenticSeal root holds the step, and the new case "takes a hygiene.yml for the check only where it runs AgenticSeal's script" was seen red at `a0ccf73`'s source and reads red under `seal mutate` with the read of the content replaced by `stands`. P6 in both editions and `changelog.md` say the workflow is told by the check it runs. `frame/design.md:62`, `:111` and `:161` and `pr.md:8` are the orchestrator's.
+```
+
 ### 4. The settle search that P10 gives prints nothing for a record whose lines end with a carriage return
 
 ```seal
@@ -126,6 +144,11 @@ Why it matters: P10 says a settle keeps a work item's directory while that searc
 
 ```text
 git grep -n -E '^state: (reversed|open)[[:space:]]*$' -- '*/threads/*/decisions.md'
+```
+
+```seal
+verdict: fixed 7cb7a5b
+answer: The finding holds and the command is the round's, in both editions of `docs/architecture.md` (line 214 after the merge) and in the case, which reads it out of both editions and runs the same arguments. The case now writes the record once with line feeds and once with carriage returns and line feeds, and expects the two open lines printed and nothing once each is closed. It was seen red at `a0ccf73`'s documents on the line that reads the command out of the edition; the old pattern against a CRLF record is the round's own executed probe and was not run again here. `frame/design.md:389` and `:392` still hold the old command, and are the orchestrator's.
 ```
 
 ### 5. The comment on `renaming` now stands above the new `records` field
@@ -143,6 +166,11 @@ Why it matters: the field was inserted between the line comment "The work items 
   private readonly records = new Map<number, RecordsPlace>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
+```
+
+```seal
+verdict: fixed fd3fc2a
+answer: The finding holds, and the comment is back above `renaming`, below the `records` field and its own comment. No case is owed to a comment's place.
 ```
 
 ## Confirmations
