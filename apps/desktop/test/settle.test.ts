@@ -88,10 +88,18 @@ describe("the directories a settle keeps", () => {
     expect(got.status).toBe(1);
   });
 
-  it("keeps a directory whose record holds an open question, and names the question's id and its text", () => {
+  it("keeps a directory whose record holds an open question, and names the question's id and its text, each row in the record's order", () => {
     const repo = repository();
-    write(repo, "seal/threads/1-a/decisions.md", record(OPEN));
-    expect(readSettle(repo).kept).toEqual([{ directory: "seal/threads/1-a", rows: [{ line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" }] }]);
+    write(repo, "seal/threads/1-a/decisions.md", record(OPEN, REVERSED));
+    expect(readSettle(repo).kept).toEqual([
+      {
+        directory: "seal/threads/1-a",
+        rows: [
+          { line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" },
+          { line: 10, why: "decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol." },
+        ],
+      },
+    ]);
     const got = run(repo);
     expect(got.code).toBe(1);
     expect(got.out).toContain("kept seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
@@ -154,11 +162,23 @@ describe("the directories a settle keeps", () => {
       ),
     );
     write(repo, "seal/threads/2-b/routing.md", "# Routing\n");
+    // A file under `threads/` is no work item's directory.
+    write(repo, "seal/threads/notes.md", "# Notes\n");
     const reading = readSettle(repo);
-    expect([reading.kept, reading.notices]).toEqual([[], []]);
+    expect([reading.kept, reading.notices, reading.release.map((item) => item.id)]).toEqual([[], [], ["1-a", "2-b"]]);
     const got = run(repo);
     expect(got.code).toBe(0);
     expect(got.out).toContain("Kept no directory.\n");
+  });
+
+  it("reads nothing and keeps nothing in a repository that holds no records root, and says so", () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    write(made.repo, "seal/threads/1-a/decisions.md", record(REVERSED));
+    expect(readSettle(made.repo)).toEqual({ root: null, kept: [], notices: [], since: null, release: [] });
+    const got = run(made.repo);
+    expect(got.code).toBe(0);
+    expect(got.out).toContain("The repository holds no records root.\n");
   });
 });
 
