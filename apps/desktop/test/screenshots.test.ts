@@ -10,17 +10,16 @@
 // and holds the second, whose session asks the person to allow a command and
 // gets no answer, so the work item's line says the request and the view's
 // "Ask" section shows its card. The run waits until the section shows that
-// request before its first shot. No stage runs either: the decisions made without
-// asking and the questions are blocks the run writes into the two work
-// items' records, which the daemon reads in their worktrees. The repository
-// names a setup once three work items stand, so the one at work shows its
-// setup running, the one in the view has a setup that failed, with the paths
-// it copied and one it could not, and the form names the setup's command;
-// no setup's command runs, and the run types the code a setup pane ends
-// with. The side column of a view holds more than the window shows at once,
-// so the run scrolls it: the view's shot opens at the decisions made without
-// asking, with the "Setup" section below what it shows, and the parked
-// view's shot opens at the column's top, where its questions stand. With
+// request before its first shot. That work item carries no decision made
+// without asking and no setup's words on its line, so the line's second row
+// gives its whole width to the request. No stage runs either: the questions
+// are blocks the run writes into the parked work item's record, which the
+// daemon reads in its worktree. The repository names a setup once three
+// work items stand, so the one at work shows its setup running, the one in
+// the view has a setup that succeeded, with the paths it copied, and the
+// form names the setup's command; no setup's command runs, and the run
+// types the code a setup pane ends with. Each view's shot opens at the top
+// of its side column, where the parked view's questions stand. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -29,10 +28,10 @@
 // carries the files.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RECORD_FILE, withApplied, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
+import { RECORD_FILE, withQuestion } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
 import { WINDOW_SIZE } from "../src/main/window-size";
 import type { ClientMessage, ServerMessage, SessionInfo, WorkItem, WorktreeSetup } from "../src/shared/protocol";
@@ -56,12 +55,12 @@ const SAMPLE_PANE = join(__dirname, "fixtures", "sample-pane.sh");
  * is the one whose view and menu are captured, and it is the one that needs
  * the person.
  */
-const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[]; setup: "running" | "failed" | null }[] = [
+const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[]; setup: "running" | "succeeded" | null }[] = [
   { title: "Choose the base of the hotfix", kind: "shell", events: [], setup: null },
   { title: "Rename the settings file", kind: "shell", events: [], setup: null },
   { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }], setup: null },
   { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
-  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }], setup: "failed" },
+  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }], setup: "succeeded" },
 ];
 /**
  * The ignored files of the repository's main checkout, each with what it
@@ -73,32 +72,14 @@ const IGNORED: Record<string, string> = {
   "node_modules/left-pad/index.js": "module.exports = (text) => text;\n",
   "certs/localhost-key.pem": "-----BEGIN PRIVATE KEY-----\n",
 };
-/** The file of `IGNORED` nobody may read once the work item whose setup fails is made, so its setup cannot copy it. */
-const UNREADABLE = "certs/localhost-key.pem";
 /** What the main checkout's `.worktreeinclude` and `.worktreesetup` hold where a work item is made with a setup. No pane of the run runs the command. */
 const SETUP_FILES = { ".worktreeinclude": ".env\n**/.env.local\nnode_modules/\n*.pem\n", ".worktreesetup": "pnpm install\n" };
-/** The code the setup pane of a work item whose setup fails ends with, as the run types it into the pane. */
-const SETUP_FAILS_WITH = 1;
+/** The code the setup pane of a work item whose setup succeeds ends with, as the run types it into the pane. */
+const SETUP_ENDS_WITH = 0;
 /** The last work item made. */
 const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
 /** The first work item made, which the run parks with `QUESTIONS`. Its view is the view "parked". */
 const PARKED = WORK_ITEMS[0]?.title ?? "";
-/**
- * The decisions made without asking that the run writes into the shown work
- * item's record, in the record's order: one that stands and says who decided,
- * one the person reversed, with the message, one a stage applied after its
- * reversal, and one that stands and names no one.
- */
-const DECISIONS = [
-  { kind: "route", decided: "Build it with no framer.", grounds: "The issue names one file, src/redirect.ts.", by: "orchestrator" },
-  { kind: "default", decided: "Start the branch from main.", grounds: "frame/questions.md Q1 states main as its default." },
-  { kind: "scope", decided: "Leave the sign-up page's redirect out.", grounds: "The issue names the login page alone." },
-  { kind: "answered", decided: "The redirect is a 303.", grounds: "docs/architecture.md, Redirects, names the status." },
-] as const;
-const REVERSAL = "Start it from release/v0.0.2: the fix ships with this release.";
-const TAKEN_IN = "Keep the sign-up page in: it shares the redirect.";
-/** A block the record's reader refuses, a decision with no `decided:` line, which the view names as a line that was not read. */
-const REFUSED = "```seal\ndecision: 9 scope\n```\n";
 /** The questions the parked work item waits on. */
 const QUESTIONS = [
   { asks: "Which base does the hotfix merge into?", grounds: "No document names the base of a hotfix, and the choice decides which release ships it.", by: "sealer", options: [{ label: "main", implies: "It waits for the next release." }, { label: "release/v0.0.2", implies: "It ships with this release." }], default: "release/v0.0.2" },
@@ -218,17 +199,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     return (await listed()).workItems.find((item) => item.title === title)?.setup ?? null;
   }
 
-  /**
-   * Makes the main checkout name a setup, or none, before a work item is
-   * made: its two files, and `UNREADABLE` read by nobody where the setup is
-   * to fail, and readable by its owner otherwise.
-   */
-  function nameSetup(setup: "running" | "failed" | null): void {
+  /** Makes the main checkout name a setup, or none, before a work item is made: its two files. */
+  function nameSetup(setup: "running" | "succeeded" | null): void {
     for (const [file, text] of Object.entries(SETUP_FILES)) {
       if (setup === null) rmSync(join(made.repo, file), { force: true });
       else writeFileSync(join(made.repo, file), text);
     }
-    chmodSync(join(made.repo, UNREADABLE), setup === "failed" ? 0o000 : 0o600);
   }
 
   /** Hands the daemon a hook's event for a pane, as the hook's own command does: the pane's id on a line and the event's JSON after it, to the socket named from inside its folder. */
@@ -271,14 +247,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     view: async () => {
       await app.click(SIDEBAR_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup")`, "the work item's view with its terminal and its setup");
-      // The decisions stand below what the agent asks, and the commits, the changes and the "Setup" section below them, so the side column scrolls until the decisions open what it shows.
-      await app.evaluate(`document.querySelector("#view-detail section.decisions").scrollIntoView({ block: "start", behavior: "instant" })`);
     },
     parked: async () => {
       await app.click(PARKED_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${QUESTIONS.length}`, "the parked work item's view with its questions");
-      // The questions stand first in the side column, which may still be where the view's shot scrolled it.
-      await app.evaluate(`document.getElementById("view-scroll").scrollTop = 0`);
     },
     menu: async () => {
       await show.inbox();
@@ -344,9 +316,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       if (begun?.state !== "running" || begun.paneId === null) throw new Error(`the setup of ${title} is not running in a pane: ${JSON.stringify(begun)}`);
       if (setup === "running") continue;
       // The setup pane waits for the code its command ends with, on a line.
-      await listed({ type: "input", id: begun.paneId, data: `${SETUP_FAILS_WITH}\n` });
-      for (const deadline = Date.now() + 15_000; (await setupOf(title))?.state !== "failed"; await new Promise((resolve) => setTimeout(resolve, 100))) {
-        if (Date.now() >= deadline) throw new Error(`the setup of ${title} never failed`);
+      await listed({ type: "input", id: begun.paneId, data: `${SETUP_ENDS_WITH}\n` });
+      for (const deadline = Date.now() + 15_000; (await setupOf(title))?.state !== "succeeded"; await new Promise((resolve) => setTimeout(resolve, 100))) {
+        if (Date.now() >= deadline) throw new Error(`the setup of ${title} never succeeded: ${JSON.stringify(await setupOf(title))}`);
       }
     }
     await app.until(`document.getElementById("strip-state").classList.contains("waiting")`, `${SHOWN} as the one that needs the person`);
@@ -358,20 +330,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
 
-    // The records of two work items, written into their worktrees as a stage would write them: the directory with the routing that names the branch, and the record. The daemon reads each at its next pass.
-    const record = (title: string, text: string): void => {
-      const item = planted.find((workItem) => workItem.title === title);
-      if (!item) throw new Error(`the daemon lists no work item ${title}`);
-      const directory = join(item.worktree, "seal", "threads", `1-${item.branch.replace(/^.*\//, "")}`);
-      mkdirSync(directory, { recursive: true });
-      writeFileSync(join(item.worktree, "seal", "README.md"), `${MARKER}\n`);
-      writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${item.branch} |\n`);
-      writeFileSync(join(directory, RECORD_FILE), text);
-    };
-    const planted = (await listed()).workItems;
-    record(SHOWN, withApplied(withReversal(withReversal(DECISIONS.reduce(withDecision, ""), 2, REVERSAL), 3, TAKEN_IN), 3, "4c1e9a2") + REFUSED);
-    record(PARKED, QUESTIONS.reduce(withQuestion, ""));
-    await app.until(`document.querySelectorAll("#view-detail .decision").length === ${DECISIONS.length} && document.querySelector("#view-detail .decisions .unread")`, "the decisions and the line that was not read", 15_000);
+    // The parked work item's record, written into its worktree as a stage would write it: the directory with the routing that names the branch, and the record. The daemon reads it at its next pass.
+    const parked = (await listed()).workItems.find((workItem) => workItem.title === PARKED);
+    if (!parked) throw new Error(`the daemon lists no work item ${PARKED}`);
+    const directory = join(parked.worktree, "seal", "threads", `1-${parked.branch.replace(/^.*\//, "")}`);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(parked.worktree, "seal", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${parked.branch} |\n`);
+    writeFileSync(join(directory, RECORD_FILE), QUESTIONS.reduce(withQuestion, ""));
     await app.until(`document.querySelector('${PARKED_LINE} .state-icon.waiting')`, "the parked work item as one that needs the person", 15_000);
 
     // A prompt asked in the view, which the stand-in for the CLI fails.
