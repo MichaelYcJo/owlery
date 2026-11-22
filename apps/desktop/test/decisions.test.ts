@@ -123,7 +123,8 @@ describe("DecisionStore", () => {
     expect(read(JSON.stringify({ ...held, nextId: 2 }))).toEqual([]);
     expect(read(JSON.stringify({ nextId: 3 }))).toEqual([]);
     expect(read(JSON.stringify({ ...held, workItems: [[FIRST]] }))).toEqual([]);
-    expect(read(JSON.stringify({ ...held, workItems: { seven: [FIRST] } }))).toEqual([]);
+    // A key that is no work item's id makes the whole file another's, the entries under an id among it.
+    expect(read(JSON.stringify({ ...held, workItems: { 7: [FIRST], seven: [SECOND] } }))).toEqual([]);
     expect(read(JSON.stringify({ ...held, workItems: { 7: FIRST } }))).toEqual([]);
     expect(read(JSON.stringify({ ...held, workItems: { 7: [null] } }))).toEqual([]);
     for (const field of [{ id: "1" }, { kind: "guess" }, { kind: 3 }, { says: 3 }, { grounds: null }, { at: "100" }, { reversed: undefined }, { reversed: "no" }, { reversed: { at: "1", message: "x" } }, { reversed: { at: 1, message: 3 } }, { reversed: { at: 1 } }]) {
