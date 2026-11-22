@@ -1,0 +1,21 @@
+# Questions for the planner: 1795341001-cost-per-stage
+
+The ticket left these judgments open, and the tree or a probe answered each. They are not to be reopened without opening their grounds:
+
+- What a stage's cost is read from, and in which shape it crosses the protocol: `frame/design.md` *Grounding*, the rows on the `result` line and on `modelUsage`, and *Data & interfaces*.
+- How a cost under a subscription login is told from a charge: `frame/design.md` *Grounding*, the row on the four values of `apiKeySource`, and `frame/plan.md` *Alternatives considered*, the rows on `converted`, on the login's source as a string and on `costBasis`.
+- Whether the comparison under an API key login is built here: `frame/design.md` *Grounding*, the row on *Measure before building*. Issue #45's comment carried it to #140.
+- What gets an entry, and when it is written: `frame/plan.md` *Alternatives considered*, the rows from "One entry for each headless session that ended" to "An entry opened at the start and closed at the end".
+- Whether a session with no role is entered: `frame/plan.md` *Alternatives considered*, the row "An entry only for a session with a role".
+- Where the ledger lives and in which form: `frame/plan.md` *Alternatives considered*, the rows on `ledger.jsonl` and on `ledger.json`.
+- Whether a deleted work item's entries stay: `frame/design.md` *Grounding*, the row on issue #76, and `frame/plan.md` *Alternatives considered*, the two rows on a deleted work item.
+- Whether the old field `costUsd` stays beside the new one: `frame/plan.md` *Alternatives considered*, the two rows on `usage` and `costUsd`.
+- Whether this work waits for #41: `frame/plan.md` *Overlap with the release*, the row of #41.
+- Whether the window shows a cost in this work: `frame/design.md` *Scope*, the out-of-scope entry "Any display of a cost".
+
+No row below is a person's, so none blocks the build. Each is a measurement that no probe of this run could make, because it needs a real `claude` process, which the owner's rules for this run forbid, and Q1 also needs an API key login. The build goes on with each default.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | Which `apiKeySource` does the `init` line of a session the daemon launches name under a Claude Console API key login, and does the cost that session reports equal what the account is billed for the turn? The executable of Claude Code 2.1.330 names three values for a key (`frame/design.md` *Grounding*). Which of them a launch with the daemon's cleared environment gives was not run: it needs an API key login, a credential an agent's run cannot give itself, and a real turn. | a measurement, which issue #140 runs with the owner's API key login | **One of the three values, and the cost equals the bill**: *Scope* item 4 of `frame/design.md` stands. **Another value**: the adapter's list gains it, and until then such a cost is marked converted, which understates no charge. **The cost differs from the bill**: a cost under a key is no charge either, and #140 changes the mark's rule and the *Measure before building* bullet | The three values of the executable mean a key, and every other value is marked converted | open |
+| Q2 | Does Claude Code print a `result` line with the usage so far when the daemon's stop signals it in the middle of a turn? The daemon takes nothing after a stop today (`apps/desktop/src/daemon/daemon.ts:1333`), and what the CLI prints then was not run: it needs a real `claude` process in a turn. | a measurement, which issue #141 runs, as its comment of 2026-11-22 says | **It prints one**: #141 writes a stopped stage's entry at the process's exit, with that usage. **It prints none**: a stopped stage's cost comes only from the CLI's session log, which #141 reads | A stopped stage's entry has `usage` null and is written at the stop (*Scope* items 9 and 10 of `frame/design.md`) | open |
