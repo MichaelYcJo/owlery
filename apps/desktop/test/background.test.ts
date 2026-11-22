@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeHides, quitsWithLastWindow, startsInBackground, takeBackground } from "../src/main/background";
+import { closeHides, quitsWithLastWindow, showInBackground, startsInBackground, takeBackground } from "../src/main/background";
 
 describe("startsInBackground", () => {
   it("starts the app in the background for the value 1", () => {
@@ -59,5 +59,13 @@ describe("closeHides", () => {
     expect(closeHides(platform, false, false)).toBe(false);
     expect(closeHides(platform, true, false)).toBe(false);
     expect(closeHides(platform, false, true)).toBe(false);
+  });
+});
+
+describe("showInBackground", () => {
+  it("has the window let the system's pointer through to what is under it before it shows the window without the keyboard", () => {
+    const calls: string[] = [];
+    showInBackground({ setIgnoreMouseEvents: (ignore) => calls.push(`setIgnoreMouseEvents ${ignore}`), showInactive: () => calls.push("showInactive") });
+    expect(calls).toEqual(["setIgnoreMouseEvents true", "showInactive"]);
   });
 });

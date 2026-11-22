@@ -6,11 +6,27 @@
 /**
  * True where the app starts in the background: `OWLERY_BACKGROUND` is `1` in
  * the environment. The app then takes neither the system's focus nor, on
- * macOS, a place in the Dock, and its window opens without the keyboard.
- * Absent, empty or any other value, the app starts as it ships.
+ * macOS, a place in the Dock, and its window opens without the keyboard and
+ * lets the system's pointer through (`showInBackground`). Absent, empty or
+ * any other value, the app starts as it ships.
  */
 export function startsInBackground(env: NodeJS.ProcessEnv): boolean {
   return env.OWLERY_BACKGROUND === "1";
+}
+
+/**
+ * Shows the window of an app started in the background: it lets the
+ * system's pointer through to what is under it, and then shows below the
+ * window in front, without the keyboard. The pointer of the person at the
+ * machine then reaches their own windows and none of its clicks lands in
+ * this one, and the page moves no pointer of its own where the person's
+ * passes over the window, so a case's pointer, which the debugging port
+ * moves, stays where the case put it (#117). The debugging port's input
+ * reaches the page all the same.
+ */
+export function showInBackground(win: { setIgnoreMouseEvents(ignore: boolean): void; showInactive(): void }): void {
+  win.setIgnoreMouseEvents(true);
+  win.showInactive();
 }
 
 /**
