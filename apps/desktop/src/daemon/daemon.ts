@@ -14,7 +14,7 @@ import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
-import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup } from "./worktree-setup";
+import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps. */
@@ -1077,10 +1077,10 @@ export class Daemon {
       this.sendOutput(id, data);
     };
     terminal.onData(print);
-    terminal.onExit((exitCode) => {
+    terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
       // A setup ends with its pane's process, whether or not the pane is still listed.
-      const setupEnded = this.setupExited(workItemId, id, exitCode, session.ended);
+      const setupEnded = this.setupExited(workItemId, id, exitCode, signal, session.ended);
       exited();
       clearTimeout(session.silentStart);
       // A closed pane is on no list, and its end is no client's news.
@@ -1124,18 +1124,19 @@ export class Daemon {
   /**
    * Ends the setup of a work item at the exit of its pane's process, where
    * the setup runs and names that pane, whether or not the pane is still
-   * listed: it failed where the daemon ended the pane. A daemon that is
+   * listed: it failed where the daemon ended the pane, and where a signal
+   * ended its process, whose exit code then reads 0. A daemon that is
    * closing records nothing, so the next daemon reads the setup as one it
    * stopped. It answers whether it ended one. The store holds the end
    * whether or not its file was written: a pane's exit has no request to
    * answer with the error.
    */
-  private setupExited(workItemId: number, paneId: number, exitCode: number, ended: boolean): boolean {
+  private setupExited(workItemId: number, paneId: number, exitCode: number, signal: number, ended: boolean): boolean {
     if (this.closed) return false;
     const setup = this.store.workItem(workItemId)?.item.setup;
     if (!setup || setup.state !== "running" || setup.paneId !== paneId) return false;
     try {
-      this.store.setWorkItem(workItemId, { setup: endedSetup(setup, { exitCode, failure: ended ? PANE_ENDED : null }, (this.options.now ?? Date.now)()) });
+      this.store.setWorkItem(workItemId, { setup: endedSetup(setup, { exitCode, failure: ended ? PANE_ENDED : signal !== 0 ? signalEnded(signal) : null }, (this.options.now ?? Date.now)()) });
     } catch (error) {
       console.error(`the end of a setup was not written: ${error instanceof Error ? error.message : String(error)}`);
     }

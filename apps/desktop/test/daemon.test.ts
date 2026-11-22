@@ -909,6 +909,12 @@ describe("the setup of a new worktree", () => {
     expect((await c.message("started", (m) => m.requestId === 2)).session).toMatchObject({ alive: true, workItemId: answer.workItem.id });
   });
 
+  it("records a command whose process a signal ended as failed, with the signal, though its exit code reads 0", async () => {
+    const { c } = await createdIn(repositoryNaming({ command: "kill -TERM $$" }));
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 0, failure: "The setup command was ended by SIGTERM." });
+  });
+
   it("runs the command though an included path failed to copy, and records the setup as failed with the path and why", async () => {
     const made = repositoryNaming({ include: ".env\n.env.secret\n", command: "echo ran > ran.txt" });
     writeFileSync(join(made.repo, ".env.secret"), "SECRET=1\n");

@@ -6,7 +6,8 @@
 // patterns match, never Owlery's own reading of them, and git runs with
 // arguments, never through a shell.
 import { spawn } from "node:child_process";
-import { cp, lstat, readFile, stat } from "node:fs/promises";
+import { cp, lstat, readFile, rm, stat } from "node:fs/promises";
+import { constants } from "node:os";
 import { join } from "node:path";
 import type { WorktreeSetup } from "../shared/protocol";
 
@@ -68,6 +69,18 @@ function complaint(command: string, result: { code: number | null; stderr: strin
   return result.stderr.split("\n").find((line) => line.trim() !== "")?.trim() ?? `git ${command} ended with ${String(result.code)}`;
 }
 
+/** The program that clones a path: `cp -c` clones each file on APFS, so the copy takes almost no time and no disk. */
+export const CLONE = "/bin/cp";
+
+/** Whether `program`, run as `cp -c -R -P`, cloned `source` to `target`: false where it exited with another code than 0 or could not start. */
+function cloned(program: string, source: string, target: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(program, ["-c", "-R", "-P", source, target], { stdio: "ignore" });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+  });
+}
+
 /**
  * Copies into `worktree` each path of the main checkout `repo` that a
  * pattern of its `.worktreeinclude` matches and git ignores. The paths are
@@ -76,11 +89,13 @@ function complaint(command: string, result: { code: number | null; stderr: strin
  * a tracked file and an untracked file git does not ignore are never
  * copied. A folder is copied whole, a link as a link with its target as it
  * reads, and a path that already stands in the worktree is neither written
- * over nor listed. A path that fails to copy is listed with its error and
- * the others go on. Where either git command fails, nothing is copied and
- * `failure` says why; nothing is thrown.
+ * over nor listed. Each path is cloned with `clone` run as `cp -c -R -P`,
+ * and where that fails, as on a volume that is not APFS, what it left is
+ * removed and Node's copy writes the path. A path that fails to copy is
+ * listed with its error and the others go on. Where either git command
+ * fails, nothing is copied and `failure` says why; nothing is thrown.
  */
-export async function copyIncluded(repo: string, worktree: string): Promise<{ copied: string[]; copiedCount: number; failed: { path: string; why: string }[]; failure: string | null }> {
+export async function copyIncluded(repo: string, worktree: string, clone = CLONE): Promise<{ copied: string[]; copiedCount: number; failed: { path: string; why: string }[]; failure: string | null }> {
   const none = { copied: [], copiedCount: 0, failed: [] };
   const listed = await gitWith(repo, ["ls-files", "--others", "--ignored", `--exclude-from=${join(repo, INCLUDE_FILE)}`, "--directory", "-z"], "");
   if (listed.code !== 0) return { ...none, failure: complaint("ls-files", listed) };
@@ -91,7 +106,8 @@ export async function copyIncluded(repo: string, worktree: string): Promise<{ co
   const copied: string[] = [];
   const failed: { path: string; why: string }[] = [];
   for (const path of ignored.stdout.split("\0").filter((entry) => entry !== "")) {
-    // A folder is listed with a slash at its end, and stands in the worktree without it.
+    // A folder is listed with a slash at its end, and stands in the worktree without it. `cp` given a folder with the slash would copy what it holds.
+    const source = join(repo, path.replace(/\/$/, ""));
     const target = join(worktree, path.replace(/\/$/, ""));
     try {
       await lstat(target);
@@ -99,8 +115,14 @@ export async function copyIncluded(repo: string, worktree: string): Promise<{ co
     } catch {
       // Nothing stands there, so the path is copied.
     }
+    if (await cloned(clone, source, target)) {
+      copied.push(path);
+      continue;
+    }
     try {
-      await cp(join(repo, path), target, { recursive: true, verbatimSymlinks: true, force: false, errorOnExist: false });
+      // Nothing stood at the target before the clone, so what a failed clone left there is its own.
+      await rm(target, { recursive: true, force: true });
+      await cp(source, target, { recursive: true, verbatimSymlinks: true, force: false, errorOnExist: false });
       copied.push(path);
     } catch (error) {
       failed.push({ path, why: error instanceof Error ? error.message : String(error) });
@@ -149,6 +171,12 @@ export const PANE_ENDED = "The setup pane ended before its command did.";
 
 /** The sentence of a setup the store read as running at the daemon's start. */
 export const DAEMON_STOPPED = "The daemon stopped before the setup command ended.";
+
+/** The sentence of a setup whose command's process a signal ended, by the signal's name where the system names it, as "SIGTERM". */
+export function signalEnded(signal: number): string {
+  const name = Object.entries(constants.signals).find(([, number]) => number === signal)?.[0];
+  return `The setup command was ended by ${name ?? `signal ${signal}`}.`;
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const isTextOrNull = (value: unknown): value is string | null => value === null || typeof value === "string";

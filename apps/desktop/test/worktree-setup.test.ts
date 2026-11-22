@@ -73,7 +73,8 @@ describe("copyIncluded", () => {
     expect(await copyIncluded(repo, worktree)).toEqual({ copied: [], copiedCount: 0, failed: [], failure: null });
   });
 
-  it("lists 500 of the paths it copied and of those it could not, and counts every one it copied", async () => {
+  // Each of the 501 paths is cloned by a process of its own, twice, so the case takes longer than the default five seconds on a loaded machine.
+  it("lists 500 of the paths it copied and of those it could not, and counts every one it copied", { timeout: 30_000 }, async () => {
     const { repo, worktree, base } = repositoryWithIgnoredFiles();
     writeFileSync(join(repo, ".gitignore"), "*.log\n");
     writeFileSync(join(repo, ".worktreeinclude"), "*.log\n");
@@ -103,6 +104,47 @@ describe("copyIncluded", () => {
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
     expect(readlinkSync(link)).toBe("../pkg/index.js");
     expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=worktree\n");
+  });
+
+  /** A program in the place of `/bin/cp` that writes each call's arguments to `log`, then runs `body`. */
+  function clonedBy(base: string, body: string) {
+    const log = join(base, "clone.log");
+    const program = join(base, "clone.sh");
+    writeFileSync(program, `#!/bin/sh\necho "$*" >> "${log}"\n${body}\n`, { mode: 0o755 });
+    return { program, calls: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter((line) => line !== "") : []) };
+  }
+
+  it("clones each path with cp -c -R -P, a folder and a file alike, and clones no path that stands in the worktree", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    mkdirSync(join(repo, "node_modules", ".bin"));
+    symlinkSync("../pkg/index.js", join(repo, "node_modules", ".bin", "tool"));
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\n**/.env.local\nnode_modules/\n");
+    writeFileSync(join(worktree, ".env"), "KEY=worktree\n");
+    const clone = clonedBy(base, 'exec /bin/cp "$@"');
+    expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: ["apps/web/.env.local", "node_modules/"], copiedCount: 2, failed: [], failure: null });
+    expect(clone.calls()).toEqual([`-c -R -P ${join(repo, "apps/web/.env.local")} ${join(worktree, "apps/web/.env.local")}`, `-c -R -P ${join(repo, "node_modules")} ${join(worktree, "node_modules")}`]);
+    for (const path of ["apps/web/.env.local", "node_modules/pkg/index.js"]) expect(readFileSync(join(worktree, path), "utf8")).toBe(readFileSync(join(repo, path), "utf8"));
+    expect(readlinkSync(join(worktree, "node_modules", ".bin", "tool"))).toBe("../pkg/index.js");
+    expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=worktree\n");
+  });
+
+  it("copies a path with Node's copy where its clone fails, in place of what the failed clone left, and where no cp can start", async () => {
+    const { repo, worktree, base } = repositoryWithIgnoredFiles();
+    mkdirSync(join(repo, "node_modules", ".bin"));
+    symlinkSync("../pkg/index.js", join(repo, "node_modules", ".bin", "tool"));
+    writeFileSync(join(repo, ".worktreeinclude"), ".env\nnode_modules/\n");
+    // A clone that fails half way: it leaves a folder, with a stray file in it, at each target.
+    const clone = clonedBy(base, 'mkdir -p "$5" && echo stray > "$5/stray"\nexit 1');
+    expect(await copyIncluded(repo, worktree, clone.program)).toEqual({ copied: [".env", "node_modules/"], copiedCount: 2, failed: [], failure: null });
+    expect(clone.calls()).toHaveLength(2);
+    expect(readFileSync(join(worktree, ".env"), "utf8")).toBe("KEY=main\n");
+    expect(readFileSync(join(worktree, "node_modules", "pkg", "index.js"), "utf8")).toBe("module.exports = 1;\n");
+    expect(existsSync(join(worktree, "node_modules", "stray"))).toBe(false);
+    expect(readlinkSync(join(worktree, "node_modules", ".bin", "tool"))).toBe("../pkg/index.js");
+    const other = join(base, "other");
+    git(repo, "worktree", "add", "--quiet", "-b", "owlery/other", other);
+    expect(await copyIncluded(repo, other, join(base, "no-such-cp"))).toEqual({ copied: [".env", "node_modules/"], copiedCount: 2, failed: [], failure: null });
+    expect(readFileSync(join(other, ".env"), "utf8")).toBe("KEY=main\n");
   });
 
   it("lists a path it could not copy with the error, and copies the others", async () => {
