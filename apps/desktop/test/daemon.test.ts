@@ -470,7 +470,7 @@ describe("work items", () => {
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
     expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
@@ -1363,7 +1363,7 @@ describe("repositories", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
     const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -1390,7 +1390,7 @@ describe("repositories", () => {
     let stopped = 0;
     const inner = fakeAdapter({ delayMs: 60_000 });
     // The adapter takes a moment to start a run, as one that launches a process does.
-    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
     const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -1904,7 +1904,7 @@ describe("what a person sets on a work item", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; return run.stop(); } }; } };
     const { c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
@@ -2179,7 +2179,7 @@ describe("what a person sets on a work item", () => {
     // The run writes a file into the work item's folder as it ends, a moment after its stop.
     const roleAdapter: RoleAdapter = {
       name: inner.name,
-      features: inner.features,
+      features: inner.features, notice: inner.notice,
       start: async (options, listener) => {
         const run = await inner.start(options, listener);
         return {
@@ -2205,7 +2205,7 @@ describe("what a person sets on a work item", () => {
     const made = repository();
     const inner = fakeAdapter({ delayMs: 60_000 });
     // The run never says it has ended.
-    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, start: async (options, listener) => { await inner.start(options, listener); return { stop: () => new Promise<void>(() => {}) }; } };
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await inner.start(options, listener); return { stop: () => new Promise<void>(() => {}) }; } };
     const { c, url, workItem } = await withWorkItem(made, { roleAdapter, endWaitMs: 300, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Which file?" });
@@ -3128,7 +3128,7 @@ describe("headless sessions", () => {
     const seen = { started: [] as { prompt: string; cwd: string; role?: RoleStage }[], stopped: 0 };
     const adapter: RoleAdapter = {
       name: inner.name,
-      features: inner.features,
+      features: inner.features, notice: inner.notice,
       start: async (options, listener) => {
         seen.started.push(options);
         const run = await inner.start(options, listener);
@@ -3249,6 +3249,7 @@ describe("headless sessions", () => {
     const roleAdapter: RoleAdapter = {
       name: "priced",
       features: [],
+      notice: () => Promise.resolve(null),
       start: (_options, listener) => {
         setTimeout(() => {
           listener({ type: "text", text: "Let me look. " });
@@ -3378,7 +3379,7 @@ describe("headless sessions", () => {
     // The run's process takes a moment to end after its stop.
     const roleAdapter: RoleAdapter = {
       name: inner.name,
-      features: inner.features,
+      features: inner.features, notice: inner.notice,
       start: async (options, listener) => {
         const run = await inner.start(options, listener);
         return {
@@ -3404,6 +3405,7 @@ describe("headless sessions", () => {
     const roleAdapter: RoleAdapter = {
       name: "slow",
       features: [],
+      notice: () => Promise.resolve(null),
       start: async (options, listener) => {
         await pause(150);
         const run = await inner.start(options, listener);
@@ -3428,7 +3430,7 @@ describe("headless sessions", () => {
   function quickOrSlow() {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
-    return watched({ name: "fake", features: [], start: (options, listener) => (options.prompt === "Quick?" ? quick : slow).start(options, listener) });
+    return watched({ name: "fake", features: [], notice: quick.notice, start: (options, listener) => (options.prompt === "Quick?" ? quick : slow).start(options, listener) });
   }
 
   it("carries what the agent's process printed on its error stream: every client sees the failed session with it, and `ready` lists it so", async () => {
@@ -3476,6 +3478,7 @@ describe("headless sessions", () => {
     const roleAdapter: RoleAdapter = {
       name: "fake",
       features: [],
+      notice: () => Promise.resolve(null),
       start: async (options, listener) => {
         if (options.prompt === "Slow to start?") await pause(400);
         const run = await inner.adapter.start(options, listener);
@@ -3532,6 +3535,7 @@ describe("headless sessions", () => {
     const roleAdapter: RoleAdapter = {
       name: "fake",
       features: [],
+      notice: () => Promise.resolve(null),
       start: async (options, listener) => {
         if (options.prompt !== "Slow?") return quick.start(options, listener);
         finishSlow = () => {
@@ -3592,6 +3596,7 @@ describe("headless sessions", () => {
     const roleAdapter: RoleAdapter = {
       name: "fake",
       features: [],
+      notice: () => Promise.resolve(null),
       start: async (options, listener) => {
         if (options.prompt !== "First?") return quick.start(options, listener);
         setTimeout(() => listener({ type: "result", text: "first", isError: false, costUsd: null }), 0);
@@ -3618,6 +3623,7 @@ describe("headless sessions", () => {
     const roleAdapter: RoleAdapter = {
       name: "fake",
       features: [],
+      notice: () => Promise.resolve(null),
       start: (options, listener) =>
         options.prompt !== "Slow?" ? quick.start(options, listener) : new Promise((_, reject) => rejects.push(() => reject(new Error("the login shell found no CLI")))),
     };
@@ -3652,6 +3658,98 @@ describe("headless sessions", () => {
     await pause(100);
     expect(toldSince(before)).toEqual([]);
     expect((await listed()).map(([id]) => id)).toEqual([third]);
+  });
+});
+
+describe("the agent's notice", () => {
+  const NOTICE = "The fake agent is old.";
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const told = (c: { messages: ServerMessage[] }): (string | null)[] => c.messages.flatMap((m) => (m.type === "agentNotice" ? [m.notice] : []));
+
+  /** A fake adapter whose notices are answered by the case: each call waits for the answer the case gives it, by the call's place. */
+  function asked() {
+    const answers: ((notice: string | null) => void)[] = [];
+    const adapter: RoleAdapter = { ...fakeAdapter(), notice: () => new Promise((resolve) => answers.push(resolve)) };
+    return { adapter, asks: () => answers.length, answer: (call: number, notice: string | null) => answers[call]!(notice) };
+  }
+
+  it("is read from the adapter at the daemon's start, and `ready` carries it: the adapter's sentence, or null where it has none", async () => {
+    const old = await daemon({ roleAdapter: fakeAdapter({ notice: NOTICE }) });
+    expect((await (await client(old.url)).message("ready")).agentNotice).toBe(NOTICE);
+    const current = await daemon();
+    const c = await client(current.url);
+    expect((await c.message("ready")).agentNotice).toBeNull();
+    await pause(100);
+    expect(told(c)).toEqual([]);
+  });
+
+  it("does not wait for the adapter: a client that connected before the answer has a `ready` with none, and every client is sent the notice once it arrives", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    expect(asks()).toBe(1);
+    const first = await client(url);
+    const second = await client(url);
+    expect((await first.message("ready")).agentNotice).toBeNull();
+    expect((await second.message("ready")).agentNotice).toBeNull();
+    // No notice stands, so the two hellos asked nothing more.
+    expect(asks()).toBe(1);
+    answer(0, NOTICE);
+    for (const c of [first, second]) expect(await c.message("agentNotice")).toEqual({ type: "agentNotice", notice: NOTICE });
+    expect((await (await client(url)).message("ready")).agentNotice).toBe(NOTICE);
+  });
+
+  it("asks the adapter again at each hello while a notice stands, tells every client that it went, and asks no more once it has", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    answer(0, NOTICE);
+    const first = await client(url);
+    expect((await first.message("ready")).agentNotice).toBe(NOTICE);
+    await first.until(() => (asks() === 2 ? true : undefined));
+    // The person has not updated yet: the same answer changes nothing, and nobody is told again.
+    answer(1, NOTICE);
+    const second = await client(url);
+    expect((await second.message("ready")).agentNotice).toBe(NOTICE);
+    await second.until(() => (asks() === 3 ? true : undefined));
+    await pause(50);
+    expect([told(first), told(second)]).toEqual([[], []]);
+    answer(2, null);
+    for (const c of [first, second]) expect(await c.message("agentNotice")).toEqual({ type: "agentNotice", notice: null });
+    const third = await client(url);
+    expect((await third.message("ready")).agentNotice).toBeNull();
+    await pause(50);
+    expect(asks()).toBe(3);
+    expect([told(first), told(second), told(third)]).toEqual([[null], [null], []]);
+  });
+
+  it("keeps the answer of the adapter's last read where an earlier read answers after it", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    answer(0, NOTICE);
+    const first = await client(url);
+    await first.message("ready");
+    const second = await client(url);
+    await second.message("ready");
+    await second.until(() => (asks() === 3 ? true : undefined));
+    // The second hello's read found the CLI updated. The first hello's read began before the update and answers last.
+    answer(2, null);
+    await first.message("agentNotice", (m) => m.notice === null);
+    answer(1, NOTICE);
+    await pause(50);
+    expect(told(first)).toEqual([null]);
+    expect((await (await client(url)).message("ready")).agentNotice).toBeNull();
+  });
+
+  it("launches a session all the same while a notice stands", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { url } = await daemon({ worktreesRoot: made.root, roleAdapter: fakeAdapter({ notice: NOTICE }) });
+    const c = await client(url);
+    expect((await c.message("ready")).agentNotice).toBe(NOTICE);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which owl?" });
+    const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
+    expect([headless.state, headless.answer]).toEqual(["finished", 'You asked: "Which owl?"']);
   });
 });
 
@@ -4188,7 +4286,7 @@ describe("keeping the Mac awake", () => {
     const runDir = runFolder();
     const { url } = await daemon({ runDir });
     const c = await client(url);
-    expect(Object.keys(await c.message("ready")).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(await c.message("ready")).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
     c.send({ type: "setKeepAwake", choice: "always" });
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 999 });
     await c.message("error", (m) => m.requestId === 1);

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RoleEvent } from "../src/daemon/adapters/adapter";
-import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, parseLookup, promptLine, roleCheck } from "../src/daemon/adapters/claude";
+import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
 import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText } from "../src/daemon/adapters/claude-roles";
 import { ROLE_STAGES, type RoleStage } from "../src/shared/protocol";
 
@@ -379,6 +379,91 @@ describe("the Claude adapter's run", () => {
     expect([out === "0", err === "0"]).toEqual([false, false]);
     await new Promise((r) => setTimeout(r, 100));
     expect(events).toEqual([{ type: "exit", exitCode: 0, errorOutput: "" }]);
+  });
+
+  describe("the notice of an old CLI", () => {
+    const older = (found: string): string => `Claude Code ${found} is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
+    /** A CLI that prints `printed` where its one argument is `--version`, and records how it was run. */
+    const versionCli = (folder: string, printed: string): string =>
+      script(folder, "cli", [`for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`, `env | sort > '${folder}/env'`, `[ "$*" = "--version" ] && printf '%s\\n' '${printed}'`, "exit 0"].join("\n"));
+
+    it("names 2.1.326 as the oldest version checked, and says of an older one which was found and what to run", () => {
+      expect(MIN_CLAUDE_VERSION).toBe("2.1.326");
+      for (const found of ["2.1.325", "2.1.300", "2.1.99", "2.0.999", "1.99.999"]) expect(versionNotice(`${found} (Claude Code)`), found).toBe(older(found));
+    });
+
+    it("says nothing of the oldest version checked or a newer one, each number compared as a number", () => {
+      for (const found of ["2.1.326", "2.1.330", "2.1.1000", "2.2.0", "2.10.0", "3.0.0", "10.0.0"]) expect(versionNotice(`${found} (Claude Code)`), found).toBeNull();
+    });
+
+    it("reads the first three numbers joined by dots out of what the CLI printed, and says nothing where it printed none", () => {
+      expect(versionNotice("a warning of 1 line\nv2.1.300-beta.4 (Claude Code)\n")).toBe(older("2.1.300"));
+      for (const printed of ["", "Claude Code", "2.1", "2.1.x"]) expect(versionNotice(printed), printed).toBeNull();
+    });
+
+    it("runs the CLI the shell found with --version alone and a session's five names, and names an older version it printed", async () => {
+      const folder = temporaryFolder();
+      const cli = versionCli(folder, "2.1.300 (Claude Code)");
+      expect(await claudeAdapter(fakeShell(folder, cli).env).notice()).toBe(older("2.1.300"));
+      expect(readFileSync(join(folder, "args"), "utf8")).toBe("--version\n");
+      const names = readFileSync(join(folder, "env"), "utf8")
+        .split("\n")
+        .flatMap((line) => (line.includes("=") ? [line.slice(0, line.indexOf("="))] : []))
+        // What `sh` sets for itself.
+        .filter((name) => !["PWD", "SHLVL", "_", "OLDPWD"].includes(name));
+      expect(names).toEqual(["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "HOME", "LANG", "PATH", "USER"]);
+    });
+
+    it("has no notice for a CLI that prints 2.1.326, 2.2.0 or 2.10.0", async () => {
+      for (const found of ["2.1.326", "2.2.0", "2.10.0"]) {
+        const folder = temporaryFolder();
+        const adapter = claudeAdapter(fakeShell(folder, versionCli(folder, `${found} (Claude Code)`)).env);
+        expect(await adapter.notice(), found).toBeNull();
+        // The CLI was asked: the answer is its version's and not a failed run's.
+        expect(readFileSync(join(folder, "args"), "utf8"), found).toBe("--version\n");
+      }
+    });
+
+    it("reads the version a CLI printed though the CLI then exits with a failure", async () => {
+      const folder = temporaryFolder();
+      const cli = script(folder, "cli", "echo '2.1.300 (Claude Code)'\nexit 3");
+      expect(await claudeAdapter(fakeShell(folder, cli).env).notice()).toBe(older("2.1.300"));
+    });
+
+    it("has no notice, and rejects nothing, where no CLI is found, where the login shell does not answer, where the CLI prints no version, and where the CLI does not answer in time", async () => {
+      const folder = temporaryFolder();
+      expect(await claudeAdapter(fakeShell(folder, "").env).notice()).toBeNull();
+      const silent = script(folder, "silent-shell", "exec sleep 30");
+      expect(await claudeAdapter({ SHELL: silent }, { lookupTimeoutMs: 100 }).notice()).toBeNull();
+      expect(await claudeAdapter(fakeShell(folder, script(folder, "wordy", "echo 'Claude Code'")).env).notice()).toBeNull();
+      expect(await claudeAdapter(fakeShell(folder, script(folder, "failing", "echo 'error: unknown option' >&2\nexit 1")).env).notice()).toBeNull();
+      const started = Date.now();
+      expect(await claudeAdapter(fakeShell(folder, script(folder, "hanging", "exec sleep 30")).env, { lookupTimeoutMs: 1000 }).notice()).toBeNull();
+      expect(Date.now() - started).toBeLessThan(10_000);
+    });
+
+    it("runs the CLI again at each call, so the notice goes once the person updated, and asks the login shell once for the notices and the sessions together", async () => {
+      const folder = temporaryFolder();
+      const version = join(folder, "version");
+      writeFileSync(version, "2.1.300 (Claude Code)\n");
+      const cli = script(folder, "cli", `if [ "$1" = "--version" ]; then cat '${version}'; exit 0; fi\ncat > /dev/null\nexit 0`);
+      const shell = fakeShell(folder, cli);
+      const adapter = claudeAdapter(shell.env);
+      expect(await adapter.notice()).toBe(older("2.1.300"));
+      writeFileSync(version, "2.1.326 (Claude Code)\n");
+      expect(await adapter.notice()).toBeNull();
+      await new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder }, (event) => event.type === "exit" && resolve()).catch(reject));
+      expect(shell.lookups()).toBe(1);
+    });
+
+    it("asks the login shell again for a session after a notice whose lookup found no CLI", async () => {
+      const folder = temporaryFolder();
+      const shell = fakeShell(folder, "");
+      const adapter = claudeAdapter(shell.env);
+      expect(await adapter.notice()).toBeNull();
+      await expect(adapter.start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow(`claude was not found by the login shell (${shell.env.SHELL})`);
+      expect(shell.lookups()).toBe(2);
+    });
   });
 });
 

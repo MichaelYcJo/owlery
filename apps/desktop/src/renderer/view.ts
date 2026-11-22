@@ -168,6 +168,17 @@ export function daemonNotice(otherBuild: boolean): string {
 }
 
 /**
+ * What the status line says in place of the daemon's state, or nothing: the
+ * window's own notice first, then what there is to say of the daemon
+ * (`daemonNotice`), then what the daemon's adapter said of its agent, such as
+ * that the installed one is older than the oldest version checked. `agent`
+ * is null where the adapter said nothing.
+ */
+export function statusNotice(own: string, daemon: string, agent: string | null): string {
+  return own || daemon || agent || "";
+}
+
+/**
  * The repositories and the archived work items of a `ready` or an `inbox`.
  * A daemon of a build before the repositories sends neither list and
  * answers none of the messages that came with them: the window then holds

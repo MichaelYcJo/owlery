@@ -101,4 +101,11 @@ describe("the fake adapter", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(events).toEqual([{ type: "text", text: "one" }]);
   });
+
+  it("has no notice of its agent unless it is given one, and gives the one it was given at every call", async () => {
+    expect(await fakeAdapter().notice()).toBeNull();
+    const adapter = fakeAdapter({ notice: "The fake agent is old." });
+    expect(await adapter.notice()).toBe("The fake agent is old.");
+    expect(await adapter.notice()).toBe("The fake agent is old.");
+  });
 });

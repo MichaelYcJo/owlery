@@ -68,7 +68,8 @@ describe.skipIf(!RUN)("a real role session, on the person's own Claude login", (
       chmodSync(file, 0o755);
       return file;
     };
-    const copying = script("claude-copying", `'${cli}' "$@" | tee '${stream}'`);
+    // The daemon also runs the CLI at its start, to read its version, and that run's output is no part of the stream.
+    const copying = script("claude-copying", `if [ "$*" = "--version" ]; then exec '${cli}' --version; fi\n'${cli}' "$@" | tee '${stream}'`);
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${copying}' '${path}'`);
 
     const before = bytes();

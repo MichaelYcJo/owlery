@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { claudeArgs } from "../src/daemon/adapters/claude";
+import { claudeArgs, versionNotice } from "../src/daemon/adapters/claude";
 import { PLUGIN_NAME, roleDocuments, rulesText } from "../src/daemon/adapters/claude-roles";
 import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
-import { alive, buildApp, untilGone } from "./built-app";
+import { alive, buildApp, BuiltApp, untilGone } from "./built-app";
 import { temporaryRepository } from "./repositories";
 
 const APP_DIR = join(__dirname, "..");
@@ -146,10 +146,12 @@ describe("the built app's role bundle", () => {
       chmodSync(file, 0o755);
       return file;
     };
-    // Stands for the CLI: records its arguments, then prints the first line of a session that holds the bundle's agents, and a result.
+    // Stands for the CLI: records a session's arguments, then prints the first line of a session that holds the bundle's agents, and a result.
+    // The daemon also runs it at its start, to read its version, and that run records nothing.
     const cli = script(
       "cli",
       [
+        `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
         `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
         "cat > /dev/null",
         `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
@@ -206,4 +208,54 @@ describe("the built app's role bundle", () => {
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
   }, 30_000);
+});
+
+// The window's status line against the daemon the app starts, whose adapter finds a stand-in for the CLI through a stand-in for the login shell.
+describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
+  it("says in the status line that the CLI the daemon found is older than the oldest version checked, says it again in a page loaded anew, and shows the daemon's state once the CLI is a checked version", async () => {
+    buildApp();
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-old-cli-")));
+    const script = (name: string, body: string): string => {
+      const file = join(folder, name);
+      writeFileSync(file, `#!/bin/sh\n${body}\n`);
+      chmodSync(file, 0o755);
+      return file;
+    };
+    const version = join(folder, "version");
+    const hold = join(folder, "hold");
+    writeFileSync(version, "2.1.300 (Claude Code)\n");
+    // Stands for the CLI: asked for its version, it prints the file's, once no file holds it back. A held one also ends once this script is gone, with the folder of a case that failed.
+    const cli = script("cli", `[ "$*" = "--version" ] || exit 1\nwhile [ -e '${hold}' ] && [ -e "$0" ]; do sleep 0.05; done\ncat '${version}'`);
+    // Stands for the login shell: it names the CLI and ends.
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const old = versionNotice("2.1.300 (Claude Code)");
+    expect(old).toBe(`Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`);
+    /** What the status line says, and whether it is drawn as a notice. */
+    const status = (): Promise<{ text: string; notice: boolean }> => app.evaluate(`({ text: document.getElementById("status").textContent, notice: document.getElementById("status").classList.contains("notice") })`);
+    const app = await BuiltApp.start({ SHELL: shell });
+    let left: number[];
+    try {
+      // The daemon read the version at its start, in the background: the sentence arrives in `ready` or in the message that follows it.
+      await app.until(`document.getElementById("status")?.textContent === ${JSON.stringify(old)}`, "the notice of the old CLI");
+      expect(await status()).toEqual({ text: old, notice: true });
+
+      // The person updates. The daemon reads the version again as a window connects, and that read is held here, so the page loaded anew has the sentence from the daemon's `ready` alone.
+      writeFileSync(hold, "");
+      writeFileSync(version, "2.1.326 (Claude Code)\n");
+      await app.evaluate(`window.__beforeReload = true`);
+      await app.cdp("Page.reload");
+      await app.until(`window.__beforeReload === undefined && document.getElementById("status")?.textContent === ${JSON.stringify(old)}`, "the notice in the page loaded anew");
+      expect(await status()).toEqual({ text: old, notice: true });
+
+      // The read ends, and the daemon tells the window that the notice went.
+      rmSync(hold);
+      await app.until(`document.getElementById("status")?.textContent === "Daemon running, no agent"`, "the daemon's state once the CLI is a checked version");
+      expect(await status()).toEqual({ text: "Daemon running, no agent", notice: false });
+    } finally {
+      rmSync(hold, { force: true });
+      left = await app.stop();
+      rmSync(folder, { recursive: true, force: true });
+    }
+    expect(left).toEqual([]);
+  });
 });

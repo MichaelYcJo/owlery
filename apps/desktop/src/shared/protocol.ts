@@ -337,8 +337,8 @@ export type ClientMessage =
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice.
-  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake }
+  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null.
+  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null }
   // The whole of the four lists, sent to every client whenever one of them changes.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
@@ -360,6 +360,8 @@ export type ServerMessage =
   | { type: "headlessDropped"; id: number }
   // The choice and whether the hold stands, sent to every client whenever either changes.
   | { type: "keepAwake"; keepAwake: KeepAwake }
+  // The adapter's notice of its agent, sent to every client whenever it changes: the sentence, or null once there is nothing to say.
+  | { type: "agentNotice"; notice: string | null }
   // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.
   | { type: "done"; requestId: number }
   // Answers a request that failed; nothing was created or started.

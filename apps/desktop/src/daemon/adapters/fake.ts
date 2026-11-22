@@ -14,12 +14,15 @@ export interface FakeAdapterOptions {
   delayMs?: number;
   /** What every `exit` says the process printed on its error stream; nothing when absent. */
   errorOutput?: string;
+  /** What the adapter says of its agent at every call of `notice`; nothing to say when absent. */
+  notice?: string;
 }
 
 export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
   return {
     name: "fake",
     features: [],
+    notice: () => Promise.resolve(options.notice ?? null),
     start({ prompt, role }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const pieces = options.pieces?.(prompt, role) ?? [role ? `As the ${role.role} at the stage ${role.stage}, you asked: "${prompt}"` : `You asked: "${prompt}"`];

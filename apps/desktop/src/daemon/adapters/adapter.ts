@@ -34,4 +34,10 @@ export interface RoleAdapter {
    * session started.
    */
   start(options: { prompt: string; cwd: string; role?: RoleStage }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
+  /**
+   * What a person should know of the adapter's agent before any session
+   * starts, as a sentence a window shows as it is, or null where there is
+   * nothing to say. It is read anew at each call, and it does not reject.
+   */
+  notice(): Promise<string | null>;
 }

@@ -19,6 +19,14 @@ export const ERROR_OUTPUT_CHARS = 2000;
 /** How long a stop waits, after it signalled the CLI's process group to end, before it kills the group where the CLI has not exited by then. */
 export const KILL_AFTER_MS = 2000;
 
+/**
+ * The oldest version of Claude Code that Owlery's role sessions were checked
+ * on: the options of a launch and its detachment were confirmed on it
+ * (docs/architecture.md, "Options for launching Claude Code"). An older one
+ * is launched all the same, and the person is told to update.
+ */
+export const MIN_CLAUDE_VERSION = "2.1.326";
+
 /** How long after the CLI's exit the run's `exit` waits for the CLI's streams to close, which a child the CLI started can hold open. */
 const STREAMS_GRACE_MS = 300;
 
@@ -109,6 +117,25 @@ export function parseLookup(printed: string): { cli: string; path: string } | un
   return { cli, path };
 }
 
+/**
+ * What a person is told of the CLI's version, from what the CLI printed for
+ * `--version`: that it is older than `MIN_CLAUDE_VERSION` and how to update,
+ * or null where it is that version or a newer one. The version is the first
+ * three numbers joined by dots, each compared as a number. Null too where
+ * the CLI printed no version, and the first session then says what failed.
+ */
+export function versionNotice(printed: string): string | null {
+  const found = /(\d+)\.(\d+)\.(\d+)/.exec(printed);
+  if (!found) return null;
+  const oldest = MIN_CLAUDE_VERSION.split(".").map(Number);
+  for (const [place, least] of oldest.entries()) {
+    const number = Number(found[place + 1]);
+    if (number > least) return null;
+    if (number < least) return `Claude Code ${found[0]} is older than ${MIN_CLAUDE_VERSION}, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
+  }
+  return null;
+}
+
 interface TextBlock {
   type: "text";
   text: string;
@@ -190,7 +217,7 @@ export function roleCheck(line: string, agent: string): { seen: boolean; failure
  * neither launches sessions with no role alone.
  */
 export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs?: number; bundleDir?: string; rulesDir?: string } = {}): RoleAdapter {
-  // Asked of the login shell once per daemon process; a lookup that failed is asked again.
+  // Asked of the login shell once per daemon process, for the sessions and the notices together; a lookup that failed is asked again.
   let found: Promise<{ cli: string; path: string }> | undefined;
 
   const lookup = (): Promise<{ cli: string; path: string }> => {
@@ -205,6 +232,12 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       }).stdin?.end();
     });
   };
+
+  const located = (): Promise<{ cli: string; path: string }> =>
+    (found ??= lookup().catch((error: unknown) => {
+      found = undefined;
+      throw error;
+    }));
 
   /**
    * What a role launch adds to the arguments, after writing the pair's rules
@@ -228,11 +261,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     features: [],
     async start({ prompt, cwd, role }, listener) {
       const launch = role && launchOf(role);
-      found ??= lookup().catch((error: unknown) => {
-        found = undefined;
-        throw error;
-      });
-      const { cli, path } = await found;
+      const { cli, path } = await located();
       // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
       // signal to the group also reaches what the CLI started in it, such as a tool's shell.
       const child = spawn(cli, claudeArgs(cwd, launch), { cwd, env: claudeEnv(env, path), stdio: ["pipe", "pipe", "pipe"], detached: true });
@@ -312,6 +341,20 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         for (const event of eventsForLine(line)) listener(event);
       });
       return { stop };
+    },
+    async notice() {
+      try {
+        const { cli, path } = await located();
+        // The CLI is run anew at each call, with a session's environment, so the answer is the version a session would run now.
+        // What it printed decides, whatever its exit code, and a CLI that does not answer in the lookup's time has printed nothing.
+        const printed = await new Promise<string>((resolve) => {
+          execFile(cli, ["--version"], { env: claudeEnv(env, path), encoding: "utf8", timeout: options.lookupTimeoutMs ?? 10_000 }, (_error, stdout) => resolve(stdout)).stdin?.end();
+        });
+        return versionNotice(printed);
+      } catch {
+        // No CLI was found, or it could not be run: the first session says what failed.
+        return null;
+      }
     },
   };
 }
