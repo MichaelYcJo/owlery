@@ -85,6 +85,8 @@ import {
   selectedLine,
   settingsBases,
   settingsFields,
+  setupMark,
+  setupSection,
   sidebarTree,
   stageOf,
   stateHeading,
@@ -110,7 +112,7 @@ import {
   type MenuEntry,
   unanswered,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -133,6 +135,8 @@ const LOGIN: WorkItem = {
   archivedAt: null,
   setup: null,
 };
+/** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
+const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
 const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
@@ -174,6 +178,12 @@ describe("tabLabel", () => {
 
   it("labels a pane of a kind the list does not hold with the kind as the daemon spells it", () => {
     expect(tabLabel(session(7, { kind: "shell" }), [session(7, { kind: "shell" })], [])).toBe("shell");
+  });
+
+  it("labels the pane the work item's setup names Setup, and numbers the other panes of its kind without it", () => {
+    const tabs = [session(3, { kind: "shell" }), session(4), session(5, { kind: "shell" })];
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, 3))).toEqual(["Setup", "Claude Code", "Shell"]);
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, null))).toEqual(["Shell 1", "Claude Code", "Shell 2"]);
   });
 });
 
@@ -706,6 +716,12 @@ describe("archivalOf", () => {
     });
   });
 
+  it("names the pane the work item's setup names Setup, as its tab does", () => {
+    const setting: WorkItem = { ...LOGIN, setup: { ...RUNNING_SETUP, paneId: 5 } };
+    expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup", "Shell"]);
+    expect(removalOf(PROJECT, [setting], [], [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup in Fix the login bug", "Shell in Fix the login bug"]);
+  });
+
   it("names none where no session of the work item runs, so its archive asks nothing first", () => {
     expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
   });
@@ -780,7 +796,7 @@ describe("archivedHead", () => {
 });
 
 describe("settingsBases", () => {
-  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop" };
+  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop", setupCommand: null, includes: false };
 
   it("lists the repository's local and remote bases whole, under a first choice that stores none, and chooses the base the repository has where the plan lists it", () => {
     expect(settingsBases(PLAN, "develop")).toEqual({ local: ["main", "develop"], remote: ["origin/main"], value: "develop" });
@@ -845,6 +861,50 @@ describe("lineMarks", () => {
     expect(lineMarks({ ...LOGIN, pinned: true })).toEqual([{ mark: "pinned", words: "Pinned" }]);
     expect(lineMarks({ ...LOGIN, muted: true })).toEqual([{ mark: "muted", words: "Notifications muted" }]);
     expect(lineMarks({ ...LOGIN, pinned: true, muted: true }).map(({ mark }) => mark)).toEqual(["pinned", "muted"]);
+  });
+});
+
+describe("setupMark", () => {
+  it("says Setting up while the setup runs and Setup failed where it failed, and nothing where it succeeded or none was named", () => {
+    expect(setupMark({ ...LOGIN, setup: RUNNING_SETUP })).toBe("Setting up");
+    expect(setupMark({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 3, endedAt: 2000 } })).toBe("Setup failed");
+    expect(setupMark({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "succeeded", exitCode: 0, endedAt: 2000 } })).toBe("");
+    expect(setupMark(LOGIN)).toBe("");
+  });
+
+  it("changes neither the line's state nor its group", () => {
+    const sessions = [session(4, { state: "working" })];
+    for (const setup of [RUNNING_SETUP, { ...RUNNING_SETUP, state: "failed" as const }]) {
+      const line = inboxLine({ ...LOGIN, setup }, sessions, KINDS);
+      expect(line).toEqual(inboxLine(LOGIN, sessions, KINDS));
+      expect(inboxGroups([{ line }]).map(({ heading }) => heading)).toEqual(inboxGroups([{ line: inboxLine(LOGIN, sessions, KINDS) }]).map(({ heading }) => heading));
+    }
+  });
+});
+
+describe("setupSection", () => {
+  it("says the command has run, and for how long, while it runs, and offers no run again", () => {
+    expect(setupSection({ ...LOGIN, setup: RUNNING_SETUP }, 1000 + 3 * 60_000)).toEqual({ says: "The command has run for 3 min.", copied: [".env", "node_modules/"], more: "", failed: [], runAgain: false });
+  });
+
+  it("says how the command ended, and offers to run the setup again", () => {
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "succeeded", exitCode: 0, endedAt: 2000 } }, 9000)).toMatchObject({ says: "The command ended with code 0.", runAgain: true });
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 3, endedAt: 2000 } }, 9000)).toMatchObject({ says: "The command ended with code 3.", runAgain: true });
+    // Where the daemon says why, that sentence stands in place of the code.
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 0, failure: "The setup pane ended before its command did.", endedAt: 2000 } }, 9000)).toMatchObject({ says: "The setup pane ended before its command did.", runAgain: true });
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, command: null, state: "succeeded", endedAt: 2000 } }, 9000)).toMatchObject({ says: "No command runs: .worktreesetup names none.", runAgain: true });
+  });
+
+  it("lists the paths that were not copied with why, and says how many copied paths the list leaves out", () => {
+    const setup = { ...RUNNING_SETUP, copied: ["a.log", "b.log"], copiedCount: 7, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], state: "failed" as const, exitCode: 0, endedAt: 2000 };
+    expect(setupSection({ ...LOGIN, setup }, 9000)).toEqual({ says: "The command ended with code 0.", copied: ["a.log", "b.log"], more: "and 5 more", failed: [{ path: ".env.secret", why: "EACCES: permission denied" }], runAgain: true });
+  });
+
+  it("is nothing for a work item whose repository named no setup, and for one a daemon of an earlier build sent without the field", () => {
+    expect(setupSection(LOGIN, 9000)).toBeNull();
+    const { setup: _, ...earlier } = LOGIN;
+    expect(setupSection(earlier as WorkItem, 9000)).toBeNull();
+    expect(setupMark(earlier as WorkItem)).toBe("");
   });
 });
 
@@ -1374,6 +1434,8 @@ const PLAN: FormPlan = {
   localBases: ["feature", "main", "owlery/fix-the-login-bug"],
   remoteBases: ["origin/main", "origin/release"],
   defaultBase: "origin/main",
+  setupCommand: null,
+  includes: false,
 };
 
 describe("planAnswer", () => {
@@ -1393,16 +1455,22 @@ describe("planAnswer", () => {
 });
 
 describe("planLine", () => {
-  it("shows the branch and the folder the plan's answer gave", () => {
-    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", failed: false });
+  it("shows the branch and the folder the plan's answer gave, and no setup where the repository names none", () => {
+    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", setup: "", failed: false });
+  });
+
+  it("names the setup the repository's two files name: the copy where .worktreeinclude stands, and the command .worktreesetup holds", () => {
+    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n", includes: true }, "/r/project").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout. Then runs: pnpm install");
+    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n" }, "/r/project").setup).toBe("Then runs: pnpm install");
+    expect(planLine({ ...PLAN, includes: true }, "/r/project").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout.");
   });
 
   it("shows the error's message in the place of the branch where the daemon refused the plan", () => {
-    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", failed: true });
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", setup: "", failed: true });
   });
 
   it("shows nothing where the form holds no answer, and where the answer is of another repository's text", () => {
-    const nothing = { branch: "", worktree: "", failed: false };
+    const nothing = { branch: "", worktree: "", setup: "", failed: false };
     expect(planLine(null, "/r/project")).toEqual(nothing);
     expect(planLine(PLAN, "/r/other")).toEqual(nothing);
     expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project")).toEqual(nothing);

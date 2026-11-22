@@ -4,7 +4,7 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, fileLines, lineMarks, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import { commitLines, fileLines, lineMarks, matchWorkItems, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -268,11 +268,13 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 
 /**
  * What the preview and a view's right column say of a work item alike: what
- * its agent says, its commits and its changed files, each left out where the
- * daemon sent none. The first `gained` commits carry the dot of a commit the
- * branch gained since the person last looked.
+ * its agent says, its commits, its changed files and its setup, each left
+ * out where the daemon sent none. The first `gained` commits carry the dot
+ * of a commit the branch gained since the person last looked. Where
+ * `runSetup` is given, as a view gives it, the setup offers "Run setup
+ * again" while it does not run, whose press calls `runSetup`.
  */
-export function detail(entry: Entry, gained: number): HTMLElement[] {
+export function detail(entry: Entry, gained: number, runSetup?: () => void): HTMLElement[] {
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
   // The agent's words are plain text, never markup.
@@ -294,6 +296,22 @@ export function detail(entry: Entry, gained: number): HTMLElement[] {
   if (files) {
     const lines = files.lines.map((line) => item("file", part("path", line.path), counts(line.counts)));
     parts.push(section("files", heading("Changes", part("sum", files.sum)), ...(lines.length > 0 ? [listOf(lines)] : []), ...(files.foot ? [part("hint foot", files.foot)] : [])));
+  }
+  const setup = setupSection(entry.workItem, Date.now());
+  if (setup) {
+    const head = heading(SETUP_HEAD);
+    if (runSetup && setup.runAgain) {
+      const button = document.createElement("button");
+      button.className = "quiet";
+      button.textContent = "Run setup again";
+      button.title = "Copy what is missing from the main checkout and run the command again, in a new pane";
+      button.addEventListener("click", runSetup);
+      head.append(button);
+    }
+    // The paths, the reasons and the daemon's sentence are plain text, never markup.
+    const copied = setup.copied.map((path) => item("copied", part("path", path)));
+    const failed = setup.failed.map(({ path, why }) => item("not-copied", part("path", path), part("why", why)));
+    parts.push(section("setup", head, part("setup-says", setup.says), ...(copied.length > 0 ? [listOf(copied)] : []), ...(setup.more ? [part("hint foot", setup.more)] : []), ...(failed.length > 0 ? [listOf(failed)] : [])));
   }
   return parts;
 }

@@ -160,6 +160,11 @@
       .file { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); min-height: var(--detail-line); }
       .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); }
       .file .counts { flex: none; }
+      /* The setup's section: how its command ended, the paths it copied, and each it could not with why. */
+      .detail .setup h3 .quiet { margin-left: auto; }
+      .setup-says { padding: var(--space-3) 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      .copied, .not-copied { display: flex; align-items: center; gap: var(--space-5); min-height: var(--detail-line); }
+      .not-copied .why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-caption); color: var(--state-failed); }
 
       #sidebar { flex: none; display: flex; flex-direction: column; box-sizing: border-box; width: var(--sidebar-width); min-height: 0; border-right: 1px solid var(--rule); background: var(--ground-side); }
       /* As high as the hidden title bar: it holds the window's traffic lights on macOS, drags the window and holds nothing else. */
@@ -253,6 +258,10 @@
       /* The second row's text is the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
       .line .says { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink-muted); }
       .line .says.branch { font-size: var(--size-caption); }
+      /* The setup's words after the text, in the failure's colour where it failed. */
+      .line .setup { flex: none; font-size: var(--size-caption); color: var(--ink-muted); }
+      .line .setup.failed { color: var(--state-failed); }
+      .line .setup:empty { display: none; }
       .list-empty { padding: 18px; color: var(--ink-muted); }
       /* The preview's body scrolls under its heading, and its foot stays in place. */
       .preview { display: flex; flex-direction: column; box-sizing: border-box; min-width: 0; min-height: 0; }
@@ -408,6 +417,9 @@
       #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
       #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
       #work-item-worktree { color: var(--ink-faint); }
+      /* The setup the repository names: its command is plain text, with its line breaks kept. */
+      #work-item-setup { color: var(--ink-muted); white-space: pre-wrap; }
+      #work-item-setup:empty { display: none; }
       #work-item-base-state { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
       #work-item-error { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
 
@@ -584,7 +596,7 @@
           Name
           <span class="row"><input id="work-item-title" autocomplete="off" /></span>
         </label>
-        <p id="work-item-plan" aria-live="polite"><span id="work-item-branch"></span><span id="work-item-worktree"></span></p>
+        <p id="work-item-plan" aria-live="polite"><span id="work-item-branch"></span><span id="work-item-worktree"></span><span id="work-item-setup"></span></p>
         <label>
           Starts from
           <span class="row">

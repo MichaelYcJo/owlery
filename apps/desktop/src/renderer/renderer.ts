@@ -132,6 +132,7 @@ const titleField = byId<HTMLInputElement>("work-item-title");
 const planPlace = byId("work-item-plan");
 const branchPlace = byId("work-item-branch");
 const worktreePlace = byId("work-item-worktree");
+const setupPlace = byId("work-item-setup");
 const baseField = byId<HTMLSelectElement>("work-item-base");
 const baseStatePlace = byId("work-item-base-state");
 const kindField = byId<HTMLSelectElement>("work-item-kind");
@@ -1091,11 +1092,12 @@ function openWorkItemForm(folder?: string): void {
   askPlan();
 }
 
-/** Draws what the form holds of its plan: the branch and the folder under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
+/** Draws what the form holds of its plan: the branch, the folder and the setup under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
 function showPlan(): void {
   if (registerOnly.checked) {
     branchPlace.textContent = "";
     worktreePlace.textContent = "";
+    setupPlace.textContent = "";
     planPlace.classList.remove("failed");
     baseField.disabled = true;
     baseStatePlace.textContent = "";
@@ -1104,6 +1106,7 @@ function showPlan(): void {
   const line = planLine(formPlan, repoField.value);
   branchPlace.textContent = line.branch;
   worktreePlace.textContent = line.worktree;
+  setupPlace.textContent = line.setup;
   planPlace.classList.toggle("failed", line.failed);
   const menu = baseMenu(formPlan, baseChoice, repoField.value);
   const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
@@ -1283,11 +1286,15 @@ function onMessage(message: ServerMessage): void {
         if (workItemDialog.open) workItemDialog.close();
       }
       takeStarted(message.session);
+      // The setup pane's output is sent to this window too, and drawn only once its tab is pressed, from the replay.
+      const setupPane = message.workItem.setup?.paneId ?? null;
+      if (setupPane !== null) detachUnshown(setupPane);
       openView(message.workItem.id);
       return;
     }
     case "workItemPlan": {
-      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase };
+      // A daemon of an earlier build names no setup.
+      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false };
       if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
     }

@@ -25,6 +25,7 @@ import {
   pinnedFirst,
   repoNameOf,
   selectedLine,
+  setupMark,
   workItemEntries,
   type Entry,
   type StateFilter,
@@ -137,7 +138,8 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     // The second row's text is the branch while a search is typed, with the letters that match marked.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
-    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
+    // After the text, the setup's words while it runs and where it failed.
+    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
     button.append(first, second);
     // A line of the archived screen opens no view: its press selects it.
     button.addEventListener("click", () => (name === "archived" ? select(workItem.id) : actions.openView(workItem.id)));
