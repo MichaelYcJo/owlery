@@ -67,6 +67,8 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: "Alpha" });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+    // Create creates nothing before the form shows the plan of its folder.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.querySelector("#stage .pane .xterm-scrollable-element")`, "the view of Alpha with its terminal");
   }, 120_000);
