@@ -409,6 +409,11 @@
       dialog .named.whole li > span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
       dialog .more { margin-top: var(--space-2); font-size: var(--size-second); color: var(--ink-faint); }
       dialog h3.work-item { margin-bottom: var(--space-3); }
+      /* The dialog of the records place: a file the setup would write is read whole, in the letters a file is read in, and a long one scrolls inside its own box. */
+      #records-dialog { width: min(720px, 92vw); }
+      #records-files pre { max-height: 180px; margin: 0 0 var(--space-5); padding: var(--space-3) var(--space-4); overflow: auto; border-radius: var(--radius-card); background: var(--ground-raised); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); user-select: text; }
+      #records-files .path { display: block; margin-bottom: var(--space-2); }
+      #records-gate-says { margin-top: calc(-1 * var(--space-3)); font-size: var(--size-second); }
       /* A menu, drawn over the window where it was asked for: its items in a column, and a rule where another part of it begins. A submenu is a second one, drawn beside the item that opens it. */
       .menu { position: fixed; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; min-width: var(--menu-width); max-width: var(--menu-width-most); padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
       /* The menu itself draws no ring when a press on no item puts the keyboard on it. */
@@ -799,6 +804,26 @@
         <div class="row end">
           <button type="button" id="reverse-cancel" class="quiet">Cancel</button>
           <button type="submit" id="reverse-submit" class="primary">Reverse</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="records-dialog">
+      <form id="records-form">
+        <h2 id="records-head" class="head"></h2>
+        <p id="records-scope" class="says"></p>
+        <p id="records-commit" class="says" hidden></p>
+        <p id="records-blocked" class="refusal" role="alert" hidden></p>
+        <div id="records-holds" hidden><ul class="named whole"></ul></div>
+        <div id="records-files"></div>
+        <label id="records-gate-label" hidden>
+          <span id="records-gate-name"></span>
+          <span class="row"><input id="records-gate" spellcheck="false" autocomplete="off" /></span>
+        </label>
+        <p id="records-gate-says" class="says" aria-live="polite" hidden></p>
+        <p id="records-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="records-cancel" class="quiet">Not now</button>
+          <button type="submit" id="records-submit" class="primary">Set up and commit</button>
         </div>
       </form>
     </dialog>

@@ -1,0 +1,89 @@
+// The dialog of the records place in the built app. It starts the app once,
+// in the background, on a temporary repository with no place for records,
+// registers the repository through the form, and drives the dialog through
+// Electron's debugging port: what it says before anything is written, the
+// commit its button makes, and what it shows of a repository that holds
+// every part. The commit lands in the temporary repository alone.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SUBJECT } from "../src/daemon/records-place";
+import { BuiltApp, buildApp } from "./built-app";
+import { git, temporaryRepository } from "./repositories";
+
+describe("the dialog of the records place in the built app", { timeout: 60_000 }, () => {
+  let app: BuiltApp;
+  let made: ReturnType<typeof temporaryRepository>;
+
+  const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  const value = <T>(expression: string): Promise<T> => app.evaluate<T>(expression);
+  const text = (id: string): Promise<string> => value(`document.getElementById(${JSON.stringify(id)}).textContent`);
+  const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
+  const dialogClosed = (id: string): Promise<void> => app.until(`!document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id} closed`);
+  const status = (): string => git(made.repo, "status", "--porcelain=v1", "--untracked-files=all");
+
+  beforeAll(async () => {
+    buildApp();
+    made = temporaryRepository();
+    // The repository's own check, which the daemon reads as the command it proposes.
+    writeFileSync(join(made.repo, "package.json"), '{ "scripts": { "check": "tsc" } }\n');
+    git(made.repo, "add", "package.json");
+    git(made.repo, "commit", "--quiet", "-m", "chore: a check");
+    app = await BuiltApp.start({ OWLERY_WORKTREES: made.root });
+    // The app starts in the background, and the page of a window without the system's focus reports none.
+    await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
+    await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
+  }, 120_000);
+
+  afterAll(async () => {
+    await app?.stop();
+    made?.remove();
+  }, 30_000);
+
+  it("opens when a repository with no place for records is registered: it says what is out of scope and shows the plan before anything is written, Set up and commit makes the one commit, and the repository's menu then shows what the repository holds, with no button to commit", async () => {
+    const before = git(made.repo, "rev-parse", "HEAD").trim();
+    await app.click("#new-work-item");
+    await dialogOpen("work-item-dialog");
+    await app.click("#work-item-register-only");
+    await value(`(() => { const field = document.getElementById("work-item-repo"); field.value = ${JSON.stringify(made.repo)}; field.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+    await app.click("#work-item-create");
+    await dialogClosed("work-item-dialog");
+
+    // The registration's answer opens the dialog, and the plan of the command the daemon proposed arrives.
+    await dialogOpen("records-dialog");
+    await app.until(`!document.getElementById("records-submit").disabled`, "the plan of the proposed command");
+    expect(await text("records-head")).toBe("Records and check: project");
+    expect(await text("records-scope")).toBe("Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.");
+    expect(await text("records-commit")).toBe(`This makes one commit on \`main\`: \`${SUBJECT}\`. Nothing is pushed.`);
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-files .path")].map((path) => path.textContent)`)).toEqual(["seal/README.md", "seal/config.json", WORKFLOW]);
+    const texts = await value<string[]>(`[...document.querySelectorAll("#records-files pre")].map((file) => file.textContent)`);
+    expect(texts[0]?.split("\n")[0]).toBe("# What AgenticSeal maintains in seal/");
+    expect(texts[1]).toContain('"Broad gate": "npm run check"');
+    // The workflow fetches the check at the version the build read from package.json.
+    const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
+    expect(texts[2]).toContain(`--branch v${version} \\`);
+    expect(await value<unknown[]>(`[document.getElementById("records-gate-name").textContent, document.getElementById("records-gate").value, document.getElementById("records-gate").disabled]`)).toEqual(["Broad gate command", "npm run check", false]);
+    expect(await text("records-gate-says")).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
+    expect(await value<string[]>(`[document.getElementById("records-cancel").textContent, document.getElementById("records-submit").textContent]`)).toEqual(["Not now", "Set up and commit"]);
+    // Nothing is written until the person confirms.
+    expect([git(made.repo, "rev-parse", "HEAD").trim(), status(), existsSync(join(made.repo, "seal")), existsSync(join(made.repo, ".github"))]).toEqual([before, "", false, false]);
+
+    await app.click("#records-submit");
+    await dialogClosed("records-dialog");
+    expect(git(made.repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(made.repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "seal/README.md", "seal/config.json"]);
+    expect(status()).toBe("");
+    expect(JSON.parse(readFileSync(join(made.repo, "seal", "config.json"), "utf8"))).toEqual({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "npm run check" });
+
+    // The repository now holds every part: its menu's entry shows them, and offers no commit.
+    await app.click(`#repositories section[data-repository="1"] .repository-menu`);
+    await app.until(`document.querySelector('[role="menu"]')`, "the repository's menu");
+    await value(`[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((item) => item.textContent === "Records and check…").click()`);
+    await dialogOpen("records-dialog");
+    await app.until(`document.querySelectorAll("#records-holds li").length === 3`, "what the repository holds");
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-holds li")].map((line) => line.textContent)`)).toEqual(["Records: `seal/`", `Check: \`${WORKFLOW}\``, "Broad gate: `npm run check`, kept in `seal/config.json` under `Broad gate`"]);
+    expect(await value<unknown[]>(`[document.getElementById("records-submit").hidden, document.getElementById("records-gate-label").hidden, document.getElementById("records-cancel").textContent, document.querySelectorAll("#records-files > *").length]`)).toEqual([true, true, "Close", 0]);
+    await app.click("#records-cancel");
+    await dialogClosed("records-dialog");
+  });
+});

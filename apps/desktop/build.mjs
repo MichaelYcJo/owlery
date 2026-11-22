@@ -1,10 +1,12 @@
 // Bundles the main process, the daemon, the preload and the renderer into dist/, and copies the page, what it loads and the role bundle.
-import { copyFile, cp, mkdir, rm } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, rm } from "node:fs/promises";
 import * as esbuild from "esbuild";
 
 await mkdir("dist", { recursive: true });
 
 const common = { bundle: true, sourcemap: true, logLevel: "warning" };
+// The app's version, read from package.json and from nowhere else: the daemon writes it into the workflow of a connected repository, which fetches the pull request check at that version's tag.
+const { version } = JSON.parse(await readFile("package.json", "utf8"));
 
 await Promise.all([
   esbuild.build({
@@ -22,6 +24,7 @@ await Promise.all([
     outfile: "dist/daemon.js",
     platform: "node",
     format: "cjs",
+    define: { OWLERY_VERSION: JSON.stringify(version) },
     external: ["node-pty", "ws", "bufferutil", "utf-8-validate"],
   }),
   esbuild.build({
