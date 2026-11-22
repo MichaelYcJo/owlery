@@ -64,7 +64,7 @@ No check of the repository's was run for this frame: no test, no linter, no type
 12. **A work item carries both over the protocol.** `WorkItem` gains `decisions` and `asked`. A client reads a work item without them, as a daemon of an earlier build sends it, as one with no decision and no record.
 13. **A look holds both, and a look written before them is still a look.** `lookOf` copies `decisions` and `asked`. A look's file whose work items lack them is read with no decision and no record on each, as the fields that came with the repositories are read.
 14. **The summary counts the decisions apart from the work items that wait.** A work item is changed since the look where it holds a decision the look does not hold for it, by the decision's id, and where its line's state differs, which a park and an answer both change. Its line in the summary adds "1 decision made without asking." or "N decisions made without asking." for the decisions the look does not hold. The summary's sentence keeps its count by state and adds, after a full stop, "1 decision made without asking." or "N decisions made without asking.", the sum over the changed work items, where the sum is above zero.
-15. **A work item's decisions and its record go when the work item is deleted, and stay when it is archived.** A delete and the removal of a repository take them out of `decisions; and at its start the daemon drops every entry whose work item its list of repositories does not hold, so a work item made after `repositories.json` was lost and its ids began again never takes an earlier work item's decisions or questions.json` and `asked.json`. An archived work item is listed under `archived` with them.
+15. **A work item's decisions and its record go when the work item is deleted, and stay when it is archived.** A delete and the removal of a repository take them out of `decisions.json` and `asked.json`; and at its start the daemon drops every entry whose work item its list of repositories does not hold, so a work item made after `repositories.json` was lost and its ids began again never takes an earlier work item's decisions or questions. An archived work item is listed under `archived` with them.
 
 **Out, each with its home.**
 
@@ -186,7 +186,7 @@ decided(workItemId: number, decision: { kind: DecisionKind; says: string; ground
 park(workItemId: number, asking: { by: string; questions: { asks: string; options?: { label: string; implies: string }[]; default?: number | null }[] }): Asked | undefined;
 ```
 
-`workItemOf` adds `decisions` and `asked` from the stores. `dropWorkItems` and the removal of a repository take a work item's entries out of the stores. The new cases of `handle` follow `setWorkItem`'s shape. `main.ts` and `DaemonOptions.runDir` name `decisions.json` and `asked.json` among the files the run folder holds.
+`workItemOf` adds `decisions` and `asked` from the stores. `dropWorkItems` and the removal of a repository take a work item's entries out of the stores, and the daemon's constructor drops the entries whose work item the repositories do not hold, read through each store's `workItemIds()`. The new cases of `handle` follow `setWorkItem`'s shape. `main.ts` and `DaemonOptions.runDir` name `decisions.json` and `asked.json` among the files the run folder holds.
 
 **`src/daemon/last-look.ts`.** `lookOf` copies `decisions` and `asked`, each entry a copy. `isWorkItem` accepts a work item without either, and one with either of the protocol's type.
 

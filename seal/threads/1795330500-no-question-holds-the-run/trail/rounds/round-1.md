@@ -41,6 +41,11 @@ The fix drops, at the daemon's start, every entry of a work item the repositorie
     this.keptChange("questions", () => this.asked.drop(gone(this.asked.workItemIds())));
 ```
 
+```seal
+verdict: fixed 5b2f606
+answer: The finding holds, and the paste-ready fix was applied as written after reading it against Scope item 15 and the constructor: the store of the repositories is built before the two stores, its work items include the archived ones, and a decision's id count is kept, so no id is given again. The case "drops at its start the decisions and the record of a work item its repositories do not hold…" in apps/desktop/test/daemon.test.ts was seen red against d92c720, and with the drop made to take only the stray id it failed on the work item made after repositories.json was removed. The docstrings of DecisionStore, AskedStore and dropWorkItems name the start as the third way out, and changelog.md says it. frame/design.md lines 67 and 189 are the orchestrator's.
+```
+
 The fix pass also owes a case in `apps/desktop/test/daemon.test.ts` that starts a daemon on a run folder whose `decisions.json` and `asked.json` hold entries under id 1 and whose `repositories.json` holds no work item, creates a work item, and reads `decisions: []` and `asked: null` on it and neither id in the two files. The case is shown red against `8db471d`, where the probe above passed. The docstrings of `DecisionStore` and `AskedStore` and the `dropWorkItems` docstring name the delete and the removal as the only ways out, and gain this third. The sentence "A delete and the removal of a repository take them out" in `frame/design.md` *Scope* item 15 is the orchestrator's to fold.
 
 ### 2. The policy documents say a decision shows on its line with its grounds, and the line shows only a count
@@ -71,6 +76,11 @@ docs/architecture.md:148, and frame/design.md:259
 docs/architecture.ko.md:148, and frame/design.md:264
 - 묻지 않고 내린 결정은 근거와 함께 그 작업의 줄에 보입니다
 + 묻지 않고 내린 결정은 그 작업의 줄에 개수로 보이고, 미리보기와 작업 화면에 근거와 함께 나옵니다
+```
+
+```seal
+verdict: fixed d48971c
+answer: The finding holds. The four sentences of docs/product.md, docs/product.ko.md, docs/architecture.md and docs/architecture.ko.md were rewritten in place to the replacements above. The framer had rewritten the four to: entries of frame/design.md at dcb4821, and each of the 16 to: texts of the frame now stands whole in its document.
 ```
 
 The first bullet of `changelog.md` says "shows on its work item with its grounds", which the preview and the view hold, and needs no change.
@@ -121,6 +131,11 @@ docs/architecture.ko.md:198
 + 작업 하나를 멈춰 두어도 다른 작업에서는
 - 사람이 앱에서 답하면 세워 둔 것이 풀립니다.
 + 사람이 앱에서 답하면 멈춰 둔 것이 풀립니다.
+```
+
+```seal
+verdict: fixed d48971c
+answer: The finding holds. The twelve replacements were made in place in docs/product.ko.md and docs/architecture.ko.md, as listed, and git grep of the verb over docs and README.ko.md prints only the three lines that use it in its other senses. The headings and the table lines of each document and its Korean edition count the same.
 ```
 
 The 세워 둔 작업이 replacement also fixes a second fault of that sentence: it said the parked work item itself spreads to the others, where the English says the park is kept to one work item. The other Korean sentences read as Korean, so this round opens no finding for them. Two sentences keep an English inanimate subject that the Korean rules ask to recast: "약속이 없애려는 것이 바로 그 기다림입니다" and "그 요청이 맡긴 모든 작업" (`docs/product.ko.md:11`). They read correctly, and whether they are the product's voice is the owner's call.
