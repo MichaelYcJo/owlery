@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RoleEvent } from "../src/daemon/adapters/adapter";
 import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
-import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText } from "../src/daemon/adapters/claude-roles";
+import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText, toolsOf } from "../src/daemon/adapters/claude-roles";
 import { ROLE_STAGES, type RoleStage } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
@@ -46,8 +46,8 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
-  it("adds to a role launch the bundle, the role's agent and the rules file after the permission mode, and the bundle's folder after the worktree, and nothing else", () => {
-    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md" };
+  it("adds to a role launch the role's tools as one value, the bundle, the role's agent and the rules file after the permission mode, and the bundle's folder after the worktree, and nothing else", () => {
+    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"] };
     expect(claudeArgs("/work/tree", role)).toEqual([
       "-p",
       "--input-format",
@@ -62,6 +62,8 @@ describe("the Claude adapter's launch", () => {
       "--strict-mcp-config",
       "--permission-mode",
       "default",
+      "--tools",
+      "Read,Glob,Grep,Bash",
       "--plugin-dir",
       "/app/dist/bundle",
       "--agent",
@@ -74,10 +76,13 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
-  it("turns no permission check off, with a role and without", () => {
-    for (const args of [claudeArgs("/work/tree"), claudeArgs("/work/tree", { bundleDir: "/bundle", agent: "owlery:crafter", rulesFile: "/rules.md" })]) {
+  it("turns no permission check off, with no role and with each role: the mode is default, and no other mode and no option that skips a check is named", () => {
+    const launches = [claudeArgs("/work/tree"), ...ROLE_STAGES.map((pair) => claudeArgs("/work/tree", { bundleDir: "/bundle", agent: agentOf(pair), rulesFile: "/rules.md", tools: toolsOf(pair) }))];
+    expect(launches).toHaveLength(4);
+    for (const args of launches) {
+      expect(args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
       expect(args[args.indexOf("--permission-mode") + 1]).toBe("default");
-      for (const off of ["bypassPermissions", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--bare"]) expect(args).not.toContain(off);
+      for (const off of ["bypassPermissions", "acceptEdits", "auto", "dontAsk", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--bare", "--permission-prompts"]) expect(args, off).not.toContain(off);
     }
   });
 
@@ -493,7 +498,7 @@ describe("a role's rules file", () => {
     ]);
   });
 
-  it("opens with a head that names the role, the stage, the bundle's root and the documents, and says what to do where a step names what the bundle does not hold", () => {
+  it("opens with a head that names the role, the stage, the bundle's root, the documents and the session's tools, and says what to do where a call is refused and where a step names what the bundle does not hold", () => {
     expect(rulesHead("/app/dist/bundle", PROOFER)).toBe(
       [
         "# Owlery role session: proofer, round",
@@ -508,12 +513,20 @@ describe("a role's rules file", () => {
         "- `skills/agent-contract/SKILL.md`",
         "- `skills/code-review/SKILL.md`",
         "",
+        "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.",
+        "",
         "The bundle holds documents only. A path under those four directories that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
         "",
       ].join("\n"),
     );
     const head = rulesHead("/elsewhere", { role: "crafter", stage: "fix-pass" });
     for (const named of ["# Owlery role session: crafter, fix-pass\n", "the crafter of the Owlery role bundle, at the stage `fix-pass`", "`agents/crafter.md`", "`/elsewhere`", "- `skills/implement/fix-pass.md`\n"]) expect(head, named).toContain(named);
+    // Each pair's head names the tools of its own launch, in the launch's order.
+    for (const pair of ROLE_STAGES) {
+      expect(rulesHead("/elsewhere", pair), pair.role).toContain(
+        `\n\nYou hold these tools and no other: ${toolsOf(pair).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.\n\n`,
+      );
+    }
   });
 
   it("holds the head, then each document after a line that names it, whole and without its frontmatter, in the table's order", () => {
@@ -620,12 +633,32 @@ describe("the Claude adapter's role launch", () => {
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     const rulesFile = join(rulesDir, "proofer-round.md");
-    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, { bundleDir, agent: "owlery:proofer", rulesFile }));
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, PROOFER));
     expect(statSync(rulesFile).mode & 0o777).toBe(0o600);
     expect(statSync(rulesDir).mode & 0o777).toBe(0o700);
     // The file was written whole: no partial file is left beside it.
     expect(readdirSync(rulesDir)).toEqual(["proofer-round.md"]);
+  });
+
+  it("launches each role with the tools of its grant alone, as one value after --tools: a proofer and a sealer with none that writes a file, a crafter with Edit and Write", async () => {
+    const launched: [string, string | undefined][] = [];
+    for (const pair of ROLE_STAGES) {
+      const init = JSON.stringify({ type: "system", subtype: "init", agents: [agentOf(pair)] });
+      const { folder, env, bundleDir, rulesDir } = launch([init, RESULT]);
+      const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, pair);
+      expect(events.at(-1), pair.role).toEqual({ type: "exit", exitCode: 0, errorOutput: "" });
+      const args = readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1);
+      // One `--tools`, and one argument as its value: the next argument is the bundle's option.
+      expect(args.filter((arg) => arg === "--tools"), pair.role).toHaveLength(1);
+      expect(args[args.indexOf("--tools") + 2], pair.role).toBe("--plugin-dir");
+      launched.push([pair.role, args[args.indexOf("--tools") + 1]]);
+    }
+    expect(launched).toEqual([
+      ["proofer", "Read,Glob,Grep,Bash"],
+      ["crafter", "Read,Glob,Grep,Bash,Edit,Write"],
+      ["sealer", "Read,Glob,Grep,Bash"],
+    ]);
   });
 
   it("writes the rules file again before each role launch, so a launch carries the bundle as it stands", async () => {

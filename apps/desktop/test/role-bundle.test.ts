@@ -203,7 +203,7 @@ describe("the built app's role bundle", () => {
 
     const bundleDir = join(built, "bundle");
     const rulesFile = join(runDir, "roles", "proofer-round.md");
-    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(workItem.worktree, { bundleDir, agent: "owlery:proofer", rulesFile }));
+    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(workItem.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");

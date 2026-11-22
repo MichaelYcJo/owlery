@@ -11,7 +11,7 @@ import { terminalEnv } from "../pty";
 import { writeWholeFile } from "../whole-file";
 import type { RoleStage } from "../../shared/protocol";
 import type { RoleAdapter, RoleEvent } from "./adapter";
-import { agentOf, rulesFileName, rulesText } from "./claude-roles";
+import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
 
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
 export const ERROR_OUTPUT_CHARS = 2000;
@@ -43,12 +43,14 @@ function lastOf(text: string): string {
  * The arguments of one headless session that works in `cwd`: stream-json in
  * and out, no settings of the user's or the repository's, no hooks, no auto
  * memory, no MCP server, and the permission mode a session has with no
- * settings at all. A role launch adds to them and takes none away: the role
- * bundle as a plugin of this session alone, the role's agent of it, the file
- * of rules appended to the system prompt, and the bundle's folder among the
- * folders the session works in, so it reads the bundle's other documents.
+ * settings at all. A role launch adds to them and takes none away: the
+ * built-in tools the session holds, named as one value so that no other
+ * reaches it, the role bundle as a plugin of this session alone, the role's
+ * agent of it, the file of rules appended to the system prompt, and the
+ * bundle's folder among the folders the session works in, so it reads the
+ * bundle's other documents.
  */
-export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string }): string[] {
+export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] }): string[] {
   return [
     "-p",
     "--input-format",
@@ -64,7 +66,7 @@ export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: strin
     "--strict-mcp-config",
     "--permission-mode",
     "default",
-    ...(role ? ["--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : []),
+    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : []),
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
@@ -251,7 +253,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
    * and again at each launch, so it holds the bundle as it stands. The folder
    * and the file are the user's alone, as the daemon's other files are.
    */
-  const launchOf = (role: RoleStage): { bundleDir: string; agent: string; rulesFile: string } => {
+  const launchOf = (role: RoleStage): { bundleDir: string; agent: string; rulesFile: string; tools: string[] } => {
     const { bundleDir, rulesDir } = options;
     if (!bundleDir) throw new Error("this adapter was given no role bundle, so it launches no role");
     if (!rulesDir) throw new Error("this adapter was given no folder for the rules files, so it launches no role");
@@ -259,7 +261,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     mkdirSync(rulesDir, { recursive: true, mode: 0o700 });
     const rulesFile = join(rulesDir, rulesFileName(role));
     writeWholeFile(rulesFile, text);
-    return { bundleDir, agent: agentOf(role), rulesFile };
+    return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role) };
   };
 
   return {
