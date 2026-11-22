@@ -64,7 +64,8 @@ Two things hold even when the judging party changes.
 - **The party that built it cannot seal its own work.** A party here means a session, not a model. The seal record names both the session that built the work and the session that judged it, and if the two are the same, it is not a seal. The judging session starts fresh and reads only files, so a Claude session can judge what another Claude session built. When the judge runs on another model than the builder's, of another company or of the same one, the two differ at the model level too, which lowers the chance that both miss the same defect, and the seal record shows that as well.
 - **The seal shows who judged it.** Once several models can judge, seals carry different weight, so the person looking at one needs to know.
 
-The app has themes, and a theme changes colours, typefaces, texture and how the seal is lit. No theme changes the layout, the words, the seal's drawing or the wax's red, and in every theme red stands on the seal alone: a button, a mark and a failure take another colour. The window has two themes, Night desk, which a first run opens in, and Letter, and a person may also let the system's light or dark appearance choose between them.
+The app has themes, and a theme changes colours, typefaces, texture, how the seal is lit, and the form of edges, rules and marks. No theme changes the layout, the words, the seal's drawing or the wax's red, and in every theme red stands on the seal alone: a button, a mark and a failure take another colour. The window has three themes: Night watch, which a first run opens in, Register and Desk. Each has a dark and a light appearance, and a person chooses one or lets the system's appearance choose. [docs/design.md](design.md) states each theme.
+check: apps/desktop/test/themes.test.ts apps/desktop/test/appearance.test.ts
 
 ## File explorer and editor
 
