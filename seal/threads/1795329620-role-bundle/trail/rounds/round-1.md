@@ -47,6 +47,11 @@ The snippet covers the body of `roleCheck` alone. The fix pass also owes these s
 
 Each is a frame or record sentence the settle writes into `docs/architecture.md`.
 
+```seal
+verdict: fixed 5eda611
+answer: The paste-ready body was read against the folded *Scope* item 9 (`frame/design.md:79`) and applied as it stands, with its two comments reworded. `roleCheck` reads the agent first, and a session that lists it goes on whatever `plugin_errors` holds. Where the agent is missing, the first plugin error's message is the reason, and the agent's name where the list is empty or absent. The docstring says the same. The case at `claude-adapter.test.ts:558` now expects the launch to go on with the agent listed and an error present, and it failed against the old order (`expected { seen: true, … } to deeply equal { seen: true, failure: null }`). A new case holds the message with the agent missing. It passed against the old code, so it was shown red by `seal mutate` at `5eda611`: five mutants of the new body, all red, the plugin branch disabled among them. The frame's sentences (lines 79, 96, 175, 180) were folded by the framer in `595798b`, and `pr.md:15` by the orchestrator in `ccae1e4`.
+```
+
 ### 2. The built-app keep-awake case now passes or fails on the version of the person's own Claude Code
 
 ```seal
@@ -64,6 +69,11 @@ Why it matters: `keep-awake.test.ts:116` starts the built app with `BuiltApp.sta
 ```
 
 The precondition is that `/usr/bin/true` ships with macOS, and this file runs on `darwin` alone (`keep-awake.test.ts:112`). With that change, the `gaps.md:10` row no longer describes the suite. Its item keeps the owner's check of the built app, without the sentence on `keep-awake.test.ts`. Its closing memo row on Q6 (`gaps.md:9`) can then say that no case of the suite asks the person's login shell.
+
+```seal
+verdict: fixed 88369a9
+answer: The finding holds, and the paste-ready line was applied as it stands: `/usr/bin/true` exits 0 and prints nothing for the lookup's arguments, so the daemon finds no CLI and its notice stays null. `test/keep-awake.test.ts` was run alone at that tree and passed, 4 cases. `gaps.md:10` lost the sentence on `keep-awake.test.ts` and now says that no case the suite runs reaches the person's login shell or their `claude`. The Q6 row (`gaps.md:9`) says the same of the suite, and the row of the files not run no longer lists `keep-awake`.
+```
 
 ### 3. A rule change says every run of the CLI rewrites `~/.claude.json`, and the daemon's version read at each start does not
 
@@ -83,6 +93,11 @@ Why it matters: this work adds a run of `claude --version` at every daemon start
   to: … (2026-11-22 실험, 2.1.330). 이 파일은 CLI 세션이 뜰 때마다 다시 쓰는 파일이고, 설정 파일이 아닙니다. 데몬이 시작할 때 실행하는 `claude --version`은 이 파일에 아무것도 쓰지 않습니다. 같은 실행에서 `settings.json`, `installed_plugins.json`, `known_marketplaces.json`은 쓰이지 않았습니다.
 ```
 
+```seal
+verdict: fixed 595798b
+answer: The framer folded both rule changes in `595798b`: each now says that every session of the CLI rewrites the file, and that the daemon's `claude --version` writes nothing there. The same fact stood in `gaps.md:25`, a path this finding does not name, and `88369a9` rewrote it to "every session of the CLI". `trail/phases/phase-1.md:71` stays as that phase's dated record.
+```
+
 ### 4. `pr.md` miscounts the files kept byte for byte, and calls Q2's default the owner's answer
 
 ```seal
@@ -99,6 +114,11 @@ Why it matters: the pull request body is what the owner reads to decide the merg
 ```markdown
 | The app ships a role bundle with the definitions and rules of proofer, crafter for fix passes, and sealer | `apps/desktop/role-bundle/`, copied into `dist/bundle/` by `build.mjs`: 15 files of AgenticSeal 0.38.4 (tag `v0.38.4`, `0eca6e7`), 10 byte for byte and 5 changed only where the launch requires (the `skills:` key of the three definitions, the sealer's stamp, one sentence of contract rule 11, one `description` each in core and contract), and AgenticSeal's `LICENSE` byte for byte |
 | Nothing is installed into the user's Claude Code, and the settings files are unchanged | The four settings and plugin-list files were byte for byte the same after the real session. Claude Code's own state file `~/.claude.json` gains a `pluginUsage` count, `owlery@inline`. Whether that is acceptable is #38's Q2, still open for the owner; its default accepts it, and `docs/architecture.md` will state it |
+```
+
+```seal
+verdict: fixed f3112ba
+answer: The orchestrator corrected both cells of `pr.md` in `f3112ba`, the commit that recorded this round: line 7 counts 10 files byte for byte and 5 changed, with `LICENSE` named apart, and line 10 says Q2 is still open for the owner and that its default accepts the entry.
 ```
 
 ## Confirmations
