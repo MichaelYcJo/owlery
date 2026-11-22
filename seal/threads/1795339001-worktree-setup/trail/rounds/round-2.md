@@ -53,6 +53,12 @@ async function copyPath(clone: string, source: string, target: string): Promise<
 
 The fix pass also owes these statements. The docstring of `copyPath` says that git ignores the staging folder. `frame/design.md` line 107 says `<stage>` stands inside a folder "that git ignores". The regex `beside` of `worktree-setup.test.ts:148` expects `.owlery-copy-[^/]+/copy/<name>`. A case of `worktree-setup.test.ts` holds the probe: a repository that ignores `/.env` and `/node_modules`, and a clone stand-in that runs `git status --porcelain --untracked-files=all` in the worktree and expects nothing. A staging folder that a stopped daemon left still holds its disk. Removing it at the next copy is a removal by name in the person's worktree, so it goes to `gaps.md` *Not done* or gets a decision of its own.
 
+```seal
+verdict: fixed 04e4778
+location: `apps/desktop/src/daemon/worktree-setup.ts`, `apps/desktop/test/worktree-setup.test.ts`, `seal/threads/1795339001-worktree-setup/changelog.md`, `seal/threads/1795339001-worktree-setup/gaps.md`
+answer: `copyPath` writes a `.gitignore` of `*` into the staging folder before the copy and copies one folder further down, to `<staging>/copy/<name>`, as the paste-ready gives it. The removal of a folder a stopped daemon left is decided, as the spawn asked: `copyIncluded` runs `removeLeftCopies` once in the folder of each listed path that stays inside the worktree, before it checks whether the path stands. It removes only an entry named `.owlery-copy-` and six letters or digits, by `rmdir` where it is empty, as a stop before the `.gitignore` leaves it, and by `rm` where it holds that `.gitignore` reading `*`. `078b660` drops a folder check of that removal, which held nothing alone. The case "shows git nothing of a copy before it stands in its place" is the round's probe: a repository that ignores `/.env` and `/node_modules/`, and a clone stand-in that runs `git status --porcelain --untracked-files=all` in the worktree after each clone. It was seen red against `b96c6eb`'s code with `?? .owlery-copy-AjEz1z/.env`. The case "removes the staging folders a stopped copy left" holds a marked folder beside a path that stands and one beside a path it copies, an empty one, a folder of that name without the `.gitignore`, and an empty `logs/`. It was seen red against `b96c6eb`'s code, which removed none of the three. The regex `beside` expects `copy/` and was red there. `seal mutate` was red for the `.gitignore`'s write, for the copy one folder down (failing on `beside`), for the name test (failing on `logs`), for the `.gitignore` test (failing on `.owlery-copy-person`), for the `rmdir` of an empty folder, for the removal's call, and for the call moved after the check of a path that stands. The docstrings of `copyPath`, `removeLeftCopies` and `copyIncluded` say so, and `changelog.md` line 6 says that git lists nothing of the folder and that the next setup removes one left in the same folder. `gaps.md` *Not done* says that a folder left where no listed path stands stays, and why. `frame/design.md` line 57 and line 107 are the framer's.
+```
+
 ### 2. On a worktree volume that holds no hard links, such as exFAT, every included file fails to copy, with "ENOTSUP: operation not supported on socket, link"
 
 ```seal
@@ -81,6 +87,11 @@ import { copyFile } from "node:fs/promises"; // joins the existing import
 
 The fix pass also owes these statements. The docstring of `place` names the second copy. `gaps.md` line 24 ends "each of which refuses whatever stands", and needs the second copy too. `frame/design.md` line 107, "any other file by a hard link", gains "or, where the volume holds no hard links, by a copy that refuses what stands". `worktree-setup.test.ts` needs a case that runs `place` against a `link` refusing with `ENOTSUP`. No volume of the suite holds no hard links, so the case swaps in the refusal, or the fix pass says why none is written.
 
+```seal
+verdict: fixed 04e4778
+answer: Where `link` is refused with `ENOTSUP`, `EXDEV` or `EPERM` (`NO_HARD_LINK`), `place` copies the file with `copyFile(stage, target, COPYFILE_EXCL)`, and a target that stands then fails with `EEXIST`, which reads as `APPEARED`. Any other refusal of the link stays the path's error. The spawn named the three codes, so the fallback is narrower than the paste-ready's "any code but a target that stands". The case "copies a file where the worktree's volume makes no hard link" swaps in a `link` that refuses, through `vi.mock` of `node:fs/promises`, since no volume of the suite refuses one. For each of the three codes, `.env` is copied with the main checkout's bytes, and a 0600 `.env` keeps 0600. A link refused while the person's command writes the path leaves the person's file and lists `APPEARED`, and a link refused with `EIO` fails the path with that error. It was seen red against `b96c6eb`'s code, which failed `.env` with `ENOTSUP`. `seal mutate` was red for the copy (failing on the `ENOTSUP` loop), for `COPYFILE_EXCL` (failing on the person's file) and for the code test (failing on `EIO`). The docstring of `place` names the copy. `gaps.md` *Not done*, line 24 of `b96c6eb`, names it for a file. `gaps.md` row 15 says the route ran only against the stand-in, and on no ExFAT volume. `frame/design.md` line 107 is the framer's.
+```
+
 ### 3. `runSetup`'s check that the earlier setup pane is this work item's can catch nothing once the store reads every setup with no pane, and it tells the next reader that a record can name another work item's pane
 
 ```seal
@@ -102,6 +113,11 @@ With the check removed, the whole `daemon.test.ts`, 241 cases, passed, as the fi
 
 `gaps.md` row 17 then gets the word `closed` and this finding as its coordinate.
 
+```seal
+verdict: fixed 04e4778
+answer: The removal in the `runSetup` case is back to the comment and the line that stood before `cc1aa17`: `if (before !== null && this.sessions.get(before)?.info.alive === false) this.sessions.delete(before);`. The paste-ready's longer comment was not taken, since the spawn asked for the line as it stood. A removal adds no behaviour, so no case was written and no `seal mutate` run. `daemon.test.ts`, 241 cases, passed with it, the restart case among them. `gaps.md` row 17 is closed with this finding.
+```
+
 ### 4. `pr.md` and the frame's judgment say that the line says why no command ran, and the line says only "Setup failed"
 
 ```seal
@@ -118,6 +134,11 @@ The command runs only where `.worktreesetup` still holds the text the form showe
 ```
 
 `frame/plan.md` line 70 gets the same words in place of "and where it changed the command does not run and the line says why".
+
+```seal
+verdict: fixed b96c6eb
+answer: The orchestrator's commit `b96c6eb` rewrote `pr.md` line 12 with the paste-ready's words: where `.worktreesetup` changed, nothing runs, the line says "Setup failed" and the work item's "Setup" section says why. The fix pass changed nothing for this finding. `frame/plan.md` line 70 is the framer's and still says "the line says why".
+```
 
 ### 5. The code and the frame name a volume that is not APFS as where Node's copy takes over, and there `cp -c` exits 0 and copies the bytes itself
 
@@ -140,6 +161,12 @@ frame/plan.md line 57: "Where no clone can be made, as on another volume, `cp -c
 ```
 
 `gaps.md` row 15 is narrowed to what this round did not measure, a physical external disk and a network volume, and it cites this round for HFS+ and ExFAT.
+
+```seal
+verdict: fixed 04e4778
+location: `seal/threads/1795339001-worktree-setup/changelog.md`
+answer: The docstring of `copyIncluded` now says that `cp -c -R -P` copies the bytes itself where no clone can be made, as on a volume that is not APFS or across volumes, and that Node's copy writes the path where that process fails, as on a file it cannot read, or cannot start. `gaps.md` row 15 is narrowed to a physical external disk and a network volume. It cites this round for HFS+ and ExFAT, and adds the copy of finding 2, which ran only against a stand-in `link`. `changelog.md` line 7 now reads "Where no clone can be made, as on a volume that is not APFS or across volumes, the bytes are copied.", so it no longer reads as the code's failure branch. A docstring adds no behaviour, so no case was written; the module's 21 cases passed. `frame/design.md` line 107, `frame/plan.md` lines 14, 27 and 57 are the framer's.
+```
 
 ## Confirmations
 
