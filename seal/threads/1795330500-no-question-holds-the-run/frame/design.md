@@ -2,7 +2,7 @@
 
 The ticket is issue #119. A person who hands several work items over and leaves found the run stopped by a question asked in the middle, and found nowhere the decisions the orchestrator made in place of asking. The issue asks that under the routing answer `agentic` the questions are asked once, that a later question parks the one work item it belongs to while the others go on, and that each decision made in place of asking shows in the inbox with its grounds.
 
-This work builds the part of that which stands on today's tree: the rule in the policy documents, the daemon's record of the decisions and of the questions a work item is parked with, and their place on the inbox line, in the work item's view and in the summary. The daemon runs no stage and no orchestrator session today, so the callers that park a work item and record a decision are named for the issues that build them (*Scope* item 16).
+This work builds the part of that which stands on today's tree: the rule, written into the policy documents in both languages in this pull request, the daemon's record of the decisions and of the questions a work item is parked with, and their place on the inbox line, in the work item's view and in the summary. The daemon runs no stage and no orchestrator session today, so the callers that park a work item and record a decision are named for the issues that build them (*Scope* item 16).
 
 ## Grounding
 
@@ -39,16 +39,16 @@ The facts below were read or run for this frame. Each line number is at `bc80b89
 | The built app's run folder is made inside `BuiltApp.start`, so a case cannot write into it before the app starts | `read`: `apps/desktop/test/built-app.ts` (lines 144 to 200), `apps/desktop/src/main/main.ts` lines 35 and 36 |
 | The policy root has no index `docs/README.md`, and no `seal/follow-up.md` stands | `executed`: `ls docs` and `ls seal` in the worktree |
 | The latest release's note holds no `### Process changes` table, and no changelog fragment under `seal/threads/` holds one | `executed`: `gh release view --json body --jq .body` piped to `grep -c 'Process changes'` printed 0, and `grep -rn 'Process changes' seal/threads/*/changelog.md` printed nothing |
-| No work item on `release/v0.0.2` holds a `frame/design.md`, so no unsettled rule change stands on the branch. The frame of #38 on its own branch names sections of `docs/architecture.md` this design does not name | `executed`: `ls seal/threads/*`. `read`: `seal/threads/1795329620-role-bundle/frame/design.md` *Rule changes* at `106ff48` in the worktree of #38 |
-| Each text a `from` of *Rule changes* quotes stands in its document | `executed`: `grep -n` of each quoted text in `docs/architecture.md` and `docs/architecture.ko.md`, which printed lines 148, 163 and 192 of each |
-| The plugin's reader reads *Rule changes* of this design whole: it refuses no line and names none as unread, and it applies each operation to its document without an error. Where each operation lands was not printed (`frame/questions.md` Q4) | `executed`: `python3 -I test_tmp_rule_changes.py` in the framer's scratch directory, once, which calls `parse` and `apply_op` of `skills/settle/scripts/rule_changes.py` of AgenticSeal 0.38.4 on this file and on the documents of `docs/` at `bc80b89`, and writes nothing |
+| No work item on `release/v0.0.2` holds a `frame/design.md`, so no unsettled rule change stands on the branch. The frame of #38 on its own branch names sections of `docs/architecture.md` that *Scope* item 21 does not edit, so this work moves no text an unsettled operation names | `executed`: `ls seal/threads/*`. `read`: `seal/threads/1795329620-role-bundle/frame/design.md` *Rule changes* at `106ff48` in the worktree of #38 |
+| Each text a `from` of *Data & interfaces*, the policy documents' text, quotes stands in its document | `executed`: `grep -n` of each quoted text in `docs/architecture.md` and `docs/architecture.ko.md`, which printed lines 148, 163 and 192 of each |
+| The entries of *Data & interfaces*, the policy documents' text, are well-formed operations: while they stood under *Rule changes*, at `f83f2c0`, the plugin's reader refused no line of them and named none as unread, and applied each to its document without an error. Where each lands was not printed, so the builder places each by the entry's own words | `executed`: `python3 -I test_tmp_rule_changes.py` in the framer's scratch directory, once, which calls `parse` and `apply_op` of `skills/settle/scripts/rule_changes.py` of AgenticSeal 0.38.4 on this file and on the documents of `docs/` at `bc80b89`, and writes nothing |
 | The broad gate compares, for each document of `docs/` and its Korean edition, the count of headings and the count of table rows | `read`: `seal/config.json`, the key `Broad gate` |
 
 No check of the repository's was run for this frame: no test, no linter, no typecheck and no `seal gate`.
 
 ## Scope
 
-**In.** Items 1 to 5 are the decisions, items 6 to 11 the park, items 12 to 15 what both share. The exact shapes are in *Data & interfaces*.
+**In.** Items 1 to 5 are the decisions, items 6 to 11 the park, items 12 to 15 what both share, and item 21 the policy documents' text. The exact shapes and texts are in *Data & interfaces*.
 
 1. **A decision is a neutral record the daemon keeps for one work item.** It holds a kind, what was decided, its grounds, the time, and the reversal where a person reversed it. The kinds are the ones the issue names: a route, a default taken, a scope chosen, and a question the tree answered. The grounds are prose and carry the coordinate the decision stands on.
 2. **The daemon keeps the decisions in `decisions.json` in its run folder.** The file is written whole at each change and read at the daemon's start, as `last-look.json` is. A decision's id is given once over the whole file and never again. A file that is not the store's is read as no decision.
@@ -73,19 +73,23 @@ No check of the repository's was run for this frame: no test, no linter, no type
     - The answer resumes the chain: #41 and #42 start the next stage where the record of item 9 is answered, and hand it the answers.
     - The judgment whether the rounds are converging is recorded: #41 calls `Daemon#decided` with it.
     - A reversal reaches the work item's next stage as a message: #41 hands each reversal of item 4 to the stage it starts next.
-17. **The batch of a request that hands over several work items, and the check of an issue's question against the tree.** Both are an orchestrator session's judgments before the first edit, and both need the picking of an issue and the question screen, which are milestone 3: #50, #51 and #53. This work states the rule (*Rule changes*) and builds the outlets that rule names for a later work item of a request: `Daemon#decided` for a default taken and for a question the tree answered, `Daemon#park` for a stop.
+17. **The batch of a request that hands over several work items, and the check of an issue's question against the tree.** Both are an orchestrator session's judgments before the first edit, and both need the picking of an issue and the question screen, which are milestone 3: #50, #51 and #53. This work writes the rule (item 21) and builds the outlets that rule names for a later work item of a request: `Daemon#decided` for a default taken and for a question the tree answered, `Daemon#park` for a stop.
 18. **The question on the work item's issue.** A work item holds no issue until #50, and the daemon posts nothing to GitHub until #43.
 19. **The question screen.** #53 builds the screen for the batch: every question of a work item at once, shaped for a phone. The section of item 11 is the place a parked work item's questions are answered until then, and #53 may put its screen there.
 20. **The summary's counts of sealed and broken work items** stay #22's.
+
+**In, the policy documents.**
+
+21. **The rule is written into `docs/` in this pull request, in both languages.** `docs/product.md` *What we promise* and *Foundation*, `docs/architecture.md` *Code runs the order, the orchestrator judges*, *What changes because Owlery is not a plugin* and *State lives in three places*, and the same sections of `docs/product.ko.md` and `docs/architecture.ko.md`, take the entries of *Data & interfaces*, the policy documents' text, each placed as its entry says. No heading is added, and each edition gains the same rows, so the counts the broad gate compares stay equal. The orchestrator decided on 2026-11-22 that the rule is written here and not left for the settle of release 0.0.2 (`frame/plan.md` *Judgments of the run*). The rule takes the default of `frame/questions.md` Q1 in its words "under the routing answer `agentic`", and the default of Q2 in standing as a paragraph of its own.
 
 **Where each line of the issue's *Done when* lands.** The lines are numbered in the issue's order.
 
 | Line | Lands |
 |---|---|
-| 1, the policy documents state the rule in both languages | *Rule changes*. The rule is in force from this work's merge, and the settle of release 0.0.2 writes it into `docs/` |
+| 1, the policy documents state the rule in both languages | Item 21, in this pull request |
 | 2, a role session that ends asking parks its work item, and the answer resumes it | The park, the question on the inbox line and the answer in the app: items 6 to 11. The role session that asks and the resume: item 16. The issue: item 18 |
-| 3, one batch for a request of several work items | The rule: *Rule changes*. The outlets for a later work item: items 3 and 8. The batch itself: item 17 |
-| 4, a question from an issue's text is checked against the tree | The rule: *Rule changes*. Where the answer is written for the person: item 3, the kind `answered`. The check itself: item 17 |
+| 3, one batch for a request of several work items | The rule: item 21. The outlets for a later work item: items 3 and 8. The batch itself: item 17 |
+| 4, a question from an issue's text is checked against the tree | The rule: item 21. Where the answer is written for the person: item 3, the kind `answered`. The check itself: item 17 |
 | 5, every decision shows in the inbox with its grounds, and a person reverses one | Items 1 to 5. The reversal's way to the next stage: item 16 |
 | 6, the summary counts decisions apart | Item 14 |
 
@@ -113,6 +117,7 @@ Each scenario is a case or a set of cases. A case of the daemon drives a `Daemon
 | 16. A window of this build beside a daemon of an earlier build | Given an `inbox` whose work items hold neither field. Then every function of scenarios 10 to 15 reads them as no decision and no record, and none throws | A case in `apps/desktop/test/view.test.ts` |
 | 17. The window draws both and sends both messages | Given the built app with a work item that holds a decision and a second that is parked. Then the inbox's lines show the mark and the question, the view of the first lists the decision, and "Reverse" with a typed message leaves the decision reversed in the daemon's file. In the view of the second, the keyboard alone chooses an option, types another answer and sends, and the daemon's file holds both answers | One case that starts the built app, in a new `apps/desktop/test/decisions-and-questions.test.ts`. How the case puts the decision and the park into the app's daemon is `frame/questions.md` Q3 |
 | 18. The protocol's fields stay named | The case that pins a work item's fields holds the list with `asked` and `decisions` added, and reads the fields of a decision, a reversal, a record and a question in the same way | The case of `apps/desktop/test/daemon.test.ts` named "carries only the fields the protocol names, none of them a vendor's" |
+| 19. The policy documents state the rule in both languages | Given the pull request's diff of `docs/`. Then each `to` of *Data & interfaces*, the policy documents' text, stands in the section its entry names, an `add` at the end of the section's own text or as the last row of its table, and no text a `from` quotes is left. The Korean entry stands in the Korean edition's section, and each check line is one English line under its paragraph in both editions | `read`, by the builder at phase 1's close and by the proofer, entry by entry against the diff. The broad gate's comparison of the headings and the table rows of the two editions is the orchestrator's run |
 
 ## Data & interfaces
 
@@ -189,7 +194,7 @@ park(workItemId: number, asking: { by: string; questions: { asks: string; option
 
 **A window beside a daemon of another build.** A daemon of an earlier build sends neither field, and answers each new message with nothing or with an `error`. The window's status line already names such a daemon and its restart.
 
-## Rule changes
+**The policy documents' text.** Phase 1 writes each entry below into the document its `file` names, under the heading its `section` names. An `add` puts its `to` at the end of the section's own text, before the section's first sub-heading, and a `to` that is one table row becomes the last row of the last table in that text. A `change` turns the text its `from` quotes into its `to`. A `check:` line is written on a line of its own, directly under the paragraph it closes, in English in both editions.
 
 - add
   file: docs/product.md
@@ -268,9 +273,14 @@ park(workItemId: number, asking: { by: string; questions: { asks: string; option
   from: 진행 상태, 세션 이벤트와 출력, 비용 장부, 질문과 답, 일정
   to: 진행 상태, 세션 이벤트와 출력, 비용 장부, 질문과 답, 묻지 않고 내린 결정, 일정
 
+## Rule changes
+
+- nothing
+  why: This work item writes its rule into the policy root in its own pull request (*Scope* item 21), as the orchestrator decided on 2026-11-22, so the settle has no section left to write for it. It moves no document and no section, so no unsettled design's operation is re-pointed.
+
 ## Removes
 
-The work adds a rule, a store for the decisions and one for the questions, the methods `Daemon#decided` and `Daemon#park`, the client messages `reverseDecision` and `answerQuestions`, and the fields `decisions` and `asked` of a work item. Nothing can go in return: no stage of the tree asks a person and nothing waits on an answer today (*Grounding*, the fact on what the daemon runs), so no mechanism stands in the place of the ones added. The rows below are the pin and the sentences the added fields make untrue, each rewritten in place.
+The work adds a rule, written into `docs/`, a store for the decisions and one for the questions, the methods `Daemon#decided` and `Daemon#park`, the client messages `reverseDecision` and `answerQuestions`, and the fields `decisions` and `asked` of a work item. Nothing can go in return: no stage of the tree asks a person and nothing waits on an answer today (*Grounding*, the fact on what the daemon runs), so no mechanism stands in the place of the ones added. The rows below are the pin and the sentences the added fields make untrue, each rewritten in place.
 
 | Removes | Coordinate | Where it lands, or why it can go |
 |---|---|---|
@@ -280,6 +290,7 @@ The work adds a rule, a store for the decisions and one for the questions, the m
 | The docstring "The text of a line's second row, and which of the three it is" | `apps/desktop/src/renderer/view.ts#lineText` | Rewritten with the question as the first source |
 | The sentence that a look's file lacking a field is no look "but for the fields of a work item that came with the repositories" | `apps/desktop/src/daemon/last-look.ts#LastLook`, and the type `SinceRepositories` beside it | Rewritten to name `decisions` and `asked` as well (*Scope* item 13) |
 | The sentences that say what the run folder holds without `decisions.json` and `asked.json` | `apps/desktop/src/daemon/main.ts`, the comment above `mkdirSync` and the one above `runDir`, and `apps/desktop/src/daemon/daemon.ts#DaemonOptions`, the docstring of `runDir` | Rewritten to name both files |
+| The cell "Batching everything to ask the person into one set", the cell that opens "The app's question screen.", and the cell "Progress, session events and output, the cost ledger, questions and answers, schedule", with the same cells of the Korean edition | `docs/architecture.md` *Code runs the order, the orchestrator judges*, *What changes because Owlery is not a plugin* and *State lives in three places*, and `docs/architecture.ko.md` *순서는 코드가, 판단은 orchestrator가*, *플러그인이 아니라서 달라지는 것* and *상태는 세 곳에 둡니다* | Each rewritten in place by its `change` entry (*Scope* item 21) |
 | The docstring that says a changed work item is one whose line differs in the state or in the count of new commits, and one the look does not hold | `apps/desktop/src/renderer/view.ts#changesSince` | Rewritten with the decisions the look does not hold (*Scope* item 14) |
 
 Framed 2026-11-22 by framer, before the build.
