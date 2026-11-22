@@ -70,3 +70,9 @@ Review round 4 left two things, each with an issue in `release: 0.0.3`.
 
 - **A work item directory that is a link is followed, the write's rename replaces a link put at the record's path between the write's read and its rename, and a link put at the partial file's path `decisions.md.<pid>` is written through.** #152.
 - **The commit of a person's word has no time limit, is not retried, and is not made once a working session ends without it.** #150.
+
+The merge of the base at `0d3c5e0`, which brought the worktree's setup (#155), left three things within reach.
+
+- **A line that carries both marks leaves its own text almost no room.** The second row holds the text, then the decisions' mark, then the setup's words, and neither mark shrinks. In the screenshot run at `0d3c5e0` the line of the work item with "2 decisions without asking, 1 reversed" and "Setup failed" shows its agent's question as "Shou…". No document names which of the three gives way.
+- **The files of `screenshots/` were made before the merge.** They show no "Setup" section, and no "Setting up" or "Setup failed" on a line. A run made now writes the view's file with the side column scrolled down to "Setup", as the base's run asks, so that file shows the last line of the decisions' section and none of its decisions; the inbox's file shows the decisions in the preview.
+- **`frame/plan.md` *Overlap with the release* holds no row for #155.** `seal/threads/1795339001-worktree-setup/frame/plan.md` holds the row for this work, and the merge followed it.
