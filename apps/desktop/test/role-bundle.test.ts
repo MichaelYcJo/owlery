@@ -2,7 +2,7 @@
 // loads for itself alone. Its files are taken from AgenticSeal, and the
 // bundle's README.md says at which release and with which changes.
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -124,8 +124,12 @@ describe("the built app's role bundle", () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
-  it("is the bundle of the tree at dist/bundle, each file with the same bytes and no file more", () => {
+  it("is the bundle of the tree at dist/bundle, each file with the same bytes and no file more, a file an earlier build left there among them", () => {
     const built = join(APP_DIR, "dist", "bundle");
+    // A file the tree's bundle held once and holds no more: a build replaces the folder whole, so a session never loads it.
+    mkdirSync(join(built, "hooks"), { recursive: true });
+    writeFileSync(join(built, "hooks", "hooks.json"), "{}\n");
+    buildApp();
     const files = filesOf(BUNDLE);
     expect(filesOf(built)).toEqual(files);
     for (const file of files) expect(readFileSync(join(built, file)).equals(readFileSync(join(BUNDLE, file))), file).toBe(true);
