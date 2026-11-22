@@ -80,7 +80,7 @@ export interface RecordsPlan {
   branch: string | null;
   /** The commit's subject. */
   subject: string;
-  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file that stands and is kept. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
+  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file the commit holds, which is kept. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
   files: { path: string; text: string | null }[];
   /** Why the setup cannot run, as a sentence the window shows as it is, or null. */
   blocked: string | null;

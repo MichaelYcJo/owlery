@@ -1245,8 +1245,9 @@ export interface RecordsWords {
  * writes no `config.json` with an empty command. A plan that writes none
  * and is not blocked is a repository that holds every part: the dialog
  * shows what it holds, and no button to commit. One that writes none and is
- * blocked keeps a file no commit holds, and is shown as a plan that writes
- * a file is, with the refusal.
+ * blocked is shown as a plan that writes a file is, with the refusal: the
+ * repository has no folder for a root, or its checkout does not hold a file
+ * of the place as its commit does.
  */
 export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
   const head = `Records and check: ${repository.name}`;
