@@ -51,6 +51,11 @@ if (!(await staysInside(root, target))) {
 
 The docstring of `copyIncluded` gains a sentence that a path whose folder a link leads out of the worktree is listed as not copied. `worktree-setup.test.ts` owes a case built as the probe is.
 
+```seal
+verdict: fixed cae2aa2
+answer: `copyIncluded` reads the worktree's real path once. Before any read or write of a target, it checks that the nearest folder of the target that stands lies inside the worktree once each link is read (`staysInside`). A path whose folder a link leads out is listed with "a link in the worktree leads its folder out of the worktree", and nothing is written. A folder that stands and cannot be read through, as a link to nothing, counts as leading out. The case "writes nothing through a link the worktree's branch tracks out of the worktree" tracks `apps` as a link on the worktree's branch, as the probe did. It was seen red against `2d2e137`'s code, which copied through the link. Its second half, a link to a folder that does not stand, was seen red with only the dangling-link guard removed. `seal mutate` was red for the inside test and for the dangling-link guard. The docstring names the refusal, and `changelog.md` line 6 says it from `27e04bf`.
+```
+
 ### 2. A folder that failed to copy is left half copied, and running the setup again reads it as copied and reports success
 
 ```seal
@@ -75,6 +80,11 @@ Why it matters: where the clone of a folder fails, the code removes what the clo
 ```
 
 The docstring of `copyIncluded` (`worktree-setup.ts:94-95`) gains "and nothing of it is left in the worktree". `frame/design.md` *Data & interfaces*, the `copyIncluded` bullet, states the same at the settle. `worktree-setup.test.ts` owes a case of a folder with one unreadable file that reads the worktree after the failure and after a second copy. Where finding 8's staged copy is taken, it holds this finding too, since a failed stage is removed whole.
+
+```seal
+verdict: fixed 27e04bf
+answer: Each path is copied into a folder of its own beside its place (`mkdtemp` of `.owlery-copy-`), cloned there or copied there by Node's copy, and moved into its place whole. That folder is removed in every case, so what a failed copy wrote goes with it. The folders made above the path go too, each where nothing else came to stand in it. The case "leaves nothing of a path it could not copy" holds a folder with one unreadable file and an unreadable file under a folder the worktree lacks. It reads the worktree after the failure and after a second copy, and was seen red against the code before the fix, which left `apps` and `node_modules`. `seal mutate` was red for the removal of the staging folder and for the removal of the made folders. The docstring and `changelog.md` line 6 say that nothing of a failed path is left.
+```
 
 ### 3. After a daemon restart, a setup record names a pane id the next daemon gives to another pane, which then reads "Setup" and which "Run setup again" takes off the lists
 
@@ -108,6 +118,11 @@ function setupRead(setup: WorktreeSetup | null | undefined): WorktreeSetup | nul
 ```
 
 The fix pass also owes these statements: the docstring of `WorktreeSetup.paneId` (`protocol.ts:145`) gains "and null once the daemon that started the pane has stopped"; the docstring of the store (`repositories.ts`, the paragraph that says a running setup is read as failed) says the same; the case at `daemon.test.ts:961` expects `paneId: null`; and the case at `repositories.test.ts:136` expects `paneId: null` for both work items. A case of `daemon.test.ts` owes the probe's sequence: a restart, a pane that takes the old id, and a `runSetup` that leaves it listed.
+
+```seal
+verdict: fixed cc1aa17
+answer: The store reads every setup with `paneId: null` (`repositories.ts#setupRead`), and its docstrings and the protocol's `paneId` docstring say why. `runSetup` takes the earlier setup pane off the lists only where it is this work item's and has exited. The cases at `daemon.test.ts:961` and `repositories.test.ts:136` expect no pane. A new case of `daemon.test.ts` runs the probe's sequence: a restart, a pane that takes the old id, and a run again that leaves it listed. Each was seen red against `2d2e137`'s store, and `seal mutate` of `setupRead` was red. `c711279` corrects a third case of `repositories.test.ts` that still expected the stored pane id. The work-item check survived `seal mutate`. Once the store names no pane, a record names only a pane its own work item's setup started, so no case reaches the check. It was kept because the spawn asked for it, and `gaps.md` names it.
+```
 
 ### 4. The form does not always name the command before the person presses Create, and the creation runs the command the file holds then, not the one shown
 
@@ -148,6 +163,12 @@ export function shownSetup(plan: FormPlan | null, repo: string): { setupCommand:
 
 The fix pass also owes these statements: `createWorkItem` in `protocol.ts` gains `setupCommand?: string | null` and its comment; `frame/design.md` *Scope* item 7 and *Data & interfaces* say the creation carries the command shown; `changelog.md` line 8 and `pr.md` line 12 stay true once the code holds them. It also owes a case of `view.test.ts` for `shownSetup`, one of `daemon.test.ts` for a file changed after the plan, and the built-app case of `work-item-form.test.ts` for a Create pressed before the plan answers. Whether the default (a) is enough at all is the owner's (`## Not judged`).
 
+```seal
+verdict: fixed a3d9630
+location: `apps/desktop/src/renderer/view.ts`, `apps/desktop/src/daemon/worktree-setup.ts`, `apps/desktop/test/worktree-setup.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/view.test.ts`, `apps/desktop/test/work-item-form.test.ts`, `apps/desktop/test/korean-pane.ts`
+answer: The form creates nothing while `shownSetup` finds no plan for the field's text, and says "Wait until the form shows what this folder's work item gets, its setup among it." A creation carries `setupCommand`, the command the form named, or null where the plan was refused. `beginSetup` takes the command shown. Where `.worktreesetup` holds another, or holds one where none was shown, or none where one was, the copy still runs and no command runs. The setup then fails with ".worktreesetup changed after the setup was shown, so no command ran." and names the command the file holds. A creation that carries no `setupCommand` runs no command, and `startSetup` starts a pane only for a setup that is `running`. Seen red against the code before the fix: the `beginSetup` case, the daemon's creation case, and the built-app case of `work-item-form.test.ts`, whose Create after a key in the folder field created the work item. `seal mutate` was red for the comparison, for the reading of an absent field, for the running-only start, for `shownSetup` and for the form's refusal. `6fcf49d` makes the built-app helpers and cases that press Create wait for the plan, since `daemon-restart.test.ts` failed on the refusal without it. `changelog.md` line 8 states the rule, and `protocol.ts` comments the field. `pr.md` line 12 and the frame are the orchestrator's.
+```
+
 ### 5. "Run setup again" runs whatever `.worktreesetup` holds at the press, and nothing in the view names that command
 
 ```seal
@@ -164,6 +185,12 @@ Why it matters: `runSetup` reads the repository's files at the press (`daemon.ts
 
 The section also names the command the record holds, so the person reads what ran. `SetupSection` gains `command: string`, the record's command trimmed or an empty string, and `detail` draws it under the sentence, after the words "Ran:", where it is not empty. A case of `view.test.ts` pins the field. Whether a run again also waits for the person to read the new command is the same question as Q1 (`## Not judged`).
 
+```seal
+verdict: fixed a3d9630
+location: `apps/desktop/src/renderer/work-item-view.ts`, `apps/desktop/src/renderer/index.html`, `apps/desktop/src/shared/protocol.ts`, `apps/desktop/test/view.test.ts`, `apps/desktop/test/work-item-form.test.ts`
+answer: The section names the command the record holds as "Command: <command>" (`SetupSection.command`). "Run setup again" carries that command, whole, as `runSetup.setupCommand`, and the daemon runs it only where `.worktreesetup` still holds it, by finding 4's comparison. Where the file holds another, nothing runs and the record names the new command, so the section shows it and the next press runs it. The button's title is `RUN_SETUP_SAYS`. The paste-ready "Ran:" was not taken, since the command the section names is the one the press runs. The `setupSection` cases were seen red against the old view, and the built-app case reads the command line. `seal mutate` was red for the section's command, for the press's carried command and for the drawn line. Whether a run again should also wait for the person to read a new command stays where the round's *Not judged* row puts it.
+```
+
 ### 6. The protocol's docstrings of `state` and `failure` leave out the signal that phase 2 added to the success test
 
 ```seal
@@ -179,6 +206,11 @@ Why it matters: phase 2 made a setup whose process a signal ended `failed`, with
   state: "running" | "succeeded" | "failed";
   /** Why the setup failed where the exit code does not say it, as a sentence the window shows as it is: the pane ended before its command did, a signal ended the command, the daemon stopped, a git command failed, or the file or the shell could not be read or started. Null otherwise. */
   failure: string | null;
+```
+
+```seal
+verdict: fixed 63816c8
+answer: The docstrings of `state`, `exitCode` and `failure` in `protocol.ts` name the signal and say that a process a signal ended reports the code 0. They also name the failure of a `.worktreesetup` that changed after it was shown. A `git grep` of the success test's wording over `apps/desktop/src` and `apps/desktop/test` found no other statement that leaves the signal out.
 ```
 
 ### 7. A path whose folder the worktree lacks is never cloned, though the changelog and the pull request text say each path is cloned on APFS
@@ -200,6 +232,11 @@ import { cp, lstat, mkdir, readFile, realpath, rm, stat } from "node:fs/promises
 ```
 
 The `mkdir` must follow finding 1's check, since `mkdir` follows links too. Without the `mkdir`, the changelog and `pr.md` lines owe "where the worktree holds the path's folder".
+
+```seal
+verdict: fixed cae2aa2
+answer: The folders the worktree lacks above a path are made after finding 1's check and before the clone, so `cp -c` clones such a path too. The case "clones a path whose folders the worktree lacks" runs a clone that leaves a mark where it fails. It was seen red against `2d2e137`'s code, where the clone of `apps/web/.env.local` failed. `seal mutate` of the `mkdir` was red. `changelog.md` line 7 and `pr.md` line 8 are true as they stand.
+```
 
 ### 8. A run again copies while the person's panes run in the worktree, and a failed clone's removal can take a path that appeared after the check
 
@@ -231,6 +268,11 @@ The fix writes each path to a sibling name of its own and moves it into place on
 ```
 
 A window between the second `lstat` and the `rename` remains. A `rename` over a folder that stands and is not empty fails, and over a file that stands it replaces the file. The fix pass says in its answer whether that window is accepted.
+
+```seal
+verdict: fixed 27e04bf
+answer: The copy is written in a folder of its own beside the target and moved into place. A folder moves by `rename`, which refuses a file and a folder that is not empty. A link is made again and a file is hard-linked, and each refuses whatever stands. A path that came to stand meanwhile is left as it is and listed with "it came to stand in the worktree during the copy, and was left as it is", and a removal touches only the staging folder. The case "leaves a path that came to stand in the worktree during its copy as it is" makes `.env` and `node_modules/made/file` during a clone that fails. It was seen red against the code before the fix, which removed both. `seal mutate` was red for the hard link, for the folder's move, for the reading of the refusal and for the link's remaking. The window that remains is accepted: `rename` takes the place of a folder that came to stand empty, so nothing the person wrote is lost there, and Node offers no move that refuses an empty folder. `gaps.md` *Not done* says so.
+```
 
 ## Confirmations
 
