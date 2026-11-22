@@ -83,6 +83,11 @@ Before it checks whether a path stands, it runs `removeLeftCopies` once in each 
 
 Where the fix of finding 1 lands, the sentence also says that the copy goes before the `.gitignore`. The sentence is the framer's.
 
+```seal
+verdict: fixed f98bc09
+answer: `frame/design.md:107` now says `removeLeftCopies` removes, with all it holds, a folder of the staging name that is empty or holds a `.gitignore` reading `*`, through `removeStaging`, which removes its `copy/` before the folder; `:57` says a later setup removes a left folder once nothing writes in it, and that its `copy/` goes before its `.gitignore`.
+```
+
 ## Confirmations
 
 ```seal
