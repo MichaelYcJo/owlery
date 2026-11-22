@@ -36,6 +36,11 @@ const differs = (top: string, directory: string): boolean => git(top, "status", 
 
 The case's title at `settle.test.ts:372` then names the key too. `frame/design.md:46` gives the guard as `git status --porcelain -- <directory>`, and the fix pass owes that sentence the flag.
 
+```seal
+verdict: fixed f24e8be
+answer: `differs` passes `--untracked-files=all` (`apps/desktop/src/daemon/settle.ts`, the line above `exitOf`), so the repository's key no longer changes the answer. The refusal case gained the third variant, which sets `status.showUntrackedFiles` to `no`; against the old line it failed at `test/settle.test.ts:385` on `expected [ 1, …(1) ] to deeply equal [ 2, '' ]`, and `seal mutate` removing the flag read red on the same line. The case's title names the key. The changelog bullet on the refusal names it too, in `167eda2`. `pr.md:11` and `frame/design.md:46` are not this pass's to write; the hand-back names both for the orchestrator.
+```
+
 ### 2. A run interrupted while AgenticSeal's settle runs leaves each kept directory removed and names none, and the next run reads the removal as nothing kept
 
 ```seal
@@ -66,6 +71,12 @@ The fix has three parts, and the snippet covers the first two. First, the comman
   }
 ```
 
+```seal
+verdict: fixed 9a20d96
+answer: All three parts, and the bundle folder. `--apply` prints `keeping <dir>/` with its rows before the plugin's settle runs, holds SIGINT, SIGTERM and SIGHUP from then until the put-back ends (`apply` and `settleAndPutBack` in `settle.ts`), and prints `put back <dir>/` and `settle: not put back <dir>/: …` without the rows, which were already printed. `readSettle` reads the record `HEAD` holds (`git ls-tree -r -z HEAD`, then `git cat-file blob`) where the working tree lacks it, removed with its directory or alone, and that record decides only whether the directory is kept; a record or a directory `HEAD` holds as a link stops the reading. `scripts/settle.mjs` now bundles with `write: false` and runs the bundle from memory through `vm.runInThisContext`, so no folder is written and none can be left on any exit, SIGKILL among them. New cases, each seen red against the old code: the held signals, run through the script as the leader of a process group with the stand-in sending each signal to the group (red: the script ended on the signal and `1-a` stayed removed); the killed run, with `TMPDIR` set to an empty folder (red: no `keeping` line, and `owlery-settle-*` left in the folder); and the record `HEAD` holds (red: only `2-b` kept). `seal mutate` read red for each signal taken out of the list, the `keeping` line, the `HEAD` reading, the in-part reading, the sort, each link stop, and a folder written by the script. `4cbd3d9` adds the directory-link variant, seen red by mutation. The round's *Not judged* row on pnpm: a probe sent SIGINT to a process group pnpm 10.33.0 led; pnpm returned at once, and the script, holding the signal, ran its child to its end. No terminal Ctrl-C was typed; `gaps.md` names it. `frame/plan.md:27`, `frame/design.md:45-46` and the phase 2 decision are named in the hand-back for the orchestrator.
+location: `apps/desktop/src/daemon/settle.ts`, `apps/desktop/scripts/settle.mjs`, `apps/desktop/test/settle.test.ts`, `seal/threads/1795341002-settle-reads-decisions/gaps.md`
+```
+
 ### 3. `--list` run after `--apply` lists only the kept directories, and the release's procedure does not say to run it first
 
 ```seal
@@ -88,6 +99,11 @@ The last sentence of the bullet at `docs/roadmap.ko.md:52` becomes these two:
 
 ```markdown
 `pnpm --filter @owlery/desktop run settle --list`는 그 릴리스에서 묻지 않고 내린 결정을 찍고, 릴리스의 PR과 노트가 그것을 싣습니다. 이 명령은 작업 트리에 있는 폴더를 읽고 `--apply`는 남기지 않은 폴더를 모두 지우므로, `--list`는 `--apply`보다 먼저 실행합니다.
+```
+
+```seal
+verdict: fixed faa389b
+answer: The two sentences stand in R1 of both editions, as the round gave them. Each pair keeps 11 heading lines and 24 table lines (executed, `grep -c`). The changelog's `--list` bullet says it runs before `--apply`, in `167eda2`. R1's text in `frame/design.md:136` and `:139` is named in the hand-back for the orchestrator.
 ```
 
 ### 4. `--list` leaves out a decision block the reader refuses and says nothing, so its count lines are short with exit 0
@@ -125,6 +141,12 @@ export interface ListedWorkItem {
     // ... the count lines as they stand
   }
   if (refused.length > 0) lines.push(`- Not listed, a block the reader cannot read: ${refused.join(", ")}`);
+```
+
+```seal
+verdict: fixed 8c3d6de
+answer: `ListedWorkItem` gains `refused: KeptRow[]`. The list counts and names each refused block of the release on a line after the kind counts, as ``- Not listed: 2 blocks the reader cannot read (`<record>:<line>`, …)``, and a release whose only blocks are refused does not print `No decision was made without asking in this release.`. `--list` names each such block on the error stream as `settle: not listed <record>:<line>: <the reader's reason>` and exits 1 where it names one, as the spawn asked: it does not exit 0 silently. The new case was seen red against the old code at `test/settle.test.ts:349` (`refused` undefined), and `seal mutate` read red for the count line, the empty-release branch, the error-stream line, the exit and the field. `frame/design.md:102` is named in the hand-back for the orchestrator.
+location: `apps/desktop/src/daemon/settle.ts`, `apps/desktop/test/settle.test.ts`
 ```
 
 ### 5. A link under `threads/` is read as nothing: a `decisions.md` that links to no file reads as no record, and a work item's directory that is a link is skipped without a word
@@ -171,6 +193,12 @@ function directoriesIn(folder: string, threads: string): string[] {
 
 `changelog.md:6` names "a `decisions.md` that cannot be opened" as a stop, and with the fix it holds. The fix pass owes a case for each link, each shown red against the current code (case D of this round's probe is that red).
 
+```seal
+verdict: fixed e95cf9c
+answer: `directoriesIn` stops on a link under `threads/`, naming it, and `recordText` stops on a `decisions.md` that links to nothing (`it is a link to nothing`), with `lstat` telling a link from nothing. The class, listed by the paths the reader walks: `threads/` itself as a link to nothing stops the same way; a `threads/` or a `decisions.md` that links to something is read through the link, which is reading it; `<root>` is `rootOf`'s, which reads no records root behind a link to nothing and says so. The records `HEAD` holds, which finding 2's fix reads, stop on a link too (`9a20d96`, `4cbd3d9`). The module comment says so. The new case was seen red against the old code at `test/settle.test.ts:165`, and `seal mutate` read red for each of the three stops. The changelog's exit bullet names the links, in `167eda2`.
+location: `apps/desktop/src/daemon/settle.ts`, `apps/desktop/test/settle.test.ts`, `seal/threads/1795341002-settle-reads-decisions/changelog.md`
+```
+
 ### 6. The new P10 sentence keeps a directory for a block the daemon cannot read, and P9, the paragraph above it, says the daemon decides nothing on such a block
 
 ```seal
@@ -193,6 +221,11 @@ The sentence of `docs/architecture.ko.md:211` that opens "데몬은 작업의 �
 
 ```markdown
 데몬은 작업의 워크트리에서 이 파일을 커밋 여부와 상관없이 읽고, 읽지 못한 블록은 읽지 못했다고 밝힐 뿐 그 블록의 값은 하나도 쓰지 않습니다.
+```
+
+```seal
+verdict: fixed faa389b
+answer: P9's clause reads "names a block it cannot read without taking any value from it" in `docs/architecture.md:211`, and "읽지 못한 블록은 읽지 못했다고 밝힐 뿐 그 블록의 값은 하나도 쓰지 않습니다" in `docs/architecture.ko.md:211`. Each pair keeps 27 heading lines and 121 table lines (executed, `grep -c`). `git grep` on the old words finds them elsewhere only in #40's records, which leave at the settle, and in `frame/design.md:11`, a reading dated to `85b6c50`. Entry R3 of the frame is named in the hand-back for the orchestrator.
 ```
 
 ### 7. The list writes each value of the record into Markdown as it stands, so text the record holds literally, such as a placeholder in angle brackets, is rendered as markup in the pull request and the note
@@ -223,6 +256,12 @@ function literal(value: string): string {
 // apps/desktop/src/daemon/settle.ts:176-177
       lines.push(`- Decision ${decision.id}, \`${decision.kind}\`: ${literal(decision.decided)}`, `  - Grounds: ${literal(decision.grounds)}`);
       if (decision.by !== null) lines.push(`  - By: ${literal(decision.by)}`);
+```
+
+```seal
+verdict: fixed 0b2ab88
+answer: `literal` escapes, outside code spans, each character the specifications read as markup, with the round's pattern, and the list writes `decided`, `grounds`, `by`, the person's message and the work item's heading through it. The class, listed by the record values the list writes: a value inside a code span, the state's `carried <home>`, goes through `code`, whose fence is longer than any run of backticks it holds and is padded where it opens or ends with one, and so does each path of the not-listed line; the kind is one of four words and the commit is hex. The new case was seen red against the old code at `test/settle.test.ts:372`, and `seal mutate` read red for the escape, the kept code spans, the same-length closing run, each of the five values, the fence and the pad.
+location: `apps/desktop/src/daemon/settle.ts`, `apps/desktop/test/settle.test.ts`
 ```
 
 ## Confirmations
