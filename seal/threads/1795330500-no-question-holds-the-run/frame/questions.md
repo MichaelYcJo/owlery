@@ -6,7 +6,7 @@ The ticket left these judgments open, and the tree answered each. They are not t
 - Whether the rule is written into `docs/` in this pull request or stated for the settle: the orchestrator decided it, and `frame/plan.md` *Alternatives considered*, its first two rows, hold the grounds.
 - Where a decision made in place of asking is kept: the orchestrator decided it on the owner's word, and `frame/plan.md` *Alternatives considered*, the rows on the work item's record, on the daemon's state and on the prose of the records, hold the grounds.
 - What the person has seen, and where the inbox's ages come from: `frame/plan.md` *Alternatives considered*, the rows on the look and on the ages.
-- When the daemon commits a person's word: `frame/plan.md` *Alternatives considered*, the rows on the commit.
+- When the daemon writes and commits a person's word, and when it refuses one: `frame/plan.md` *Alternatives considered*, the rows on the commit.
 - How a decision and a park reach the daemon: `frame/plan.md` *Alternatives considered*, the rows on the daemon's methods, on client messages and on a `RoleEvent`.
 - Whether a parked work item is a new state of the inbox: `frame/plan.md` *Alternatives considered*, the rows on the state `waiting` and on the product's own states.
 - Whether a decision holds the work or raises a notification: `frame/design.md` *Scope* item 3, on the issue's words "without holding the work".
