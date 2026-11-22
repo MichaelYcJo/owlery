@@ -3,9 +3,10 @@
 // made without asking. The cases read temporary repositories and never
 // Owlery's own.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MARKER } from "../src/daemon/records-place";
 import { command, listMarkdown, readSettle } from "../src/daemon/settle";
 import { git, temporaryRepository } from "./repositories";
@@ -26,8 +27,22 @@ const REVERSED = [
 ];
 const OPEN = ["question: 2", "asks: May the run push the branch to `origin`?", "grounds: No document grants it.", "state: open"];
 
+/**
+ * The path with each folder that holds a `seal` left out, so no case ever
+ * reaches AgenticSeal's own `seal settle --apply`: a case of `--apply` puts a
+ * stand-in first on it, and every other case runs with no `seal` at all.
+ */
+const WITHOUT_SEAL = (process.env.PATH ?? "")
+  .split(delimiter)
+  .filter((folder) => folder !== "" && !existsSync(join(folder, "seal")))
+  .join(delimiter);
+
 const cleanups: (() => void)[] = [];
+beforeEach(() => {
+  vi.stubEnv("PATH", WITHOUT_SEAL);
+});
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
@@ -257,7 +272,7 @@ describe("the release's decisions made without asking", () => {
   it("stops with exit 2 where git cannot read the ref `--since` names, and where a flag is unknown or `--since` names no ref", () => {
     const { repo } = released();
     expect(() => readSettle(repo, "v9.9.9")).toThrow("v9.9.9");
-    for (const args of [["--since", "v9.9.9"], ["--since"], ["--frobnicate"]]) {
+    for (const args of [["--since", "v9.9.9"], ["--since"], ["--frobnicate"], ["--apply", "--released-at"], ["--released-at", "HEAD"], ["--apply", "--list"]]) {
       const got = run(repo, ...args);
       expect([got.code, got.out], args.join(" ")).toEqual([2, ""]);
       expect(got.err, args.join(" ")).not.toBe("");
@@ -268,5 +283,118 @@ describe("the release's decisions made without asking", () => {
     const repo = repository();
     write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
     expect(listMarkdown(readSettle(repo))).toBe("No decision was made without asking in this release.\n");
+  });
+});
+
+describe("`--apply`, which runs AgenticSeal's settle and puts back each directory it kept", () => {
+  const CLOSED = ["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"];
+  /** Removes every directory under `threads/`, as AgenticSeal's settle removes a released one, and says so. */
+  const REMOVE_ALL = `for d in seal/threads/*/; do rm -rf "$d"; printf 'removed %s\\n' "$d"; done`;
+
+  /**
+   * Puts a stand-in for AgenticSeal's `seal` first on the path: a shell
+   * script that notes it ran, prints the arguments it was given, and then
+   * runs those lines in the folder it was started in.
+   */
+  function standIn(...lines: string[]): { ran: () => boolean } {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-seal-stand-in-")));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    const noted = join(folder, "ran");
+    writeFileSync(join(folder, "seal"), ["#!/bin/sh", `: > '${noted}'`, 'printf "stand-in seal %s\\n" "$*"', ...lines, ""].join("\n"), { mode: 0o755 });
+    vi.stubEnv("PATH", `${folder}${delimiter}${WITHOUT_SEAL}`);
+    return { ran: () => existsSync(noted) };
+  }
+
+  /** A repository whose records hold `1-a`, kept for a reversed decision, and `2-b`, closed, both committed. */
+  function settled(): string {
+    const repo = repository();
+    write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
+    write(repo, "seal/threads/2-b/decisions.md", `${record(CLOSED)}${F}seal decision\ndecision: 9 route\n${F}\n`);
+    commit(repo, "chore: two work items");
+    return repo;
+  }
+
+  it("runs AgenticSeal's settle with the ref it was given, lets its output through, puts back the directory it kept, and leaves the closed one removed", () => {
+    const repo = settled();
+    const seal = standIn(REMOVE_ALL);
+    const got = run(repo, "--apply", "--released-at", "HEAD");
+    expect(seal.ran()).toBe(true);
+    expect(got.out).toContain("notice seal/threads/2-b/decisions.md:9: not read: ");
+    expect(got.out).toContain("stand-in seal settle --apply --released-at HEAD\nremoved seal/threads/1-a/\nremoved seal/threads/2-b/\n");
+    expect(got.out).toContain(
+      "put back seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n",
+    );
+    expect(got.out.endsWith("\nPut back 1 directory.\n"), got.out).toBe(true);
+    expect(git(repo, "status", "--short", "--", "seal/threads/1-a")).toBe("");
+    expect(existsSync(join(repo, "seal/threads/2-b"))).toBe(false);
+    expect([got.code, got.err]).toEqual([1, ""]);
+  });
+
+  it("exits 2 where AgenticSeal's settle exits 2, any exit but 0 or 1, or no exit, 1 where either kept a directory, and 0 otherwise, and lets AgenticSeal's errors through", () => {
+    const repo = repository();
+    write(repo, "seal/threads/2-b/decisions.md", record(CLOSED));
+    commit(repo, "chore: a closed work item");
+    for (const [theirs, want] of [
+      [0, 0],
+      [1, 1],
+      [2, 2],
+      [3, 2],
+    ]) {
+      standIn(`echo 'the settle exits ${theirs}' >&2`, `exit ${theirs}`);
+      const got = run(repo, "--apply");
+      expect([got.code, got.err], `exit ${theirs}`).toEqual([want, `the settle exits ${theirs}\n`]);
+      expect(got.out, `exit ${theirs}`).toBe("stand-in seal settle --apply\nPut back no directory.\n");
+    }
+    standIn("kill -9 $$");
+    const killed = run(repo, "--apply");
+    expect(killed.code).toBe(2);
+    expect(killed.err).toContain("SIGKILL");
+    write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
+    commit(repo, "chore: a kept work item");
+    standIn("exit 2");
+    expect(run(repo, "--apply").code).toBe(2);
+  });
+
+  it("refuses, runs nothing and names the directory where a kept directory differs from HEAD, by an edit or by a file not committed", () => {
+    for (const change of [
+      (repo: string) => write(repo, "seal/threads/1-a/decisions.md", record(REVERSED, OPEN)),
+      (repo: string) => write(repo, "seal/threads/1-a/notes.md", "# Notes\n"),
+    ]) {
+      const repo = settled();
+      const seal = standIn(REMOVE_ALL);
+      change(repo);
+      const got = run(repo, "--apply");
+      expect([got.code, got.out]).toEqual([2, ""]);
+      expect(got.err).toContain("settle: seal/threads/1-a/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first\n");
+      expect(got.err).not.toContain("seal/threads/2-b/");
+      expect(seal.ran()).toBe(false);
+      expect(existsSync(join(repo, "seal/threads/2-b"))).toBe(true);
+    }
+  });
+
+  it("puts nothing back and names each kept directory as not put back where AgenticSeal's settle moved HEAD", () => {
+    const repo = settled();
+    standIn(REMOVE_ALL, "git add --all && git commit --quiet -m 'chore: settle'");
+    const got = run(repo, "--apply");
+    expect(got.code).toBe(2);
+    expect(got.err).toContain("settle: not put back seal/threads/1-a/: HEAD moved from ");
+    expect(got.err).toContain("\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; ");
+    expect(existsSync(join(repo, "seal/threads/1-a"))).toBe(false);
+    expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
+  });
+
+  it("refuses and removes nothing where no `seal` on the path can be run", () => {
+    const repo = settled();
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-seal-stand-in-")));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    // A `seal` that cannot be run is not found either.
+    writeFileSync(join(folder, "seal"), "#!/bin/sh\nrm -rf seal/threads\n", { mode: 0o644 });
+    for (const path of [WITHOUT_SEAL, `${folder}${delimiter}${WITHOUT_SEAL}`]) {
+      vi.stubEnv("PATH", path);
+      const got = run(repo, "--apply");
+      expect([got.code, got.out]).toEqual([2, ""]);
+      expect(got.err).toContain("settle: `seal` is not found on the path, so AgenticSeal's settle cannot run\n");
+      expect(git(repo, "status", "--porcelain")).toBe("");
+    }
   });
 });
