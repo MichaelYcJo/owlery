@@ -6,7 +6,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { generateName } from "../shared/names";
 import { BASE_FETCH_MS, type BaseFetch, type Changes, type CommitInfo, type FileChange, type WorkItemLoss } from "../shared/protocol";
 
@@ -830,4 +830,73 @@ export async function removeWorktree(repo: string, worktree: string, force: bool
 export async function removeBranch(repo: string, branch: string): Promise<void> {
   if (!(await branchExists(repo, branch))) return;
   await git(repo, ["branch", "-D", "--", branch]);
+}
+
+/** What git keeps in a worktree's git folder while each of these is under way there, with the words a refusal names it by. */
+const UNDER_WAY: [marker: string, words: string][] = [
+  ["rebase-merge", "a rebase"],
+  ["rebase-apply", "a rebase or a `git am`"],
+  ["MERGE_HEAD", "a merge"],
+  ["CHERRY_PICK_HEAD", "a cherry-pick"],
+  ["REVERT_HEAD", "a revert"],
+];
+
+/** Runs git in a worktree, and gives whether it failed, its words, and the lines it printed. */
+function gitIn(worktree: string, args: string[]): Promise<{ failed: boolean; said: string; printed: string[] }> {
+  return new Promise((done) => {
+    execFile("git", args, { cwd: worktree, encoding: "utf8" }, (error, stdout, stderr) => done({ failed: error !== null, said: `${stderr}${stdout}`.trim() || (error?.message ?? ""), printed: stdout.split("\n").filter((line) => line !== "") }));
+  });
+}
+
+/**
+ * Why one file of a worktree cannot now be written and committed on the
+ * branch named, or null where it can: a rebase, a merge, a cherry-pick, a
+ * revert or a `git am` is under way in the worktree, or the worktree's HEAD
+ * is not that branch, a detached HEAD and another branch alike. Where git
+ * cannot say, its words are the reason. A change written in the middle of a
+ * rebase goes with the rebase where it is aborted and holds its continue
+ * while it is not staged, a commit made there is dropped with it, and a
+ * commit made on a detached HEAD is on no branch.
+ */
+export async function whyNoCommit(worktree: string, branch: string): Promise<string | null> {
+  // Git prints each marker's path in the worktree's own git folder, a line for each, relative to the worktree where it prints a relative one.
+  const markers = await gitIn(worktree, ["rev-parse", ...UNDER_WAY.flatMap(([marker]) => ["--git-path", marker])]);
+  if (markers.failed || markers.printed.length !== UNDER_WAY.length) return markers.said;
+  const under = UNDER_WAY.find((_, index) => existsSync(resolve(worktree, markers.printed[index] ?? "")));
+  // A rebase is read first, since HEAD is detached for its length and the reason then names the rebase.
+  if (under !== undefined) return `${under[1]} is under way in the worktree`;
+  const head = await gitIn(worktree, ["symbolic-ref", "--quiet", "HEAD"]);
+  if (head.failed || head.printed[0] !== `refs/heads/${branch}`) return `the worktree is not on the branch ${branch}`;
+  return null;
+}
+
+/**
+ * Commits one file of a worktree and nothing else, on the branch named and
+ * on no other: `git add` of that path, then a `git commit` that names that
+ * path, with the subject and the trailer as its two paragraphs. Before the
+ * `git add` it throws the reason `whyNoCommit` gives, with nothing staged
+ * and nothing committed. Git runs
+ * with the person's identity and the repository's hooks, as the setup of the
+ * records place commits (`records-place.ts#setUpRecords`): no option skips a
+ * hook or a signature, and nothing is pushed.
+ * What else is staged stays staged and is not committed, and what else is
+ * changed stays changed. Where the newest commit already holds the file as
+ * it stands, nothing is committed. Where either command fails it throws
+ * git's words, a hook's output among them, and the path is first taken out
+ * of the index again, so the file stands written and not staged.
+ */
+export async function commitAlone(worktree: string, branch: string, path: string, subject: string, trailer: string): Promise<void> {
+  const run = (args: string[]) => gitIn(worktree, args);
+  const why = await whyNoCommit(worktree, branch);
+  if (why !== null) throw new Error(why);
+  const refused = async (said: string): Promise<never> => {
+    await run(["reset", "--quiet", "--", path]);
+    throw new Error(said);
+  };
+  const added = await run(["add", "--", path]);
+  if (added.failed) return refused(added.said);
+  // Git exits 0 where the index holds the path as the branch's newest commit does: an earlier commit carried the file as it stands.
+  if (!(await run(["diff", "--cached", "--quiet", "--", path])).failed) return;
+  const committed = await run(["commit", "-m", subject, "-m", trailer, "--", path]);
+  if (committed.failed) return refused(committed.said);
 }

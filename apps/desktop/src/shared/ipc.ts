@@ -1,7 +1,7 @@
 // The channels between the window and the main process: where the daemon is
 // and whether it is of another build than the one the app would start,
-// the native folder dialog, which a page cannot open, the theme a person
-// chose, which the main process keeps (./appearance), the address of a
+// the native folder dialog, which a page cannot open, the theme and the
+// appearance a person chose, which the main process keeps (./appearance), the address of a
 // link a person clicked in a pane, which only the main process may open
 // (src/main/links.ts), what stands on the disk at a path a pane printed and
 // the showing of one in Finder (src/main/paths.ts), what a menu's "Open in"
@@ -15,7 +15,7 @@
 // the end of the daemon the window then asks for, since the main process is
 // the one that stops it (src/main/daemon-client.ts). Everything else goes
 // between the window and the daemon, over the protocol in ./protocol.
-import type { ThemeChoice } from "./appearance";
+import type { LookChoice } from "./appearance";
 
 export const Channel = {
   daemon: "owlery:daemon",
@@ -67,12 +67,12 @@ export interface PathFound {
 export interface OwleryApi {
   /** Finds or starts the daemon and returns how to reach it and whether it is of another build, or why it could not be started. */
   daemon(): Promise<DaemonConnection | DaemonFailure>;
-  /** Opens the native folder dialog and returns the folder chosen, or null where none was. */
+  /** Opens the native folder dialog and returns the folder chosen, or null where none was. An app started in the background opens none and returns null. */
   pickFolder(): Promise<string | null>;
-  /** The theme choice the main process held when this page loaded: Night desk at the first run. */
-  appearance: ThemeChoice;
+  /** The choice of theme and appearance the main process held when this page loaded: Night watch in the dark appearance at the first run. */
+  appearance: LookChoice;
   /** Has the main process keep a new choice, so the next window opens in it. */
-  saveAppearance(choice: ThemeChoice): Promise<void>;
+  saveAppearance(choice: LookChoice): Promise<void>;
   /** The editors and the terminals the Mac holds, of those the main process knows, the editors first. */
   installedApps(): Promise<InstalledApp[]>;
   /** Opens a folder in Finder, where `app` is null, or in the installed app of that name. The folder is a work item's worktree or a repository's folder, and the main process opens no other path. It answers null, or why nothing was opened, as a sentence the window shows as it is. */

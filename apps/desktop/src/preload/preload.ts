@@ -1,17 +1,18 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import { themeChoice, themeFor } from "../shared/appearance";
+import { appearanceFor, lookChoice } from "../shared/appearance";
 import { Channel, type OwleryApi } from "../shared/ipc";
 
-// The saved choice is read before the page exists, and its theme put on the
-// page's root as soon as the parser makes it, so no element is ever drawn in
-// another theme. The page's own module changes the theme afterwards
-// (src/renderer/theme.ts).
-const appearance = themeChoice(ipcRenderer.sendSync(Channel.appearance));
+// The saved choice is read before the page exists, and its theme and its
+// appearance put on the page's root as soon as the parser makes it, so no
+// element is ever drawn in another. The page's own module changes them
+// afterwards (src/renderer/theme.ts).
+const appearance = lookChoice(ipcRenderer.sendSync(Channel.appearance));
 
 function showTheme(): boolean {
   const root = document.documentElement;
   if (!root) return false;
-  root.dataset.theme = themeFor(appearance, window.matchMedia("(prefers-color-scheme: dark)").matches);
+  root.dataset.theme = appearance.theme;
+  root.dataset.appearance = appearanceFor(appearance.appearance, window.matchMedia("(prefers-color-scheme: dark)").matches);
   return true;
 }
 if (!showTheme()) {

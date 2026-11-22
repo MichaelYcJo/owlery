@@ -1,94 +1,123 @@
 /*
- * The themes. Each is one block, and the page moves between themes by the
- * value of `data-theme` on its `html`. A block holds every colour, typeface,
- * texture, radius and shadow the page draws with, each named for its role.
- * It holds no width, no height and no size of type: those are the layout's,
- * in index.html. Red stands on the seal alone, so no property but the ones
- * that open `--seal-` holds a red. test/themes.test.ts holds these rules.
+ * The themes. The window has three, each in a dark and a light appearance,
+ * and each pair is one block: the page moves between them by the values of
+ * `data-theme` and `data-appearance` on its `html`. A block holds every
+ * colour, typeface, texture, radius and shadow the page draws with, and the
+ * shapes of a state's mark, each named for its role, and every difference
+ * between two themes is a property of their blocks: no selector outside this
+ * file names a theme or an appearance. A block holds no width, no height and
+ * no size of type: those are the layout's, in index.html. Red stands on the
+ * seal alone, so no property but the ones that open `--seal-` holds a red.
+ * An ink that sets words stands at 4.5 to 1 or more against each ground the
+ * words stand on, and a state's mark and the ring of the keyboard's focus at
+ * 3 to 1 or more.
+ * test/themes.test.ts holds these rules. docs/design.md, Tokens, is the
+ * source of every value here, and a change of one changes that document, its
+ * Korean edition and this file in one commit. The comments of the first
+ * block say what each group of names is for, in every block.
  */
-:root[data-theme="night-desk"] {
+/* Night watch, dark: the first run's. The emblem's black and bone, the sans alone, and the eye's yellow on what needs the person. */
+:root[data-theme="night-watch"][data-appearance="dark"] {
   /* Whether the system draws its own parts, a scroll bar and a list of choices among them, dark or light. */
   --scheme: dark;
 
-  /* The typefaces are the system's. The serif one draws what an agent says and the summary's sentence. */
+  /* The typefaces are the system's. `--font-title` sets a title, `--font-said` what an agent says and the summary's sentence, and `--font-fact` an age and a count. */
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
   --font-title: var(--font-ui);
+  --font-said: var(--font-ui);
+  --font-fact: var(--font-ui);
+
   /* The terminal's: the fixed-width one, then where a person installed them Nerd Fonts for the icons of common shell prompts, then Korean. */
   --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
   --weight-title: 650;
   --weight-said: 500;
 
-  /* The grounds: the window's, the sidebar's, a view's right column's, a card's and a field's. */
-  --ground: #1c1a18;
-  --ground-side: #262321;
-  --ground-column: #1c1a18;
-  --ground-raised: #262321;
-  --ground-sunken: #171513;
+  /* The grounds: the window's, the sidebar's, a view's right column's, a card's and a field's, and the texture over the right column. */
+  --ground: #0f0f10;
+  --ground-side: #161617;
+  --ground-column: #0f0f10;
+  --ground-raised: #1c1c1e;
+  --ground-sunken: #0a0a0b;
   --texture: none;
 
   /* The inks, from strong to faint, and the rules. */
-  --ink-strong: #f6ecd8;
-  --ink: #e4ddcf;
-  --ink-muted: #a39b8d;
-  --ink-faint: #756e63;
-  --rule: rgba(246, 236, 216, 0.09);
-  --rule-soft: rgba(246, 236, 216, 0.05);
+  --ink-strong: #f3efe6;
+  --ink: #dcd9d1;
+  --ink-muted: #a3a097;
+  --ink-faint: #908e87;
+  --rule: rgba(243, 239, 230, 0.1);
+  --rule-soft: rgba(243, 239, 230, 0.055);
 
-  /* A line, a sidebar's item and a tab: under the pointer, pressed, and selected. */
-  --hover: rgba(246, 236, 216, 0.045);
-  --pressed: rgba(246, 236, 216, 0.075);
-  --selected: rgba(246, 236, 216, 0.1);
+  /* A line, a sidebar's item and a tab: under the pointer, pressed, and selected, with the edge of the sidebar's selected item. */
+  --hover: rgba(243, 239, 230, 0.05);
+  --pressed: rgba(243, 239, 230, 0.08);
+  --selected: rgba(243, 239, 230, 0.1);
   --selected-edge: none;
 
-  /* A button, and the main button, which is never red. */
-  --control: rgba(246, 236, 216, 0.08);
-  --control-hover: rgba(246, 236, 216, 0.13);
-  --control-pressed: rgba(246, 236, 216, 0.05);
-  --control-edge: inset 0 0.5px 0 rgba(246, 236, 216, 0.14), 0 0.5px 1px rgba(0, 0, 0, 0.35);
-  --main: #f6ecd8;
-  --main-hover: #fff8e8;
-  --main-pressed: #e4ddcf;
-  --on-main: #201c18;
+  /* The edge of a line of the inbox, at rest and selected, each a whole shadow, the first of which a row of a list of records carries too, and the ground and edge of a group's head. */
+  --line-edge: none;
+  --line-edge-selected: none;
+  --group-ground: transparent;
+  --group-edge: none;
 
-  /* The ring of the keyboard's focus and the mark of a search's match, made from the ink and the ochre of a failure. */
-  --focus: #e8c88e;
-  --mark: rgba(219, 165, 69, 0.4);
-  --badge: rgba(246, 236, 216, 0.12);
-  --badge-ink: #f6ecd8;
+  /* A button, and the main button with the words on it. No button is red. */
+  --control: rgba(243, 239, 230, 0.08);
+  --control-hover: rgba(243, 239, 230, 0.13);
+  --control-pressed: rgba(243, 239, 230, 0.05);
+  --control-edge: inset 0 0 0 1px rgba(243, 239, 230, 0.1);
+  --main: #f3efe6;
+  --main-hover: #fbf9f4;
+  --main-pressed: #dcd9d1;
+  --on-main: #0f0f10;
 
-  /* The states. A failure is the ochre. */
-  --state-waiting: #f6ecd8;
-  --state-working: #bdb5a5;
-  --state-finished: #7d766a;
-  --state-no-agent: #756e63;
-  --state-failed: #dba545;
-  --added: #a3b47c;
-  --removed: #a39b8d;
+  /* The ring of the keyboard's focus, the letters a search matched, and the count of new commits. */
+  --focus: #f3efe6;
+  --mark: rgba(243, 239, 230, 0.22);
+  --badge: rgba(243, 239, 230, 0.12);
+  --badge-ink: #f3efe6;
 
-  /* The terminal, which draws the colours its program asks for over the first two. The strong ink is the label of the tab in front, which stands on the terminal's ground. */
-  --terminal-ground: #151312;
-  --terminal-ink: #d6cfc1;
-  --terminal-strong: #f6ecd8;
+  /* The states. A state's colour is its mark's and its words', and a wait and a failure have the fill of their marks beside it. No failure is red. */
+  --state-waiting: #f2c033;
+  --state-waiting-fill: var(--state-waiting);
+  --state-working: #dcd9d1;
+  --state-finished: #908e87;
+  --state-no-agent: #908e87;
+  --state-failed: #f2c033;
+  --state-failed-fill: var(--state-failed);
+  --added: #a9b88a;
+  --removed: #a3a097;
+
+  /* The terminal, which draws the colours its program asks for over the first two, on a dark ground in both appearances. The strong ink is the label of the tab in front, which stands on the terminal's ground. */
+  --terminal-ground: #070708;
+  --terminal-ink: #cfccc4;
+  --terminal-strong: #f3efe6;
 
   /* The seal. Its drawing and the wax's red are the drawing's own; a theme gives the tones of the blank place, its ground and its edge on a line, and the light on each. */
-  --seal-blank: #292624;
-  --seal-blank-deep: #23201e;
-  --seal-blank-ring: #312d2a;
-  --seal-blank-owl: #3b3632;
+  --seal-blank: #1b1b1d;
+  --seal-blank-deep: #151516;
+  --seal-blank-ring: #242426;
+  --seal-blank-owl: #2c2c2f;
   --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
-  /* The radii of a card, a control, a line and a chip. */
+  /* The corners of a card, a control, a line, a chip and what an agent says. */
   --radius-card: 8px;
   --radius-control: 6px;
   --radius-line: 6px;
   --radius-chip: 4px;
+  --radius-said: 0 var(--radius-card) var(--radius-card) 0;
 
-  --card-edge: inset 0 0 0 1px rgba(246, 236, 216, 0.06);
+  /* A card's edge, and the ground and the edges of what an agent says: at rest, and where its work item needs the person. */
+  --card-edge: inset 0 0 0 1px rgba(243, 239, 230, 0.06);
+  --said-ground: var(--ground-raised);
+  --said-edge: var(--card-edge);
+  --said-edge-waiting: inset 2px 0 0 var(--state-waiting);
+
+  /* What stands behind and under a dialog. */
   --backdrop: rgba(0, 0, 0, 0.6);
   --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
 
@@ -98,21 +127,257 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
+
+  /* A state's mark, as paths on a square of 16 units: `--shape-<state>` is drawn as a line and `--shape-<state>-fill` is filled, and the working state has the faint line under the part that turns and the part that turns. `none` draws nothing. */
+  --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
+  --shape-working: none;
+  --shape-working-fill: none;
+  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
+  --shape-finished: path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0");
+  --shape-finished-fill: none;
+  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
+  --shape-no-agent-fill: none;
+  --shape-failed: none;
+  --shape-failed-fill: path("M8 2.3l6 10.5H2z");
 }
 
-:root[data-theme="letter"] {
+/* Night watch, light: the same two turned over, with the yellow darkened for words and kept bright for a mark's fill. A failure's triangle has a line of the darkened yellow around its fill, which alone does not stand apart from the ground. */
+:root[data-theme="night-watch"][data-appearance="light"] {
   --scheme: light;
 
-  /* The typefaces are the system's. The serif one draws the titles as well. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-ui);
+  --font-said: var(--font-ui);
+  --font-fact: var(--font-ui);
+
+  --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
+  --weight-title: 650;
+  --weight-said: 500;
+
+  --ground: #f3efe6;
+  --ground-side: #e9e5db;
+  --ground-column: #f3efe6;
+  --ground-raised: #faf8f2;
+  --ground-sunken: #fcfaf5;
+  --texture: none;
+
+  --ink-strong: #0f0f10;
+  --ink: #26262a;
+  --ink-muted: #53514d;
+  --ink-faint: #62605c;
+  --rule: #d5d0c4;
+  --rule-soft: #e2ded3;
+
+  --hover: rgba(15, 15, 16, 0.045);
+  --pressed: rgba(15, 15, 16, 0.07);
+  --selected: rgba(15, 15, 16, 0.085);
+  --selected-edge: none;
+
+  --line-edge: none;
+  --line-edge-selected: none;
+  --group-ground: transparent;
+  --group-edge: none;
+
+  --control: #faf8f2;
+  --control-hover: #fffefb;
+  --control-pressed: #ece8de;
+  --control-edge: inset 0 0 0 1px #cbc6b9;
+  --main: #0f0f10;
+  --main-hover: #26262a;
+  --main-pressed: #000000;
+  --on-main: #f3efe6;
+
+  --focus: #0f0f10;
+  --mark: rgba(15, 15, 16, 0.14);
+  --badge: rgba(15, 15, 16, 0.1);
+  --badge-ink: #26262a;
+
+  --state-waiting: #846000;
+  --state-waiting-fill: #e9b61a;
+  --state-working: #26262a;
+  --state-finished: #62605c;
+  --state-no-agent: #62605c;
+  --state-failed: #7f5b00;
+  --state-failed-fill: #e9b61a;
+  --added: #4f6b2a;
+  --removed: #53514d;
+
+  --terminal-ground: #0f0f10;
+  --terminal-ink: #cfccc4;
+  --terminal-strong: #f3efe6;
+
+  --seal-blank: #ebe7dd;
+  --seal-blank-deep: #e4e0d5;
+  --seal-blank-ring: #f6f3ec;
+  --seal-blank-owl: #d6d1c4;
+  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
+  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
+  --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-line: 6px;
+  --radius-chip: 4px;
+  --radius-said: 0 var(--radius-card) var(--radius-card) 0;
+
+  --card-edge: inset 0 0 0 1px #d5d0c4;
+  --said-ground: var(--ground-raised);
+  --said-edge: var(--card-edge);
+  --said-edge-waiting: inset 2px 0 0 var(--state-waiting);
+
+  --backdrop: rgba(15, 15, 16, 0.4);
+  --dialog-shadow: 0 24px 80px rgba(15, 15, 16, 0.3);
+
+  --field-edge: inset 0 0 0 1px var(--rule);
+  --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --mark-edge: 0 0 0 1px var(--mark);
+  --radius-mark: 2px;
+
+  --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
+  --shape-working: none;
+  --shape-working-fill: none;
+  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
+  --shape-finished: path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0");
+  --shape-finished-fill: none;
+  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
+  --shape-no-agent-fill: none;
+  --shape-failed: path("M8 2.3l6 10.5H2z");
+  --shape-failed-fill: path("M8 2.3l6 10.5H2z");
+}
+
+/* Register, dark: a ruled book of records. Square corners, a rule under each line, a button drawn by its edge, and every fact a person compares down a list in the fixed-width face. */
+:root[data-theme="register"][data-appearance="dark"] {
+  --scheme: dark;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-ui);
+  --font-said: var(--font-serif);
+  --font-fact: var(--font-mono);
+
+  --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
+  --weight-title: 650;
+  --weight-said: 500;
+
+  --ground: #1c1a18;
+  --ground-side: #262321;
+  --ground-column: #1c1a18;
+  --ground-raised: #262321;
+  --ground-sunken: #171513;
+  --texture: none;
+
+  --ink-strong: #f6ecd8;
+  --ink: #e4ddcf;
+  --ink-muted: #aea697;
+  --ink-faint: #9b9385;
+  --rule: rgba(246, 236, 216, 0.13);
+  --rule-soft: rgba(246, 236, 216, 0.07);
+
+  --hover: rgba(246, 236, 216, 0.045);
+  --pressed: rgba(246, 236, 216, 0.075);
+  --selected: rgba(246, 236, 216, 0.06);
+  --selected-edge: inset 2px 0 0 var(--ink-strong);
+
+  --line-edge: 0 1px 0 var(--rule-soft);
+  --line-edge-selected: inset 2px 0 0 var(--ink-strong), 0 1px 0 var(--rule-soft);
+  --group-ground: var(--ground-side);
+  --group-edge: inset 0 -1px 0 var(--rule), inset 0 1px 0 var(--rule-soft);
+
+  --control: transparent;
+  --control-hover: rgba(246, 236, 216, 0.045);
+  --control-pressed: rgba(246, 236, 216, 0.075);
+  --control-edge: inset 0 0 0 1px rgba(246, 236, 216, 0.18);
+  --main: #f6ecd8;
+  --main-hover: #fff8e8;
+  --main-pressed: #e4ddcf;
+  --on-main: #201c18;
+
+  --focus: #e8c88e;
+  --mark: rgba(219, 165, 69, 0.4);
+  --badge: rgba(246, 236, 216, 0.12);
+  --badge-ink: #f6ecd8;
+
+  --state-waiting: #f6ecd8;
+  --state-waiting-fill: var(--state-waiting);
+  --state-working: #bdb5a5;
+  --state-finished: #a39b8c;
+  --state-no-agent: #9b9385;
+  --state-failed: #dba545;
+  --state-failed-fill: var(--state-failed);
+  --added: #a3b47c;
+  --removed: #aea697;
+
+  --terminal-ground: #151312;
+  --terminal-ink: #d6cfc1;
+  --terminal-strong: #f6ecd8;
+
+  --seal-blank: #292624;
+  --seal-blank-deep: #23201e;
+  --seal-blank-ring: #312d2a;
+  --seal-blank-owl: #3b3632;
+  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
+  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
+  --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+
+  --radius-card: 2px;
+  --radius-control: 2px;
+  --radius-line: 0;
+  --radius-chip: 0;
+  --radius-said: 0;
+
+  --card-edge: inset 0 0 0 1px rgba(246, 236, 216, 0.06);
+  --said-ground: transparent;
+  --said-edge: 0 1px 0 var(--rule), 0 -1px 0 var(--rule);
+  --said-edge-waiting: 0 1px 0 var(--rule), 0 -1px 0 var(--rule);
+
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+
+  --field-edge: inset 0 0 0 1px var(--rule);
+  --tab-edge: inset 0 2px 0 var(--terminal-strong);
+  --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --mark-edge: 0 0 0 1px var(--mark);
+  --radius-mark: 0;
+
+  --shape-waiting: none;
+  --shape-waiting-fill: path("M3 3h10v10H3z");
+  --shape-working: path("M3 3h10v10H3z");
+  --shape-working-fill: path("M3 3h5v10H3z");
+  --shape-working-track: none;
+  --shape-working-turn: none;
+  --shape-finished: path("M3 3h10v10H3zM5.6 8.2l1.7 1.7 3.2-3.6");
+  --shape-finished-fill: none;
+  --shape-no-agent: path("M3 3h10v10H3z");
+  --shape-no-agent-fill: none;
+  --shape-failed: path("M8 2.3l6 10.5H2zM8 6.6v2.8M8 11.1v.1");
+  --shape-failed-fill: none;
+}
+
+/* Register, light: the ruled book on paper, with the main button in the ink. */
+:root[data-theme="register"][data-appearance="light"] {
+  --scheme: light;
+
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
   --font-title: var(--font-serif);
+  --font-said: var(--font-serif);
+  --font-fact: var(--font-mono);
+
   --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
   --weight-title: 600;
   --weight-said: 500;
 
-  /* The grounds. A view's right column and a card are the raised paper, the column under its ruled texture. */
   --ground: #f1e9d8;
   --ground-side: #e8dfcb;
   --ground-column: #faf5e9;
@@ -122,8 +387,228 @@
 
   --ink-strong: #1a1613;
   --ink: #2e2924;
-  --ink-muted: #665c50;
-  --ink-faint: #857a6b;
+  --ink-muted: #564d43;
+  --ink-faint: #655c51;
+  --rule: #d6cab2;
+  --rule-soft: #e3d9c4;
+
+  --hover: rgba(46, 41, 36, 0.045);
+  --pressed: rgba(46, 41, 36, 0.07);
+  --selected: rgba(46, 41, 36, 0.05);
+  --selected-edge: inset 2px 0 0 var(--ink-strong);
+
+  --line-edge: 0 1px 0 var(--rule-soft);
+  --line-edge-selected: inset 2px 0 0 var(--ink-strong), 0 1px 0 var(--rule-soft);
+  --group-ground: var(--ground-side);
+  --group-edge: inset 0 -1px 0 var(--rule), inset 0 1px 0 var(--rule-soft);
+
+  --control: transparent;
+  --control-hover: rgba(46, 41, 36, 0.045);
+  --control-pressed: rgba(46, 41, 36, 0.07);
+  --control-edge: inset 0 0 0 1px #bfb193;
+  --main: #1a1613;
+  --main-hover: #2e2924;
+  --main-pressed: #0d0b09;
+  --on-main: #fbf6ea;
+
+  --focus: #5e3b0f;
+  --mark: rgba(162, 96, 10, 0.3);
+  --badge: rgba(46, 41, 36, 0.1);
+  --badge-ink: #2e2924;
+
+  --state-waiting: #1a1613;
+  --state-waiting-fill: var(--state-waiting);
+  --state-working: #564d43;
+  --state-finished: #655c51;
+  --state-no-agent: #655c51;
+  --state-failed: #8f550b;
+  --state-failed-fill: var(--state-failed);
+  --added: #4f6b2a;
+  --removed: #564d43;
+
+  --terminal-ground: #1c1815;
+  --terminal-ink: #d8cfbd;
+  --terminal-strong: #f6ecd8;
+
+  --seal-blank: #ebe2ce;
+  --seal-blank-deep: #e6dcc6;
+  --seal-blank-ring: #f4eddd;
+  --seal-blank-owl: #d9ccb2;
+  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
+  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
+  --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+
+  --radius-card: 2px;
+  --radius-control: 2px;
+  --radius-line: 0;
+  --radius-chip: 0;
+  --radius-said: 0;
+
+  --card-edge: inset 0 0 0 1px #d6cab2;
+  --said-ground: transparent;
+  --said-edge: 0 1px 0 var(--rule), 0 -1px 0 var(--rule);
+  --said-edge-waiting: 0 1px 0 var(--rule), 0 -1px 0 var(--rule);
+
+  --backdrop: rgba(46, 41, 36, 0.4);
+  --dialog-shadow: 0 24px 80px rgba(90, 60, 30, 0.35);
+
+  --field-edge: inset 0 0 0 1px var(--rule);
+  --tab-edge: inset 0 2px 0 var(--terminal-strong);
+  --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --mark-edge: 0 0 0 1px var(--mark);
+  --radius-mark: 0;
+
+  --shape-waiting: none;
+  --shape-waiting-fill: path("M3 3h10v10H3z");
+  --shape-working: path("M3 3h10v10H3z");
+  --shape-working-fill: path("M3 3h5v10H3z");
+  --shape-working-track: none;
+  --shape-working-turn: none;
+  --shape-finished: path("M3 3h10v10H3zM5.6 8.2l1.7 1.7 3.2-3.6");
+  --shape-finished-fill: none;
+  --shape-no-agent: path("M3 3h10v10H3z");
+  --shape-no-agent-fill: none;
+  --shape-failed: path("M8 2.3l6 10.5H2zM8 6.6v2.8M8 11.1v.1");
+  --shape-failed-fill: none;
+}
+
+/* Desk, dark: a warm desk at night, the window as it stood before it had themes. */
+:root[data-theme="desk"][data-appearance="dark"] {
+  --scheme: dark;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-ui);
+  --font-said: var(--font-serif);
+  --font-fact: var(--font-ui);
+
+  --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
+  --weight-title: 650;
+  --weight-said: 500;
+
+  --ground: #1c1a18;
+  --ground-side: #262321;
+  --ground-column: #1c1a18;
+  --ground-raised: #262321;
+  --ground-sunken: #171513;
+  --texture: none;
+
+  --ink-strong: #f6ecd8;
+  --ink: #e4ddcf;
+  --ink-muted: #aea697;
+  --ink-faint: #9b9385;
+  --rule: rgba(246, 236, 216, 0.09);
+  --rule-soft: rgba(246, 236, 216, 0.05);
+
+  --hover: rgba(246, 236, 216, 0.045);
+  --pressed: rgba(246, 236, 216, 0.075);
+  --selected: rgba(246, 236, 216, 0.1);
+  --selected-edge: none;
+
+  --line-edge: none;
+  --line-edge-selected: none;
+  --group-ground: transparent;
+  --group-edge: none;
+
+  --control: rgba(246, 236, 216, 0.08);
+  --control-hover: rgba(246, 236, 216, 0.13);
+  --control-pressed: rgba(246, 236, 216, 0.05);
+  --control-edge: inset 0 0.5px 0 rgba(246, 236, 216, 0.14), 0 0.5px 1px rgba(0, 0, 0, 0.35);
+  --main: #f6ecd8;
+  --main-hover: #fff8e8;
+  --main-pressed: #e4ddcf;
+  --on-main: #201c18;
+
+  --focus: #e8c88e;
+  --mark: rgba(219, 165, 69, 0.4);
+  --badge: rgba(246, 236, 216, 0.12);
+  --badge-ink: #f6ecd8;
+
+  --state-waiting: #f6ecd8;
+  --state-waiting-fill: var(--state-waiting);
+  --state-working: #bdb5a5;
+  --state-finished: #a39b8c;
+  --state-no-agent: #9b9385;
+  --state-failed: #dba545;
+  --state-failed-fill: var(--state-failed);
+  --added: #a3b47c;
+  --removed: #aea697;
+
+  --terminal-ground: #151312;
+  --terminal-ink: #d6cfc1;
+  --terminal-strong: #f6ecd8;
+
+  --seal-blank: #292624;
+  --seal-blank-deep: #23201e;
+  --seal-blank-ring: #312d2a;
+  --seal-blank-owl: #3b3632;
+  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
+  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
+  --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
+  --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-line: 6px;
+  --radius-chip: 4px;
+  --radius-said: var(--radius-card);
+
+  --card-edge: inset 0 0 0 1px rgba(246, 236, 216, 0.06);
+  --said-ground: var(--ground-raised);
+  --said-edge: var(--card-edge);
+  --said-edge-waiting: var(--card-edge);
+
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+
+  --field-edge: inset 0 0 0 1px var(--rule);
+  --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --mark-edge: 0 0 0 1px var(--mark);
+  --radius-mark: 2px;
+
+  --shape-waiting: none;
+  --shape-waiting-fill: path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z");
+  --shape-working: none;
+  --shape-working-fill: none;
+  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
+  --shape-finished: path("M2.2 8a5.8 5.8 0 1 0 11.6 0a5.8 5.8 0 1 0-11.6 0zM5.3 8.2l1.9 1.9 3.6-4");
+  --shape-finished-fill: none;
+  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
+  --shape-no-agent-fill: none;
+  --shape-failed: path("M8 2.3l6 10.5H2zM8 6.6v2.8M8 11.1v.1");
+  --shape-failed-fill: none;
+}
+
+/* Desk, light: a sheet of letter paper. The serif sets the titles, and the main button is ink blue. */
+:root[data-theme="desk"][data-appearance="light"] {
+  --scheme: light;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --font-title: var(--font-serif);
+  --font-said: var(--font-serif);
+  --font-fact: var(--font-ui);
+
+  --font-terminal: ui-monospace, "SF Mono", Menlo, "MesloLGS NF", "MesloLGS Nerd Font", "Hack Nerd Font", "Symbols Nerd Font Mono", "D2Coding", "Apple SD Gothic Neo", monospace;
+  --weight-title: 600;
+  --weight-said: 500;
+
+  --ground: #f1e9d8;
+  --ground-side: #e8dfcb;
+  --ground-column: #faf5e9;
+  --ground-raised: #faf5e9;
+  --ground-sunken: #fbf7ee;
+  --texture: repeating-linear-gradient(0deg, rgba(120, 95, 60, 0.028) 0 1px, transparent 1px 3px);
+
+  --ink-strong: #1a1613;
+  --ink: #2e2924;
+  --ink-muted: #564d43;
+  --ink-faint: #655c51;
   --rule: #d6cab2;
   --rule-soft: #e3d9c4;
 
@@ -132,7 +617,11 @@
   --selected: rgba(46, 41, 36, 0.09);
   --selected-edge: none;
 
-  /* A button is the raised paper, and the main button ink blue, never red. */
+  --line-edge: none;
+  --line-edge-selected: none;
+  --group-ground: transparent;
+  --group-edge: none;
+
   --control: #faf5e9;
   --control-hover: #fffbf1;
   --control-pressed: #efe6d2;
@@ -148,19 +637,19 @@
   --badge-ink: #2e2924;
 
   --state-waiting: #1a1613;
-  --state-working: #665c50;
-  --state-finished: #857a6b;
-  --state-no-agent: #857a6b;
-  --state-failed: #a2600a;
+  --state-waiting-fill: var(--state-waiting);
+  --state-working: #564d43;
+  --state-finished: #655c51;
+  --state-no-agent: #655c51;
+  --state-failed: #8b5107;
+  --state-failed-fill: var(--state-failed);
   --added: #4f6b2a;
-  --removed: #665c50;
+  --removed: #564d43;
 
-  /* The terminal stays dark on the paper. */
   --terminal-ground: #1c1815;
   --terminal-ink: #d8cfbd;
   --terminal-strong: #f6ecd8;
 
-  /* The blank place is pressed into the paper, and a seal casts a short shadow on it. */
   --seal-blank: #ebe2ce;
   --seal-blank-deep: #e6dcc6;
   --seal-blank-ring: #f4eddd;
@@ -174,8 +663,13 @@
   --radius-control: 5px;
   --radius-line: 5px;
   --radius-chip: 3px;
+  --radius-said: var(--radius-card);
 
   --card-edge: inset 0 0 0 1px #d6cab2;
+  --said-ground: var(--ground-raised);
+  --said-edge: var(--card-edge);
+  --said-edge-waiting: var(--card-edge);
+
   --backdrop: rgba(46, 41, 36, 0.4);
   --dialog-shadow: 0 24px 80px rgba(90, 60, 30, 0.35);
 
@@ -184,4 +678,17 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
+
+  --shape-waiting: none;
+  --shape-waiting-fill: path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z");
+  --shape-working: none;
+  --shape-working-fill: none;
+  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
+  --shape-finished: path("M2.2 8a5.8 5.8 0 1 0 11.6 0a5.8 5.8 0 1 0-11.6 0zM5.3 8.2l1.9 1.9 3.6-4");
+  --shape-finished-fill: none;
+  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
+  --shape-no-agent-fill: none;
+  --shape-failed: path("M8 2.3l6 10.5H2zM8 6.6v2.8M8 11.1v.1");
+  --shape-failed-fill: none;
 }

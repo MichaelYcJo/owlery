@@ -64,6 +64,32 @@ export interface Group {
   name: string;
 }
 
+/** What a repository's main checkout holds of the place for work records, as the daemon last read its working tree. */
+export interface RecordsPlace {
+  /** The root's folder from the top of the repository, `seal` or `agentic-seal`, or null where none stands. */
+  root: string | null;
+  /** The path of the workflow that runs the check, or null where none stands. */
+  check: string | null;
+  /** The value of the `Broad gate` key of the root's `config.json`, or null where there is no root, no file, or no such key. */
+  broadGate: string | null;
+}
+
+/** What a setup of the records place would do. */
+export interface RecordsPlan {
+  /** The branch the commit lands on, or null where the checkout stands on none. */
+  branch: string | null;
+  /** The commit's subject. */
+  subject: string;
+  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file the commit holds, which is kept. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
+  files: { path: string; text: string | null }[];
+  /** Why the setup cannot run, as a sentence the window shows as it is, or null. */
+  blocked: string | null;
+  /** A command the daemon read from the repository as its likely broad gate, for the window to put in the field before the person types, or null where it read none. It is no part of the stamp. */
+  proposedBroadGate: string | null;
+  /** A text that differs wherever the commit the checkout stands at, the branch or a file above differs. A setup carries the stamp of the plan the person read. */
+  stamp: string;
+}
+
 /**
  * A repository the daemon keeps. It is added and removed on its own, and its
  * work items name it by its id. A repository with no work item is one.
@@ -84,6 +110,8 @@ export interface Repository {
   hidden: boolean;
   /** In the order they were made. */
   groups: Group[];
+  /** What the main checkout holds of the records place. A daemon of an earlier build sends none, and a client reads its absence as a repository it offers no setup for. */
+  records: RecordsPlace;
 }
 
 /** The running sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that are working, each by its id. */
@@ -126,6 +154,84 @@ export interface WorkItemLoss {
 /** Whether a delete would lose work: the loss names a commit, a tracked file with a change or an untracked file. Such a delete runs only where the person chose to force it. The ignored files and folders lose none. */
 export function losesWork(loss: Pick<WorkItemLoss, "commitCount" | "uncommittedCount" | "untrackedCount">): boolean {
   return loss.commitCount > 0 || loss.uncommittedCount > 0 || loss.untrackedCount > 0;
+}
+
+/** Why the orchestrator decided without asking: it chose a route, took a default, chose a scope, or found the question answered in the tree. */
+export type DecisionKind = "route" | "default" | "scope" | "answered";
+
+/** Where a decision stands: as made, reversed by the person, taken in by a stage, or carried to another home after the merge. */
+export type DecisionState = "decided" | "reversed" | "applied" | "carried";
+
+/** One decision made for a work item in place of asking the person, as the daemon read it in the work item's record. */
+export interface Decision {
+  /** The block's id, given once over the work item's record. Two work items may each hold the same id. */
+  id: number;
+  kind: DecisionKind;
+  /** What was decided. */
+  says: string;
+  /** Why, with the coordinate the decision stands on. */
+  grounds: string;
+  /** Who decided, where the block says it. */
+  by: string | null;
+  state: DecisionState;
+  /** The person's message, where the state is not `decided`. */
+  reversal: string | null;
+  /** The commit that took the reversal in where `applied`, the home it went to where `carried`, and null otherwise. */
+  landed: string | null;
+  /** The daemon's clock when it first read the block in its state, or null where it has none. */
+  since: number | null;
+}
+
+/** One question a work item is or was parked with, as the daemon read it in the work item's record. The work item is parked while one of its questions has no answer. */
+export interface Question {
+  /** The block's id, of the same count as a decision's. */
+  id: number;
+  asks: string;
+  /** Why the code and the policy do not answer it and the session cannot give it itself. */
+  grounds: string;
+  /** Who asks, where the block says it. */
+  by: string | null;
+  /** The answers the asker names, each with what it implies. It may be empty. */
+  options: { label: string; implies: string }[];
+  /** The label of the option taken where the person gives none, or null. */
+  default: string | null;
+  /** The person's answer, an option's label or their own words, or null while the question is open. */
+  answer: string | null;
+  /** The daemon's clock when it first read the block in its state, or null where it has none. */
+  since: number | null;
+}
+
+/** One block or line of a work item's record that the reader did not read, at its 1-based line of `decisions.md`, with the reader's reason. Nothing is decided on it. */
+export interface Unread {
+  line: number;
+  why: string;
+}
+
+/**
+ * What the daemon did to set up a work item's worktree, as the repository's
+ * two files named it when the setup began: `.worktreeinclude`, the ignored
+ * paths copied from the main checkout, and `.worktreesetup`, the command run
+ * in a pane of the work item.
+ */
+export interface WorktreeSetup {
+  /** The ignored paths copied from the main checkout, a folder as one path, such as `node_modules/`, 500 at most. A path that stood in the worktree already is not copied and not listed. */
+  copied: string[];
+  copiedCount: number;
+  /** The paths that could not be copied, each with the error, 500 at most. Where the staging folder of a failed copy could not be removed, the error names that folder, which stays beside the path's place. */
+  failedCopies: { path: string; why: string }[];
+  /** The command `.worktreesetup` held, whole, or null where it named none. */
+  command: string | null;
+  /** The pane the command runs in, a pane of the kind `shell`, or null where no command stands, where its pane could not start, and once the daemon that started the pane has stopped, since the next daemon gives its id to another pane. */
+  paneId: number | null;
+  /** `running` from the pane's start until its process exits. `succeeded` where the command exited with 0 and no signal ended it, or no command stands, and no copy failed, the daemon did not end the pane and `.worktreesetup` held the command shown; `failed` otherwise. A process a signal ended reports the code 0. */
+  state: "running" | "succeeded" | "failed";
+  /** The code the command's process exited with, or null while it runs and where no process exited. A process a signal ended reports 0, and `failure` names the signal. */
+  exitCode: number | null;
+  /** Why the setup failed where the exit code does not say it, as a sentence the window shows as it is: the pane ended before its command did, a signal ended the command, the daemon stopped, `.worktreesetup` changed after the setup was shown so no command ran, a git command failed, or the file or the shell could not be read or started. Null otherwise. */
+  failure: string | null;
+  startedAt: number;
+  /** When the setup ended, or null while it runs and where the daemon stopped before it ended. */
+  endedAt: number | null;
 }
 
 /**
@@ -173,6 +279,14 @@ export interface WorkItem {
   archivedAt: number | null;
   /** The calls its headless sessions wait for the person to allow or refuse, the oldest first. A daemon of an earlier build sends no such field, and a client reads its absence as none. */
   permissions: PermissionAsk[];
+  /** The decisions made for it in place of asking the person, as the daemon read them in the work item's record, in the order of the file. A daemon of an earlier build sends no such field, and a client reads its absence as no decision. */
+  decisions: Decision[];
+  /** The questions it is or was parked with, as the daemon read them in the work item's record, in the order of the file. It is parked while one of them has no answer. A daemon of an earlier build sends no such field, and a client reads its absence as no question. */
+  questions: Question[];
+  /** What the reader did not read of the work item's record. A daemon of an earlier build sends no such field, and a client reads its absence as nothing unread. */
+  unread: Unread[];
+  /** The setup of its worktree, the last one run, or null where its repository named neither file. */
+  setup: WorktreeSetup | null;
 }
 
 /** One call a headless session waits for the person to allow or refuse. */
@@ -307,9 +421,9 @@ export type ClientMessage =
   | { type: "hello"; token: string }
   // A pane opens in a work item's worktree, and the daemon answers a start whose `workItemId` is no number with an `error`. `continueLatest` starts the pane on the latest conversation of that folder. The daemon answers it with an `error` for a kind that does not declare `continues`.
   | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId: number; continueLatest?: true }
-  // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. A remote's branch is fetched before the cut, that one branch from that one remote, unless a fetch of it ended in the last minute, and where the fetch fails the work item is cut at the commit the clone holds. A local branch is cut where it stands, and no remote is asked. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other.
-  | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number }
-  // Asks what a creation in `repo` with this title and name would give. The daemon creates nothing, and answers with a `workItemPlan`.
+  // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. A remote's branch is fetched before the cut, that one branch from that one remote, unless a fetch of it ended in the last minute, and where the fetch fails the work item is cut at the commit the clone holds. A local branch is cut where it stands, and no remote is asked. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other. Once the worktree is checked out, the daemon reads `.worktreeinclude` and `.worktreesetup` at the top of the repository's main checkout, copies the ignored paths the first names from the main checkout into the worktree, and starts a pane of the kind `shell` that runs the command the second holds, before the pane of `kind`. It runs that command only where it is `setupCommand`, whole, the command a `workItemPlan` named and the client showed the person: where the file holds another, or one where `setupCommand` is null or absent, or none where it is a command, no command runs and the setup fails with a sentence that says so. A repository that holds neither file gets its worktree as git checks it out. A setup that fails refuses nothing: the work item is created either way.
+  | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number; setupCommand?: string | null }
+  // Asks what a creation in `repo` with this title and name would give, and the setup it would run. The daemon creates nothing, and answers with a `workItemPlan`.
   | { type: "planWorkItem"; requestId: number; repo: string; title: string; name?: string }
   // Asks for the fetch of one base of the repository `repo` is inside, named as `WorkItem.baseBranch` names one. For a remote's branch the daemon asks that remote for that branch, and joins a fetch of it that is under way. A local branch asks no remote. The daemon answers with a `baseFetched`, and with an `error` for a folder that is not absolute or inside no repository and for a base that is none of the repository's.
   | { type: "fetchBase"; requestId: number; repo: string; base: string }
@@ -319,10 +433,18 @@ export type ClientMessage =
   | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean }
   // Takes a repository and its work items, the archived among them, off the daemon's lists. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Without `delete` it removes nothing on disk: the repository, each worktree's folder and each branch stay. It ends the sessions named, and refuses where a pane's process has not exited within its wait. With `delete`, which the person chose, it deletes each work item from disk first, one after another, as a `deleteWorkItem` does with the stamp `stamps` holds under that work item's id and with `force`. It refuses before the first delete, and ends nothing, where `stamps` holds no stamp for a work item, where a session runs that the message does not name, and while an archive is ending the sessions of one of the work items. Where one delete is refused or fails, the removal stops there: the refusal opens with that work item's title, the work items deleted before it are gone, and the repository and the others stay. The repository's own folder is never touched. The daemon answers with `done`.
   | { type: "removeRepository"; requestId: number; id: number; workItems: number[]; running: Running; delete?: { stamps: Record<number, string>; force: boolean } }
+  // Asks what a setup of the records place in the repository `id` would write and commit, with `broadGate` as the command a new `config.json` holds. The daemon writes nothing, and answers with a `recordsPlan`.
+  | { type: "planRecords"; requestId: number; id: number; broadGate: string }
+  // Sets up the records place of the repository `id`: the daemon makes the plan again, and refuses where its stamp is not `stamp`, where it is `blocked`, and where it writes a `config.json` and `broadGate` is empty. It creates each file of the plan only where nothing stands at its path, stages those paths alone and commits those paths alone, on the branch the main checkout stands on, with the person's git identity and the repository's hooks, and pushes nothing. Where the commit fails, it unstages those paths, removes the files and the folders this request created, and answers with git's words. A plan that writes no file is answered with no commit. It waits behind the creations, the renames of a branch and the deletes. The daemon answers with `done`.
+  | { type: "setUpRecords"; requestId: number; id: number; broadGate: string; stamp: string }
   // Adds a group to a repository, after the groups it has, under `name` without the white space at its ends. An empty name is refused. The daemon answers with `done`.
   | { type: "addGroup"; requestId: number; repoId: number; name: string }
   // Sets a work item's pin, its mute, its group, or several of them: a field that is absent is left as it is. `groupId` is the id of a group of the work item's repository, or null, which takes the work item out of its group. A group of another repository, or one no repository holds, is refused, and nothing of the message is then set. The daemon answers with `done`.
   | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
+  // Reverses a decision made for a work item in place of asking, with the person's message, which is written into the decision's block of the work item's record without the white space at its ends. `decisionId` is the block's id. The decision stays listed, as `reversed`, with the message. An empty message is refused, and so are an id the record holds no decision of, a decision that does not stand `decided` and a work item whose worktree holds no directory of its own: no file is then changed. It is refused too, before anything is written, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it, with an `error` that says which, since a word written in the middle of a rebase is lost where the rebase is aborted. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working and no headless session of it is working, and otherwise leaves the file written for the session's own commit. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  | { type: "reverseDecision"; requestId: number; workItemId: number; decisionId: number; message: string }
+  // Answers the questions a work item is parked with, which ends the park: one answer for each open question of the work item's record, named by the block's id, an option's label or the person's own words, written into the question's block without the white space at its ends. Refused, with no file changed, where the record holds no open question, where an open question has no answer in the message, where the message answers an id that is no open question of the record or one question twice, for an empty answer, for a work item whose worktree holds no directory of its own, and, as a `reverseDecision` is, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it. The answered blocks stay in the record. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working and no headless session of it is working, and otherwise leaves the file written for the session's own commit. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  | { type: "answerQuestions"; requestId: number; workItemId: number; answers: { questionId: number; answer: string }[] }
   // Asks what renaming the work item's branch after the name `title` would give. The daemon renames nothing, and answers with a `renamePlan`.
   | { type: "planRename"; requestId: number; id: number; title: string }
   // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so is a rename of the branch that a plan would answer with `blocked`: nothing is then changed, the name neither. The worktree's folder keeps its name. The daemon answers with `done`.
@@ -343,6 +465,8 @@ export type ClientMessage =
   | { type: "forget"; id: number; keepModes?: true }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
+  // Runs the setup of a work item's worktree again, as its repository's two files name it now, in a pane of the size given. The daemon refuses it with an `error`, and changes nothing, for a work item it does not list, an archived one, one being deleted, one whose setup still runs, and one whose repository holds neither file now. Otherwise it takes the earlier setup pane off the lists, copies the included paths that do not stand in the worktree, starts a new setup pane where a command stands and it is `setupCommand`, whole, the command the client showed the person, records the new setup in place of the old, and answers with `started` and the new pane, whose output the client receives, or with `done` where no pane started. Where the file holds another command than `setupCommand`, or one where it is null or absent, or none where it is a command, no command runs, and the setup records the command the file holds and a sentence that says it did not run, so the client shows that command before the next run.
+  | { type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number; setupCommand?: string | null }
   // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage, and the daemon answers each call of it that asks for permission by the role's rule. The daemon answers a pair `ROLE_STAGES` does not list with an `error`, and so an adapter that cannot launch a role, and starts nothing. Without `role` the session has no role, and each call of it that asks for permission waits for the person, in its work item's `permissions`, while the session stays `working`.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string; role?: RoleStage }
   // Stops a headless session that is working: its run is stopped, and it is `failed`, with `stopped` set to `request`. A session that is not working is left as it is. The daemon answers with `done`, and with an `error` for an id it does not list.
@@ -362,16 +486,18 @@ export type ServerMessage =
   // The whole of the four lists, sent to every client whenever one of them changes.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
-  // Answers a creation and carries the pane it opened, whose output the creating client receives.
+  // Answers a creation and carries the pane the creation named, whose output the creating client receives. The setup pane, where the repository names a command, is listed in the inbox and named by `workItem.setup`, and the creating client receives its output too.
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
-  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none.
-  | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null }
+  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none. `setupCommand` is the command the main checkout's `.worktreesetup` holds, whole, or null where it names none, and `includes` whether its `.worktreeinclude` stands. A daemon of an earlier build sends neither, and a client reads their absence as null and false.
+  | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean }
   // Answers a `fetchBase` with what the fetch gave.
   | ({ type: "baseFetched"; requestId: number } & BaseFetch)
   // Answers a `planRename`. `branch` is the branch a rename would give the work item, `owlery/<slug of the name>` with -2, -3 and so on while another local branch bears the name, or null where the name leaves no slug. `blocked` is why the branch cannot be renamed, as a sentence the window shows as it is, or null where it can: it can where the branch exists, has another name than `branch` and no upstream, and no remote of the clone holds a branch of its name.
   | { type: "renamePlan"; requestId: number; branch: string | null; blocked: string | null }
   // Answers a `readLoss` with what a delete of the work item `id` would remove.
   | { type: "workItemLoss"; requestId: number; id: number; loss: WorkItemLoss }
+  // Answers a `planRecords` with what a setup of the repository `id` would do.
+  | { type: "recordsPlan"; requestId: number; id: number; plan: RecordsPlan }
   // Answers an `ask` with the headless session it started.
   | { type: "asked"; requestId: number; headless: HeadlessInfo }
   // One headless session whole, sent to every client whenever it changes.

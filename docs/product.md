@@ -8,6 +8,9 @@
 
 A person answers the questions about one issue once and walks away. Design, implementation, review rounds, the broad gate and the independent verdict then run without the person. At the end, the PR opens only when a party independent of the one that built it gives its verdict. The grounds for that verdict stay in the user's repository.
 
+**Under the routing answer `agentic`, no question holds the run.** `agentic` is the answer by which a person leaves each work item's route to the orchestrator and walks away. What needs the person is asked once, in one batch, before the first edit of the request, for every work item the request hands over. A question that arises after the batch is first decided from the code and the policy, which are the repository's documents, its config and the earlier work items' records, and the decision is recorded as one made without asking. What is decided in place of asking is counted on the work item's line and listed with its grounds in the work item's preview and view, where the person can reverse it when they come back. Only what the code and the policy cannot answer and the session cannot give itself, such as a permission, a credential or an approval, parks the one work item it belongs to, with the question on that work item's line in the inbox, and every other work item goes on. Owlery posts no question on a GitHub issue. A late question would otherwise stop the whole run until the person is back, and that wait is what the promise removes.
+check: apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
+
 ## Who it is for
 
 Individual developers, open-source maintainers and tech leads of teams of 2–10 who already run several Claude Code sessions and work in a terminal. Their bottleneck is rereading the PRs that agents made. Enterprises are not the audience, because we cannot take on security certification, SSO and audit requirements within the first year. Non-developers and people who prefer to work in a chat screen are not the audience either. That is a choice of who we build for: the desktop app has no chat screen ([What we deliberately don't do](#what-we-deliberately-dont-do)).
@@ -28,6 +31,9 @@ Our part sits on top of that. There are two paths to a seal.
 - **Hand over an issue from the start.** Answer the question batch once, and the daemon carries design, implementation, review and the seal through without the person. The promise above describes this path.
 
 Both paths end in the same seal, and a commit that lands after the seal breaks it.
+
+**A work item's line shows the decisions made for it in place of asking, and a parked work item's line shows its question.** A parked work item stands with the work items that wait for the person, and its line says the first question it waits on. A decision holds nothing. The line says how many decisions the person has not seen, and how many reversals wait for a stage. The work item's view lists each decision with its grounds. A person reverses one there with a message, which the work item's record keeps. The summary counts the decisions made since the last look apart from the work items that wait. The inbox shows what the person has yet to see, and the work item's records keep the grounds. An archive takes a work item's decisions off the inbox and the summary with it, and an answered question leaves the work item's view at the next look.
+check: apps/desktop/test/view.test.ts apps/desktop/test/daemon.test.ts
 
 ## The seal
 
@@ -64,7 +70,8 @@ Two things hold even when the judging party changes.
 - **The party that built it cannot seal its own work.** A party here means a session, not a model. The seal record names both the session that built the work and the session that judged it, and if the two are the same, it is not a seal. The judging session starts fresh and reads only files, so a Claude session can judge what another Claude session built. When the judge runs on another model than the builder's, of another company or of the same one, the two differ at the model level too, which lowers the chance that both miss the same defect, and the seal record shows that as well.
 - **The seal shows who judged it.** Once several models can judge, seals carry different weight, so the person looking at one needs to know.
 
-The app has themes, and a theme changes colours, typefaces, texture and how the seal is lit. No theme changes the layout, the words, the seal's drawing or the wax's red, and in every theme red stands on the seal alone: a button, a mark and a failure take another colour. The window has two themes, Night desk, which a first run opens in, and Letter, and a person may also let the system's light or dark appearance choose between them.
+The app has themes, and a theme changes colours, typefaces, texture, how the seal is lit, and the form of edges, rules and marks. No theme changes the layout, the words, the seal's drawing or the wax's red, and in every theme red stands on the seal alone: a button, a mark and a failure take another colour. The window has three themes: Night watch, which a first run opens in, Register and Desk. Each has a dark and a light appearance, and a person chooses one or lets the system's appearance choose. [docs/design.md](design.md) states each theme.
+check: apps/desktop/test/themes.test.ts apps/desktop/test/appearance.test.ts
 
 ## File explorer and editor
 

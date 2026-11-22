@@ -15,7 +15,9 @@
     "korean:typed": "OWLERY_KOREAN_TYPED=1 node scripts/test-in-electron.mjs test/korean-input.test.ts",
     "measure:memory": "OWLERY_MEASURE_MEMORY=1 node scripts/test-in-electron.mjs test/memory.test.ts",
     "role:run": "OWLERY_ROLE_RUN=1 node scripts/test-in-electron.mjs test/role-session.test.ts",
-    "role:refusal": "OWLERY_ROLE_REFUSAL=1 node scripts/test-in-electron.mjs test/role-session.test.ts"
+    "role:refusal": "OWLERY_ROLE_REFUSAL=1 node scripts/test-in-electron.mjs test/role-session.test.ts",
+    "settle": "node scripts/settle.mjs",
+    "screenshots": "OWLERY_SCREENSHOTS=1 node scripts/test-in-electron.mjs test/screenshots.test.ts"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",

@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,9 +12,12 @@ import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "..
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
+import { type DecisionRecord, RECORD_FILE, readDecisionRecord, withApplied, withCarried, withDecision, withReversal } from "../src/daemon/decision-record";
+import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
+import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -22,11 +26,16 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
-/** What a work item holds of the fields a person sets, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
+const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
+/** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
+/** What a work item holds of its record of decisions and questions where its worktree holds none. */
+const NO_RECORD = { decisions: [], questions: [], unread: [] };
 /** What a repository holds of the fields a person sets, before any is set. */
-const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
+/** What a repository holds of the records place where its checkout holds none. */
+const NO_RECORDS = { root: null, check: null, broadGate: null };
+const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS };
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -437,7 +446,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -451,27 +460,37 @@ describe("work items", () => {
 
   it("carries only the fields the protocol names, none of them a vendor's", async () => {
     const { repo, root } = repository();
-    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const { daemon: d, url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Keys", kind: "shell", cols: 80, rows: 24 });
     const created = await c.message("workItemCreated");
+    // Two decisions, one of them reversed, a park with a question that names options, and a block the reader refuses, so that the lists carry a decision, a question, an option and an unread line.
+    const directory = withDirectory(created.workItem);
+    d.decided(created.workItem.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." });
+    d.decided(created.workItem.id, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file." });
+    c.send({ type: "reverseDecision", requestId: 2, workItemId: created.workItem.id, decisionId: 1, message: "Frame it first." });
+    await c.message("done", (m) => m.requestId === 2);
+    d.park(created.workItem.id, { by: "sealer", questions: [{ asks: "Which base?", grounds: "No document names it.", options: [{ label: "main", implies: "The default." }], default: "main" }] });
+    writeFileSync(join(directory, RECORD_FILE), `${readFileSync(join(directory, RECORD_FILE), "utf8")}\n\`\`\`seal\n\`\`\`\n`);
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
     expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
     expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
     expect(Object.keys(created.workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
-    // A commit, so that the lists carry one and a changed file.
+    // The daemon commits the reversal, so the lists carry a commit and a changed file. The case's own commit waits for it, since two commits of one worktree do not run at once.
+    await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
     writeFileSync(join(created.workItem.worktree, "one.txt"), "one\n");
     git(created.workItem.worktree, "add", "one.txt");
     git(created.workItem.worktree, "commit", "--quiet", "-m", "add one");
-    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
+    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 2);
     // A look, so that `ready` carries one; the `attach` after it is answered once the daemon has handled both.
     c.send({ type: "looked" });
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
     expect(Object.keys(ready).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
-    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name"]);
+    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
+    expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
     expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
@@ -482,6 +501,11 @@ describe("work items", () => {
       expect(Object.keys(workItem.commits![0]!).sort()).toEqual(["added", "at", "hash", "removed", "subject"]);
       expect(Object.keys(workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
       expect(Object.keys(workItem.changes!.list[0]!).sort()).toEqual(["added", "path", "removed"]);
+      const DECISION_FIELDS = ["by", "grounds", "id", "kind", "landed", "reversal", "says", "since", "state"];
+      expect(workItem.decisions.map((decision) => Object.keys(decision).sort())).toEqual([DECISION_FIELDS, DECISION_FIELDS]);
+      expect(workItem.questions.map((question) => Object.keys(question).sort())).toEqual([["answer", "asks", "by", "default", "grounds", "id", "options", "since"]]);
+      expect(Object.keys(workItem.questions[0]!.options[0]!).sort()).toEqual(["implies", "label"]);
+      expect(workItem.unread.map((unread) => Object.keys(unread).sort())).toEqual([["line", "why"]]);
     }
   });
 
@@ -592,8 +616,8 @@ describe("work items", () => {
     };
     // A work item's own branch is a local branch, and a base as any other.
     const planned = await plan(2, { title: "Fix the login bug" });
-    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main" });
-    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "localBases", "remoteBases", "requestId", "type", "worktree"]);
+    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main", setupCommand: null, includes: false });
+    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "includes", "localBases", "remoteBases", "requestId", "setupCommand", "type", "worktree"]);
     // The name sent names the branch where the title leaves no slug, and a generated name where neither does.
     expect(await plan(3, { title: "로그인 버그", name: "amber-heron" })).toMatchObject({ branch: "owlery/amber-heron", worktree: join(root, "project", "amber-heron") });
     const name = generateName(() => 0.5);
@@ -631,6 +655,8 @@ describe("work items", () => {
       localBases: ["feature", "main", "recent", "origin/shadow"],
       remoteBases: ["origin/main", "origin/remote-only", "origin/older"],
       defaultBase: "origin/main",
+      setupCommand: null,
+      includes: false,
     });
     expect(existsSync(root)).toBe(false);
   });
@@ -851,6 +877,254 @@ describe("work items", () => {
   });
 });
 
+describe("the setup of a new worktree", () => {
+  /** The app's setup command, with `/bin/sh` in place of the person's login shell. */
+  const setupCommandFor = (command: string, id: number) => ({ command: "/bin/sh", args: ["-c", command], env: { OWLERY_PANE_ID: String(id) } });
+
+  /** A temporary repository whose `.gitignore` ignores `.env`, `.env.*` and `node_modules/`, holding the ignored `.env`, and naming the files given at the top of its main checkout. */
+  function repositoryNaming(files: { include?: string; command?: string }) {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n");
+    git(made.repo, "add", ".gitignore");
+    git(made.repo, "commit", "--quiet", "-m", "ignore");
+    writeFileSync(join(made.repo, ".env"), "KEY=main\n");
+    if (files.include !== undefined) writeFileSync(join(made.repo, ".worktreeinclude"), files.include);
+    if (files.command !== undefined) writeFileSync(join(made.repo, ".worktreesetup"), files.command);
+    return made;
+  }
+
+  /** A daemon and a client, and the answer to a creation of a Claude Code pane's work item in the repository, which carries `shown`, or where none is given the command `.worktreesetup` holds, as the form shows it from its plan. */
+  async function createdIn(made: { repo: string; root: string }, options: Partial<DaemonOptions> = {}, shown?: string | null) {
+    const { url, daemon: d } = await daemon({ worktreesRoot: made.root, setupCommandFor, now: () => 1234, ...options });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up", kind: "claude", cols: 80, rows: 24, setupCommand: shown === undefined ? (await readSetup(made.repo)).command : shown });
+    return { url, d, c, answer: await c.message("workItemCreated", (m) => m.requestId === 1) };
+  }
+
+  /** The first inbox in which the work item's setup no longer runs. */
+  const setupEnded = (c: Awaited<ReturnType<typeof client>>, paneId?: number) => c.message("inbox", (m) => [...m.workItems, ...m.archived].some((w) => w.setup !== null && w.setup.state !== "running" && (paneId === undefined || w.setup.paneId === paneId)));
+
+  it("copies the included ignored paths and runs the command in a shell pane of the work item, started before the pane the creation names, sends the creating client its output, and records its success", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "echo setting-up; echo made > made.txt" });
+    const { c, answer } = await createdIn(made);
+    const setup = answer.workItem.setup!;
+    expect(setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "echo setting-up; echo made > made.txt", paneId: answer.session.id - 1, state: "running", exitCode: null, failure: null, startedAt: 1234, endedAt: null });
+    expect(Object.keys(setup).sort()).toEqual(SETUP_FIELDS);
+    // The answer carries the pane the creation named.
+    expect(answer.session).toMatchObject({ kind: "claude", workItemId: answer.workItem.id });
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toEqual({ ...setup, state: "succeeded", exitCode: 0, endedAt: 1234 });
+    expect(ended.sessions.map(({ id, kind, workItemId }) => [id, kind, workItemId])).toEqual([[setup.paneId, "shell", answer.workItem.id], [answer.session.id, "claude", answer.workItem.id]]);
+    expect(c.messages.some((m) => m.type === "output" && m.id === setup.paneId && m.data.includes("setting-up"))).toBe(true);
+    expect(readFileSync(join(answer.workItem.worktree, "made.txt"), "utf8")).toBe("made\n");
+    expect(readFileSync(join(answer.workItem.worktree, ".env"), "utf8")).toBe("KEY=main\n");
+  });
+
+  it("records a command that exits with another code than 0 as failed, and leaves the work item listed, the pane the creation named alive, and a new pane able to start", async () => {
+    const { c, answer } = await createdIn(repositoryNaming({ command: "exit 3" }));
+    const ended = await setupEnded(c);
+    expect(ended.workItems.map((w) => w.id)).toEqual([answer.workItem.id]);
+    expect(ended.workItems[0]!.setup).toMatchObject({ copied: [], state: "failed", exitCode: 3, failure: null });
+    expect(ended.sessions.find((s) => s.id === answer.session.id)?.alive).toBe(true);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: answer.workItem.id });
+    expect((await c.message("started", (m) => m.requestId === 2)).session).toMatchObject({ alive: true, workItemId: answer.workItem.id });
+  });
+
+  it("records a command whose process a signal ended as failed, with the signal, though its exit code reads 0", async () => {
+    const { c } = await createdIn(repositoryNaming({ command: "kill -TERM $$" }));
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 0, failure: "The setup command was ended by SIGTERM." });
+  });
+
+  it("runs the command though an included path failed to copy, and records the setup as failed with the path and why", async () => {
+    const made = repositoryNaming({ include: ".env\n.env.secret\n", command: "echo ran > ran.txt" });
+    writeFileSync(join(made.repo, ".env.secret"), "SECRET=1\n");
+    chmodSync(join(made.repo, ".env.secret"), 0o000);
+    cleanups.push(() => chmodSync(join(made.repo, ".env.secret"), 0o600));
+    const { c, answer } = await createdIn(made);
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toMatchObject({ copied: [".env"], copiedCount: 1, failedCopies: [{ path: ".env.secret", why: expect.stringContaining("EACCES") }], state: "failed", exitCode: 0, failure: null });
+    expect(readFileSync(join(answer.workItem.worktree, "ran.txt"), "utf8")).toBe("ran\n");
+  });
+
+  it("gives a work item in a repository that names neither file no setup, the one pane the creation named, and a worktree that holds no ignored file", async () => {
+    const made = repositoryNaming({});
+    const { url, answer } = await createdIn(made);
+    expect(answer.workItem.setup).toBeNull();
+    const ready = await (await client(url)).message("ready");
+    expect(ready.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    expect((await readLoss(made.repo, answer.workItem.branch, answer.workItem.worktree)).ignored).toEqual([]);
+  });
+
+  it("runs at a creation no command but the one the creation carries: where .worktreesetup changed after the plan, or the creation carries none, it copies, starts no setup pane and says why", async () => {
+    const changed = ".worktreesetup changed after the setup was shown, so no command ran.";
+    const made = repositoryNaming({ include: ".env\n", command: "echo ran > ran.txt" });
+    const { url, c, answer } = await createdIn(made, {}, "pnpm install\n");
+    expect(answer.workItem.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "echo ran > ran.txt", paneId: null, state: "failed", exitCode: null, failure: changed, startedAt: 1234, endedAt: 1234 });
+    // A client that carries no command showed none.
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Unshown", kind: "shell", cols: 80, rows: 24 });
+    const second = await c.message("workItemCreated", (m) => m.requestId === 2);
+    expect(second.workItem.setup).toMatchObject({ command: "echo ran > ran.txt", paneId: null, state: "failed", failure: changed });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id, second.session.id]);
+  });
+
+  it("records a setup whose pane the person closed, and one whose work item was archived, as failed: its pane ended before its command did", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const { c, answer } = await createdIn(made);
+    const closed = answer.workItem.setup!.paneId!;
+    c.send({ type: "close", id: closed });
+    const afterClose = await setupEnded(c, closed);
+    expect(afterClose.workItems[0]!.setup).toMatchObject({ paneId: closed, state: "failed", failure: "The setup pane ended before its command did." });
+    expect(afterClose.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Archived", kind: "shell", cols: 80, rows: 24, setupCommand: "sleep 30" });
+    const second = await c.message("workItemCreated", (m) => m.requestId === 2);
+    const archived = second.workItem.setup!.paneId!;
+    c.send({ type: "archiveWorkItem", requestId: 3, id: second.workItem.id, running: { panes: [archived, second.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    const after = await c.message("inbox", (m) => m.archived.some((w) => w.id === second.workItem.id));
+    expect(after.archived[0]!.setup).toMatchObject({ paneId: archived, state: "failed", failure: "The setup pane ended before its command did." });
+  });
+
+  it("keeps a setup running while its command runs, though another pane of the work item exits", async () => {
+    const { c, answer } = await createdIn(repositoryNaming({ command: "sleep 30" }), { commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 4"], env: {} }) });
+    const exited = await c.message("inbox", (m) => m.sessions.some((s) => s.id === answer.session.id && !s.alive));
+    expect(exited.workItems[0]!.setup).toMatchObject({ paneId: answer.workItem.setup!.paneId, state: "running", exitCode: null });
+  });
+
+  it("leaves a setup that runs as the daemon stops for the next daemon to read as failed, since the daemon stopped before it ended, and naming no pane", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { d, answer } = await createdIn(made, { runDir });
+    await d.close();
+    // The killed pane's exit has had time to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor });
+    const ready = await (await client(url)).message("ready");
+    expect(ready.workItems[0]!.setup).toEqual({ ...answer.workItem.setup, paneId: null, state: "failed", failure: "The daemon stopped before the setup command ended." });
+  });
+
+  it("names after a restart no pane of the setup, so the pane the next daemon gives the same id is no setup pane, and a run again leaves it listed", async () => {
+    const made = repositoryNaming({ command: "true" });
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { d, c, answer } = await createdIn(made, { runDir });
+    const old = answer.workItem.setup!.paneId!;
+    await setupEnded(c);
+    await d.close();
+    // The next daemon counts its pane ids from 1 again, and its panes exit at once.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const next = await client(url);
+    expect((await next.message("ready")).workItems[0]!.setup).toMatchObject({ paneId: null, state: "succeeded" });
+    next.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: answer.workItem.id });
+    const pane = (await next.message("started", (m) => m.requestId === 2)).session.id;
+    expect(pane).toBe(old);
+    await next.message("inbox", (m) => m.sessions.some((s) => s.id === pane && !s.alive));
+    next.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "true" });
+    const started = await next.message("started", (m) => m.requestId === 3);
+    const ended = await setupEnded(next, started.session.id);
+    expect(ended.sessions.map((s) => s.id)).toEqual([pane, started.session.id]);
+  });
+
+  it("runs the setup again at a person's request: copies what is missing, takes the earlier setup pane off the lists, runs only the command the press carries, answers with the new pane, and records the new setup in place of the old", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "test -e fixed" });
+    const { c, answer } = await createdIn(made);
+    const first = answer.workItem.setup!.paneId!;
+    expect((await setupEnded(c, first)).workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 1 });
+    writeFileSync(join(made.repo, ".worktreesetup"), "touch fixed");
+    // The press carries the command the view showed, which the file no longer holds: the earlier pane leaves the lists, and no command runs.
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "test -e fixed" });
+    await c.message("done", (m) => m.requestId === 2);
+    const refused = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === "touch fixed");
+    expect(refused.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: "touch fixed", paneId: null, state: "failed", exitCode: null, failure: ".worktreesetup changed after the setup was shown, so no command ran.", startedAt: 1234, endedAt: 1234 });
+    expect(refused.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    expect(existsSync(join(answer.workItem.worktree, "fixed"))).toBe(false);
+    // The next press carries the command the view shows now.
+    rmSync(join(answer.workItem.worktree, ".env"));
+    c.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "touch fixed" });
+    const started = await c.message("started", (m) => m.requestId === 3);
+    expect(started.session).toMatchObject({ kind: "shell", alive: true, workItemId: answer.workItem.id });
+    const ended = await setupEnded(c, started.session.id);
+    expect(ended.workItems[0]!.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "touch fixed", paneId: started.session.id, state: "succeeded", exitCode: 0, failure: null, startedAt: 1234, endedAt: 1234 });
+    expect(ended.sessions.map((s) => s.id)).toEqual([answer.session.id, started.session.id]);
+    expect(readFileSync(join(answer.workItem.worktree, ".env"), "utf8")).toBe("KEY=main\n");
+    // Where only .worktreeinclude stands and the press shows no command, the setup ends by the copy and the answer is `done`.
+    rmSync(join(made.repo, ".worktreesetup"));
+    c.send({ type: "runSetup", requestId: 4, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: null });
+    await c.message("done", (m) => m.requestId === 4);
+    const copied = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === null);
+    expect(copied.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: null, paneId: null, state: "succeeded", exitCode: null, failure: null, startedAt: 1234, endedAt: 1234 });
+    expect(copied.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+  });
+
+  it("refuses to run the setup again while its command runs, for a work item it does not list, in a repository that names neither file now, and in an archived work item, and changes nothing", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const { url, c, answer } = await createdIn(made);
+    const id = answer.workItem.id;
+    const held = async () => {
+      const ready = await (await client(url)).message("ready");
+      return [ready.sessions, ready.workItems, ready.archived];
+    };
+    const refused = async (requestId: number, workItemId: number) => {
+      const before = await held();
+      c.send({ type: "runSetup", requestId, workItemId, cols: 80, rows: 24 });
+      const { message } = await c.message("error", (m) => m.requestId === requestId);
+      expect(await held()).toEqual(before);
+      return message;
+    };
+    expect(await refused(2, id)).toBe(`The setup of work item ${id} is still running.`);
+    expect(await refused(3, 99)).toBe("no work item 99");
+    c.send({ type: "close", id: answer.workItem.setup!.paneId! });
+    await setupEnded(c);
+    rmSync(join(made.repo, ".worktreesetup"));
+    expect(await refused(4, id)).toBe(`${made.repo} names no setup: it holds neither .worktreeinclude nor .worktreesetup.`);
+    writeFileSync(join(made.repo, ".worktreesetup"), "true");
+    c.send({ type: "archiveWorkItem", requestId: 5, id, running: { panes: [answer.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 5);
+    expect(await refused(6, id)).toBe(`work item ${id} is archived, restore it first`);
+  });
+
+  it("records a setup whose pane could not start as failed, and says why", async () => {
+    const { url, answer } = await createdIn(repositoryNaming({ command: "true" }), {
+      setupCommandFor: () => {
+        throw new Error("no shell here");
+      },
+    });
+    expect(answer.workItem.setup).toMatchObject({ command: "true", paneId: null, state: "failed", exitCode: null, failure: "The setup pane could not start: no shell here", endedAt: 1234 });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id]);
+  });
+
+  it("starts no setup pane where an archive of the work item began while the setup ran again copied, and says so", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "true" });
+    const { url, c, answer } = await createdIn(made);
+    await setupEnded(c);
+    const held = heldGit(made.base, '[ "$1" = check-ignore ]');
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "archiveWorkItem", requestId: 3, id: answer.workItem.id, running: { panes: [answer.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    held.release();
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(`work item ${answer.workItem.id} is archived, restore it first`);
+    const ready = await (await client(url)).message("ready");
+    expect(ready.sessions.filter((s) => s.alive)).toEqual([]);
+    expect(ready.archived[0]!.setup).toEqual(answer.workItem.setup && { ...answer.workItem.setup, state: "succeeded", exitCode: 0, endedAt: 1234 });
+  });
+
+  it("names in a plan the command .worktreesetup holds, whole, and whether .worktreeinclude stands", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "pnpm install\n" });
+    const { url } = await daemon({ worktreesRoot: made.root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "planWorkItem", requestId: 1, repo: made.repo, title: "Planned" });
+    expect(await c.message("workItemPlan", (m) => m.requestId === 1)).toMatchObject({ branch: "owlery/planned", setupCommand: "pnpm install\n", includes: true });
+    rmSync(join(made.repo, ".worktreeinclude"));
+    c.send({ type: "planWorkItem", requestId: 2, repo: made.repo, title: "Planned" });
+    expect(await c.message("workItemPlan", (m) => m.requestId === 2)).toMatchObject({ setupCommand: "pnpm install\n", includes: false });
+  });
+});
+
 describe("the fetch of a base", () => {
   /** Waits until no process of these ids runs, and says whether that came within two seconds. */
   async function ended(pids: number[]): Promise<boolean> {
@@ -1015,7 +1289,7 @@ describe("repositories", () => {
     const ready = await c.message("ready");
     expect(ready.repositories).toEqual([
       { id: 1, folder: "/r/project", name: "The project", ...PLAIN, customName: "The project" },
-      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }] },
+      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }], records: NO_RECORDS },
     ]);
     expect(ready.workItems.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.pinned, w.muted, w.groupId, w.archivedAt])).toEqual([
       [1, 1, "/r/project", "The project", false, false, null, null],
@@ -1536,6 +1810,109 @@ describe("repositories", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id });
     expect((await answer(4))?.type).toBe("started");
     expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
+  });
+});
+
+describe("the records place of a repository", () => {
+  const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  const status = (repo: string): string => git(repo, "status", "--porcelain=v1", "--untracked-files=all");
+
+  function repository() {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  /** A daemon of version 1.2.3 that keeps one repository, number 1, and a client that was told so. Its pass over the branches comes once, at the hello, so an `inbox` a case waits for is the answer's own. */
+  async function kept() {
+    const made = repository();
+    const { url } = await daemon({ worktreesRoot: made.root, version: "1.2.3", commitPollMs: 60_000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    const inbox = await c.message("inbox");
+    return { ...made, url, c, inbox };
+  }
+
+  it("answers planRecords with a recordsPlan that names the branch, the subject, each file with its text and a stamp, and writes nothing; a repository it does not keep is an error", async () => {
+    const { repo, c, inbox } = await kept();
+    expect(inbox.repositories[0]?.records).toEqual(NO_RECORDS);
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const answer = await c.message("recordsPlan");
+    expect(answer).toMatchObject({ requestId: 2, id: 1, plan: { branch: "main", subject: SUBJECT, blocked: null, proposedBroadGate: null } });
+    expect(answer.plan.stamp).toMatch(/^[0-9a-f]{64}$/);
+    expect(answer.plan.files.map((file) => file.path)).toEqual(["seal/README.md", "seal/config.json", WORKFLOW]);
+    expect(answer.plan.files[1]?.text).toContain('"Broad gate": "pnpm test"');
+    // The workflow is written for the version the daemon was given.
+    expect(answer.plan.files[2]?.text).toBe(workflowText("1.2.3"));
+    expect(status(repo)).toBe("");
+    expect(existsSync(join(repo, "seal"))).toBe(false);
+    c.send({ type: "planRecords", requestId: 3, id: 9, broadGate: "pnpm test" });
+    expect(await c.message("error", (m) => m.requestId === 3)).toMatchObject({ message: "no repository 9" });
+    c.send({ type: "setUpRecords", requestId: 4, id: 9, broadGate: "pnpm test", stamp: answer.plan.stamp });
+    expect(await c.message("error", (m) => m.requestId === 4)).toMatchObject({ message: "no repository 9" });
+  });
+
+  it("sets up at setUpRecords with the plan's stamp: one commit of the plan's files alone, answered with done before the inbox, whose repository carries the root, the workflow and the command", async () => {
+    const { repo, c } = await kept();
+    writeFileSync(join(repo, "other.txt"), "staged by the person\n");
+    git(repo, "add", "other.txt");
+    const before = git(repo, "rev-parse", "HEAD").trim();
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const { plan } = await c.message("recordsPlan");
+    c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
+    const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
+    expect(inbox.repositories[0]?.records).toEqual({ root: "seal", check: WORKFLOW, broadGate: "pnpm test" });
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "recordsPlan", "done", "inbox"]);
+    expect(c.messages[4]).toEqual({ type: "done", requestId: 3 });
+    expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "seal/README.md", "seal/config.json"]);
+    expect(status(repo)).toBe("A  other.txt\n");
+  });
+
+  it("refuses a setup the person did not read: a commit landed since the plan, so the old stamp is answered with an error and the tree holds no file of the setup", async () => {
+    const { repo, c } = await kept();
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const { plan } = await c.message("recordsPlan");
+    const landed = commitFile(repo, "landed.txt");
+    c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "The repository changed since the plan was read. Read the plan again." });
+    expect(git(repo, "rev-parse", "HEAD").trim()).toBe(landed);
+    expect(existsSync(join(repo, "seal"))).toBe(false);
+    expect(existsSync(join(repo, ".github"))).toBe(false);
+    expect(status(repo)).toBe("");
+    // A setup that names no stamp is refused before git is asked.
+    c.send({ type: "setUpRecords", requestId: 4, id: 1, broadGate: "pnpm test" });
+    expect(await c.message("error", (m) => m.requestId === 4)).toMatchObject({ message: "a setup of the records place names the broad gate command and the stamp of the plan the person read" });
+  });
+
+  it("reads what a repository holds of the records place at its addition and in the pass that reads the branches, from the working tree, and a daemon given no version refuses the plan", async () => {
+    const made = repository();
+    mkdirSync(join(made.repo, "seal"));
+    writeFileSync(join(made.repo, "seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 30 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    // Not committed: the place is read from the working tree.
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: null });
+    writeFileSync(join(made.repo, "seal", "config.json"), JSON.stringify({ "Broad gate": "make check" }));
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    // A client that connects later is told the same in its `ready`.
+    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    expect(await c.message("error", (m) => m.requestId === 2)).toMatchObject({ message: "This build of Owlery names no version, so it cannot write the workflow of the pull request check." });
+  });
+
+  it("reads the records place of a repository a creation adds, so the inbox that lists the repository says what it holds", async () => {
+    const made = repository();
+    mkdirSync(join(made.repo, "agentic-seal"));
+    writeFileSync(join(made.repo, "agentic-seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 60_000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "First", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "agentic-seal", check: null, broadGate: null });
   });
 });
 
@@ -2969,6 +3346,917 @@ describe("the inbox", () => {
   });
 });
 
+// A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
+const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
+
+/** A daemon on a run folder of a temporary repository, a client of it, and a work item the client created under each title, each with the shell pane its creation opened. */
+async function withWorkItems(titles: readonly string[], options: Partial<DaemonOptions> = {}) {
+  const made = temporaryRepository();
+  cleanups.push(made.remove);
+  const runDir = join(made.base, "run");
+  mkdirSync(runDir, { recursive: true });
+  const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: silent, ...options });
+  const c = await client(url);
+  await c.message("ready");
+  const created = [];
+  for (const [index, title] of titles.entries()) {
+    c.send({ type: "createWorkItem", requestId: 100 + index, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
+    created.push(await c.message("workItemCreated", (m) => m.requestId === 100 + index));
+  }
+  await c.message("inbox", (m) => m.workItems.length === titles.length);
+  c.messages.length = 0;
+  return { d, url, c, made, runDir, workItems: created.map((m) => m.workItem), sessions: created.map((m) => m.session) };
+}
+
+/** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
+let refused = 900;
+async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
+  const requestId = refused++;
+  c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+  await c.message("error", (m) => m.requestId === requestId);
+}
+
+/** Makes a work item's directory in its worktree, uncommitted: the records root with its marker, and a `routing.md` under `threads/<name>` that names the work item's branch. Gives the directory. */
+function withDirectory(workItem: { worktree: string; branch: string }, name = "1-item"): string {
+  const directory = join(workItem.worktree, "seal", "threads", name);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(workItem.worktree, "seal", "README.md"), `${MARKER}\n`);
+  writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${workItem.branch} |\n`);
+  return directory;
+}
+
+/** The record of a work item's directory as the reader reads its file, or null where no file stands. */
+function recordIn(directory: string): DecisionRecord | null {
+  const file = join(directory, RECORD_FILE);
+  return existsSync(file) ? readDecisionRecord(readFileSync(file, "utf8")) : null;
+}
+
+/** The file of a work item's record as bytes, or null where none stands. */
+const bytesIn = (directory: string): string | null => (existsSync(join(directory, RECORD_FILE)) ? readFileSync(join(directory, RECORD_FILE), "base64") : null);
+
+/** What the daemon writes to its log from here until the case ends, a line for each call. */
+function logged(): string[] {
+  const said: string[] = [];
+  const error = console.error;
+  console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
+  cleanups.push(() => {
+    console.error = error;
+  });
+  return said;
+}
+
+type Lists = { workItems: WorkItem[]; archived: WorkItem[] };
+const itemOf = (lists: Lists, id: number): WorkItem | undefined => [...lists.workItems, ...lists.archived].find((w) => w.id === id);
+describe("the decisions made without asking", () => {
+  const DEFAULT = { kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default." } as const;
+  const ROUTE = { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file, apps/desktop/src/renderer/view.ts." } as const;
+  /** A decision as the daemon sends one that stands as made. */
+  const made = (id: number, decision: { kind: string; says: string; grounds: string }, since: number, by: string | null = null) => ({ id, ...decision, by, state: "decided", reversal: null, landed: null, since });
+
+  it("writes a decision into the record of one work item and tells every client: that work item holds it with the id 1, the texts given and the daemon's time, the other holds none, no session changes, and the other's headless session finishes; a second decision takes the id 2", async () => {
+    const { d, url, c, workItems, sessions } = await withWorkItems(["Decided for", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 100 }) });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "ask", requestId: 1, workItemId: b.id, prompt: "Still there?" });
+    const { headless } = await c.message("asked");
+    c.messages.length = 0;
+    other.messages.length = 0;
+    const decision = d.decided(a.id, DEFAULT);
+    // It returned at once: the session it left alone is still working.
+    expect(decision).toEqual(made(1, DEFAULT, 1234));
+    expect(recordIn(directory)).toMatchObject({ decisions: [{ id: 1, kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds, by: null, state: { is: "decided" } }], questions: [], refusals: [], notices: [] });
+    for (const told of [c, other]) {
+      const inbox = await told.message("inbox");
+      expect(inbox.workItems).toEqual([{ ...a, decisions: [decision] }, b]);
+      expect(inbox.sessions).toEqual(sessions);
+      // Nothing but the lists is sent for it, and no headless session was told as changed by it.
+      expect(told.messages.filter((m) => m.type !== "headless").map((m) => m.type)).toEqual(["inbox"]);
+    }
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working")).headless).toMatchObject({ workItemId: b.id, state: "finished", stopped: null });
+    expect(d.decided(a.id, { ...ROUTE, by: "orchestrator" })).toEqual(made(2, ROUTE, 1234, "orchestrator"));
+    const later = await (await client(url)).message("ready");
+    expect([itemOf(later, a.id)?.decisions, itemOf(later, b.id)?.decisions, later.sessions]).toEqual([[decision, made(2, ROUTE, 1234, "orchestrator")], [], sessions]);
+    expect(recordIn(directory)?.decisions.map(({ id, by }) => [id, by])).toEqual([[1, null], [2, "orchestrator"]]);
+  });
+
+  it("writes what was decided, its grounds and who decided without the white space at their ends, 2000 characters of each at most and each on one line, and takes each of the four kinds", async () => {
+    const { d, workItems } = await withWorkItems(["Decided for"], { now: () => 5 });
+    const id = workItems[0]!.id;
+    withDirectory(workItems[0]!);
+    expect(d.decided(id, { kind: "scope", says: `  ${"가".repeat(2001)}\n`, grounds: `\t${"g".repeat(1999)}😀 `, by: ` ${"b".repeat(2001)}\n` })).toEqual({ ...made(1, { kind: "scope", says: "가".repeat(2000), grounds: "g".repeat(1999) }, 5), by: "b".repeat(2000) });
+    expect(d.decided(id, { ...DEFAULT, says: "Start\r\nfrom main." })?.says).toBe("Start from main.");
+    expect((["route", "default", "answered"] as const).map((kind) => d.decided(id, { ...DEFAULT, kind })?.kind)).toEqual(["route", "default", "answered"]);
+  });
+
+  it("writes nothing and tells no client for a work item it does not keep, one whose worktree holds no directory, one whose worktree holds two directories that name its branch, a kind that is none of the four, what was decided or grounds that are empty or no text, and who decided that is empty or no text", async () => {
+    const { d, c, url, runDir, workItems } = await withWorkItems(["Decided for", "No directory", "Two directories"]);
+    const [a, none, two] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    const twice = [withDirectory(two, "1-first"), withDirectory(two, "2-second")];
+    const loose = d.decided.bind(d) as (workItemId: unknown, decision: unknown) => unknown;
+    const said = logged();
+    expect(loose(99, DEFAULT)).toBeUndefined();
+    expect(loose(String(a.id), DEFAULT)).toBeUndefined();
+    expect(loose(none.id, DEFAULT)).toBeUndefined();
+    expect(loose(two.id, DEFAULT)).toBeUndefined();
+    for (const decision of [{ ...DEFAULT, kind: "guess" }, { ...DEFAULT, kind: undefined }, { ...DEFAULT, says: "" }, { ...DEFAULT, says: " \n\t" }, { ...DEFAULT, says: 3 }, { ...DEFAULT, grounds: "  " }, { ...DEFAULT, grounds: null }, { ...DEFAULT, by: " " }, { ...DEFAULT, by: 3 }, null]) {
+      expect(loose(a.id, decision)).toBeUndefined();
+    }
+    // An inbox for any of them would have arrived before the refusal of a start sent after them.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["error"]);
+    expect([directory, ...twice].map(bytesIn)).toEqual([null, null, null]);
+    // Each was refused before the record's writer was asked, so the log holds no line of a write that failed.
+    expect(said).toEqual([]);
+    expect(readdirSync(join(none.worktree)).includes("seal")).toBe(false);
+    expect(["decisions.json", "asked.json"].map((file) => existsSync(join(runDir, file)))).toEqual([false, false]);
+    expect((await (await client(url)).message("ready")).workItems.map(({ decisions, questions, unread }) => ({ decisions, questions, unread }))).toEqual([NO_RECORD, NO_RECORD, NO_RECORD]);
+    // The call as the refusals above would have it taken, so the method is the one under test.
+    expect(loose(a.id, DEFAULT)).toMatchObject({ id: 1 });
+  });
+
+  it("reads the record as the store: a second daemon on the run folder lists two decisions, one reversed, and an open question as the file holds them, and the run folder holds neither `decisions.json` nor `asked.json`; a block written into the file by hand, uncommitted, arrives in an inbox after the next pass; and a block the reader refuses is sent as unread with its line and the reader's reason, the blocks around it listed", async () => {
+    const { d, c, made: repository, runDir, workItems } = await withWorkItems(["Recorded"], { now: () => 1000 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const file = join(directory, RECORD_FILE);
+    d.decided(a.id, ROUTE);
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "Frame it first." });
+    await c.message("done", (m) => m.requestId === 1);
+    await d.close();
+
+    const later = await daemon({ runDir, worktreesRoot: repository.root, now: () => 5000, commitPollMs: 30 });
+    const lc = await client(later.url);
+    const ready = await lc.message("ready");
+    const held = [{ ...made(1, ROUTE, 1000), state: "reversed", reversal: "Frame it first." }, made(2, DEFAULT, 1000)];
+    const question = { id: 3, asks: "May it push?", grounds: "A push needs the person's approval.", by: "sealer", options: [], default: null, answer: null, since: 1000 };
+    expect(itemOf(ready, a.id)).toMatchObject({ decisions: held, questions: [question], unread: [] });
+    expect(["decisions.json", "asked.json"].map((name) => existsSync(join(runDir, name)))).toEqual([false, false]);
+    expect(git(a.worktree, "status", "--porcelain", "--", "seal")).toContain("seal/");
+
+    // A stage writes a block without the daemon's method: the next pass reads it.
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md, milestone 2." }));
+    const inbox = await lc.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 3);
+    expect(itemOf(inbox, a.id)?.decisions.at(-1)).toEqual(made(4, { kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md, milestone 2." }, 5000));
+
+    // A block with a blank line inside is refused at that line. The blocks around it are still read, and the next block takes an id above the refused one's.
+    const before = readFileSync(file, "utf8");
+    const fence = "```";
+    const broken = `${fence}seal\ndecision: 5 default\n\ndecided: x\ngrounds: y\nstate: decided\n${fence}\n`;
+    // The text ends with a line end, so its count of lines is one under the split's, and the broken block opens after one blank line.
+    const opener = before.split("\n").length + 1;
+    writeFileSync(file, withDecision(`${before}\n${broken}`, { kind: "answered", decided: "The tree answers it.", grounds: "docs/product.md." }));
+    const after = await lc.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(after, a.id)?.unread).toEqual([{ line: opener + 2, why: "a blank line inside a `seal` block: its lines are fields, one after another, and the block is not read past it" }]);
+    expect(itemOf(after, a.id)?.decisions.map(({ id, kind }) => [id, kind])).toEqual([[1, "route"], [2, "default"], [4, "scope"], [6, "answered"]]);
+    expect(itemOf(after, a.id)?.questions).toEqual([question]);
+    // A pass that reads the record as it read it last sends nothing.
+    await settled(lc);
+    lc.messages.length = 0;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lc.messages).toEqual([]);
+  });
+
+  it("sends a fence that opens like a `seal` block and is not one as unread, at its line, beside the refusals in the order of the file", async () => {
+    const { d, c, workItems } = await withWorkItems(["Noticed"], { now: () => 1, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const fence = "```";
+    writeFileSync(join(directory, RECORD_FILE), `${fence}seal x\ndecision: 1 default\n${fence}\n\n${fence}seal\n${fence}\n`);
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)?.unread.map(({ line, why }) => [line, why.slice(0, 22)])).toEqual([[1, "not read: ````seal x` "], [5, "an empty `seal` block:"]]);
+    expect(itemOf(inbox, a.id)?.decisions).toEqual([]);
+    // Nothing is decided on either: the next decision is written, and both lines stay named.
+    expect(d.decided(a.id, DEFAULT)).toMatchObject({ id: 1 });
+  });
+
+  it("reverses a decision at a `reverseDecision`: the block reads `reversed` with the message as typed, the answer comes before the inbox that carries it with a new time, and a second reversal, an id that is a question's, an id the record does not hold, a message of white space, a work item it does not keep and one with no directory are each refused with the file byte for byte as it stood and no inbox after", async () => {
+    let clock = 1000;
+    const { d, c, url, workItems } = await withWorkItems(["Decided for", "Another", "No directory"], { now: () => clock });
+    const [a, b, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(b)] as const;
+    const first = d.decided(a.id, DEFAULT)!;
+    const second = d.decided(b.id, ROUTE)!;
+    d.park(b.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    await c.message("inbox", (m) => itemOf(m, b.id)?.questions.length === 1);
+    const other = await client(url);
+    await other.message("ready");
+    c.messages.length = 0;
+    clock = 2000;
+    const typed = "기본값 말고 main에서 시작해 주세요";
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: first.id, message: `  ${typed}\n` });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    const reversed = { ...first, state: "reversed", reversal: typed, since: 2000 };
+    expect([itemOf(inbox, a.id)?.decisions, itemOf(inbox, b.id)?.decisions]).toEqual([[reversed], [second]]);
+    expect(recordIn(directories[0])?.decisions.map(({ state }) => state)).toEqual([{ is: "reversed", message: typed }]);
+    // Every client is told, and the one that asked alone is answered.
+    expect(itemOf(await other.message("inbox"), a.id)?.decisions).toEqual([reversed]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+
+    c.messages.length = 0;
+    clock = 3000;
+    const bytes = directories.map(bytesIn);
+    const refusals = [
+      [2, { workItemId: a.id, decisionId: first.id, message: "again" }, "decision 1 is reversed, and only a decision that stands decided is reversed"],
+      [3, { workItemId: b.id, decisionId: 2, message: "a question's id" }, "the record holds no decision 2"],
+      [4, { workItemId: b.id, decisionId: 9, message: "of none" }, "the record holds no decision 9"],
+      [5, { workItemId: b.id, decisionId: second.id, message: " \n\t" }, "Say why the decision is reversed."],
+      [6, { workItemId: 99, decisionId: second.id, message: "nowhere" }, "no work item 99"],
+      [7, { workItemId: none.id, decisionId: 1, message: "no record" }, `Work item ${none.id} has no record of decisions.`],
+      [8, { workItemId: b.id, decisionId: second.id, message: 3 }, "a reversal names a work item, a decision of it and a message"],
+      [9, { workItemId: b.id, decisionId: String(second.id), message: "no id" }, "a reversal names a work item, a decision of it and a message"],
+    ] as const;
+    for (const [requestId, fields, message] of refusals) {
+      c.send({ type: "reverseDecision", requestId, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message });
+    }
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(refusals.map(() => "error").concat("error"));
+    expect(directories.map(bytesIn)).toEqual(bytes);
+    const ready = await (await client(url)).message("ready");
+    expect([itemOf(ready, a.id)?.decisions, itemOf(ready, b.id)?.decisions]).toEqual([[reversed], [second]]);
+    // The message as the refusals above would have it taken, so the case is the one under test.
+    c.send({ type: "reverseDecision", requestId: 20, workItemId: b.id, decisionId: second.id, message: "가".repeat(2001) });
+    expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
+    // A message is cut as every text the daemon writes is.
+    expect(recordIn(directories[1])?.decisions[0]?.state).toEqual({ is: "reversed", message: "가".repeat(2000) });
+  });
+
+  it("sends each decision as its block stands: an applied one with its commit and a carried one with its home, each with the person's message", async () => {
+    const { c, workItems } = await withWorkItems(["Taken in"], { now: () => 1, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    let text = withDecision(withDecision("", { kind: "default", decided: "Start from main.", grounds: "The default base.", by: "orchestrator" }), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." });
+    text = withCarried(withReversal(withApplied(withReversal(text, 1, "Start from the release branch."), 1, "abc1234"), 2, "Take the phone in."), 2, "#53");
+    writeFileSync(join(directory, RECORD_FILE), text);
+    const inbox = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 2);
+    expect(itemOf(inbox, a.id)?.decisions).toEqual([
+      { id: 1, kind: "default", says: "Start from main.", grounds: "The default base.", by: "orchestrator", state: "applied", reversal: "Start from the release branch.", landed: "abc1234", since: 1 },
+      { id: 2, kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md.", by: null, state: "carried", reversal: "Take the phone in.", landed: "#53", since: 1 },
+    ]);
+  });
+
+  it("keeps each block's time as its own: a later pass and a second daemon send the time of the first read, a reversal gives the decision the time of that read and leaves the question's, a block that leaves the file leaves `record-times.json`, and a daemon that starts with the file removed gives every block its start's time", async () => {
+    let clock = 1000;
+    const { d, c, made: repository, runDir, workItems } = await withWorkItems(["Timed"], { now: () => clock, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const file = join(directory, RECORD_FILE);
+    const times = (): unknown => JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8"));
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "decided", since: 1000 }, 2: { state: "open", since: 1000 } } } });
+    expect(statSync(join(runDir, "record-times.json")).mode & 0o777).toBe(0o600);
+    // A pass at a later clock reads both again, and neither time moves. The block a pass at that clock finds first is the mark that it ran.
+    clock = 2000;
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." }));
+    const passed = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 2);
+    expect([itemOf(passed, a.id)?.decisions.map(({ since }) => since), itemOf(passed, a.id)?.questions.map(({ since }) => since)]).toEqual([[1000, 2000], [1000]]);
+
+    clock = 3000;
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    await c.message("done", (m) => m.requestId === 1);
+    const reversed = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions[0]?.state === "reversed");
+    expect([itemOf(reversed, a.id)?.decisions.map(({ since }) => since), itemOf(reversed, a.id)?.questions.map(({ since }) => since)]).toEqual([[3000, 2000], [1000]]);
+    await d.close();
+
+    clock = 4000;
+    const second = await daemon({ runDir, worktreesRoot: repository.root, now: () => clock, commitPollMs: 30 });
+    const sc = await client(second.url);
+    const ready = await sc.message("ready");
+    expect([itemOf(ready, a.id)?.decisions.map(({ since }) => since), itemOf(ready, a.id)?.questions.map(({ since }) => since)]).toEqual([[3000, 2000], [1000]]);
+    // The question's block leaves the file: a record of the two decisions alone is put in its place.
+    const kept = readFileSync(file, "utf8");
+    const from = kept.indexOf("```seal\nquestion:");
+    const until = kept.indexOf("```\n", from + 3) + 4;
+    writeFileSync(file, kept.slice(0, from) + kept.slice(until));
+    await sc.message("inbox", (m) => itemOf(m, a.id)?.questions.length === 0);
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "reversed", since: 3000 }, 3: { state: "decided", since: 2000 } } } });
+    await second.daemon.close();
+
+    rmSync(join(runDir, "record-times.json"));
+    clock = 5000;
+    const third = await daemon({ runDir, worktreesRoot: repository.root, now: () => clock });
+    const again = await (await client(third.url)).message("ready");
+    expect(itemOf(again, a.id)?.decisions.map(({ id, since }) => [id, since])).toEqual([[1, 5000], [3, 5000]]);
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "reversed", since: 5000 }, 3: { state: "decided", since: 5000 } } } });
+  });
+
+  it("lists an archived work item under `archived` with what its record holds, the blocks written since the last pass among them, reads it again at its own start, and takes a work item's times out of `record-times.json` at its delete and at its repository's removal", async () => {
+    const { d, c, made: repository, runDir, workItems, sessions } = await withWorkItems(["Archived", "Deleted", "Removed"], { now: () => 9 });
+    const [archived, deleted, removed] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const times = (): { workItems: Record<string, unknown> } => JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8")) as { workItems: Record<string, unknown> };
+    const directory = withDirectory(archived);
+    for (const each of [deleted, removed]) withDirectory(each);
+    const kept = d.decided(archived.id, DEFAULT)!;
+    d.decided(deleted.id, ROUTE);
+    d.decided(removed.id, ROUTE);
+    const [question] = d.park(archived.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] })!;
+    // A block a stage wrote after the daemon's last read is read at the archive, since no pass reads an archived work item.
+    const file = join(directory, RECORD_FILE);
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." }));
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
+    const inbox = await c.message("inbox", (m) => m.archived.length === 1);
+    const late = made(3, { kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md." }, 9);
+    expect(inbox.archived[0]).toMatchObject({ id: archived.id, decisions: [kept, late], questions: [question] });
+    expect(inbox.workItems.map(({ id }) => id)).toEqual([deleted.id, removed.id]);
+    expect(Object.keys(times().workItems)).toEqual([String(archived.id), String(deleted.id), String(removed.id)]);
+
+    c.send({ type: "readLoss", requestId: 2, id: deleted.id });
+    const { loss } = await c.message("workItemLoss", (m) => m.requestId === 2);
+    c.send({ type: "deleteWorkItem", requestId: 3, id: deleted.id, stamp: loss.stamp, force: true, running: { panes: [sessions[1]!.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    expect(Object.keys(times().workItems)).toEqual([String(archived.id), String(removed.id)]);
+    expect(d.decided(deleted.id, DEFAULT)).toBeUndefined();
+    await d.close();
+
+    // A daemon that starts reads the archived work item's record, which no pass of it reads.
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "answered", decided: "The tree answers it.", grounds: "docs/product.md." }));
+    const later = await daemon({ runDir, worktreesRoot: repository.root, commandFor: silent, now: () => 20 });
+    const lc = await client(later.url);
+    const ready = await lc.message("ready");
+    expect(ready.archived[0]).toMatchObject({ id: archived.id, decisions: [kept, late, made(4, { kind: "answered", says: "The tree answers it.", grounds: "docs/product.md." }, 20)], questions: [question] });
+
+    lc.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [archived.id, removed.id], running: NONE_RUNNING });
+    await lc.message("done", (m) => m.requestId === 4);
+    expect(times()).toEqual({ workItems: {} });
+  });
+
+  it("leaves `record-times.json` at its start as it stood, the entries under an id its repositories do not hold among them, and drops what stands under an id, and under no other, where a new work item is given that id", async () => {
+    const repository = temporaryRepository();
+    cleanups.push(repository.remove);
+    const runDir = join(repository.base, "run");
+    mkdirSync(runDir);
+    // The entries a list of repositories that was lost left behind: under the id the first work item made will take, and under another.
+    const stray = JSON.stringify({ workItems: { 1: { 1: { state: "decided", since: 5 } }, 99: { 1: { state: "open", since: 6 } } } });
+    writeFileSync(join(runDir, "record-times.json"), stray);
+    const { url } = await daemon({ runDir, worktreesRoot: repository.root, commandFor: silent, now: () => 11, commitPollMs: 30 });
+    const c = await client(url);
+    await c.message("ready");
+    expect(readFileSync(join(runDir, "record-times.json"), "utf8")).toBe(stray);
+    c.send({ type: "createWorkItem", requestId: 1, repo: repository.repo, title: "Made anew", kind: "shell", cols: 80, rows: 24 });
+    const next = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    expect(next).toMatchObject({ id: 1, ...NO_RECORD });
+    // A record whose first block has the id and the state of the stray entry: its time is this daemon's, not the entry's.
+    const directory = withDirectory(next);
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: "Start from main.", grounds: "The default base." }));
+    const inbox = await c.message("inbox", (m) => itemOf(m, 1)?.decisions.length === 1);
+    expect(itemOf(inbox, 1)?.decisions[0]?.since).toBe(11);
+    expect(JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8"))).toEqual({ workItems: { 1: { 1: { state: "decided", since: 11 } }, 99: { 1: { state: "open", since: 6 } } } });
+  });
+
+  it("stays up where a record cannot be read or written: the work item is sent with one unread line that says why, a decision and a park return nothing, a reversal is refused with what refused it, and its log says so; and holds the times in memory where `record-times.json` cannot be written", async () => {
+    const { d, c, runDir, workItems } = await withWorkItems(["Unreadable", "Times unwritten"], { now: () => 7, commitPollMs: 30 });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    const said = logged();
+    // A folder stands where the record goes, so it is neither read nor replaced.
+    mkdirSync(join(directory, RECORD_FILE));
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: "the record cannot be read: decisions.md is not a plain file" }] });
+    expect(d.decided(a.id, DEFAULT)).toBeUndefined();
+    expect(d.park(a.id, { questions: [{ asks: "May it push?", grounds: "It needs an approval." }] })).toBeUndefined();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("decisions.md is not a plain file");
+    expect(said.filter((line) => line === "the record was not written: decisions.md is not a plain file")).toHaveLength(2);
+
+    mkdirSync(join(runDir, "record-times.json"));
+    expect(d.decided(b.id, DEFAULT)).toMatchObject({ id: 1, since: 7 });
+    expect(said.filter((line) => line.startsWith("the times of the records were not written: "))).toHaveLength(1);
+    expect(d.decided(b.id, ROUTE)).toMatchObject({ id: 2, since: 7 });
+  });
+
+  it("reads a record that is a link as one unread line that says so, and lists nothing of the file the link leads to; a reversal of it is refused with the same words, and the link stays a link to a file that reads as it did", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Linked"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    // A file outside the worktree that reads as a record with one decision.
+    const outside = join(repository.base, "outside.md");
+    const text = withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds });
+    writeFileSync(outside, text);
+    symlinkSync(outside, join(directory, RECORD_FILE));
+    const refusal = "decisions.md is a link, and Owlery reads it only as a file of its own";
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) + (itemOf(m, a.id)?.decisions.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: `the record cannot be read: ${refusal}` }] });
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe(refusal);
+    expect([lstatSync(join(directory, RECORD_FILE)).isSymbolicLink(), readFileSync(outside, "utf8")]).toEqual([true, text]);
+  });
+});
+
+describe("the questions a work item is parked with", () => {
+  const BASE = { asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main" };
+  const FREE = { asks: "May the session push to the remote?", grounds: "A push needs the person's approval." };
+  const ASKING = { by: "sealer", questions: [BASE, FREE] };
+  /** The two questions of `ASKING` as the daemon sends them open, numbered from `first`. */
+  const open = (since: number, first = 1) => [
+    { id: first, ...BASE, by: "sealer", answer: null, since },
+    { id: first + 1, ...FREE, by: "sealer", options: [], default: null, answer: null, since },
+  ];
+  const TYPED = "둘 다 아니고, 세 번째 방법으로";
+
+  it("parks one work item with its questions as open blocks and tells every client, and holds nothing else: the other work item holds none and its headless session finishes, a pane starts in each of the two, an `ask` in the parked one is taken, a third work item is created, and a second park of the parked one adds its question", async () => {
+    const { d, url, c, made, workItems, sessions } = await withWorkItems(["Parked", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 150 }) });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "ask", requestId: 1, workItemId: b.id, prompt: "Still there?" });
+    const { headless } = await c.message("asked");
+    c.messages.length = 0;
+    other.messages.length = 0;
+    const questions = d.park(a.id, ASKING);
+    expect(questions).toEqual(open(1234));
+    expect(recordIn(directory)).toMatchObject({ decisions: [], questions: [{ id: 1, asks: BASE.asks, grounds: BASE.grounds, by: "sealer", options: BASE.options, default: "main", state: { is: "open" } }, { id: 2, asks: FREE.asks, by: "sealer", options: [], default: null, state: { is: "open" } }], refusals: [] });
+    for (const told of [c, other]) {
+      const inbox = await told.message("inbox");
+      expect(inbox.workItems).toEqual([{ ...a, questions }, b]);
+      expect(inbox.sessions).toEqual(sessions);
+      // Nothing but the lists is sent for it.
+      expect(told.messages.filter((m) => m.type !== "headless").map((m) => m.type)).toEqual(["inbox"]);
+    }
+    // While the work item is parked, every request is served as before, in it and beside it.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: b.id });
+    expect((await c.message("started", (m) => m.requestId === 2)).session).toMatchObject({ workItemId: b.id, alive: true });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: a.id });
+    expect((await c.message("started", (m) => m.requestId === 3)).session).toMatchObject({ workItemId: a.id, alive: true });
+    c.send({ type: "ask", requestId: 4, workItemId: a.id, prompt: "And in the parked one?" });
+    expect((await c.message("asked", (m) => m.requestId === 4)).headless).toMatchObject({ workItemId: a.id, state: "working" });
+    c.send({ type: "createWorkItem", requestId: 5, repo: made.repo, title: "A third", kind: "shell", cols: 80, rows: 24 });
+    const third = (await c.message("workItemCreated", (m) => m.requestId === 5)).workItem;
+    expect(third.questions).toEqual([]);
+    // The session that was working when the park returned finishes, after the lists that carry the park.
+    const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working");
+    expect(finished.headless).toMatchObject({ workItemId: b.id, state: "finished", stopped: null });
+    expect(c.messages.findIndex((m) => m.type === "inbox")).toBeLessThan(c.messages.indexOf(finished));
+    // A park of a work item that is already parked is not refused: its question is a third open block.
+    const more = d.park(a.id, { questions: [{ asks: "And the credential?", grounds: "No session holds the token." }] });
+    expect(more).toEqual([{ id: 3, asks: "And the credential?", grounds: "No session holds the token.", by: null, options: [], default: null, answer: null, since: 1234 }]);
+    const later = await (await client(url)).message("ready");
+    expect([itemOf(later, a.id)?.questions, itemOf(later, b.id)?.questions, itemOf(later, third.id)?.questions]).toEqual([[...questions!, ...more!], [], []]);
+  });
+
+  it("writes who asks and each text of a question without the white space at its ends, 2000 characters of each at most, in one write of the file, and reads a question given no options and no default as one with neither", async () => {
+    const { d, workItems } = await withWorkItems(["Parked"], { now: () => 5 });
+    withDirectory(workItems[0]!);
+    const long = "가".repeat(2001);
+    const cut = "가".repeat(2000);
+    const questions = d.park(workItems[0]!.id, {
+      by: `  ${long}\n`,
+      questions: [
+        { asks: `\t${"q".repeat(1999)}😀 `, grounds: ` ${long} `, options: [{ label: ` ${long} `, implies: `\n${long}` }, { label: "second", implies: "" }], default: ` ${long}\n` },
+        { asks: " One more? ", grounds: " It needs\nan approval. ", options: [{ label: "yes", implies: " Then it goes on. " }], default: null },
+        { asks: "Free?", grounds: "A credential." },
+      ],
+    });
+    expect(questions).toEqual([
+      { id: 1, asks: "q".repeat(1999), grounds: cut, by: cut, options: [{ label: cut, implies: cut }, { label: "second", implies: "" }], default: cut, answer: null, since: 5 },
+      { id: 2, asks: "One more?", grounds: "It needs an approval.", by: cut, options: [{ label: "yes", implies: "Then it goes on." }], default: null, answer: null, since: 5 },
+      { id: 3, asks: "Free?", grounds: "A credential.", by: cut, options: [], default: null, answer: null, since: 5 },
+    ]);
+  });
+
+  it("writes nothing and tells no client for a work item it does not keep, an archived one, one with no directory, a call with no question, a question with an empty text or empty grounds, two options of one question with one label, a default that names no option, an option with no label, a field of another type and an asker that is empty", async () => {
+    const { d, c, url, workItems, sessions } = await withWorkItems(["Parked", "Archived", "No directory"], { now: () => 7 });
+    const [a, archived, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(archived)];
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[1]!.id], headless: [] } });
+    await c.message("inbox", (m) => m.archived.length === 1);
+    c.messages.length = 0;
+    const loose = d.park.bind(d) as (workItemId: unknown, asking: unknown) => unknown;
+    const said = logged();
+    expect(loose(99, ASKING)).toBeUndefined();
+    expect(loose(String(a.id), ASKING)).toBeUndefined();
+    expect(loose(archived.id, ASKING)).toBeUndefined();
+    expect(loose(none.id, ASKING)).toBeUndefined();
+    const refused = [
+      null,
+      { by: "sealer" },
+      { ...ASKING, questions: [] },
+      { ...ASKING, questions: {} },
+      { ...ASKING, questions: [BASE, null] },
+      { ...ASKING, questions: [BASE, { ...FREE, asks: "" }] },
+      { ...ASKING, questions: [BASE, { ...FREE, asks: " \n\t" }] },
+      { ...ASKING, questions: [{ ...FREE, asks: 3 }] },
+      { ...ASKING, questions: [BASE, { ...FREE, grounds: " " }] },
+      { ...ASKING, questions: [BASE, { asks: FREE.asks }] },
+      { ...ASKING, questions: [{ ...BASE, options: [BASE.options[0], { label: " main ", implies: "The same label." }] }] },
+      { ...ASKING, questions: [{ ...BASE, default: "develop" }] },
+      { ...ASKING, questions: [{ ...BASE, default: 0 }] },
+      { ...ASKING, questions: [{ ...FREE, default: "main" }] },
+      { ...ASKING, questions: [{ ...BASE, options: {} }] },
+      { ...ASKING, questions: [{ ...BASE, options: [null, BASE.options[1]] }] },
+      // No default, so the empty label is what refuses it, and not a default that names no option.
+      { ...ASKING, questions: [{ ...BASE, default: null, options: [{ label: " ", implies: "x" }, BASE.options[1]] }] },
+      { ...ASKING, questions: [{ ...BASE, options: [{ label: 3, implies: "x" }, BASE.options[1]] }] },
+      { ...ASKING, questions: [{ ...BASE, options: [{ label: "main" }, BASE.options[1]] }] },
+      { ...ASKING, by: "" },
+      { ...ASKING, by: "  " },
+      { ...ASKING, by: 3 },
+    ];
+    for (const asking of refused) expect(loose(a.id, asking), JSON.stringify(asking)).toBeUndefined();
+    // An inbox for any of them would have arrived before the refusal of a start sent after them.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["error"]);
+    expect(directories.map(bytesIn)).toEqual([null, null]);
+    // Each was refused before the record's writer was asked, so the log holds no line of a write that failed.
+    expect(said).toEqual([]);
+    const ready = await (await client(url)).message("ready");
+    expect([itemOf(ready, a.id)?.questions, ready.archived[0]?.questions]).toEqual([[], []]);
+    // The call as the refusals above would have it taken, so the method is the one under test.
+    expect(loose(a.id, ASKING)).toEqual(open(7));
+  });
+
+  it("writes nothing of a park whose second question the record's writer refuses, the first question neither", async () => {
+    const { d, workItems } = await withWorkItems(["Parked"], { now: () => 7 });
+    const directory = withDirectory(workItems[0]!);
+    d.decided(workItems[0]!.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
+    const bytes = bytesIn(directory);
+    const said = logged();
+    // A label that holds a backtick is no label the record's grammar takes.
+    expect(d.park(workItems[0]!.id, { questions: [FREE, { ...FREE, options: [{ label: "a`b", implies: "" }] }] })).toBeUndefined();
+    expect(bytesIn(directory)).toBe(bytes);
+    expect(said.filter((line) => line.startsWith("the record was not written: "))).toHaveLength(1);
+  });
+
+  it("ends the park at an `answerQuestions`: each open block reads `answered` with its answer as typed, cut as every text is, the answer comes before the inbox that carries it, and the answered blocks stay in the record beside the questions of a later park", async () => {
+    let clock = 1000;
+    const { d, c, url, workItems } = await withWorkItems(["Parked", "Another"], { now: () => clock });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    d.park(a.id, ASKING);
+    await c.message("inbox");
+    const other = await client(url);
+    await other.message("ready");
+    c.messages.length = 0;
+    clock = 2000;
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: a.id, answers: [{ questionId: 2, answer: `  ${TYPED}\n` }, { questionId: 1, answer: "main" }] });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    const answered = [{ ...open(1000)[0]!, answer: "main", since: 2000 }, { ...open(1000)[1]!, answer: TYPED, since: 2000 }];
+    expect([itemOf(inbox, a.id)?.questions, itemOf(inbox, b.id)?.questions]).toEqual([answered, []]);
+    expect(recordIn(directory)?.questions.map(({ state }) => state)).toEqual([{ is: "answered", answer: "main" }, { is: "answered", answer: TYPED }]);
+    // Every client is told, and the one that asked alone is answered.
+    expect(itemOf(await other.message("inbox"), a.id)?.questions).toEqual(answered);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+
+    clock = 3000;
+    const again = d.park(a.id, { by: "proofer", questions: [{ asks: `${"답".repeat(2001)}?`, grounds: "An approval." }] });
+    expect(again).toEqual([{ id: 3, asks: "답".repeat(2000), grounds: "An approval.", by: "proofer", options: [], default: null, answer: null, since: 3000 }]);
+    // The answered questions need no answer again: the message answers the open one alone.
+    clock = 4000;
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 3, answer: "가".repeat(2001) }] });
+    await c.message("done", (m) => m.requestId === 2);
+    expect(recordIn(directory)?.questions.map(({ id, state }) => [id, state])).toEqual([[1, { is: "answered", answer: "main" }], [2, { is: "answered", answer: TYPED }], [3, { is: "answered", answer: "가".repeat(2000) }]]);
+  });
+
+  it("refuses an `answerQuestions` that leaves an open question out, answers an id that is no open question of the record or one question twice, gives an empty answer, names a work item with no open question, one with no directory or one it does not keep, or is of another shape, with the file byte for byte as it stood and no inbox after", async () => {
+    let clock = 1000;
+    const { d, c, url, workItems } = await withWorkItems(["Parked", "Never parked", "Answered", "No directory"], { now: () => clock });
+    const [a, b, answered, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(b), withDirectory(answered)];
+    d.decided(a.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
+    d.park(a.id, ASKING);
+    d.park(answered.id, { by: "proofer", questions: [FREE] });
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: answered.id, answers: [{ questionId: 1, answer: "Yes." }] });
+    await c.message("inbox", (m) => itemOf(m, answered.id)?.questions[0]?.answer === "Yes.");
+    const bytes = directories.map(bytesIn);
+    c.messages.length = 0;
+    clock = 2000;
+    // The decision took the id 1, so the two questions of the park are 2 and 3.
+    const both = [{ questionId: 2, answer: "main" }, { questionId: 3, answer: TYPED }];
+    const shape = "an answer names a work item and gives an answer to each of its open questions";
+    const refusals = [
+      [2, { workItemId: a.id, answers: [both[0]] }, "Question 3 has no answer."],
+      [3, { workItemId: a.id, answers: [] }, "Question 2 has no answer."],
+      [4, { workItemId: a.id, answers: [...both, { questionId: 9, answer: "a third" }] }, `Work item ${a.id} holds no open question 9.`],
+      [5, { workItemId: a.id, answers: [...both, { questionId: 1, answer: "a decision's id" }] }, `Work item ${a.id} holds no open question 1.`],
+      [6, { workItemId: a.id, answers: [...both, { questionId: 3, answer: "again" }] }, "Question 3 is answered twice."],
+      [7, { workItemId: a.id, answers: [both[0], { questionId: 3, answer: " \n\t" }] }, "Give an answer to question 3."],
+      [8, { workItemId: b.id, answers: both }, `Work item ${b.id} waits for no answer.`],
+      [9, { workItemId: answered.id, answers: [{ questionId: 1, answer: "another" }] }, `Work item ${answered.id} waits for no answer.`],
+      [10, { workItemId: none.id, answers: both }, `Work item ${none.id} has no record of decisions.`],
+      [11, { workItemId: 99, answers: both }, "no work item 99"],
+      [12, { workItemId: String(a.id), answers: both }, shape],
+      [13, { workItemId: a.id, answers: { 2: "main", 3: TYPED } }, shape],
+      [14, { workItemId: a.id, answers: [both[0], null] }, shape],
+      [15, { workItemId: a.id, answers: [both[0], { questionId: "3", answer: TYPED }] }, shape],
+      [16, { workItemId: a.id, answers: [both[0], { questionId: 3, answer: 3 }] }, shape],
+    ] as const;
+    for (const [requestId, fields, message] of refusals) {
+      c.send({ type: "answerQuestions", requestId, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message });
+    }
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(refusals.map(() => "error").concat("error"));
+    expect(directories.map(bytesIn)).toEqual(bytes);
+    const ready = await (await client(url)).message("ready");
+    expect([itemOf(ready, a.id)?.questions, itemOf(ready, b.id)?.questions]).toEqual([open(1000, 2), []]);
+    // The message as the refusals above would have it taken, so the case is the one under test.
+    c.send({ type: "answerQuestions", requestId: 20, workItemId: a.id, answers: both });
+    expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
+  });
+
+  it("takes an answer for an archived work item, lists it under `archived` with its questions as answered, and reads its record again at its restore, in the inbox that lists it as restored", async () => {
+    const { d, c, workItems, sessions } = await withWorkItems(["Archived"], { now: () => 9 });
+    const archived = workItems[0]!;
+    const directory = withDirectory(archived);
+    d.park(archived.id, ASKING);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
+    expect((await c.message("inbox", (m) => m.archived.length === 1)).archived[0]?.questions).toEqual(open(9));
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: archived.id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
+    await c.message("done", (m) => m.requestId === 2);
+    expect((await c.message("inbox", (m) => m.archived[0]?.questions[0]?.answer === "main")).archived[0]?.questions.map(({ answer }) => answer)).toEqual(["main", TYPED]);
+    // A block a stage wrote while the work item was archived, which no pass read.
+    const file = join(directory, RECORD_FILE);
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "default", decided: "Start from main.", grounds: "The default base." }));
+    c.messages.length = 0;
+    c.send({ type: "restoreWorkItem", requestId: 3, id: archived.id });
+    const restored = await c.message("inbox");
+    expect([restored.archived, restored.workItems.map(({ decisions }) => decisions.map(({ id, since }) => [id, since]))]).toEqual([[], [[[3, 9]]]]);
+  });
+});
+
+describe("the commit of a person's word", () => {
+  const DEFAULT = { kind: "default", says: "Start from main.", grounds: "The default base." } as const;
+  const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";
+  /** How many commits the worktree's branch holds. */
+  const commitsIn = (worktree: string): number => Number(git(worktree, "rev-list", "--count", "HEAD"));
+  /** The newest commit of the worktree's branch: its subject, the rest of its message, who wrote and who committed it, and the paths it changed. */
+  const newest = (worktree: string) => ({
+    subject: git(worktree, "log", "-1", "--format=%s").trim(),
+    body: git(worktree, "log", "-1", "--format=%b").trim(),
+    by: git(worktree, "log", "-1", "--format=%an <%ae>, %cn <%ce>").trim(),
+    paths: git(worktree, "show", "--name-only", "--format=", "HEAD").trim().split("\n"),
+  });
+  /** What git says of the worktree's changes, a line for each path. */
+  const status = (worktree: string): string[] => git(worktree, "status", "--porcelain", "--untracked-files=all").split("\n").filter((line) => line !== "").sort();
+
+  it("commits a reversal where no session of the work item is working: one new commit whose only path is `decisions.md`, under the person's identity, with the subject that names the decision and the trailer that names the work item's directory, and a change staged beside it and one not staged stand as they stood; an `answerQuestions` gives a commit of its own, which the daemon's close waits for", async () => {
+    const { d, c, workItems } = await withWorkItems(["Reversed"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795330500-reversed");
+    const record = "seal/threads/1795330500-reversed/decisions.md";
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May the session push?", grounds: "A push needs the person's approval." }] });
+    writeFileSync(join(a.worktree, "staged.txt"), "staged\n");
+    git(a.worktree, "add", "staged.txt");
+    writeFileSync(join(a.worktree, "README.md"), "changed and not staged\n");
+    const stood = status(a.worktree);
+    expect(stood).toEqual([" M README.md", "?? seal/README.md", `?? ${record}`, "?? seal/threads/1795330500-reversed/routing.md", "A  staged.txt"]);
+    expect(commitsIn(a.worktree)).toBe(1);
+
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "기본값 말고 main에서 시작해 주세요" });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's reversal of decision 1", body: "Seal-Routing: 1795330500-reversed", by: WHO, paths: [record] });
+    expect(git(a.worktree, "show", `HEAD:${record}`)).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "기본값 말고 main에서 시작해 주세요" });
+    // The record is committed and nothing else moved: the staged file is still staged and not committed, and the other change is still not staged.
+    const left = stood.filter((line) => line !== `?? ${record}`);
+    expect(status(a.worktree)).toEqual(left);
+
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "Yes, push." }] });
+    await c.message("done", (m) => m.requestId === 2);
+    // No wait but the close's: the commit under way has ended when the close has.
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(3);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's answers", body: "Seal-Routing: 1795330500-reversed", by: WHO, paths: [record] });
+    expect(git(a.worktree, "show", `HEAD:${record}`)).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(status(a.worktree)).toEqual(left);
+  });
+
+  /** Runs git in a worktree where the command is expected to stop on a conflict, and gives its exit code. */
+  const stopping = (worktree: string, ...args: string[]): number | null => spawnSync("git", args, { cwd: worktree, encoding: "utf8" }).status;
+  /**
+   * Each state of a worktree in which a person's word is refused before it is written and nothing is committed, with the commands that bring it about and the reason the refusal gives.
+   * The work item's branch holds the commit "mine" and the branch `theirs` the commit "theirs", which change one line of `README.md` each, so each of the two taken onto the other stops on a conflict.
+   */
+  const NOT_COMMITTED: { name: string; bring: (worktree: string) => void; says: (branch: string) => string }[] = [
+    { name: "on a detached HEAD", bring: (worktree) => void git(worktree, "checkout", "--quiet", "--detach"), says: (branch) => `the worktree is not on the branch ${branch}` },
+    { name: "on another branch", bring: (worktree) => void git(worktree, "checkout", "--quiet", "theirs"), says: (branch) => `the worktree is not on the branch ${branch}` },
+    { name: "in a rebase that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "rebase", "theirs")).toBe(1), says: () => "a rebase is under way in the worktree" },
+    { name: "in a merge that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "merge", "theirs")).toBe(1), says: () => "a merge is under way in the worktree" },
+    { name: "in a cherry-pick that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "cherry-pick", "theirs")).toBe(1), says: () => "a cherry-pick is under way in the worktree" },
+    { name: "in a revert that has not been committed", bring: (worktree) => void git(worktree, "revert", "--no-commit", "HEAD"), says: () => "a revert is under way in the worktree" },
+    {
+      name: "in a `git am` that stopped on a conflict",
+      bring: (worktree) => {
+        writeFileSync(join(worktree, "..", "theirs.patch"), git(worktree, "format-patch", "-1", "theirs", "--stdout"));
+        expect(stopping(worktree, "am", join(worktree, "..", "theirs.patch"))).not.toBe(0);
+      },
+      says: () => "a rebase or a `git am` is under way in the worktree",
+    },
+  ];
+
+  /** The refusal of a person's word for the reason given, as the window shows it. */
+  const refusal = (why: string): string => `Nothing was written: ${why}. Send it again once the worktree is on its branch and nothing is under way in it.`;
+
+  it.each(NOT_COMMITTED)("refuses a reversal and an answer where the worktree is $name: each is answered with an `error` that says why, the record stands byte for byte as it stood, no inbox follows, no branch and no HEAD moves, the index stands as it stood, and the log holds nothing", async ({ bring, says }) => {
+    const { d, c, workItems } = await withWorkItems(["Elsewhere"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May the session push?", grounds: "A push needs the person's approval." }] });
+    git(a.worktree, "checkout", "--quiet", "-b", "theirs");
+    writeFileSync(join(a.worktree, "README.md"), "theirs\n");
+    git(a.worktree, "commit", "--quiet", "-am", "theirs");
+    git(a.worktree, "checkout", "--quiet", a.branch);
+    writeFileSync(join(a.worktree, "README.md"), "mine\n");
+    git(a.worktree, "commit", "--quiet", "-am", "mine");
+    bring(a.worktree);
+    /** Where every branch and the worktree's HEAD stand, and what git says of the worktree's changes. */
+    const stands = (): unknown[] => [git(a.worktree, "for-each-ref", "refs/heads"), git(a.worktree, "rev-parse", "HEAD"), status(a.worktree), readFileSync(join(directory, RECORD_FILE), "utf8")];
+    const stood = stands();
+    const said = logged();
+    await settled(c);
+    const before = c.messages.length;
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: refusal(says(a.branch)) });
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "Yes, push." }] });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: refusal(says(a.branch)) });
+    await settled(c);
+    // The third is the refusal `settled` waits for.
+    expect(c.messages.slice(before).map((m) => m.type)).toEqual(["error", "error", "error"]);
+    await d.close();
+    expect(said).toEqual([]);
+    expect(stands()).toEqual(stood);
+  });
+
+  it("commits nothing where the worktree leaves its branch after a word was written: a HEAD detached while an earlier commit is held leaves the later word written and answered `done`, moves the work item's branch nowhere, and the log says why", async () => {
+    const { d, c, made: repository, workItems } = await withWorkItems(["Left"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    for (const says of ["One.", "Two."]) d.decided(a.id, { ...DEFAULT, says });
+    // The hook holds the first commit until the case lets it go.
+    const [started, go] = [join(repository.base, "hook-started"), join(repository.base, "hook-go")];
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${go}' ]; do sleep 0.05; done\n`, { mode: 0o755 });
+    const said = logged();
+    const reverse = (decisionId: number): void => c.send({ type: "reverseDecision", requestId: decisionId, workItemId: a.id, decisionId, message: `Not ${String(decisionId)}.` });
+    reverse(1);
+    await c.until(() => (existsSync(started) ? true : undefined), 3000);
+    // The second word is written while the worktree is on its branch, and its commit waits behind the first.
+    reverse(2);
+    expect(await c.message("done", (m) => m.requestId === 2)).toEqual({ type: "done", requestId: 2 });
+    // HEAD is detached where it stands, with no read of the index the held commit has locked.
+    git(a.worktree, "update-ref", "--no-deref", "HEAD", git(a.worktree, "rev-parse", "HEAD").trim());
+    const branchAt = (): string => git(a.worktree, "rev-parse", `refs/heads/${a.branch}`);
+    const stood = branchAt();
+    writeFileSync(go, "");
+    await d.close();
+    expect(said).toEqual([`the person's word was not committed: the worktree is not on the branch ${a.branch}`]);
+    expect(branchAt()).toBe(stood);
+    // The held commit, which passed its checks on the branch, is the one commit made, and the second word is in the file alone.
+    expect(git(a.worktree, "log", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the person's reversal of decision 1", "first"]);
+    expect(recordIn(directory)?.decisions.map(({ state }) => state)).toEqual([1, 2].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+  });
+
+  it("takes the words of one worktree in the order they came: twelve reversals sent one behind another are each answered `done` in that order, though git is asked where the worktree stands for each", async () => {
+    const { d, c, workItems } = await withWorkItems(["In order"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const ids = Array.from({ length: 12 }, (_, index) => index + 1);
+    for (const id of ids) d.decided(a.id, { ...DEFAULT, says: `Decision ${String(id)}.` });
+    await settled(c);
+    const before = c.messages.length;
+    for (const id of ids) c.send({ type: "reverseDecision", requestId: id, workItemId: a.id, decisionId: id, message: `Not ${String(id)}.` });
+    await c.until(() => (c.messages.filter((m) => m.type === "done").length === ids.length ? true : undefined), 10000);
+    expect(c.messages.slice(before).flatMap((m) => (m.type === "done" ? [m.requestId] : []))).toEqual(ids);
+    await d.close();
+    expect(recordIn(directory)?.decisions.map(({ state }) => state)).toEqual(ids.map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+  });
+
+  it("waits at its close for a word whose worktree is still being read: a reversal sent just before the close is written and committed when the close has ended", async () => {
+    const { d, c, workItems } = await withWorkItems(["Closing"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    d.decided(a.id, DEFAULT);
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    // A socket's messages are taken in the order they came, so the answer to the second says the daemon has the first, whose read of the worktree by git takes longer than that answer.
+    c.send({ type: "setWorkItem", requestId: 2, id: a.id, pinned: true });
+    await c.message("done", (m) => m.requestId === 2);
+    await d.close();
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 1");
+  });
+
+  it("leaves the record written and not committed while a headless session of the work item is working, and while a pane of it is: the other work item's word is committed meanwhile, and the first commit made once nothing works carries what was left", async () => {
+    // A pane of the kind that reports its state ends by itself after a second and a half, and every other pane stays.
+    const commandFor = (kind: string) => (kind === "claude" ? { command: "/bin/sh", args: ["-c", "sleep 1.5"], env: {} } : silent());
+    const { d, c, workItems } = await withWorkItems(["Worked in", "Quiet"], { roleAdapter: fakeAdapter({ delayMs: 400 }), commandFor });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    for (const says of ["One.", "Two.", "Three."]) d.decided(a.id, { ...DEFAULT, says });
+    for (const says of ["One.", "Two."]) d.decided(b.id, { ...DEFAULT, says });
+    const reverse = async (requestId: number, workItemId: number, decisionId: number): Promise<void> => {
+      c.send({ type: "reverseDecision", requestId, workItemId, decisionId, message: `Not ${String(decisionId)}.` });
+      await c.message("done", (m) => m.requestId === requestId);
+    };
+
+    // A headless session works in the first work item, and none in the second.
+    c.send({ type: "ask", requestId: 1, workItemId: a.id, prompt: "Quick?" });
+    await c.message("asked", (m) => m.requestId === 1);
+    await reverse(2, a.id, 1);
+    await reverse(3, b.id, 1);
+    await c.until(() => (commitsIn(b.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(b.worktree).subject).toBe("chore: record the person's reversal of decision 1");
+    await c.message("headless", (m) => m.headless.state === "finished");
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "Not 1." });
+
+    // A pane of the first work item says it is working.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: a.id });
+    const { session } = await c.message("started", (m) => m.requestId === 4);
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await reverse(5, a.id, 2);
+    await reverse(6, b.id, 2);
+    await c.until(() => (commitsIn(b.worktree) === 3 ? true : undefined), 3000);
+    expect(commitsIn(a.worktree)).toBe(1);
+    // The pane's process ends while the pane still says it is working, and a pane that is not alive holds no commit. The commits of one worktree run one after another, so this one is made after the daemon left the second reversal.
+    await c.message("exit", (m) => m.id === session.id);
+    await reverse(7, a.id, 3);
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 3");
+    const committed = readDecisionRecord(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md"));
+    expect(committed.decisions.map(({ state }) => state)).toEqual([1, 2, 3].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+    expect(recordIn(directory)).toEqual(committed);
+  });
+
+  it("makes the commits of one worktree one after another, each of the file as it stands at its turn: two reversals written while a commit is under way wait for it, the first of them is committed with the second's word in it, the second's turn commits nothing, and the log holds nothing", async () => {
+    const { d, c, made: repository, workItems } = await withWorkItems(["Thrice"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    for (const says of ["One.", "Two.", "Three."]) d.decided(a.id, { ...DEFAULT, says });
+    // The hook holds the first commit, which has the index locked, until the case lets it go.
+    const [started, go] = [join(repository.base, "hook-started"), join(repository.base, "hook-go")];
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${go}' ]; do sleep 0.05; done\n`, { mode: 0o755 });
+    const said = logged();
+    const reverse = (decisionId: number): void => c.send({ type: "reverseDecision", requestId: decisionId, workItemId: a.id, decisionId, message: `Not ${String(decisionId)}.` });
+    reverse(1);
+    await c.until(() => (existsSync(started) ? true : undefined), 3000);
+    reverse(2);
+    reverse(3);
+    await c.message("done", (m) => m.requestId === 3);
+    writeFileSync(go, "");
+    await d.close();
+    expect(git(a.worktree, "log", "--format=%s").trim().split("\n")).toEqual(["chore: record the person's reversal of decision 2", "chore: record the person's reversal of decision 1", "first"]);
+    const committed = (commit: string): unknown[] => readDecisionRecord(git(a.worktree, "show", `${commit}:seal/threads/1-item/decisions.md`)).decisions.map(({ state }) => state.is);
+    expect([committed("HEAD~1"), committed("HEAD")]).toEqual([["reversed", "decided", "decided"], ["reversed", "reversed", "reversed"]]);
+    expect(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md")).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(said).toEqual([]);
+  });
+
+  it("says in the log why a record that git ignores was not committed, and answers `done`", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Ignored"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    writeFileSync(join(repository.repo, ".git", "info", "exclude"), "seal/\n");
+    const said = logged();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (said.length > 0 ? true : undefined), 3000);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^the person's word was not committed: .*ignored/s);
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+  });
+
+  it("answers `done` and keeps the record written where the commit fails: a `pre-commit` hook that exits 1 leaves the branch with no new commit and the record not staged, and the log holds git's words, the hook's among them", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Hooked"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    // A worktree runs the hooks of its repository.
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'the hook says no' >&2\nexit 1\n", { mode: 0o755 });
+    const said = logged();
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    const stood = status(a.worktree);
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (said.length > 0 ? true : undefined), 3000);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^the person's word was not committed: /);
+    expect(said[0]).toContain("the hook says no");
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+    expect(status(a.worktree)).toEqual(stood);
+  });
+});
+
 describe("the last look", () => {
   type Client = Awaited<ReturnType<typeof client>>;
   const stateOf = (m: Extract<ServerMessage, { type: "inbox" }>, id: number) => m.sessions.find((s) => s.id === id)?.state;
@@ -3060,7 +4348,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, permissions: [], aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, permissions: [], aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {

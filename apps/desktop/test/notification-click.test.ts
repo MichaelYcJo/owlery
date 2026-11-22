@@ -53,6 +53,8 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     await app.cdp("Input.insertText", { text: title });
     // The kind's menu is the system's own, which the debugging port does not reach, so the choice is set on the field.
     await app.evaluate(`document.getElementById("work-item-kind").value = ${JSON.stringify(kind)}`);
+    // Create creates nothing before the form shows the plan of its folder.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     try {
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
@@ -111,7 +113,7 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     expect(await recorded()).toEqual([]);
     feed("PermissionRequest");
     await app.until(`window.__notifications.length === 1`, "a notification");
-    expect(await recorded()).toEqual([{ title: "Alpha", body: "Waiting for you" }]);
+    expect(await recorded()).toEqual([{ title: "Alpha", body: "Needs you" }]);
 
     await app.evaluate(`window.__notifications[0].onclick()`);
     expect(await text("view-title")).toBe("Alpha");
@@ -141,5 +143,16 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     expect(await app.evaluate<boolean>(`document.getElementById("work-item-dialog").open`)).toBe(true);
     expect(await app.evaluate<string>(`document.getElementById("work-item-title").value`)).toBe("Gamma");
     expect(await app.evaluate<string>(`document.getElementById("work-item-repo").value`)).toBe(made.repo);
+  });
+
+  it("says on the bell how many work items need the person, to a pointer and to a screen reader alike", async () => {
+    /** What the bell says to a pointer, to a screen reader, and as its count. */
+    const bell = (): Promise<{ title: string; name: string | null; count: string | null }> =>
+      app.evaluate(`(() => { const bell = document.getElementById("bell"); return { title: bell.title, name: bell.getAttribute("aria-label"), count: document.getElementById("bell-count").textContent }; })()`);
+    // Alpha's agent has finished, so no work item needs the person.
+    expect(await bell()).toEqual({ title: "Show the work items that need you alone.", name: "Show the work items that need you alone.", count: "" });
+    feed("PermissionRequest");
+    await app.until(`document.getElementById("bell").classList.contains("ringing")`, "the bell ringing");
+    expect(await bell()).toEqual({ title: "1 needs you. Show them alone.", name: "1 needs you. Show them alone.", count: "1" });
   });
 });

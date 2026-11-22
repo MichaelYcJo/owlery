@@ -4,7 +4,7 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, fileLines, lineMarks, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import { commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, RUN_SETUP_SAYS, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -131,31 +131,29 @@ export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
   return place;
 }
 
-/** The class that gives a state its colour. */
+/** The class that gives a state its colour and its mark the theme's shapes. */
 export function stateClass(state: AgentState | null): AgentState | "no-agent" {
   return state ?? "no-agent";
 }
 
 const SVG = "http://www.w3.org/2000/svg";
 
-/** A line icon of the page, 16 units square, from the shapes given: each a path's data, or a circle as its centre and its radius, with a class where the style needs one. */
-export function icon(shapes: readonly (string | { circle: [number, number, number]; className?: string } | { path: string; className: string })[]): SVGElement {
+/** A line icon of the page, 16 units square, from the shapes given: each a path's data, or a circle as its centre and its radius. */
+export function icon(shapes: readonly (string | { circle: [number, number, number] })[]): SVGElement {
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("class", "icon");
   svg.setAttribute("viewBox", "0 0 16 16");
   svg.setAttribute("aria-hidden", "true");
   for (const shape of shapes) {
-    if (typeof shape !== "string" && "circle" in shape) {
+    if (typeof shape !== "string") {
       const circle = document.createElementNS(SVG, "circle");
       circle.setAttribute("cx", String(shape.circle[0]));
       circle.setAttribute("cy", String(shape.circle[1]));
       circle.setAttribute("r", String(shape.circle[2]));
-      if (shape.className) circle.setAttribute("class", shape.className);
       svg.append(circle);
     } else {
       const path = document.createElementNS(SVG, "path");
-      path.setAttribute("d", typeof shape === "string" ? shape : shape.path);
-      if (typeof shape !== "string") path.setAttribute("class", shape.className);
+      path.setAttribute("d", shape);
       svg.append(path);
     }
   }
@@ -187,24 +185,28 @@ export function lineMarkIcons(workItem: WorkItem): HTMLElement[] {
   });
 }
 
-// The shapes of a state's icon: a speech mark for a wait, a ring that turns for work, a check in a circle for an end, a crescent for no agent, and a triangle for a failure.
-type StateShape = "waiting" | "working" | "finished" | "no-agent" | "failed";
-const STATE_SHAPES: Record<StateShape, Parameters<typeof icon>[0]> = {
-  waiting: ["M3.2 3h9.6a1.7 1.7 0 0 1 1.7 1.7v4.6a1.7 1.7 0 0 1-1.7 1.7H8.4l-3.2 2.8V11h-2a1.7 1.7 0 0 1-1.7-1.7V4.7A1.7 1.7 0 0 1 3.2 3z"],
-  working: [{ circle: [8, 8, 5.6], className: "track" }, { path: "M8 2.4A5.6 5.6 0 0 1 13.6 8", className: "turn" }],
-  finished: [{ circle: [8, 8, 5.8] }, "M5.3 8.2l1.9 1.9 3.6-4"],
-  "no-agent": ["M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z"],
-  failed: ["M8 2.3l6 10.5H2z", "M8 6.6v2.8", "M8 11.1v.1"],
-};
+/** The states a mark is drawn for: an agent's three, a work item with no agent, and a headless session's failure. */
+type MarkedState = AgentState | HeadlessState | "no-agent";
+
+/** The parts of a state's mark: a line, a filled part, and for work the faint track and the part that turns. The page's style gives each the shape the theme in use holds for the state, so no shape stands here. */
+const MARK_PARTS = ["line", "fill", "track", "turn"] as const;
 
 /**
  * A state's icon, which says the state in its shape and its colour and, to a
  * pointer and a screen reader, in `words`. A failed headless session has an
  * icon of its own.
  */
-function iconOf(shape: StateShape, words: string): HTMLElement {
-  const element = part(`state-icon state ${shape}`, "");
-  element.append(icon(STATE_SHAPES[shape]));
+function iconOf(state: MarkedState, words: string): HTMLElement {
+  const element = part(`state-icon state ${state}`, "");
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  for (const name of MARK_PARTS) {
+    const path = document.createElementNS(SVG, "path");
+    path.setAttribute("class", name);
+    svg.append(path);
+  }
+  element.append(svg);
   element.setAttribute("role", "img");
   element.setAttribute("aria-label", words);
   element.title = words;
@@ -268,15 +270,45 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 
 /**
  * What the preview and a view's right column say of a work item alike: what
- * its agent says, its commits and its changed files, each left out where the
- * daemon sent none. The first `gained` commits carry the dot of a commit the
- * branch gained since the person last looked.
+ * its agent says, the decisions made for it in place of asking, its commits,
+ * its changed files and its setup, each left out where the daemon sent none.
+ * Under the decisions stands a line for each line of the work item's record
+ * that the daemon did not read, and the section is drawn for those lines
+ * alone where the record gave no decision. The first `gained` commits carry
+ * the dot of a commit the branch gained since the person last looked. A
+ * view gives both of `acts`, and a preview neither. Where `reverse` is
+ * given, each decision that stands offers "Reverse", whose press hands
+ * `reverse` the decision's id. Where `runSetup` is given, the setup offers
+ * "Run setup again" while it does not run, whose press calls `runSetup`
+ * with the command the section names, whole, the one the daemon may then
+ * run.
  */
-export function detail(entry: Entry, gained: number): HTMLElement[] {
+export function detail(entry: Entry, gained: number, { reverse, runSetup }: { reverse?: (decisionId: number) => void; runSetup?: (command: string | null) => void } = {}): HTMLElement[] {
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
-  // The agent's words are plain text, never markup.
-  if (says) parts.push(section("says", heading(says.head), part("said", says.text)));
+  // The agent's words are plain text, never markup. Where the agent waits for the person the card says so by its class, and the theme gives that card its edge.
+  if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), part("said", says.text)));
+  const decisions = decisionLines(entry.workItem, Date.now());
+  const unread = unreadLines(entry.workItem);
+  if (decisions.length > 0 || unread.length > 0) {
+    const lines = decisions.map((line) => {
+      const head = row(part("kind", line.kind), part("by", line.by), part("age", line.age));
+      if (reverse && line.reversed === null) {
+        const button = document.createElement("button");
+        button.className = "quiet";
+        button.textContent = "Reverse";
+        button.title = "Reverse this decision, with a message";
+        button.addEventListener("click", () => reverse(line.id));
+        head.append(button);
+      }
+      // What was decided, its grounds and a person's message are plain text, never markup.
+      const element = item(line.reversed ? "decision reversed" : "decision", head, part("what", line.says), part("grounds", line.grounds));
+      if (line.reversed) element.append(part("reversal", line.reversed.head), part("message", line.reversed.message));
+      return element;
+    });
+    // The reader's reason is plain text, never markup.
+    parts.push(section("decisions", heading(DECISIONS_HEAD), ...(lines.length > 0 ? [listOf(lines)] : []), ...unread.map((text) => part("unread", text))));
+  }
   const commits = commitLines(entry.workItem, gained, Date.now());
   if (commits) {
     const lines = commits.lines.map((line) => {
@@ -294,6 +326,23 @@ export function detail(entry: Entry, gained: number): HTMLElement[] {
   if (files) {
     const lines = files.lines.map((line) => item("file", part("path", line.path), counts(line.counts)));
     parts.push(section("files", heading("Changes", part("sum", files.sum)), ...(lines.length > 0 ? [listOf(lines)] : []), ...(files.foot ? [part("hint foot", files.foot)] : [])));
+  }
+  const setup = setupSection(entry.workItem, Date.now());
+  if (setup) {
+    const head = heading(SETUP_HEAD);
+    if (runSetup && setup.runAgain) {
+      const button = document.createElement("button");
+      button.className = "quiet";
+      button.textContent = "Run setup again";
+      button.title = RUN_SETUP_SAYS;
+      const command = entry.workItem.setup?.command ?? null;
+      button.addEventListener("click", () => runSetup(command));
+      head.append(button);
+    }
+    // The paths, the reasons and the daemon's sentence are plain text, never markup.
+    const copied = setup.copied.map((path) => item("copied", part("path", path)));
+    const failed = setup.failed.map(({ path, why }) => item("not-copied", part("path", path), part("why", why)));
+    parts.push(section("setup", head, part("setup-says", setup.says), ...(setup.command ? [part("setup-command", `Command: ${setup.command}`)] : []), ...(copied.length > 0 ? [listOf(copied)] : []), ...(setup.more ? [part("hint foot", setup.more)] : []), ...(failed.length > 0 ? [listOf(failed)] : [])));
   }
   return parts;
 }

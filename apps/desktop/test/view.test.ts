@@ -6,12 +6,15 @@ import {
   archivalOf,
   archivedHead,
   archivedIn,
+  answersFor,
   askButton,
+  askedSection,
   asksFetch,
   BASE_ANSWER_MS,
   baseKey,
   baseMenu,
   baseSays,
+  bellSays,
   cardStaysAt,
   changesSince,
   closeAsks,
@@ -24,6 +27,9 @@ import {
   deleteSays,
   deletionOf,
   daemonStatus,
+  decisionLines,
+  decisionMark,
+  DECISIONS_HEAD,
   droppedText,
   emptyList,
   fileLines,
@@ -44,6 +50,7 @@ import {
   lineCounts,
   lineMarks,
   lineSession,
+  lineSince,
   lineText,
   lossSections,
   linkCard,
@@ -65,9 +72,11 @@ import {
   paneKey,
   paneMenu,
   paneTabs,
+  parkNotifications,
   pinnedFirst,
   pathCandidates,
   pathTarget,
+  PLAN_AWAITED,
   planAnswer,
   planLine,
   recentKept,
@@ -77,14 +86,22 @@ import {
   removalOf,
   renameChoice,
   replayStep,
+  lacksRecords,
+  recordsDialog,
+  recordsOf,
+  registered,
   repositoryMenu,
   rowButtons,
+  RUN_SETUP_SAYS,
   runningSessions,
   screenMoves,
   screenTurns,
   selectedLine,
   settingsBases,
   settingsFields,
+  setupMark,
+  setupSection,
+  shownSetup,
   sidebarTree,
   stageOf,
   stateHeading,
@@ -109,8 +126,9 @@ import {
   type InboxLine,
   type MenuEntry,
   unanswered,
+  unreadLines,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type HeadlessInfo, type Look, type PaneKindInfo, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -132,8 +150,14 @@ const LOGIN: WorkItem = {
   groupId: null,
   archivedAt: null,
   permissions: [],
+  decisions: [],
+  questions: [],
+  unread: [],
+  setup: null,
 };
-const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
+/** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
+const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null } };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -174,6 +198,12 @@ describe("tabLabel", () => {
 
   it("labels a pane of a kind the list does not hold with the kind as the daemon spells it", () => {
     expect(tabLabel(session(7, { kind: "shell" }), [session(7, { kind: "shell" })], [])).toBe("shell");
+  });
+
+  it("labels the pane the work item's setup names Setup, and numbers the other panes of its kind without it", () => {
+    const tabs = [session(3, { kind: "shell" }), session(4), session(5, { kind: "shell" })];
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, 3))).toEqual(["Setup", "Claude Code", "Shell"]);
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, null))).toEqual(["Shell 1", "Claude Code", "Shell 2"]);
   });
 });
 
@@ -247,12 +277,12 @@ describe("inboxSummary", () => {
     return { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" };
   }
 
-  it("counts the work items in each state in a sentence, and leaves out the lines with no state", () => {
-    expect(inboxSummary([line("working"), line("waiting"), line("waiting"), line(null)])).toBe("2 waiting for you, 1 working");
+  it("counts the work items in each state in a sentence, in the state's own words as they agree with the count, and leaves out the lines with no state", () => {
+    expect(inboxSummary([line("working"), line("waiting"), line("waiting"), line(null)])).toBe("2 need you, 1 working");
   });
 
   it("says the state a person must act on first: waiting, then working, then finished", () => {
-    expect(inboxSummary([line("finished"), line("working"), line("finished"), line("waiting")])).toBe("1 waiting for you, 1 working, 2 finished");
+    expect(inboxSummary([line("finished"), line("working"), line("finished"), line("waiting")])).toBe("1 needs you, 1 working, 2 finished");
   });
 
   it("leaves out a state no work item is in", () => {
@@ -267,10 +297,10 @@ describe("inboxSummary", () => {
 
 describe("stateHeading", () => {
   it("says each state in the words of its group's heading, and a line with no state as having no agent", () => {
-    expect(stateHeading("waiting")).toBe("Waiting for you");
+    expect(stateHeading("waiting")).toBe("Needs you");
     expect(stateHeading("working")).toBe("Working");
     expect(stateHeading("finished")).toBe("Finished");
-    expect(stateHeading(null)).toBe("No agent");
+    expect(stateHeading(null)).toBe("Asleep");
   });
 });
 
@@ -282,10 +312,10 @@ describe("inboxGroups", () => {
   it("puts the lines under the heading of their state, the groups in the order a person acts on them and the lines with no state last", () => {
     const groups = inboxGroups([entry(1, null), entry(2, "finished"), entry(3, "working"), entry(4, "waiting")]);
     expect(groups.map((group) => [group.state, group.heading, group.entries.map((held) => held.id)])).toEqual([
-      ["waiting", "Waiting for you", [4]],
+      ["waiting", "Needs you", [4]],
       ["working", "Working", [3]],
       ["finished", "Finished", [2]],
-      [null, "No agent", [1]],
+      [null, "Asleep", [1]],
     ]);
   });
 
@@ -298,7 +328,7 @@ describe("inboxGroups", () => {
   });
 
   it("leaves out a group no line is in, heading and all", () => {
-    expect(inboxGroups([entry(1, null), entry(2, "working")]).map((group) => group.heading)).toEqual(["Working", "No agent"]);
+    expect(inboxGroups([entry(1, null), entry(2, "working")]).map((group) => group.heading)).toEqual(["Working", "Asleep"]);
     expect(inboxGroups([])).toEqual([]);
   });
 });
@@ -504,10 +534,11 @@ describe("workItemMenu", () => {
 });
 
 describe("repositoryMenu", () => {
-  it("holds, in this order, Settings, Change icon, Show archived work items, New group, Open in, Copy path, Hide from sidebar and Remove, each with what its press does, and Open in with no action of its own and a submenu of Finder and each installed app on the repository's folder", () => {
+  it("holds, in this order, Settings, Change icon, Records and check…, Show archived work items, New group, Open in, Copy path, Hide from sidebar and Remove, each with what its press does, and Open in with no action of its own and a submenu of Finder and each installed app on the repository's folder", () => {
     expect(plain(repositoryMenu(PROJECT, APPS))).toEqual([
       { label: "Settings", action: { do: "settings", id: 1 }, divides: false },
       { label: "Change icon", action: { do: "icon", id: 1 }, divides: false },
+      { label: "Records and check…", action: { do: "records", id: 1 }, divides: false },
       { label: "Show archived work items", action: { do: "archived", id: 1 }, divides: true },
       { label: "New group", action: { do: "group", id: 1 }, divides: false },
       openIn("/r/project"),
@@ -519,8 +550,13 @@ describe("repositoryMenu", () => {
 
   it("offers Finder alone where no app is installed", () => {
     const menu = repositoryMenu(PROJECT, []);
-    expect(menu.map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"]);
+    expect(menu.map((item) => item.label)).toEqual(["Settings", "Change icon", "Records and check…", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"]);
     expect(opened(menu, "Open in")).toEqual(["Finder"]);
+  });
+
+  it("offers no Records and check… for a repository of a daemon of an earlier build, which sends no records", () => {
+    const { records: _, ...earlier } = PROJECT;
+    expect(repositoryMenu(earlier as Repository, []).map((item) => item.label)).toEqual(["Settings", "Change icon", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"]);
   });
 });
 
@@ -539,7 +575,7 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 8, 5, 10, 10]);
+    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10]);
     expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3]);
   });
 });
@@ -706,6 +742,12 @@ describe("archivalOf", () => {
     });
   });
 
+  it("names the pane the work item's setup names Setup, as its tab does", () => {
+    const setting: WorkItem = { ...LOGIN, setup: { ...RUNNING_SETUP, paneId: 5 } };
+    expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup", "Shell"]);
+    expect(removalOf(PROJECT, [setting], [], [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup in Fix the login bug", "Shell in Fix the login bug"]);
+  });
+
   it("names none where no session of the work item runs, so its archive asks nothing first", () => {
     expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
   });
@@ -780,7 +822,7 @@ describe("archivedHead", () => {
 });
 
 describe("settingsBases", () => {
-  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop" };
+  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop", setupCommand: null, includes: false };
 
   it("lists the repository's local and remote bases whole, under a first choice that stores none, and chooses the base the repository has where the plan lists it", () => {
     expect(settingsBases(PLAN, "develop")).toEqual({ local: ["main", "develop"], remote: ["origin/main"], value: "develop" });
@@ -848,6 +890,295 @@ describe("lineMarks", () => {
   });
 });
 
+describe("the decisions made without asking", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  function decision(id: number, fields: Partial<Decision> = {}): Decision {
+    return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: null, state: "decided", reversal: null, landed: null, since: NOW - 12 * MINUTE, ...fields };
+  }
+  /** What a decision a person reversed holds beside what it held as made: the state, the message, and the time the daemon first read it as reversed. */
+  const REVERSAL = { state: "reversed", reversal: "기본값 말고 main에서 시작해 주세요", since: NOW - 3 * MINUTE } as const;
+  /** A work item as a daemon of a build before the decisions sends it. */
+  const { decisions: _decisions, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("marks a line with how many decisions made without asking the person has not seen, the look not holding them, and with how many reversals wait for a stage, an applied and a carried decision in neither count, and with nothing where both are zero", () => {
+    const APPLIED = { ...REVERSAL, state: "applied", landed: "abc1234" } as const;
+    const four = { ...LOGIN, decisions: [decision(1), decision(2, REVERSAL), decision(3), decision(4, APPLIED)] };
+    // No look is recorded, so the person has seen none.
+    expect(decisionMark(four, null)).toBe("2 decisions without asking, 1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1)] }, null)).toBe("1 decision without asking");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(2, REVERSAL)] }, null)).toBe("1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(2, REVERSAL), decision(5, REVERSAL)] }, null)).toBe("2 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(4, APPLIED), decision(3, { ...REVERSAL, state: "carried", landed: "#53" })] }, null)).toBe("");
+    expect(decisionMark(LOGIN, null)).toBe("");
+    // A decision the look holds for the work item is one the person has seen, and a reversal waits whether or not the look holds it.
+    const seen = (decisions: Decision[], other: WorkItem[] = []): Look => ({ at: 1000, sessions: [], workItems: [...other, { ...LOGIN, decisions }] });
+    expect(decisionMark(four, seen([decision(1)]))).toBe("1 decision without asking, 1 reversed");
+    expect(decisionMark(four, seen([decision(1), decision(2), decision(3)]))).toBe("1 reversed");
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1), decision(3)] }, seen([decision(1), decision(3)]))).toBe("");
+    // The look holds a decision under its work item's id: another work item's decision of the same id is not this one's, and a look that does not hold the work item holds none of its decisions.
+    expect(decisionMark(four, seen([], [{ ...SEARCH, decisions: [decision(1), decision(3)] }]))).toBe("2 decisions without asking, 1 reversed");
+    expect(decisionMark(four, { at: 1000, sessions: [], workItems: [{ ...SEARCH, decisions: [decision(1), decision(3)] }] })).toBe("2 decisions without asking, 1 reversed");
+    // An archived work item's line carries the mark its line carried before the archive.
+    expect(decisionMark({ ...four, archivedAt: 50 }, seen([decision(1)]))).toBe(decisionMark(four, seen([decision(1)])));
+  });
+
+  it("leaves a line's state and its group as its panes give them, whatever was decided for the work item", () => {
+    const decided = { ...LOGIN, decisions: [decision(1), decision(2, REVERSAL)] };
+    for (const sessions of [[], [session(2, { state: "working" })], [session(2, { state: "waiting" })], [session(2, { state: "finished" })]]) {
+      expect(inboxLine(decided, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+      expect(inboxGroups(workItemEntries([decided], sessions, KINDS)).map((group) => group.heading)).toEqual(inboxGroups(workItemEntries([LOGIN], sessions, KINDS)).map((group) => group.heading));
+      expect(inboxSummary([inboxLine(decided, sessions, KINDS)])).toBe(inboxSummary([inboxLine(LOGIN, sessions, KINDS)]));
+    }
+  });
+
+  it("lists every decision under its head, the last of the record first: the kind in words, what was decided, the grounds, who decided where the record says it, how long it has been in its state, and for one that no longer stands as made that it was reversed, applied in a commit or carried to a home, with the message; a decision with no time has no age", () => {
+    expect(DECISIONS_HEAD).toBe("Decided without asking");
+    const decisions = [
+      decision(1, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", since: NOW - 3 * 60 * MINUTE }),
+      decision(2, REVERSAL),
+      decision(3, { kind: "scope", says: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3.", by: "orchestrator", since: NOW - 5 * MINUTE }),
+      decision(4, { kind: "answered", says: "The base is main.", grounds: "seal/config.json names no other.", since: NOW }),
+      decision(5, { ...REVERSAL, state: "applied", landed: "abc1234", since: null }),
+      decision(6, { ...REVERSAL, state: "carried", landed: "#53", since: NOW - 2 * MINUTE }),
+    ];
+    const DEFAULT = { kind: "Default taken", says: "Start from main.", grounds: "Grounds: frame/questions.md Q1 states main as its default.", by: "" };
+    expect(decisionLines({ ...LOGIN, decisions }, NOW)).toEqual([
+      { id: 6, ...DEFAULT, age: "2 min", reversed: { head: "Carried to #53", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 5, ...DEFAULT, age: "", reversed: { head: "Applied in abc1234", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: seal/config.json names no other.", by: "", age: "less than a minute", reversed: null },
+      { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", by: "Decided by orchestrator", age: "5 min", reversed: null },
+      { id: 2, ...DEFAULT, age: "3 min", reversed: { head: "Reversed", message: "기본값 말고 main에서 시작해 주세요" } },
+      { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", by: "", age: "3 h", reversed: null },
+    ]);
+    expect(decisionLines(LOGIN, NOW)).toEqual([]);
+  });
+
+  it("names each line of the record that was not read, by its number and the reader's reason, in the order given, and none where the record was read whole", () => {
+    expect(unreadLines({ ...LOGIN, unread: [{ line: 4, why: "the block holds no id" }, { line: 19, why: "a fence opens like a seal block and is not one" }] })).toEqual([
+      "Line 4 of decisions.md was not read: the block holds no id",
+      "Line 19 of decisions.md was not read: a fence opens like a seal block and is not one",
+    ]);
+    expect(unreadLines(LOGIN)).toEqual([]);
+  });
+
+  it("reads a work item of a daemon of an earlier build, which sends no decisions and no unread line, as one with none, in the lists and in the look, and throws at none", () => {
+    const { decisions: _d, questions: _q, unread: _u, ...bare } = LOGIN;
+    const BARE = bare as WorkItem;
+    expect(decisionMark(EARLIER, null)).toBe("");
+    expect(decisionMark(BARE, { at: 1000, sessions: [], workItems: [BARE] })).toBe("");
+    // A look written before the decisions holds none, so each decision is one the person has not seen.
+    expect(decisionMark({ ...LOGIN, decisions: [decision(1)] }, { at: 1000, sessions: [], workItems: [BARE] })).toBe("1 decision without asking");
+    expect(unreadLines(BARE)).toEqual([]);
+    expect(matchWorkItems(workItemEntries([BARE], [], KINDS), "", "decided")).toEqual([]);
+    expect(decisionLines(EARLIER, NOW)).toEqual([]);
+    expect(inboxLine(EARLIER, [session(2, { state: "working" })], KINDS)).toEqual(inboxLine(LOGIN, [session(2, { state: "working" })], KINDS));
+    expect(lineText(EARLIER, undefined, false)).toEqual(lineText(LOGIN, undefined, false));
+  });
+});
+
+describe("a work item parked with its questions", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  const BASE: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "sealer", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "release/v0.0.2", answer: null, since: NOW - 12 * MINUTE };
+  const FREE: Question = { id: 2, asks: "What should the screen be called?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: NOW - 10 * MINUTE };
+  const OPEN: Question = { id: 3, asks: "Squash or merge?", grounds: "The repository's config names neither.", by: null, options: [{ label: "squash", implies: "" }, { label: "merge", implies: "Every commit stays." }], default: null, answer: null, since: null };
+  const TYPED = "둘 다 아니고, 세 번째 방법으로";
+  const ANSWERED: Question[] = [{ ...BASE, answer: "main", since: NOW - 4 * MINUTE }, { ...FREE, answer: TYPED, since: NOW - 3 * MINUTE }];
+  const PARKED: WorkItem = { ...LOGIN, questions: [BASE, FREE] };
+  const DONE: WorkItem = { ...LOGIN, questions: ANSWERED };
+  /** A work item whose record holds two answered questions and one that a later park added. */
+  const AGAIN: WorkItem = { ...LOGIN, questions: [...ANSWERED, { ...OPEN, since: NOW - MINUTE }] };
+  const working = session(2, { state: "working", stateSince: NOW - 40 * MINUTE, stateText: "Running the tests" });
+  /** A work item as a daemon of a build before the questions sends it. */
+  const { questions: _questions, unread: _unread, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("gives a parked work item's line the state waiting, whatever its panes say, so that the inbox's sentence counts it among those that need the person and it stands in that group, and the state its panes give once it is answered", () => {
+    for (const sessions of [[], [working], [session(2, { state: "finished" })], [session(2, { state: "waiting" })]]) {
+      expect(inboxLine(PARKED, sessions, KINDS)).toEqual({ ...inboxLine(LOGIN, sessions, KINDS), state: "waiting" });
+      expect(inboxLine(DONE, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+      // One open question beside the answered ones parks the work item again.
+      expect(inboxLine(AGAIN, sessions, KINDS).state).toBe("waiting");
+    }
+    const entries = workItemEntries([SEARCH, PARKED], [working, session(3, { workItemId: 2, state: "working" })], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 needs you, 1 working");
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Working", [2]]]);
+    expect(inboxSummary(workItemEntries([SEARCH, DONE], [working, session(3, { workItemId: 2, state: "working" })], KINDS).map((entry) => entry.line))).toBe("2 working");
+  });
+
+  it("says a parked work item's first question in its line's second row, with how many more it waits on, before what its agent says, and what the line said before once it is answered or while a search is typed", () => {
+    expect(lineText(PARKED, working, false)).toEqual({ says: "question", text: "Which base does the branch start from? (and 1 more question)" });
+    expect(lineText({ ...LOGIN, questions: [BASE, FREE, OPEN] }, undefined, false)).toEqual({ says: "question", text: "Which base does the branch start from? (and 2 more questions)" });
+    expect(lineText({ ...LOGIN, questions: [{ ...FREE, id: 1 }] }, working, false)).toEqual({ says: "question", text: "What should the screen be called?" });
+    expect(lineText(DONE, working, false)).toEqual({ says: "state", text: "Running the tests" });
+    // The answered questions are not counted among the ones it waits on.
+    expect(lineText(AGAIN, working, false)).toEqual({ says: "question", text: "Squash or merge?" });
+    expect(lineText(PARKED, working, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
+
+  it("counts a parked work item's age from the earliest time among its open questions, the answered ones' and a question with no time left out, and the age of any other from its pane's state", () => {
+    expect(lineSince(PARKED, working)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince({ ...LOGIN, questions: [OPEN, FREE, BASE] }, working)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince(AGAIN, working)).toBe(NOW - MINUTE);
+    expect(lineSince({ ...LOGIN, questions: [OPEN] }, working)).toBeNull();
+    expect(lineSince(PARKED, undefined)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince(DONE, working)).toBe(NOW - 40 * MINUTE);
+    expect(lineSince(LOGIN, working)).toBe(NOW - 40 * MINUTE);
+    expect([lineSince(DONE, undefined), lineSince(LOGIN, session(2))]).toEqual([null, null]);
+    expect(stateWithAge(inboxLine(PARKED, [working], KINDS).state, lineSince(PARKED, working), NOW)).toBe("Needs you, 12 min");
+  });
+
+  it("gives the section of a parked work item its head and how long ago the first question was asked, and every question with who asked where the record says it, its grounds, its options, what each implies, the mark of its default and the default as the option chosen", () => {
+    expect(askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW, null)).toEqual({
+      head: "Waiting for your answer",
+      age: "Asked 12 min ago",
+      parked: true,
+      key: "1:open:1,2,3",
+      questions: [
+        { id: 1, asks: "Which base does the branch start from?", by: "Asked by sealer", grounds: "Grounds: No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it.", mark: "" }, { label: "release/v0.0.2", implies: "It merges after the release.", mark: "Default" }], chosen: 1, answer: null },
+        { id: 2, asks: "What should the screen be called?", by: "Asked by sealer", grounds: "Grounds: No document names it.", options: [], chosen: null, answer: null },
+        { id: 3, asks: "Squash or merge?", by: "", grounds: "Grounds: The repository's config names neither.", options: [{ label: "squash", implies: "", mark: "" }, { label: "merge", implies: "Every commit stays.", mark: "" }], chosen: null, answer: null },
+      ],
+    });
+    // A look does not end a park: the open questions are listed whatever the look holds.
+    expect(askedSection(PARKED, NOW, { at: 1000, sessions: [], workItems: [PARKED] })?.key).toBe("1:open:1,2");
+    expect(askedSection(PARKED, NOW, { at: 1000, sessions: [], workItems: [DONE] })?.key).toBe("1:open:1,2");
+  });
+
+  it("lists an answered question until the look holds it as answered for its work item: every one while the window holds no look, the ones the look holds open or not at all otherwise, and no section once the look holds each as answered", () => {
+    const look = (...workItems: WorkItem[]): Look => ({ at: 1000, sessions: [], workItems });
+    const shown = (held: Look | null) => askedSection(DONE, NOW, held)?.questions.map(({ id }) => id) ?? null;
+    expect(shown(null)).toEqual([1, 2]);
+    // The look was recorded while the work item was parked, or before it was, or does not hold the work item.
+    expect(shown(look(PARKED))).toEqual([1, 2]);
+    expect(shown(look(LOGIN))).toEqual([1, 2]);
+    expect(shown(look(SEARCH))).toEqual([1, 2]);
+    // The look holds one of the two as answered: the other alone is listed, and the age is its own.
+    const half = look({ ...LOGIN, questions: [ANSWERED[0]!, FREE] });
+    expect(askedSection(DONE, NOW, half)).toMatchObject({ head: "Answered", age: "Answered 3 min ago", key: "1:answered:2", questions: [{ id: 2, answer: TYPED }] });
+    expect(askedSection(DONE, NOW, look({ ...LOGIN, questions: [BASE, ANSWERED[1]!] }))).toMatchObject({ age: "Answered 4 min ago", key: "1:answered:1" });
+    expect(shown(look(DONE))).toBeNull();
+    // The look holds a question under its work item's id, so another work item's answered question of the same id ends nothing.
+    expect(shown(look({ ...SEARCH, questions: ANSWERED }))).toEqual([1, 2]);
+    // A look written before the questions holds none as answered.
+    expect(shown(look(EARLIER))).toEqual([1, 2]);
+  });
+
+  it("gives the section of an answered record the head Answered, how long ago the last answer was given, and each question with its answer, no option, no asker and no grounds, and gives no section for a work item that never was parked", () => {
+    expect(askedSection(DONE, NOW, null)).toEqual({
+      head: "Answered",
+      age: "Answered 3 min ago",
+      parked: false,
+      key: "1:answered:1,2",
+      questions: [
+        { id: 1, asks: "Which base does the branch start from?", by: "", grounds: "", options: [], chosen: null, answer: "main" },
+        { id: 2, asks: "What should the screen be called?", by: "", grounds: "", options: [], chosen: null, answer: TYPED },
+      ],
+    });
+    expect(askedSection(LOGIN, NOW, null)).toBeNull();
+    // While one question of the record is open, the section holds the open ones alone, and names an asker only where the question's block says one.
+    expect(askedSection(AGAIN, NOW, null)).toMatchObject({ head: "Waiting for your answer", age: "Asked 1 min ago", parked: true, key: "1:open:3", questions: [{ id: 3, by: "", answer: null }] });
+    // A question the daemon has no time for gives the section no age, and the age is counted from the earliest time among the others.
+    expect(askedSection({ ...LOGIN, questions: [OPEN] }, NOW, null)?.age).toBe("");
+    expect(askedSection({ ...LOGIN, questions: [OPEN, FREE] }, NOW, null)).toMatchObject({ age: "Asked 10 min ago", questions: [{ by: "" }, { by: "Asked by sealer" }] });
+    // A default that names no option of its question chooses none.
+    expect(askedSection({ ...LOGIN, questions: [{ ...BASE, default: "develop" }] }, NOW, null)?.questions.map(({ chosen, options }) => [chosen, options.map(({ mark }) => mark)])).toEqual([[null, ["", ""]]]);
+    // The key differs between two work items, two sets of questions of one, and a park and its answer, so the section is drawn again at each.
+    const keys = [askedSection(PARKED, NOW, null), askedSection(DONE, NOW, null), askedSection({ ...PARKED, id: 2 }, NOW, null), askedSection(AGAIN, NOW, null)].map((section) => section?.key);
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it("gives each question of the section the answer the person chose: an option's label, or the words they typed as another answer, and an empty answer for a question with nothing chosen, which the daemon refuses", () => {
+    const questions = askedSection({ ...LOGIN, questions: [BASE, FREE, OPEN] }, NOW, null)!.questions;
+    expect(answersFor(questions, [0, "other", 1], ["ignored", TYPED, ""])).toEqual([{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }, { questionId: 3, answer: "merge" }]);
+    expect(answersFor(questions, ["other", null, null], [" trunk ", "typed and not chosen", ""])).toEqual([{ questionId: 1, answer: " trunk " }, { questionId: 2, answer: "" }, { questionId: 3, answer: "" }]);
+    // A choice that names no option of its question gives no answer.
+    expect(answersFor(questions, [5, 0, null], ["", "", ""])).toEqual([{ questionId: 1, answer: "" }, { questionId: 2, answer: "" }, { questionId: 3, answer: "" }]);
+  });
+
+  it("notifies of a work item that is parked now and was not before, titled with the work item's title, and of none that is muted, whose view is in front, that the window already held as parked, or that is archived", () => {
+    const told = { workItemId: 1, title: "Fix the login bug", body: "Waiting for your answer" };
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, SEARCH], undefined)).toEqual([told]);
+    expect(parkNotifications([DONE], [PARKED], undefined)).toEqual([told]);
+    // A work item the window did not hold at all was not held as parked.
+    expect(parkNotifications([SEARCH], [SEARCH, PARKED], undefined)).toEqual([told]);
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, { ...SEARCH, questions: [BASE, FREE] }], 2)).toEqual([told]);
+    expect(parkNotifications([LOGIN, SEARCH], [PARKED, { ...SEARCH, questions: [BASE, FREE] }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Waiting for your answer" }]);
+    expect(parkNotifications([LOGIN], [{ ...PARKED, muted: true }], undefined)).toEqual([]);
+    expect(parkNotifications([LOGIN], [PARKED], 1)).toEqual([]);
+    expect(parkNotifications([PARKED], [PARKED], undefined)).toEqual([]);
+    // An archived work item stands in no list of work items, and one restored while parked was held as parked among the archived.
+    expect(parkNotifications([LOGIN], [], undefined)).toEqual([]);
+    expect(parkNotifications([{ ...PARKED, archivedAt: 50 }], [PARKED], undefined)).toEqual([]);
+    expect(parkNotifications([PARKED], [DONE], undefined)).toEqual([]);
+    expect(parkNotifications([LOGIN], [LOGIN], undefined)).toEqual([]);
+  });
+
+  it("reads a work item of a daemon of an earlier build, which sends no record, as one that never was parked, and throws at none", () => {
+    expect(inboxLine(EARLIER, [working], KINDS)).toEqual(inboxLine(LOGIN, [working], KINDS));
+    expect(lineText(EARLIER, working, false)).toEqual(lineText(LOGIN, working, false));
+    expect(lineSince(EARLIER, working)).toBe(NOW - 40 * MINUTE);
+    expect(askedSection(EARLIER, NOW, null)).toBeNull();
+    expect(askedSection(EARLIER, NOW, { at: 1000, sessions: [], workItems: [EARLIER] })).toBeNull();
+    expect(parkNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
+    expect(parkNotifications([EARLIER], [PARKED], undefined)).toHaveLength(1);
+  });
+});
+
+describe("setupMark", () => {
+  it("says Setting up while the setup runs and Setup failed where it failed, and nothing where it succeeded or none was named", () => {
+    expect(setupMark({ ...LOGIN, setup: RUNNING_SETUP })).toBe("Setting up");
+    expect(setupMark({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 3, endedAt: 2000 } })).toBe("Setup failed");
+    expect(setupMark({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "succeeded", exitCode: 0, endedAt: 2000 } })).toBe("");
+    expect(setupMark(LOGIN)).toBe("");
+  });
+
+  it("changes neither the line's state nor its group", () => {
+    const sessions = [session(4, { state: "working" })];
+    for (const setup of [RUNNING_SETUP, { ...RUNNING_SETUP, state: "failed" as const }]) {
+      const line = inboxLine({ ...LOGIN, setup }, sessions, KINDS);
+      expect(line).toEqual(inboxLine(LOGIN, sessions, KINDS));
+      expect(inboxGroups([{ line }]).map(({ heading }) => heading)).toEqual(inboxGroups([{ line: inboxLine(LOGIN, sessions, KINDS) }]).map(({ heading }) => heading));
+    }
+  });
+});
+
+describe("setupSection", () => {
+  it("says the command has run, and for how long, while it runs, and offers no run again", () => {
+    expect(setupSection({ ...LOGIN, setup: RUNNING_SETUP }, 1000 + 3 * 60_000)).toEqual({ says: "The command has run for 3 min.", command: "pnpm install", copied: [".env", "node_modules/"], more: "", failed: [], runAgain: false });
+  });
+
+  it("names the command the record holds, which a run again carries, and none where the record names none", () => {
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 3, endedAt: 2000 } }, 9000)).toMatchObject({ command: "pnpm install", runAgain: true });
+    // A command the file held in place of the one shown did not run, and is the one the section names now.
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, command: "make\n", paneId: null, state: "failed", failure: ".worktreesetup changed after the setup was shown, so no command ran.", endedAt: 2000 } }, 9000)).toMatchObject({ says: ".worktreesetup changed after the setup was shown, so no command ran.", command: "make" });
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, command: null, state: "succeeded", endedAt: 2000 } }, 9000)).toMatchObject({ command: "" });
+    expect(RUN_SETUP_SAYS).toBe("Copy what is missing from the main checkout and run the command this section names in a new pane. Where .worktreesetup holds another command now, none runs, and the section names the new one.");
+  });
+
+  it("says how the command ended, and offers to run the setup again", () => {
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "succeeded", exitCode: 0, endedAt: 2000 } }, 9000)).toMatchObject({ says: "The command ended with code 0.", runAgain: true });
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 3, endedAt: 2000 } }, 9000)).toMatchObject({ says: "The command ended with code 3.", runAgain: true });
+    // Where the daemon says why, that sentence stands in place of the code.
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, state: "failed", exitCode: 0, failure: "The setup pane ended before its command did.", endedAt: 2000 } }, 9000)).toMatchObject({ says: "The setup pane ended before its command did.", runAgain: true });
+    expect(setupSection({ ...LOGIN, setup: { ...RUNNING_SETUP, command: null, state: "succeeded", endedAt: 2000 } }, 9000)).toMatchObject({ says: "No command runs: .worktreesetup names none.", runAgain: true });
+  });
+
+  it("lists the paths that were not copied with why, and says how many copied paths the list leaves out", () => {
+    const setup = { ...RUNNING_SETUP, copied: ["a.log", "b.log"], copiedCount: 7, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], state: "failed" as const, exitCode: 0, endedAt: 2000 };
+    expect(setupSection({ ...LOGIN, setup }, 9000)).toEqual({ says: "The command ended with code 0.", command: "pnpm install", copied: ["a.log", "b.log"], more: "and 5 more", failed: [{ path: ".env.secret", why: "EACCES: permission denied" }], runAgain: true });
+  });
+
+  it("is nothing for a work item whose repository named no setup, and for one a daemon of an earlier build sent without the field", () => {
+    expect(setupSection(LOGIN, 9000)).toBeNull();
+    const { setup: _, ...earlier } = LOGIN;
+    expect(setupSection(earlier as WorkItem, 9000)).toBeNull();
+    expect(setupMark(earlier as WorkItem)).toBe("");
+  });
+});
+
 describe("renameChoice", () => {
   it("enables the choice to rename the branch too where the plan names a branch and nothing stands in the way, and says the branch", () => {
     expect(renameChoice({ branch: "owlery/second-name", blocked: null })).toEqual({ enabled: true, says: "The branch becomes owlery/second-name." });
@@ -879,10 +1210,11 @@ describe("changesSince", () => {
         workItem: now,
         line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "3 new commits" },
         session: waits,
-        sentence: "Waits for you. 2 new commits since you were last here.",
+        sentence: "Needs you. 2 new commits since you were last here.",
+        decided: 0,
       },
     ]);
-    expect(summarySentence(changes)).toBe("1 waiting for you");
+    expect(summarySentence(changes)).toBe("1 needs you");
   });
 
   it("gives no change where the lists are as the look holds them", () => {
@@ -899,7 +1231,7 @@ describe("changesSince", () => {
   it("opens the sentence with the present state, in the words of each state and of none", () => {
     const before = look([LOGIN]);
     const sentence = (state: SessionInfo["state"]) => changesSince(before, [LOGIN], [session(3, { state })], KINDS)[0]?.sentence;
-    expect(sentence("waiting")).toBe("Waits for you.");
+    expect(sentence("waiting")).toBe("Needs you.");
     expect(sentence("working")).toBe("Is working.");
     expect(sentence("finished")).toBe("Finished.");
     // The agent's pane went away since the look.
@@ -923,14 +1255,14 @@ describe("changesSince", () => {
     expect(changesSince(look([{ ...LOGIN, newCommits: null }], sessions), [{ ...LOGIN, newCommits: 3 }], sessions, KINDS)).toEqual([]);
     // The state still counts, and no rise is named beside it.
     const waits = changesSince(look([{ ...LOGIN, newCommits: null }], sessions), [{ ...LOGIN, newCommits: 3 }], [session(3, { state: "waiting" })], KINDS);
-    expect(waits.map((change) => change.sentence)).toEqual(["Waits for you."]);
+    expect(waits.map((change) => change.sentence)).toEqual(["Needs you."]);
   });
 
   it("matches no session of the look to a present session: the same id is another pane after the daemon started again", () => {
     const before = look([LOGIN, SEARCH], [session(1, { workItemId: 1, state: "working" })]);
     const changes = changesSince(before, [LOGIN, SEARCH], [session(1, { workItemId: 2, state: "waiting" })], KINDS);
     expect(changes.map((change) => [change.workItem.id, change.sentence])).toEqual([
-      [2, "Waits for you."],
+      [2, "Needs you."],
       [1, "No agent is running."],
     ]);
   });
@@ -951,21 +1283,85 @@ describe("changesSince", () => {
     const changes = changesSince(look([]), [LOGIN, SEARCH, third, fourth], sessions, KINDS);
     expect(changes.map((change) => change.workItem.id)).toEqual([3, 4, 2, 1]);
   });
+
+  describe("the decisions made without asking since the look", () => {
+    function decision(id: number, fields: Partial<Decision> = {}): Decision {
+      return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: null, state: "decided", reversal: null, landed: null, since: 2000, ...fields };
+    }
+    const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: 3000 };
+    const THIRD: WorkItem = { ...LOGIN, id: 3, title: "Third", newCommits: 1 };
+
+    it("gives a parked work item, one that gained decisions alone and one that gained a commit and a decision as changed, the parked one first, counts the decisions apart from the one that waits, and opens the parked one", () => {
+      const before = look([SEARCH, THIRD, LOGIN]);
+      const changes = changesSince(before, [{ ...SEARCH, decisions: [decision(1), decision(2, { kind: "route" })] }, { ...THIRD, newCommits: 2, decisions: [decision(3)] }, { ...LOGIN, questions: [ASKED] }], [], KINDS);
+      expect(changes.map((change) => [change.workItem.id, change.sentence, change.decided])).toEqual([
+        [1, "Needs you.", 0],
+        [2, "No agent is running. 2 decisions made without asking.", 2],
+        [3, "No agent is running. 1 new commit since you were last here. 1 decision made without asking.", 1],
+      ]);
+      expect(summarySentence(changes)).toBe("1 needs you. 3 decisions made without asking.");
+      expect(summaryHead(true, changes)).toBe("1 needs you. 3 decisions made without asking.");
+      expect(summaryControls(changes).main).toEqual({ label: "Answer the first question", opens: 1 });
+    });
+
+    it("counts a decision by its id: one the look already holds adds nothing, whether or not it was reversed since, and one it does not hold counts beside it", () => {
+      const held = { ...LOGIN, decisions: [decision(1), decision(2)] };
+      const reversed = { ...LOGIN, decisions: [decision(1), decision(2, { state: "reversed", reversal: "main에서 시작해 주세요", since: 4000 })] };
+      expect(changesSince(look([held]), [held], [], KINDS)).toEqual([]);
+      expect(changesSince(look([held]), [reversed], [], KINDS)).toEqual([]);
+      const gained = changesSince(look([held]), [{ ...reversed, decisions: [...reversed.decisions, decision(5)] }], [], KINDS);
+      expect(gained.map((change) => [change.sentence, change.decided])).toEqual([["No agent is running. 1 decision made without asking.", 1]]);
+      // A decision recorded since the look and already reversed is one the look does not hold.
+      const both = changesSince(look([LOGIN]), [reversed], [], KINDS);
+      expect(both.map((change) => change.decided)).toEqual([2]);
+    });
+
+    it("counts every decision of a work item the look does not hold, after the words that it is new", () => {
+      const changes = changesSince(look([]), [{ ...LOGIN, decisions: [decision(1), decision(2)] }], [], KINDS);
+      expect(changes.map((change) => [change.sentence, change.decided])).toEqual([["No agent is running. New since you were last here. 2 decisions made without asking.", 2]]);
+    });
+
+    it("says an answered work item's state as its panes give it again, and names no decision for it", () => {
+      const answered = { ...LOGIN, questions: [{ ...ASKED, answer: "main", since: 5000 }] };
+      const changes = changesSince(look([{ ...LOGIN, questions: [ASKED] }]), [answered], [session(3, { state: "working" })], KINDS);
+      expect(changes.map((change) => [change.sentence, change.decided])).toEqual([["Is working.", 0]]);
+      expect(changesSince(look([{ ...LOGIN, questions: [ASKED] }]), [{ ...LOGIN, questions: [ASKED] }], [session(3, { state: "working" })], KINDS)).toEqual([]);
+    });
+
+    it("reads a work item without the fields, in a look written before them and from a daemon of an earlier build, as one with no decision and no record, and throws at none", () => {
+      const { decisions: _decisions, questions: _questions, unread: _unread, ...before } = LOGIN;
+      const EARLIER = before as WorkItem;
+      expect(changesSince(look([EARLIER]), [EARLIER], [], KINDS)).toEqual([]);
+      expect(changesSince(look([LOGIN]), [EARLIER], [], KINDS)).toEqual([]);
+      // Every decision is one a look written before the decisions does not hold.
+      const changes = changesSince(look([EARLIER]), [{ ...LOGIN, decisions: [decision(1)] }], [], KINDS);
+      expect(changes.map((change) => change.decided)).toEqual([1]);
+      expect(changesSince(look([]), [EARLIER], [], KINDS).map((change) => change.decided)).toEqual([0]);
+      expect(summaryControls(changesSince(look([]), [EARLIER], [], KINDS)).main.opens).toBe("inbox");
+    });
+  });
 });
 
 describe("summarySentence", () => {
-  function change(state: InboxLine["state"]): { line: InboxLine } {
-    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" } };
+  function change(state: InboxLine["state"], decided = 0): { line: InboxLine; decided: number } {
+    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, decided };
   }
 
   it("counts the changed work items by their present state, in the inbox's order and words, and leaves out the ones with no state", () => {
-    expect(summarySentence([change("finished"), change("waiting"), change(null)])).toBe("1 waiting for you, 1 finished");
+    expect(summarySentence([change("finished"), change("waiting"), change(null)])).toBe("1 needs you, 1 finished");
     expect(summarySentence([change("working"), change("working")])).toBe("2 working");
   });
 
   it("says how many work items changed where none of them has a state", () => {
     expect(summarySentence([change(null)])).toBe("1 work item changed");
     expect(summarySentence([change(null), change(null)])).toBe("2 work items changed");
+  });
+
+  it("adds after a full stop how many decisions were made without asking, the sum over the changed work items, of one and of several, and nothing where the sum is zero", () => {
+    expect(summarySentence([change("waiting"), change(null, 2), change("finished", 1)])).toBe("1 needs you, 1 finished. 3 decisions made without asking.");
+    expect(summarySentence([change("working", 1)])).toBe("1 working. 1 decision made without asking.");
+    expect(summarySentence([change(null, 2), change(null)])).toBe("2 work items changed. 2 decisions made without asking.");
+    expect(summarySentence([change("waiting", 0), change("waiting")])).toBe("2 need you");
   });
 });
 
@@ -1287,7 +1683,7 @@ describe("screenTurns", () => {
 
 describe("notificationFor", () => {
   it("names the work item and says it waits, when a session's state becomes waiting", () => {
-    expect(notificationFor("working", session(3, { state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    expect(notificationFor("working", session(3, { state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Needs you" });
   });
 
   it("says a session finished, when its state becomes finished", () => {
@@ -1295,7 +1691,7 @@ describe("notificationFor", () => {
   });
 
   it("is titled with the tab's label for a pane without a work item", () => {
-    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Claude Code", body: "Waiting for you" });
+    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [LOGIN], KINDS)).toEqual({ title: "Claude Code", body: "Needs you" });
   });
 
   it("shows nothing when the state becomes working or none", () => {
@@ -1307,9 +1703,9 @@ describe("notificationFor", () => {
     const waits = session(3, { state: "waiting" });
     expect(notificationFor("working", waits, false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
     expect(notificationFor("working", session(3, { state: "finished" }), false, [{ ...LOGIN, muted: true }], KINDS)).toBeNull();
-    expect(notificationFor("working", waits, false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    expect(notificationFor("working", waits, false, [LOGIN], KINDS)).toEqual({ title: "Fix the login bug", body: "Needs you" });
     // Another work item's mute says nothing of this session.
-    expect(notificationFor("working", waits, false, [LOGIN, { ...SEARCH, muted: true }], KINDS)).toEqual({ title: "Fix the login bug", body: "Waiting for you" });
+    expect(notificationFor("working", waits, false, [LOGIN, { ...SEARCH, muted: true }], KINDS)).toEqual({ title: "Fix the login bug", body: "Needs you" });
   });
 
   it("shows nothing for a session of an archived work item, which the list of work items does not hold, and the notification for a session of another", () => {
@@ -1317,7 +1713,7 @@ describe("notificationFor", () => {
     expect(notificationFor("working", session(3, { state: "finished" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
     expect(notificationFor("working", session(3, { state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toBeNull();
     expect(notificationFor("working", session(3, { workItemId: 2, state: "finished" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Speed up search", body: "Finished" });
-    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Claude Code", body: "Waiting for you" });
+    expect(notificationFor(null, session(3, { workItemId: null, state: "waiting" }), false, [SEARCH], KINDS, [shelved])).toEqual({ title: "Claude Code", body: "Needs you" });
   });
 
   it("shows nothing for a state the session was already in", () => {
@@ -1374,6 +1770,8 @@ const PLAN: FormPlan = {
   localBases: ["feature", "main", "owlery/fix-the-login-bug"],
   remoteBases: ["origin/main", "origin/release"],
   defaultBase: "origin/main",
+  setupCommand: null,
+  includes: false,
 };
 
 describe("planAnswer", () => {
@@ -1393,19 +1791,39 @@ describe("planAnswer", () => {
 });
 
 describe("planLine", () => {
-  it("shows the branch and the folder the plan's answer gave", () => {
-    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", failed: false });
+  it("shows the branch and the folder the plan's answer gave, and no setup where the repository names none", () => {
+    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", setup: "", failed: false });
+  });
+
+  it("names the setup the repository's two files name: the copy where .worktreeinclude stands, and the command .worktreesetup holds", () => {
+    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n", includes: true }, "/r/project").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout. Then runs: pnpm install");
+    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n" }, "/r/project").setup).toBe("Then runs: pnpm install");
+    expect(planLine({ ...PLAN, includes: true }, "/r/project").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout.");
   });
 
   it("shows the error's message in the place of the branch where the daemon refused the plan", () => {
-    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", failed: true });
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", setup: "", failed: true });
   });
 
   it("shows nothing where the form holds no answer, and where the answer is of another repository's text", () => {
-    const nothing = { branch: "", worktree: "", failed: false };
+    const nothing = { branch: "", worktree: "", setup: "", failed: false };
     expect(planLine(null, "/r/project")).toEqual(nothing);
     expect(planLine(PLAN, "/r/other")).toEqual(nothing);
     expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project")).toEqual(nothing);
+  });
+});
+
+describe("shownSetup", () => {
+  it("gives the command the form shows for the repository field's text, whole, and none where the daemon refused the plan, so a creation carries what the person read", () => {
+    expect(shownSetup({ ...PLAN, setupCommand: "pnpm install\n" }, " /r/project ")).toEqual({ setupCommand: "pnpm install\n" });
+    expect(shownSetup(PLAN, "/r/project")).toEqual({ setupCommand: null });
+    expect(shownSetup({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ setupCommand: null });
+  });
+
+  it("gives nothing while the form holds no answer for the field's text, as after a key in the folder field and before the plan answers, so the form creates nothing yet", () => {
+    expect(shownSetup(null, "/r/project")).toBeNull();
+    expect(shownSetup({ ...PLAN, setupCommand: "pnpm install\n" }, "/r/project-2")).toBeNull();
+    expect(PLAN_AWAITED).toBe("Wait until the form shows what this folder's work item gets, its setup among it.");
   });
 });
 
@@ -1891,6 +2309,16 @@ describe("matchWorkItems", () => {
     expect(ids("", "none")).toEqual([4]);
   });
 
+  it("leaves, where the decisions are chosen, the work items that hold a decision the person may still act on, one that stands as made or a reversal that waits for a stage, in the order given and whatever their lines' states, and not one whose decisions are all applied or carried", () => {
+    const decision = (state: Decision["state"]): Decision => ({ id: 1, kind: "default", says: "Start from main.", grounds: "Q1 states main.", by: null, state, reversal: state === "decided" ? null : "main에서", landed: null, since: null });
+    const entries = workItemEntries([{ ...FOURTH, decisions: [decision("reversed")] }, { ...DOCS, decisions: [decision("applied"), decision("carried")] }, { ...LOGIN, decisions: [decision("applied"), decision("decided")] }, SEARCH], sessions, KINDS);
+    expect(matchWorkItems(entries, "", "decided").map((entry) => entry.workItem.id)).toEqual([4, 1]);
+    expect(entries.map((entry) => entry.line.state)).toEqual([null, "finished", "waiting", "working"]);
+    // What is typed narrows them as it narrows any other choice.
+    expect(matchWorkItems(entries, "tidy", "decided").map((entry) => entry.workItem.id)).toEqual([4]);
+    expect(matchWorkItems(entries, "", "all")).toHaveLength(4);
+  });
+
   it("narrows by what is typed and by the state together", () => {
     expect(ids("project", "working")).toEqual([2]);
     expect(ids("docs", "working")).toEqual([]);
@@ -1914,13 +2342,14 @@ describe("matchCount and matchSentence", () => {
 });
 
 describe("filterChoices", () => {
-  it("offers every state at once and then each group's heading, in the inbox's order", () => {
+  it("offers every state at once, then each group's heading in the inbox's order, and last the work items with a decision to act on", () => {
     expect(filterChoices()).toEqual([
       { value: "all", label: "All" },
-      { value: "waiting", label: "Waiting for you" },
+      { value: "waiting", label: "Needs you" },
       { value: "working", label: "Working" },
       { value: "finished", label: "Finished" },
-      { value: "none", label: "No agent" },
+      { value: "none", label: "Asleep" },
+      { value: "decided", label: "Decided without asking" },
     ]);
   });
 });
@@ -1954,7 +2383,7 @@ describe("summaryControls", () => {
     expect(summaryControls([change(4, "finished"), change(7, "waiting"), change(9, "waiting")])).toEqual({
       main: { label: "Answer the first question", opens: 7 },
       second: { label: "Open the inbox", opens: "inbox" },
-      hint: "Enter opens the first that waits.",
+      hint: "Enter opens the first that needs you.",
     });
   });
 
@@ -1966,10 +2395,10 @@ describe("summaryControls", () => {
 });
 
 describe("summaryHead", () => {
-  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine }];
+  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine, decided: 0 }];
 
   it("is the summary's sentence where a work item changed", () => {
-    expect(summaryHead(true, waits)).toBe("1 waiting for you");
+    expect(summaryHead(true, waits)).toBe("1 needs you");
   });
 
   it("says that nothing changed where a look is recorded and no work item changed", () => {
@@ -1978,6 +2407,17 @@ describe("summaryHead", () => {
 
   it("says that no look is recorded where none is", () => {
     expect(summaryHead(false, [])).toBe("No earlier look is recorded.");
+  });
+});
+
+describe("bellSays", () => {
+  it("says how many work items need the person, in the state's own words as they agree with the count, and what a press does", () => {
+    expect(bellSays(1)).toBe("1 needs you. Show them alone.");
+    expect(bellSays(2)).toBe("2 need you. Show them alone.");
+  });
+
+  it("says what a press does where no work item needs the person", () => {
+    expect(bellSays(0)).toBe("Show the work items that need you alone.");
   });
 });
 
@@ -2408,27 +2848,27 @@ describe("ageOf", () => {
 
 describe("stateWithAge", () => {
   it("says the state in its heading's words and how long it has lasted", () => {
-    expect(stateWithAge("waiting", NOW - 12 * MINUTE, NOW)).toBe("Waiting for you, 12 min");
+    expect(stateWithAge("waiting", NOW - 12 * MINUTE, NOW)).toBe("Needs you, 12 min");
     expect(stateWithAge("finished", NOW - 3 * HOUR, NOW)).toBe("Finished, 3 h");
   });
 
   it("says the state alone where it has no time, and that no agent runs where there is no state", () => {
     expect(stateWithAge("working", null, NOW)).toBe("Working");
-    expect(stateWithAge(null, null, NOW)).toBe("No agent");
+    expect(stateWithAge(null, null, NOW)).toBe("Asleep");
   });
 });
 
 describe("stateSays", () => {
   it("gives a finished agent's last message under the label of its pane's kind and the word said", () => {
-    expect(stateSays(session(3, { state: "finished", stateText: "The login form is fixed." }), KINDS)).toEqual({ head: "Claude Code said", text: "The login form is fixed." });
+    expect(stateSays(session(3, { state: "finished", stateText: "The login form is fixed." }), KINDS)).toEqual({ head: "Claude Code said", text: "The login form is fixed.", waiting: false });
   });
 
   it("gives what a waiting agent tells the person under the word asks", () => {
-    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?" }), KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?" });
+    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?" }), KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?", waiting: true });
   });
 
   it("says which tool a waiting agent asks for where its event carried the tool's name and no text", () => {
-    expect(stateSays(session(3, { state: "waiting", stateTool: "Bash" }), KINDS)).toEqual({ head: "Claude Code asks", text: "Asks to use Bash" });
+    expect(stateSays(session(3, { state: "waiting", stateTool: "Bash" }), KINDS)).toEqual({ head: "Claude Code asks", text: "Asks to use Bash", waiting: true });
     expect(stateSays(session(3, { state: "waiting", stateText: "May I?", stateTool: "Bash" }), KINDS)?.text).toBe("May I?");
   });
 
@@ -2654,5 +3094,109 @@ describe("keyHints", () => {
 
   it("names the Control key where the keyboard has no Command key", () => {
     expect(keyHints("inbox", false)[2]).toBe("Ctrl N opens a new work item");
+  });
+});
+
+describe("the dialog of the records place", () => {
+  const OUT_OF_SCOPE = "Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.";
+  const PLAN: RecordsPlan = {
+    branch: "main",
+    subject: "chore: add the place for work records and the pull request check",
+    files: [
+      { path: "seal/README.md", text: "# What AgenticSeal maintains in seal/\n" },
+      { path: "seal/config.json", text: '{\n  "Broad gate": "pnpm test"\n}\n' },
+      { path: ".github/workflows/owlery-seal.yml", text: "name: seal\n" },
+    ],
+    blocked: null,
+    proposedBroadGate: null,
+    stamp: "s",
+  };
+  const kept = (plan: RecordsPlan, ...paths: string[]): RecordsPlan => ({ ...plan, files: plan.files.map((file) => (paths.includes(file.path) ? { path: file.path, text: null } : file)) });
+
+  it("says what is out of scope before anything is written, and shows the plan: the branch and the subject of the one commit, each file's path over its text, the field of the broad gate command with where it is kept, and the two buttons", () => {
+    const words = recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test");
+    expect(words.head).toBe("Records and check: project");
+    expect(words.scope).toBe(OUT_OF_SCOPE);
+    expect(words.commit).toBe("This makes one commit on `main`: `chore: add the place for work records and the pull request check`. Nothing is pushed.");
+    expect(words.blocked).toBe("");
+    expect(words.files).toEqual(PLAN.files.map((file) => ({ path: file.path, text: file.text, says: "" })));
+    expect(words.holds).toEqual([]);
+    expect(words.gate).toEqual({ shown: true, enabled: true, label: "Broad gate command", value: "pnpm test", says: "Kept in `seal/config.json`, under `Broad gate`." });
+    expect(words.submit).toEqual({ shown: true, enabled: true, label: "Set up and commit" });
+    expect(words.cancel).toBe("Not now");
+  });
+
+  it("says the scope and offers no commit until the daemon has answered, while the plan is of another command than the field holds, and while the command of a new config.json is empty", () => {
+    const waiting = recordsDialog(PROJECT, null, "", null);
+    expect([waiting.scope, waiting.commit, waiting.files, waiting.submit]).toEqual([OUT_OF_SCOPE, "", [], { shown: true, enabled: false, label: "Set up and commit" }]);
+    expect(recordsDialog(PROJECT, PLAN, "pnpm tes", "pnpm test").submit.enabled).toBe(false);
+    expect(recordsDialog(PROJECT, PLAN, "  ", "  ").submit.enabled).toBe(false);
+    // A setup that writes no config.json needs no command.
+    expect(recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: null } }, kept(PLAN, "seal/README.md", "seal/config.json"), "", "").submit.enabled).toBe(true);
+  });
+
+  it("says of a file that stands that it is kept, and turns the field off where config.json stands: it shows the key's value, or says that the file holds no such key", () => {
+    const plan = kept(PLAN, "seal/README.md", "seal/config.json");
+    const valued = recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: "make check" } }, plan, "", "");
+    expect(valued.files).toEqual([
+      { path: "seal/README.md", text: null, says: "`seal/README.md` stands and is kept." },
+      { path: "seal/config.json", text: null, says: "`seal/config.json` stands and is kept." },
+      { path: ".github/workflows/owlery-seal.yml", text: "name: seal\n", says: "" },
+    ]);
+    expect(valued.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "make check", says: "Kept in `seal/config.json`, under `Broad gate`." });
+    expect(valued.submit.enabled).toBe(true);
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: null } }, plan, "", "");
+    expect(keyless.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "", says: "No `Broad gate` key in `seal/config.json`." });
+  });
+
+  it("shows, for a repository that holds every part, the root, the workflow and the command with the file that holds it, and offers no commit", () => {
+    const plan = { ...kept(PLAN, "agentic-seal/README.md", "agentic-seal/config.json", ".github/workflows/hygiene.yml"), files: [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }] };
+    const whole = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, plan, "", "");
+    expect(whole.scope).toBe(OUT_OF_SCOPE);
+    expect(whole.holds).toEqual(["Records: `agentic-seal/`", "Check: `.github/workflows/hygiene.yml`", "Broad gate: `make check`, kept in `agentic-seal/config.json` under `Broad gate`"]);
+    expect([whole.commit, whole.files, whole.gate.shown, whole.submit.shown, whole.cancel]).toEqual(["", [], false, false, "Close"]);
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: null } }, plan, "", "");
+    expect(keyless.holds[2]).toBe("No `Broad gate` key in `agentic-seal/config.json`.");
+    expect(keyless.submit.shown).toBe(false);
+  });
+
+  it("shows why a plan is blocked, or the daemon's refusal of the plan, names no commit and turns the button off", () => {
+    const blocked = recordsDialog(PROJECT, { ...PLAN, branch: null, blocked: "No branch is checked out in this repository." }, "pnpm test", "pnpm test");
+    expect([blocked.blocked, blocked.commit, blocked.submit]).toEqual(["No branch is checked out in this repository.", "", { shown: true, enabled: false, label: "Set up and commit" }]);
+    // The files are still shown, so the person reads what the setup would have written.
+    expect(blocked.files.map((file) => file.path)).toEqual(PLAN.files.map((file) => file.path));
+    const refused = recordsDialog(PROJECT, { error: "no repository 1" }, "pnpm test", "pnpm test");
+    expect([refused.blocked, refused.files, refused.submit.enabled]).toEqual(["no repository 1", [], false]);
+  });
+
+  it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
+    const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
+    expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
+    expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`.");
+  });
+});
+
+describe("lacksRecords", () => {
+  it("is true of a repository with no root or no workflow, false of one that holds both, and false of a repository of a daemon that sends no records, for which no setup is offered", () => {
+    const holding = (root: string | null, check: string | null): Repository => ({ ...PROJECT, records: { root, check, broadGate: null } });
+    expect([lacksRecords(holding(null, null)), lacksRecords(holding("seal", null)), lacksRecords(holding(null, ".github/workflows/hygiene.yml")), lacksRecords(holding("seal", ".github/workflows/owlery-seal.yml"))]).toEqual([true, true, true, false]);
+    const { records: _, ...earlier } = PROJECT;
+    expect([recordsOf(earlier as Repository), lacksRecords(earlier as Repository)]).toEqual([null, false]);
+    expect(recordsOf(PROJECT)).toEqual({ root: null, check: null, broadGate: null });
+  });
+});
+
+describe("registered", () => {
+  const docs: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs" };
+
+  it("gives the repository a registration added: the one the lists hold now and did not hold before", () => {
+    expect(registered("/somewhere/else", [PROJECT], [PROJECT, docs])).toBe(docs);
+  });
+
+  it("gives, where the lists gained none, the repository whose folder is the one typed, and none for a folder inside one: the daemon may read another repository there", () => {
+    expect(registered("/r/project", [PROJECT, docs], [PROJECT, docs])).toBe(PROJECT);
+    expect(registered("/r/docs/", [PROJECT, docs], [PROJECT, docs])).toBe(docs);
+    expect(registered("/r/docs/vendor/inner", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
+    expect(registered("/r/docs-old", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
   });
 });

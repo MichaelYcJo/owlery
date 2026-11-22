@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { claudePaneCommand, HOOK_EVENTS, HookServer, hookSettings, paneCommands, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
+import { claudePaneCommand, HOOK_EVENTS, HookServer, hookSettings, paneCommands, setupPaneCommand, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
 
 const dirs: string[] = [];
 function scratch(): string {
@@ -208,5 +208,12 @@ describe("paneCommands", () => {
     expect(commandFor("claude", 3, { continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"], env: env(3) });
     expect(commandFor("claude", 4, { continueLatest: false })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json'"], env: env(4) });
     expect(commandFor("shell", 5, { continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(5) });
+  });
+});
+
+describe("setupPaneCommand", () => {
+  it("runs the command a repository names whole in the user's interactive login shell, as a Claude Code pane's, with the pane's id in its environment", () => {
+    expect(setupPaneCommand({ SHELL: "/bin/bash" }, "pnpm install\necho 'done'\n", 6)).toEqual({ command: "/bin/bash", args: ["-l", "-i", "-c", "pnpm install\necho 'done'\n"], env: { OWLERY_PANE_ID: "6" } });
+    expect(setupPaneCommand({}, "pnpm install", 7).command).toBe("/bin/zsh");
   });
 });

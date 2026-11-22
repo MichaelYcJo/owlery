@@ -52,7 +52,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   /** The items the menu of an archived work item holds. */
   const archivedItems = (): string[] => ["Restore", "Open in", "Copy path", "Copy branch name", "Delete"];
   /** The items a repository's menu holds. */
-  const repositoryItems = (): string[] => ["Settings", "Change icon", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"];
+  const repositoryItems = (): string[] => ["Settings", "Change icon", "Records and check…", "Show archived work items", "New group", "Open in", "Copy path", "Hide from sidebar", "Remove"];
   /** The items the "Open in" submenu holds on this Mac: the apps are the ones the main process finds installed. */
   const openInItems = (): string[] => ["Finder", ...installedApps(existsSync, homedir()).map(({ name }) => name)];
   /** A repository's part of the sidebar, by the repository's id. */
@@ -199,6 +199,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: name });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
+    // Create creates nothing before the form shows the plan of its folder.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(name)}`, `the view of ${name}`);
   }
@@ -641,6 +643,12 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#work-item-create");
     await dialogClosed("work-item-dialog");
     await app.until(`document.querySelector('${repository(2)}')`, "the registered repository's row");
+    // The repository holds no place for work records, so the dialog of the records place opens, and "Not now" writes nothing.
+    await dialogOpen("records-dialog");
+    expect(await value<string>(`document.getElementById("records-head").textContent`)).toBe("Records and check: second");
+    await app.click("#records-cancel");
+    await dialogClosed("records-dialog");
+    expect(git(second.repo, "status", "--porcelain=v1", "--untracked-files=all")).toBe("");
     expect(await rowWords(2)).toEqual(["second", "0"]);
     expect(await value<number>(`document.querySelectorAll('${repository(2)} button[data-work-item]').length`)).toBe(0);
     expect(await order(SIDEBAR)).toEqual([1, 2]);

@@ -42,6 +42,12 @@ describe("TerminalSession", () => {
     const code = await new Promise<number>((resolve) => session.onExit(resolve));
     expect(code).toBe(3);
   });
+
+  it("reports the signal that ended the process, beside an exit code that reads 0", async () => {
+    const session = TerminalSession.spawn({ command: "/bin/sh", args: ["-c", "kill -TERM $$"], cwd: process.cwd(), cols: 80, rows: 24 });
+    const end = await new Promise<[number, number]>((resolve) => session.onExit((code, signal) => resolve([code, signal])));
+    expect(end).toEqual([0, 15]);
+  });
 });
 
 describe("terminalEnv", () => {

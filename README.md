@@ -31,6 +31,7 @@ The first start downloads Electron's binary, and then the window opens.
 | [docs/architecture.md](docs/architecture.md) | How the app, the daemon, the agent adapters and the AgenticSeal process fit together, what we take from AgenticSeal, how order and judgment are split, the rule for the first milestone's shape and what follows v0.1, memory design, the screen framework, what to measure before building |
 | [docs/roadmap.md](docs/roadmap.md) | What each version builds, in what order, and when it is done: the five milestones of v0.1, the grounds for their order, the done criteria, and the decisions left open |
 | [docs/name.md](docs/name.md) | The meaning and origin of the name, its pronunciation, what to keep in mind, and the emblem |
+| [docs/design.md](docs/design.md) | How the window looks and speaks: its principles, the three themes and every value each draws with, the forms of its parts and their states, the voice of its words, what it stays clear of, and the screenshots a pull request that changes the window carries |
 
 ## Relationship to AgenticSeal
 

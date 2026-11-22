@@ -12,6 +12,9 @@ import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
 import { holdAwakeFor } from "./keep-awake";
 import { PANE_KINDS } from "./pane-kinds";
 
+/** The version `package.json` holds, which the build writes in place of this name (build.mjs). */
+declare const OWLERY_VERSION: string;
+
 async function main(): Promise<void> {
   const runDir = process.env.OWLERY_RUN_DIR;
   if (!runDir) {
@@ -19,7 +22,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake and the rules files of role sessions.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, and the rules files of role sessions.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
@@ -41,8 +44,10 @@ async function main(): Promise<void> {
 
   const daemon = new Daemon({
     token,
-    // The repositories with their work items, the last look and the choice of when to keep the Mac awake sit beside the discovery file, and outlive this process.
+    // The repositories with their work items, the last look, the choice of when to keep the Mac awake and the times each block of a work item's record was first read at sit beside the discovery file, and outlive this process.
     runDir,
+    // The workflow a setup of the records place writes fetches the pull request check at this version's tag.
+    version: OWLERY_VERSION,
     // The hold is a program of macOS, and watches this process so that it ends when the daemon ends, however it ends. On another platform the daemon holds nothing.
     holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,
     // The kinds a client may open; `commandFor` gives each its command.

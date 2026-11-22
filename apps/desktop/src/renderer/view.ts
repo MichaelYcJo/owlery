@@ -3,21 +3,70 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Repository, type Running, type SessionInfo, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
- * order: the pane's kind, as the daemon labels it, alone where it is the one
- * pane of its kind, and otherwise followed by its place among the panes of
- * that kind, from 1. The daemon's id of a pane counts every pane it started,
- * so it is no tab's to show. The work item's title is the view's header's to say.
+ * order: "Setup" for `setupPane`, the pane the work item's setup record
+ * names, and for any other pane its kind, as the daemon labels it, alone
+ * where it is the one pane of its kind but the setup pane, and otherwise
+ * followed by its place among those panes, from 1. The daemon's id of a pane
+ * counts every pane it started, so it is no tab's to show. The work item's
+ * title is the view's header's to say.
  */
-export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): string {
+export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], setupPane: number | null = null): string {
+  if (session.id === setupPane) return SETUP_HEAD;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   const name = kind ? kind.label : session.kind;
-  const same = tabs.filter((tab) => tab.kind === session.kind);
+  const same = tabs.filter((tab) => tab.kind === session.kind && tab.id !== setupPane);
   return same.length > 1 ? `${name} ${same.findIndex((tab) => tab.id === session.id) + 1}` : name;
 }
+
+/** The label of the pane a setup runs in, and the head of the section that says the setup. */
+export const SETUP_HEAD = "Setup";
+
+/** The words a work item's line carries of its setup, in its second row: "Setting up" while it runs, "Setup failed" where it failed, and nothing where it succeeded or the repository named none. */
+export function setupMark(workItem: WorkItem): string {
+  const state = workItem.setup?.state;
+  return state === "running" ? "Setting up" : state === "failed" ? "Setup failed" : "";
+}
+
+/** What the "Setup" section of the preview and a view says of a work item's setup. */
+export interface SetupSection {
+  /** How the command ended, or that it runs and for how long. */
+  says: string;
+  /** The command the setup's record holds, without the white space at its ends, which "Run setup again" carries, or nothing where it names none. */
+  command: string;
+  /** The paths copied from the main checkout, as the daemon listed them. */
+  copied: string[];
+  /** How many more paths were copied than are listed, as "and 5 more", or nothing. */
+  more: string;
+  /** The paths that were not copied, each with why. */
+  failed: { path: string; why: string }[];
+  /** Whether the view offers "Run setup again": while no setup pane's process is alive, which is while the setup does not run. */
+  runAgain: boolean;
+}
+
+/**
+ * The "Setup" section of a work item, or nothing where its repository named
+ * no setup or a daemon of an earlier build sent none. Its sentence is the
+ * daemon's own where the daemon said why the setup failed, and otherwise
+ * says how long the command has run, that no command was named, or the code
+ * the command ended with. It names the command the record holds, the one a
+ * run again carries.
+ */
+export function setupSection(workItem: WorkItem, now: number): SetupSection | null {
+  const setup = workItem.setup ?? null;
+  if (setup === null) return null;
+  const running = setup.state === "running";
+  const ended = setup.command === null ? "No command runs: .worktreesetup names none." : setup.exitCode === null ? "The command ended." : `The command ended with code ${setup.exitCode}.`;
+  const says = running ? `The command has run for ${ageOf(setup.startedAt, now)}.` : (setup.failure ?? ended);
+  const more = setup.copiedCount - setup.copied.length;
+  return { says, command: setup.command?.trim() ?? "", copied: [...setup.copied], more: more > 0 ? `and ${more} more` : "", failed: setup.failedCopies.map(({ path, why }) => ({ path, why })), runAgain: !running };
+}
+
+/** The tooltip of "Run setup again", which runs the command the section names and no other. */
+export const RUN_SETUP_SAYS = "Copy what is missing from the main checkout and run the command this section names in a new pane. Where .worktreesetup holds another command now, none runs, and the section names the new one.";
 
 /** The first kind of pane that reports its agent's state: the one the "New work item" form starts on. */
 export function agentKind(paneKinds: readonly PaneKindInfo[]): PaneKind | undefined {
@@ -51,7 +100,7 @@ function livePanes(workItem: WorkItem, sessions: readonly SessionInfo[]): Sessio
   return sessions.filter((session) => session.workItemId === workItem.id && session.alive).sort((a, b) => b.id - a.id);
 }
 
-/** The pane a work item's line reads its state from: its most recent live pane of a kind that reports state, or nothing where it has none. */
+/** The pane a work item's line reads its state from where the work item is not parked: its most recent live pane of a kind that reports state, or nothing where it has none. */
 export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): SessionInfo | undefined {
   return livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
 }
@@ -59,16 +108,35 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 export interface InboxLine {
   title: string;
   branch: string;
-  /** What the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, whatever its panes say. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
 }
 
+/** The questions of a work item's record, in the order of the file: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
+function questionsOf(workItem: WorkItem): readonly Question[] {
+  return (workItem.questions as Question[] | undefined) ?? [];
+}
+
 /**
- * One line of the inbox: the work item, the state of its most recent live pane
- * of a kind that reports state, and its new commits. An exited pane keeps its
- * last state and is passed over, because nothing will change that state again.
+ * The questions a work item is parked with, while it is parked: the
+ * questions of its record that have no answer, in the order of the file.
+ * Null once the person answered every one, for a work item that never was
+ * parked, and for a daemon of an earlier build, which sends no such field.
+ */
+export function parkedWith(workItem: WorkItem): Question[] | null {
+  const open = questionsOf(workItem).filter((question) => question.answer === null);
+  return open.length > 0 ? open : null;
+}
+
+/**
+ * One line of the inbox: the work item, its state, and its new commits. A
+ * work item parked with questions for the person waits, whatever its panes
+ * say, so it stands with the work items that wait for the person. Otherwise
+ * the state is that of its most recent live pane of a kind that reports
+ * state. An exited pane keeps its last state and is passed over, because
+ * nothing will change that state again.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
@@ -76,12 +144,25 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: reporting ? reporting.state : null,
+    state: parkedWith(workItem) ? "waiting" : reporting ? reporting.state : null,
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
 
-/** A work item as the lists and the sidebar show it: with its line, and the pane the line reads its state from. */
+/**
+ * Since when a line's state has lasted, which its age is counted from: for
+ * a work item parked with questions the earliest time the daemon first read
+ * one of its open questions at, and otherwise the time of the state of the
+ * pane the line reads, `session`. Null where neither gives one.
+ */
+export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
+  const parked = parkedWith(workItem);
+  if (!parked) return session?.stateSince ?? null;
+  const times = parked.flatMap(({ since }) => (since === null ? [] : [since]));
+  return times.length > 0 ? Math.min(...times) : null;
+}
+
+/** A work item as the lists and the sidebar show it: with its line, and the pane whose state the line reads where the work item is not parked. */
 export interface Entry {
   workItem: WorkItem;
   line: InboxLine;
@@ -96,25 +177,30 @@ export function workItemEntries(workItems: readonly WorkItem[], sessions: readon
 /** The agent states in the order a person must act on them, which is the order of the inbox's sentence and of its groups. */
 const STATES_BY_URGENCY: readonly AgentState[] = ["waiting", "working", "finished"];
 
-/** Each agent state as the inbox's sentence says it, after its count. */
-const STATE_IN_SENTENCE: Record<AgentState, string> = { waiting: "waiting for you", working: "working", finished: "finished" };
+/** The waiting state's own words, "Needs you", as they follow a count: one work item needs the person, and two need the person. */
+function needsYou(count: number): string {
+  return count === 1 ? "needs you" : "need you";
+}
+
+/** Each agent state as the inbox's sentence says it, after its count: the state's own words, which agree with the count where the state's words are a verb. */
+const STATE_IN_SENTENCE: Record<AgentState, (count: number) => string> = { waiting: needsYou, working: () => "working", finished: () => "finished" };
 
 /**
  * The inbox's sentence: how many work items are in each agent state, as in
- * "1 waiting for you, 2 working". A state no line is in is left out, and the
+ * "1 needs you, 2 working". A state no line is in is left out, and the
  * sentence is empty where no line has a state.
  */
 export function inboxSummary(lines: readonly InboxLine[]): string {
   return STATES_BY_URGENCY.map((state) => ({ state, count: lines.filter((line) => line.state === state).length }))
     .filter(({ count }) => count > 0)
-    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state]}`)
+    .map(({ state, count }) => `${count} ${STATE_IN_SENTENCE[state](count)}`)
     .join(", ");
 }
 
 /** A line's state in words: the heading of its group in the inbox, which the preview and a view say as well, with the state's age. */
 export function stateHeading(state: AgentState | null): string {
-  if (state === null) return "No agent";
-  return { waiting: "Waiting for you", working: "Working", finished: "Finished" }[state];
+  if (state === null) return "Asleep";
+  return { waiting: "Needs you", working: "Working", finished: "Finished" }[state];
 }
 
 export interface InboxGroup<Entry> {
@@ -149,6 +235,183 @@ export function pinnedFirst<E extends { workItem: WorkItem }>(entries: readonly 
 /** The marks a work item's line carries after its title, each with the words a pointer and a screen reader are told: one where it is pinned, and one where its notifications are muted. */
 export function lineMarks(workItem: WorkItem): { mark: "pinned" | "muted"; words: string }[] {
   return [...(workItem.pinned ? [{ mark: "pinned" as const, words: "Pinned" }] : []), ...(workItem.muted ? [{ mark: "muted" as const, words: "Notifications muted" }] : [])];
+}
+
+/** The decisions made for a work item in place of asking, in the order they were recorded: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
+function decisionsOf(workItem: WorkItem): readonly Decision[] {
+  return (workItem.decisions as Decision[] | undefined) ?? [];
+}
+
+/** A work item as the look holds it, or nothing where no look is recorded and where the look does not hold the work item. The look is what the person has seen. */
+function lookedAt(workItem: WorkItem, look: Look | null): WorkItem | undefined {
+  return look?.workItems.find((item) => item.id === workItem.id);
+}
+
+/**
+ * The mark a work item's line carries for the decisions made for it in place
+ * of asking: how many the person has not seen, and how many reversals wait
+ * for a stage, as in "2 decisions without asking, 1 reversed". A decision
+ * the person has not seen is one that stands as made, its state `decided`,
+ * and that the look does not hold for the work item, told by its id; where
+ * no look is recorded the person has seen none. A reversal waits while its
+ * decision's state is `reversed`, whatever the look holds. A decision that
+ * is `applied` or `carried` is in neither count. Nothing where both counts
+ * are zero. No decision changes the line's state or its group.
+ */
+export function decisionMark(workItem: WorkItem, look: Look | null): string {
+  const before = lookedAt(workItem, look);
+  const seen = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
+  const unseen = decisionsOf(workItem).filter((decision) => decision.state === "decided" && !seen.has(decision.id)).length;
+  const reversed = decisionsOf(workItem).filter((decision) => decision.state === "reversed").length;
+  return [unseen === 0 ? "" : `${unseen} ${unseen === 1 ? "decision" : "decisions"} without asking`, reversed === 0 ? "" : `${reversed} reversed`].filter((words) => words !== "").join(", ");
+}
+
+/** The head the preview and a work item's view list the decisions under. */
+export const DECISIONS_HEAD = "Decided without asking";
+
+/** Each kind of decision as its line says it. */
+const DECISION_KIND: Record<DecisionKind, string> = { route: "Route", default: "Default taken", scope: "Scope chosen", answered: "Answered from the tree" };
+
+export interface DecisionLine {
+  id: number;
+  /** The decision's kind in words. */
+  kind: string;
+  /** What was decided. */
+  says: string;
+  /** Why, after "Grounds: ". */
+  grounds: string;
+  /** Who decided, after "Decided by ", or empty where the record does not say. */
+  by: string;
+  /** How long the decision has been in its state, in the words of an age: since the daemon first read it as made, or as reversed, applied or carried. Empty where the daemon sent no time. */
+  age: string;
+  /** For a decision that no longer stands as made: that a person reversed it, that a commit took the reversal in or that it was carried to another home, and the message the person gave. Null while it stands. A work item's view offers "Reverse" on a line that stands. */
+  reversed: { head: string; message: string } | null;
+}
+
+/** The lines of the decisions made for a work item in place of asking, every one of them, whatever its state, the last of the record first. */
+export function decisionLines(workItem: WorkItem, now: number): DecisionLine[] {
+  return [...decisionsOf(workItem)].reverse().map(({ id, kind, says, grounds, by, state, reversal, landed, since }) => ({
+    id,
+    kind: DECISION_KIND[kind] ?? kind,
+    says,
+    grounds: `Grounds: ${grounds}`,
+    by: by ? `Decided by ${by}` : "",
+    age: since === null ? "" : ageOf(since, now),
+    reversed: state === "decided" ? null : { head: state === "applied" ? `Applied in ${landed ?? ""}` : state === "carried" ? `Carried to ${landed ?? ""}` : "Reversed", message: reversal ?? "" },
+  }));
+}
+
+/**
+ * What the preview and a work item's view say, under the list of the
+ * decisions, of each block and line of the work item's record that the
+ * daemon's reader did not read: its line in `decisions.md` and the reader's
+ * reason, in the order the daemon sends them. Nothing was decided on such a
+ * line, and no decision and no question was read from it. None for a daemon
+ * of an earlier build, which sends no such field.
+ */
+export function unreadLines(workItem: WorkItem): string[] {
+  return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
+}
+
+export interface QuestionLine {
+  /** The question's id, which its answer names it by. */
+  id: number;
+  asks: string;
+  /** While the work item is parked, who asks, after "Asked by ", or empty where the record does not say. Empty once the questions are answered. */
+  by: string;
+  /** While the work item is parked, why the question is the person's, after "Grounds: ". Empty once the questions are answered. */
+  grounds: string;
+  /** While the work item is parked, the answers the asker names, each with what it implies and, for the question's default, the mark "Default". None once the questions are answered. */
+  options: { label: string; implies: string; mark: string }[];
+  /** The option chosen as the section is drawn: the question's default, or null where it has none and once the questions are answered. */
+  chosen: number | null;
+  /** The person's answer, or null while the question is open. */
+  answer: string | null;
+}
+
+export interface AskedSection {
+  /** "Waiting for your answer" while the work item is parked, and "Answered" afterwards. */
+  head: string;
+  /** For how long the questions have waited, as in "Asked 12 min ago", or have been answered, as in "Answered 3 min ago". Empty where the daemon sent no time. */
+  age: string;
+  /** Whether the section takes answers. */
+  parked: boolean;
+  /** What tells one drawing of the section from the next: it differs between two work items, two sets of questions of one, and a park and its answer. A view draws the section again only where it differs, so a field the person types in is not drawn over. */
+  key: string;
+  questions: QuestionLine[];
+}
+
+/**
+ * The section of a work item's view that holds the questions it is parked
+ * with and takes the person's answers, or after the answer lists each
+ * question with its answer. While a question of the record is open, the
+ * section holds the open questions and no other, whatever the look holds.
+ * After the answer it holds each answered question until the look holds
+ * that question as answered for the work item: `look` is the look the
+ * window holds, and while it holds none every answered question is listed.
+ * Null once the look holds each as answered, for a work item whose record
+ * holds no question, and for a daemon of an earlier build, which sends
+ * none.
+ */
+export function askedSection(workItem: WorkItem, now: number, look: Look | null): AskedSection | null {
+  const open = parkedWith(workItem);
+  const before = lookedAt(workItem, look);
+  const seen = new Set(before ? questionsOf(before).flatMap(({ id, answer }) => (answer === null ? [] : [id])) : []);
+  const shown = open ?? questionsOf(workItem).filter(({ id }) => !seen.has(id));
+  if (shown.length === 0) return null;
+  const parked = open !== null;
+  const times = shown.flatMap(({ since }) => (since === null ? [] : [since]));
+  // The questions have waited since the first of them was read, and have all been answered since the last of them was.
+  const age = times.length === 0 ? "" : `${parked ? "Asked" : "Answered"} ${ageOf(parked ? Math.min(...times) : Math.max(...times), now)} ago`;
+  return {
+    head: parked ? "Waiting for your answer" : "Answered",
+    age,
+    parked,
+    key: `${workItem.id}:${parked ? "open" : "answered"}:${shown.map(({ id }) => id).join(",")}`,
+    questions: shown.map(({ id, asks, grounds, by, options, default: taken, answer }) => {
+      // A default that names no option of its question chooses none.
+      const fallback = options.findIndex(({ label }) => label === taken);
+      return {
+        id,
+        asks,
+        by: parked && by ? `Asked by ${by}` : "",
+        grounds: parked ? `Grounds: ${grounds}` : "",
+        options: parked ? options.map(({ label, implies }) => ({ label, implies, mark: label === taken ? "Default" : "" })) : [],
+        chosen: parked && fallback >= 0 ? fallback : null,
+        answer,
+      };
+    }),
+  };
+}
+
+/**
+ * The answers an `answerQuestions` carries, one for each question of the
+ * section: for the question at each place, `choices` holds the index of the
+ * option the person chose, "other" where they chose to give another answer,
+ * or null where they chose nothing, and `typed` the words in its field for
+ * another answer. An option gives its label, "other" the words as typed,
+ * and nothing chosen, or a choice that names no option, an empty answer,
+ * which the daemon refuses with the question's number.
+ */
+export function answersFor(questions: readonly Pick<QuestionLine, "id" | "options">[], choices: readonly (number | "other" | null)[], typed: readonly string[]): { questionId: number; answer: string }[] {
+  return questions.map(({ id, options }, place) => {
+    const choice = choices[place] ?? null;
+    return { questionId: id, answer: choice === "other" ? (typed[place] ?? "") : choice === null ? "" : (options[choice]?.label ?? "") };
+  });
+}
+
+/**
+ * The notifications for the work items that were parked since the window's
+ * lists were `before`: one for each of `workItems` that is parked now and
+ * that `before`, the work items and the archived ones the window held, did
+ * not hold as parked. It is titled with the work item's title. None is
+ * given for a work item whose notifications are muted, nor for `inFront`,
+ * the work item whose view is in front of a focused window. An archived
+ * work item is not among `workItems`, so none is given for one.
+ */
+export function parkNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  const held = new Set(before.filter((workItem) => parkedWith(workItem)).map((workItem) => workItem.id));
+  return workItems.filter((workItem) => parkedWith(workItem) && !held.has(workItem.id) && !workItem.muted && workItem.id !== inFront).map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: "Waiting for your answer" }));
 }
 
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
@@ -272,7 +535,7 @@ export function removalOf(repository: Repository, workItems: readonly WorkItem[]
 function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; asked: { id: number; prompt: string }[] } {
   const tabs = paneTabs(workItem, sessions);
   return {
-    panes: tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, label: tabLabel(tab, tabs, paneKinds) })),
+    panes: tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, label: tabLabel(tab, tabs, paneKinds, workItem.setup?.paneId ?? null) })),
     asked: headless.filter((session) => session.workItemId === workItem.id && session.state === "working").map(({ id, prompt }) => ({ id, prompt })),
   };
 }
@@ -465,22 +728,27 @@ export function markRanges(text: string, query: string): [number, number][] {
   return ranges;
 }
 
-/** What the filter shows: every state, one agent state, or the work items with no state. */
-export type StateFilter = "all" | AgentState | "none";
+/** What the filter shows: every state, one agent state, the work items with no state, or the work items with a decision made without asking that the person may still act on. */
+export type StateFilter = "all" | AgentState | "none" | "decided";
 
-/** The filter's choices: "All", and the heading of each of the inbox's groups, in their order. */
+/** The filter's choices: "All", the heading of each of the inbox's groups, in their order, and last the head the decisions are listed under. */
 export function filterChoices(): { value: StateFilter; label: string }[] {
-  return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) }))];
+  return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) })), { value: "decided", label: DECISIONS_HEAD }];
 }
 
 /**
  * The work items a search and a filter leave, in the order given: those
  * whose title, branch or repository's name holds what is typed, and whose
- * line is in the state chosen.
+ * line is in the state chosen. Where the decisions are chosen, the filter
+ * leaves the work items that hold a decision whose state is `decided` or
+ * `reversed`, whatever their lines' states: one the person may reverse, or
+ * a reversal no stage has taken in.
  */
 export function matchWorkItems<E extends { workItem: WorkItem; line: InboxLine }>(entries: readonly E[], query: string, state: StateFilter): E[] {
   return entries.filter(({ workItem, line }) => {
-    if (state !== "all" && (line.state ?? "none") !== state) return false;
+    if (state === "decided") {
+      if (!decisionsOf(workItem).some((decision) => decision.state === "decided" || decision.state === "reversed")) return false;
+    } else if (state !== "all" && (line.state ?? "none") !== state) return false;
     return query === "" || [workItem.title, workItem.branch, repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
   });
 }
@@ -510,37 +778,52 @@ export interface Change {
   workItem: WorkItem;
   /** The work item's line as the lists now give it. */
   line: InboxLine;
-  /** The pane that line reads its state from, whose time is the age the summary's line says. */
+  /** The pane whose state that line reads where the work item is not parked. The age the summary's line says is counted as `lineSince` gives it. */
   session: SessionInfo | undefined;
   /** What changed, opening with the present state. */
   sentence: string;
+  /** How many decisions made without asking the work item holds that the look does not hold for it. */
+  decided: number;
 }
 
 /** Each agent state as a change's sentence opens with it. */
-const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Waits for you.", working: "Is working.", finished: "Finished." };
+const STATE_IN_CHANGE: Record<AgentState, string> = { waiting: "Needs you.", working: "Is working.", finished: "Finished." };
+
+/** How many decisions were made without asking, as a change's sentence and the summary's sentence end with it. */
+function madeWithoutAsking(decided: number): string {
+  return `${decided} ${decided === 1 ? "decision" : "decisions"} made without asking.`;
+}
 
 /**
  * The work items that changed since the person last looked, in the order of
  * the inbox's groups: one whose line differs in the state or in the count of
- * new commits from its line in the look, and one the look does not hold. A
- * count the daemon gave on one side alone says nothing of a change. Each side
- * is read through `inboxLine` with its own sessions, and no session of one is
- * matched to a session of the other: a session's id starts again with the
- * daemon, and a work item's id does not.
+ * new commits from its line in the look, one that holds a decision made
+ * without asking that the look does not hold for it, and one the look does
+ * not hold. A park and its answer both change the line's state. A decision
+ * is told from the look's by its id, so one the look holds adds nothing,
+ * reversed since or not, and a look written before the decisions holds none.
+ * A change's sentence ends with how many such decisions the work item holds.
+ * A count the daemon gave on one side alone says nothing of a change. Each
+ * side is read through `inboxLine` with its own sessions, and no session of
+ * one is matched to a session of the other: a session's id starts again with
+ * the daemon, and a work item's id does not.
  */
 export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
   const changes = workItems.flatMap((workItem): Change[] => {
     const line = inboxLine(workItem, sessions, paneKinds);
     const said = [line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
     const before = look.workItems.find((item) => item.id === workItem.id);
+    const looked = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
+    const decided = decisionsOf(workItem).filter((decision) => !looked.has(decision.id)).length;
     if (!before) {
       said.push("New since you were last here.");
     } else {
       const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
-      if (rise === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
+      if (rise === 0 && decided === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
       if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
     }
-    return [{ workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" ") }];
+    if (decided > 0) said.push(madeWithoutAsking(decided));
+    return [{ workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" "), decided }];
   });
   return inboxGroups(changes).flatMap((group) => group.entries);
 }
@@ -548,19 +831,28 @@ export function changesSince(look: Look, workItems: readonly WorkItem[], session
 /**
  * The summary screen's sentence: the changed work items counted by their
  * present state, as the inbox's sentence counts every work item, or how many
- * changed where none of them has a state.
+ * changed where none of them has a state. The decisions made without asking
+ * since the look are counted apart: where the changed work items hold any,
+ * their sum follows after a full stop.
  */
-export function summarySentence(changes: readonly { line: InboxLine }[]): string {
-  return inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+export function summarySentence(changes: readonly { line: InboxLine; decided: number }[]): string {
+  const counted = inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+  const decided = changes.reduce((sum, change) => sum + change.decided, 0);
+  return decided > 0 ? `${counted}. ${madeWithoutAsking(decided)}` : counted;
 }
 
 /**
  * What stands in the place of the summary's sentence: the sentence where a
  * work item changed, and otherwise why the screen holds no line.
  */
-export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine }[]): string {
+export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine; decided: number }[]): string {
   if (!hasLook) return "No earlier look is recorded.";
   return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
+}
+
+/** What the sidebar's bell says to a pointer and to a screen reader: how many work items need the person, in the waiting state's own words, and that a press shows them alone. */
+export function bellSays(waiting: number): string {
+  return waiting > 0 ? `${waiting} ${needsYou(waiting)}. Show them alone.` : "Show the work items that need you alone.";
 }
 
 /** How many work items changed, as the sidebar says it beside "Summary": nothing where none did. */
@@ -584,7 +876,7 @@ export function summaryControls(changes: readonly { workItem: WorkItem; line: In
   const inbox = { label: "Open the inbox", opens: "inbox" as const };
   const waits = changes.find((change) => change.line.state === "waiting");
   if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
-  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that waits." };
+  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
 }
 
 /** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */
@@ -631,7 +923,7 @@ export function lastHere(at: number, now: number): string {
   return `You were last here ${ageOf(at, now)} ago.`;
 }
 
-/** A state in its heading's words and how long it has lasted, as in "Waiting for you, 12 min": the state alone where it has no time. */
+/** A state in its heading's words and how long it has lasted, as in "Needs you, 12 min": the state alone where it has no time. */
 export function stateWithAge(state: AgentState | null, since: number | null | undefined, now: number): string {
   const age = ageOf(since, now);
   return age ? `${stateHeading(state)}, ${age}` : stateHeading(state);
@@ -647,23 +939,32 @@ function saidBy(session: SessionInfo | undefined): string | null {
 /**
  * What the agent of a work item's line says, under its head: the label of
  * the pane's kind and "asks" while the agent waits, "said" otherwise.
- * Nothing where the state carried neither a text nor, for a pane that waits,
- * a tool's name.
+ * `waiting` says that the agent waits for the person, which the card of its
+ * words shows by its edge. Nothing where the state carried neither a text
+ * nor, for a pane that waits, a tool's name.
  */
-export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string } | null {
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean } | null {
   const text = saidBy(session);
   if (!session || text === null) return null;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
-  return { head: `${kind ? kind.label : session.kind} ${session.state === "waiting" ? "asks" : "said"}`, text };
+  const waiting = session.state === "waiting";
+  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting };
 }
 
 /**
- * The text of a line's second row, and which of the three it is: what the
- * agent's state carried, otherwise the newest commit's subject, otherwise
- * the branch. While a search is typed it is the branch, where the letters
- * that match are marked.
+ * The text of a line's second row, and which of the four it is: for a work
+ * item parked with questions the first question, followed by how many more
+ * it waits on, as in " (and 2 more questions)"; otherwise what the agent's
+ * state carried, otherwise the newest commit's subject, otherwise the
+ * branch. While a search is typed it is the branch, where the letters that
+ * match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "state" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "state" | "commit" | "branch"; text: string } {
+  const open = searching ? null : parkedWith(workItem);
+  if (open) {
+    const more = open.length - 1;
+    return { says: "question", text: `${open[0]?.asks ?? ""}${more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : ""}` };
+  }
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];
@@ -1074,7 +1375,7 @@ export type MenuAction =
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
-  | { do: "settings" | "icon" | "archived" | "group" | "hide" | "remove"; id: number };
+  | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -1164,16 +1465,20 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
 }
 
 /**
- * A repository's menu, in its order: Settings and Change icon; Show archived
- * work items and New group; "Open in", whose submenu lists Finder and each
- * installed editor and terminal; Copy path; Hide from sidebar and Remove.
- * The folder that is opened and copied is the repository's.
+ * A repository's menu, in its order: Settings, Change icon and "Records and
+ * check…", which a repository of a daemon of an earlier build, one that
+ * sends no `records`, does not have; Show archived work items and New group;
+ * "Open in", whose submenu lists Finder and each installed editor and
+ * terminal; Copy path; Hide from sidebar and Remove. The folder that is
+ * opened and copied is the repository's.
  */
 export function repositoryMenu(repository: Repository, apps: readonly InstalledApp[]): MenuEntry[] {
   const { id, folder } = repository;
+  const records: MenuItem[] = recordsOf(repository) === null ? [] : [{ label: "Records and check…", description: "See the place for work records and the pull request check of this repository, and set them up where it lacks one.", action: { do: "records", id }, divides: false }];
   return [
     { label: "Settings", description: "Change the name the sidebar shows and the branch new work items start from.", action: { do: "settings", id }, divides: false },
     { label: "Change icon", description: "Choose one character to show before the repository's name.", action: { do: "icon", id }, divides: false },
+    ...records,
     { label: "Show archived work items", description: "List the work items of this repository that were archived.", action: { do: "archived", id }, divides: true },
     { label: "New group", description: "Make a heading to gather some of this repository's work items under.", action: { do: "group", id }, divides: false },
     openEntries(folder, "the repository's", apps),
@@ -1181,6 +1486,113 @@ export function repositoryMenu(repository: Repository, apps: readonly InstalledA
     { label: "Hide from sidebar", description: "Take the repository out of the sidebar. Its work items stay in the inbox.", action: { do: "hide", id }, divides: true },
     { label: "Remove", description: "Take the repository and its work items off Owlery's lists. Nothing on disk is removed unless you choose it in the dialog.", action: { do: "remove", id }, divides: false },
   ];
+}
+
+/** What a repository holds of the records place, or null for a repository of a daemon of an earlier build, which sends none: the window then offers no setup for it. */
+export function recordsOf(repository: Repository): RecordsPlace | null {
+  return (repository as { records?: RecordsPlace }).records ?? null;
+}
+
+/** Whether a repository lacks a part of the records place a setup would write: its root or its check's workflow. A registration of such a repository opens the dialog of the records place. */
+export function lacksRecords(repository: Repository): boolean {
+  const records = recordsOf(repository);
+  return records !== null && (records.root === null || records.check === null);
+}
+
+/**
+ * The repository a registration of `folder` was answered for, given the
+ * repositories the window held when the answer arrived and the ones it holds
+ * now: the one the lists gained, and where they gained none, the repository
+ * whose folder is the one typed. None otherwise: a folder inside a
+ * repository names it only to the daemon, which may read another
+ * repository there than the one the lists hold above it.
+ */
+export function registered(folder: string, before: readonly Repository[], now: readonly Repository[]): Repository | undefined {
+  const gained = now.filter((repository) => !before.some((known) => known.id === repository.id));
+  if (gained.length === 1) return gained[0];
+  const typed = folder.replace(/\/+$/, "");
+  return now.find((repository) => repository.folder === typed);
+}
+
+/** What the daemon answered a plan of the records place with: the plan, or the error it refused the plan with. */
+export type RecordsPlanned = RecordsPlan | { error: string };
+
+/** The words of the dialog of the records place, and the state of its field and of its buttons. */
+export interface RecordsWords {
+  head: string;
+  /** What Owlery does in the repository and what is out of scope, said whatever the plan holds. */
+  scope: string;
+  /** The branch and the subject of the commit a setup makes, or empty where it makes none. */
+  commit: string;
+  /** Why the setup cannot run, or the daemon's refusal of the plan, or empty. */
+  blocked: string;
+  /** Each file of a plan that writes one: a file the setup writes with its whole text, and a file that stands with the sentence that it is kept. */
+  files: { path: string; text: string | null; says: string }[];
+  /** For a repository that holds every part: its root, its workflow and its broad gate command. */
+  holds: string[];
+  /** The field of the broad gate command: off where `config.json` stands, with the key's value. */
+  gate: { shown: boolean; enabled: boolean; label: string; value: string; says: string };
+  submit: { shown: boolean; enabled: boolean; label: string };
+  cancel: string;
+}
+
+/**
+ * What the dialog of the records place says of a repository, given the plan
+ * the daemon answered with, or null until it answers, the command the field
+ * holds, and the command the plan was asked for. The scope's sentence
+ * stands before anything is written, whatever the plan holds. A plan that
+ * writes a file is shown whole, and the button that commits is on only
+ * where the plan is of the command the field holds, is not blocked, and
+ * writes no `config.json` with an empty command. A plan that writes none
+ * and is not blocked is a repository that holds every part: the dialog
+ * shows what it holds, and no button to commit. One that writes none and is
+ * blocked is shown as a plan that writes a file is, with the refusal: the
+ * repository has no folder for a root, git ignores where a work item's
+ * records go below its root, something other than a folder stands there,
+ * or its checkout does not hold a file of the place as its commit does.
+ */
+export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
+  const head = `Records and check: ${repository.name}`;
+  const scope = "Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.";
+  const label = "Broad gate command";
+  const off = { shown: true, enabled: false, label: "Set up and commit" };
+  const unplanned = { head, scope, commit: "", files: [], holds: [], gate: { shown: false, enabled: false, label, value: "", says: "" }, cancel: "Not now" };
+  if (plan === null) return { ...unplanned, blocked: "", submit: off };
+  if ("error" in plan) return { ...unplanned, blocked: plan.error, submit: off };
+  const held = recordsOf(repository);
+  const config = plan.files.find((file) => file.path.endsWith("/config.json"));
+  // The key's place and its value, as the daemon last read them.
+  const kept = config === undefined ? "" : held?.broadGate == null ? `No \`Broad gate\` key in \`${config.path}\`.` : `Kept in \`${config.path}\`, under \`Broad gate\`.`;
+  if (plan.blocked === null && plan.files.every((file) => file.text === null)) {
+    const [readme, , workflow] = plan.files;
+    const gate = config === undefined || held?.broadGate == null ? kept : `Broad gate: \`${held.broadGate}\`, kept in \`${config.path}\` under \`Broad gate\``;
+    return {
+      ...unplanned,
+      blocked: "",
+      holds: [`Records: \`${readme?.path.replace(/README\.md$/, "") ?? ""}\``, `Check: \`${workflow?.path ?? ""}\``, gate],
+      submit: { ...off, shown: false },
+      cancel: "Close",
+    };
+  }
+  const writesConfig = config !== undefined && config.text !== null;
+  const proposed = writesConfig && plan.proposedBroadGate !== null && command === plan.proposedBroadGate;
+  return {
+    head,
+    scope,
+    commit: plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "",
+    blocked: plan.blocked ?? "",
+    files: plan.files.map((file) => ({ ...file, says: file.text === null ? `\`${file.path}\` stands and is kept.` : "" })),
+    holds: [],
+    gate: {
+      shown: config !== undefined,
+      enabled: writesConfig,
+      label,
+      value: writesConfig ? command : (held?.broadGate ?? ""),
+      says: writesConfig ? `Kept in \`${config.path}\`, under \`Broad gate\`.${proposed ? " Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another." : ""}` : kept,
+    },
+    submit: { ...off, enabled: plan.blocked === null && plannedFor === command && (!writesConfig || command.trim() !== "") },
+    cancel: "Not now",
+  };
 }
 
 /** What a pointer over the "+" button at the sidebar's top is told: it creates a work item, and its form is where a repository is registered alone. */
@@ -1420,7 +1832,7 @@ export function notificationFor(
   if (workItem?.muted || archived.some((item) => item.id === session.workItemId)) return null;
   return {
     title: workItem ? workItem.title : tabLabel(session, [session], paneKinds),
-    body: session.state === "waiting" ? "Waiting for you" : "Finished",
+    body: session.state === "waiting" ? stateHeading("waiting") : stateHeading("finished"),
   };
 }
 
@@ -1459,7 +1871,7 @@ export function registerFields(repo: string): { folder: string } | { error: stri
 }
 
 /** What the daemon answered a plan with: what a `workItemPlan` carries, or the error it refused the plan with. */
-export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null } | { error: string };
+export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean } | { error: string };
 
 /**
  * What the "New work item" form holds of its latest plan: the daemon's
@@ -1485,15 +1897,34 @@ function planOf(plan: FormPlan | null, repo: string): FormPlan | null {
 
 /**
  * What the form shows under the name: the branch and the folder the work item
- * will get, or, `failed`, the message the daemon refused the plan with, in
- * the branch's place. Nothing where the form holds no answer for the
- * repository field's text.
+ * will get, and the setup its repository names, before the person creates
+ * it: the copy where `.worktreeinclude` stands, and the command
+ * `.worktreesetup` holds. Where the daemon refused the plan, `failed`, its
+ * message stands in the branch's place. Nothing where the form holds no
+ * answer for the repository field's text.
  */
-export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; failed: boolean } {
+export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; setup: string; failed: boolean } {
   const shown = planOf(plan, repo);
-  if (shown === null) return { branch: "", worktree: "", failed: false };
-  if ("error" in shown) return { branch: shown.error, worktree: "", failed: true };
-  return { branch: shown.branch, worktree: shown.worktree, failed: false };
+  if (shown === null) return { branch: "", worktree: "", setup: "", failed: false };
+  if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", failed: true };
+  const setup = [shown.includes ? "Copies the ignored files .worktreeinclude names from the main checkout." : null, shown.setupCommand === null ? null : `Then runs: ${shown.setupCommand.trim()}`].filter((sentence) => sentence !== null).join(" ");
+  return { branch: shown.branch, worktree: shown.worktree, setup, failed: false };
+}
+
+/** What the form says where Create is pressed before it shows the plan of the repository field's text. */
+export const PLAN_AWAITED = "Wait until the form shows what this folder's work item gets, its setup among it.";
+
+/**
+ * The setup command the form shows for the repository field's text, whole,
+ * which a creation carries so the daemon runs no other: the plan's, or none
+ * where the daemon refused the plan. Nothing while the form holds no answer
+ * for the field's text, as after a key in it and before the plan answers,
+ * and the form then creates nothing.
+ */
+export function shownSetup(plan: FormPlan | null, repo: string): { setupCommand: string | null } | null {
+  const shown = planOf(plan, repo);
+  if (shown === null) return null;
+  return { setupCommand: "error" in shown ? null : shown.setupCommand };
 }
 
 /** A base a person chose in the form's menu, and the repository field's text it was chosen under. */

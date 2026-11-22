@@ -1,7 +1,8 @@
 // A work item's view: its header, its tabs with the terminals of the panes
 // on the stage and the strip under them, and its right column, which says what the
-// daemon sends of the work item above the "Ask" section and the seal's
-// place. The pool of terminal screens the window holds lives here, and so
+// daemon sends of the work item, the questions it is parked with, which it
+// answers there, and the decisions made for it without asking among it,
+// above the "Ask" section and the seal's place. The pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -10,7 +11,9 @@ import { type ILink, Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
 import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
+  answersFor,
   askButton,
+  askedSection,
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
@@ -21,6 +24,7 @@ import {
   linkCard,
   linkClick,
   type LinkTarget,
+  lineSince,
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
@@ -73,6 +77,10 @@ let sideBySide = false;
 let askingIn: number | undefined;
 // The request the "Ask" field is waiting on: the field keeps its prompt until the daemon has taken it.
 let askRequest: number | undefined;
+// The key of the section of questions as it is drawn (./view, `askedSection`). The section is drawn again only where the key differs, so what a person chose and typed in it stays through the lists the daemon sends meanwhile.
+let questionsDrawn: string | undefined;
+// The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
+let answersRequest: number | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
 // The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
@@ -81,6 +89,8 @@ let asking: number | undefined;
 let mac = false;
 // What puts a work item's view in front, for a click on a link that is another work item's worktree.
 let openWorkItem: (workItemId: number) => void = () => {};
+// What a press of "Reverse" on a decision of the view's work item does: it opens the dialog that takes the message.
+let reverseDecision: (workItemId: number, decisionId: number) => void = () => {};
 // The target of the link the pointer is on, for the card that shows once the pointer has rested there.
 let cardFor: LinkTarget | undefined;
 // Where the pointer is in the window, as its last move said. The card shows at it.
@@ -110,6 +120,12 @@ const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
 const headlessList = byId<HTMLUListElement>("headless");
+const questionsSection = byId("questions");
+const questionsHead = byId("questions-head");
+const questionsAge = byId("questions-age");
+const questionsList = byId("questions-list");
+const questionsError = byId("questions-error");
+const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
@@ -129,7 +145,7 @@ function terminalColours(): { background: string; foreground: string; cursor: st
   return { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") };
 }
 
-/** Gives every screen of the pool the colours of the theme now in use, after the theme changed. */
+/** Gives every screen of the pool the colours of the theme now in use, after the theme or the appearance changed. */
 export function showTerminalColours(): void {
   for (const screen of pool) screen.term.options.theme = terminalColours();
 }
@@ -651,6 +667,126 @@ function showAskSection(): void {
 }
 
 /**
+ * Draws the section that holds the questions the view's work item is parked
+ * with: every question at once, each with who asks where the record says
+ * it, its grounds, its options as radio buttons, what each implies, and a
+ * field for another answer, the question's default chosen. A question that
+ * names no option has the field alone. While the work item is parked the
+ * section carries the class of what needs the person, and the theme gives
+ * it that edge. After the answer the section lists each question with its
+ * answer, until the look the window holds has each as answered. It is
+ * hidden from then on, and for a work item that never was parked. The age
+ * is said anew at each call. The questions are drawn again only where the
+ * section's key is another, so a choice and a typed answer stay, with the
+ * keyboard and a composition under way, through every `inbox` that arrives
+ * meanwhile.
+ */
+function showQuestions(workItem: WorkItem): void {
+  const section = askedSection(workItem, Date.now(), held.lastLook);
+  questionsSection.hidden = !section;
+  if (!section) {
+    questionsDrawn = undefined;
+    questionsList.replaceChildren();
+    return;
+  }
+  questionsSection.classList.toggle("waiting", section.parked);
+  questionsHead.textContent = section.head;
+  questionsAge.textContent = section.age;
+  if (section.key === questionsDrawn) return;
+  questionsDrawn = section.key;
+  answersRequest = undefined;
+  questionsError.textContent = "";
+  questionsSubmit.hidden = !section.parked;
+  questionsSubmit.disabled = false;
+  questionsList.replaceChildren(
+    ...section.questions.map((question) => {
+      // A question's text, an option and an answer are plain text, never markup.
+      if (!section.parked) {
+        const answered = document.createElement("div");
+        answered.className = "question";
+        answered.append(part("asks", question.asks), part("answer", question.answer ?? ""));
+        return answered;
+      }
+      const field = document.createElement("fieldset");
+      field.className = "question";
+      field.dataset.question = String(question.id);
+      const asks = document.createElement("legend");
+      asks.className = "asks";
+      asks.textContent = question.asks;
+      const other = document.createElement("input");
+      other.className = "other-answer";
+      other.autocomplete = "off";
+      other.setAttribute("aria-label", `Another answer to: ${question.asks}`);
+      const choice = (value: string, checked: boolean, ...words: HTMLElement[]): HTMLElement => {
+        const label = document.createElement("label");
+        label.className = "option";
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = `question-${question.id}`;
+        radio.value = value;
+        radio.checked = checked;
+        label.append(radio, ...words);
+        return label;
+      };
+      // Who asks and why the question is the person's are plain text, never markup.
+      field.append(asks, part("by", question.by), part("grounds", question.grounds), ...question.options.map((option, index) => choice(String(index), index === question.chosen, part("label", option.label), part("mark", option.mark), part("implies", option.implies))));
+      if (question.options.length > 0) {
+        field.append(choice("other", false, part("label", "Another answer")));
+        // Words typed as another answer choose it.
+        other.addEventListener("input", () => {
+          const radio = field.querySelector<HTMLInputElement>('input[type="radio"][value="other"]');
+          if (radio) radio.checked = true;
+        });
+      }
+      field.append(other);
+      return field;
+    }),
+  );
+}
+
+/**
+ * Sends the answers of the section as "Send answers" asks: for each
+ * question the option chosen or the words typed as another answer. The
+ * daemon writes them into the work item's record, which ends the park, and
+ * the `inbox` after its `done` carries the questions as answered. It refuses
+ * an empty answer, and the section shows its refusal.
+ */
+function sendAnswers(): void {
+  const workItem = viewed();
+  const section = workItem && askedSection(workItem, Date.now(), held.lastLook);
+  // One request per answer: a second press before the daemon has answered would send the answers twice.
+  if (!workItem || !section?.parked || answersRequest !== undefined) return;
+  const fields = section.questions.map((question) => questionsList.querySelector<HTMLElement>(`[data-question="${question.id}"]`));
+  const choices = fields.map((field) => {
+    // A question that names no option has the field alone, whose words are its answer.
+    if (!field?.querySelector('input[type="radio"]')) return "other";
+    const chosen = field.querySelector<HTMLInputElement>('input[type="radio"]:checked');
+    return chosen ? (chosen.value === "other" ? "other" : Number(chosen.value)) : null;
+  });
+  const typed = fields.map((field) => field?.querySelector<HTMLInputElement>("input.other-answer")?.value ?? "");
+  answersRequest = request();
+  questionsError.textContent = "";
+  questionsSubmit.disabled = true;
+  send({ type: "answerQuestions", requestId: answersRequest, workItemId: workItem.id, answers: answersFor(section.questions, choices, typed) });
+}
+
+/**
+ * Takes the daemon's answer to the section's request, `refusal` being its
+ * refusal or null for `done`, and answers whether the request was the
+ * section's. A refusal is shown in the section, with "Send answers" on
+ * again. After `done` the keyboard goes back to the pane in front, since
+ * the `inbox` that follows takes the section's controls away.
+ */
+export function takeAnswers(requestId: number, refusal: string | null): boolean {
+  if (requestId !== answersRequest) return false;
+  answersRequest = undefined;
+  questionsSubmit.disabled = false;
+  questionsError.textContent = refusal ?? "";
+  if (refusal === null) screenOf(front)?.term.focus();
+  return true;
+}
+
+/**
  * Closes a pane, as a press of its tab's "×" asks. The daemon ends the
  * process and takes the session off its lists, and the tab goes at the
  * `inbox` that follows. A pane whose session is working (./view,
@@ -664,7 +800,7 @@ function closePane(session: SessionInfo): void {
   }
   const workItem = held.workItems.find((item) => item.id === session.workItemId);
   asking = session.id;
-  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds)} is working. Closing the pane ends its session.`;
+  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null)} is working. Closing the pane ends its session.`;
   // The keyboard starts on "Cancel", the dialog's first button.
   closeDialog.showModal();
 }
@@ -675,13 +811,13 @@ export function closeFront(): void {
   if (session) closePane(session);
 }
 
-/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. */
-function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean): HTMLElement {
+/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
+function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean, setupPane: number | null): HTMLElement {
   const tab = document.createElement("span");
   tab.className = `tab${shown ? " shown" : ""}${active ? " active" : ""}`;
   const label = document.createElement("button");
   label.className = "label";
-  label.textContent = tabLabel(session, listed, held.paneKinds);
+  label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
@@ -701,7 +837,8 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
 /**
  * Draws the view of the work item on screen: its header, its tabs, the
  * panes on the stage, each on a screen of the pool, with the strip under
- * them, its right column and its "Ask" section. The stage holds the pane in
+ * them, its right column, the questions it is parked with among it, and its
+ * "Ask" section. The stage holds the pane in
  * front, or up to four panes as tiles where "Side by side" is pressed. It
  * starts no process.
  */
@@ -713,12 +850,13 @@ export function showView(): void {
   }
   const { workItem, line } = entry;
   const now = Date.now();
-  const state = stateWithAge(line.state, entry.session?.stateSince, now);
+  const since = lineSince(workItem, entry.session);
+  const state = stateWithAge(line.state, since, now);
   viewTitle.textContent = line.title;
   viewBranch.textContent = line.branch;
   viewRepo.textContent = repoNameOf(workItem);
   viewFactsTitle.textContent = line.title;
-  showState(viewState, line.state, entry.session?.stateSince);
+  showState(viewState, line.state, since);
   viewFactList.replaceChildren(
     ...viewFacts(entry, held.paneKinds, now).flatMap(({ label, value }) => {
       const term = document.createElement("dt");
@@ -728,13 +866,14 @@ export function showView(): void {
       return [term, said];
     }),
   );
-  viewDetail.replaceChildren(...detail(entry, 0));
+  showQuestions(workItem);
+  viewDetail.replaceChildren(...detail(entry, 0, { reverse: (decisionId) => reverseDecision(workItem.id, decisionId), runSetup: (command) => runSetup(workItem.id, command) }));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
   stripState.className = `state ${stateClass(line.state)}`;
   const listed = paneTabs(workItem, held.sessions);
   const { front: target, shown } = stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
-  tabs.replaceChildren(...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id))));
+  tabs.replaceChildren(...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id), workItem.setup?.paneId ?? null)));
   noPanes.hidden = listed.length > 0;
   stageShows(shown);
   if (target !== front) {
@@ -779,6 +918,11 @@ export function takeStarted(session: SessionInfo): void {
 /** Asks the daemon for no more output of a pane this window started, where the pane did not come onto the stage: the daemon sends a pane's output to the window that started it. */
 export function detachUnshown(id: number): void {
   if (!screenOf(id)) send({ type: "detach", id });
+}
+
+/** Asks the daemon to run a work item's setup again, as the view's "Run setup again" does, with the command the view named, which the daemon runs only where `.worktreesetup` still holds it: its answer, `started`, puts the new setup pane in front, and its refusal is said in the status line. */
+function runSetup(workItemId: number, command: string | null): void {
+  send({ type: "runSetup", requestId: request(), workItemId, ...startSize(), setupCommand: command });
 }
 
 /** Asks the field's prompt in the work item whose view is on screen. */
@@ -835,10 +979,11 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void): void {
+export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void): void {
   leave = onLeave;
   mac = isMac;
   openWorkItem = openView;
+  reverseDecision = reverse;
   // The card stays while the pointer is on it, and leaves a moment after the pointer left it for somewhere that is not its link.
   linkCardElement.addEventListener("mouseenter", () => clearTimeout(cardLeaveTimer));
   linkCardElement.addEventListener("mouseleave", cardLeaves);
@@ -876,6 +1021,10 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   askForm.addEventListener("submit", (event) => {
     event.preventDefault();
     ask();
+  });
+  byId<HTMLFormElement>("questions-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendAnswers();
   });
   byId("close-pane-cancel").addEventListener("click", () => closeDialog.close());
   byId("close-pane-confirm").addEventListener("click", () => {
