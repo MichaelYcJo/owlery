@@ -25,6 +25,11 @@ Why it matters: `9668c88` closed round 1's finding 3. It also rewrote the first 
 | The whole suite, the typecheck over the whole app and the documents' checks of the `Broad gate` key, at the work item's last commit. Phase 1 ran only the cases of `claude-adapter.test.ts`, `fake-adapter.test.ts` and `daemon.test.ts` it names in `trail/phases/phase-1.md`, and a typecheck of the 41 files the changed modules and their importers make up. Phase 2 ran only `view.test.ts` and `themes.test.ts`, one drive of the built app, and a typecheck of 21 files (`trail/phases/phase-2.md`). The test files that start the built app load the changed renderer through the bundle, and none of them ran. Round 1's fix pass ran only `daemon.test.ts`, `claude-adapter.test.ts` and `ask-section.test.ts`, and the broad run at `1feb1e5` (`trail/gate.md`) precedes its commits | the orchestrator, at the broad gate |
 ```
 
+```seal
+verdict: fixed 6c30acd
+answer: The row at `gaps.md:7` is rewritten in place with the round's wording: the broad run is named at `1feb1e5`, with `trail/gate.md` as its record. `git grep -n 3bf8c6c` over the work item's records outside `trail/rounds/` now lists only `guarantee.md:3`, `:9`, `:36` and `:37`, where `3bf8c6c` is the commit the sealer audited, which is correct. Executed.
+```
+
 ## Confirmations
 
 ```seal
