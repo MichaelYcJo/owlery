@@ -60,6 +60,12 @@ No case reads the row's layout. By contract rule 14 the fix pins it. The case be
 
 The snippets leave three statements of the drawing, which the fix pass owes too. The seven screenshots at `14d2d0e` show the old drawing, so `pnpm run screenshots` is run again at the fix and the files are committed in their place. `pr.md` lines 20 to 26 then name the commit that holds the new files, since `docs/design.md` *A pull request that changes the window carries its screenshots* has each link name the commit that holds its file. `gaps.md` row 21, which says the path is cut, is closed or reworded to the new screenshots.
 
+```seal
+verdict: fixed 613ffd5
+answer: `59ef441` draws a not-copied row as a column: the path whole, wrapped where it is longer than the column, and under it the copy's error in the fixed-width face, wrapped, kept as given (`pre-wrap`) and selectable, as `error-output` is; the section's sentence stays the window's own words above the list. The error keeps the failure's colour of the snippet, since the row has no other sign that it failed; `error-output` sets its text in `--ink-muted`. `overflow: visible` of the snippet is left out, since a path that wraps clips nothing. A new case of `theme-controls.test.ts`, "draws a path the setup could not copy whole, and under it the error the system gave, …", builds the row as `shared.ts` does with a path and an error longer than the column. It was seen red at `10c478c` (all six fields wrong), and `seal mutate` over `index.html` turned each of seven guards red alone, each failing on its own field. `docs/design.md` *Components and their states*, the row "A row of a list of records", states the form in both editions, `changelog.md` and `gaps.md` row 14 say it. `613ffd5` holds the seven screenshots made again at `59ef441` and `gaps.md` row 21 reworded to them. `pr.md` lines 20 to 26 still name `14d2d0e`, for the orchestrator to point at `613ffd5`.
+location: `apps/desktop/test/theme-controls.test.ts`, `docs/design.md:431`, `docs/design.ko.md:431`, `seal/threads/1795339001-worktree-setup/changelog.md:11`, `seal/threads/1795339001-worktree-setup/gaps.md:14`, `seal/threads/1795339001-worktree-setup/screenshots`
+```
+
 ### 2. "Setup failed" on a selected line stands under the 4.5 to 1 floor in Night watch light and in Desk light
 
 ```seal
@@ -98,6 +104,12 @@ docs/design.md:375 and docs/design.ko.md:375, Desk:
 ```
 
 The other way out is to draw the words in another token on a selected line, which changes no value. That way still owes the test's row, and a sentence in `docs/design.md` *Components and their states* for the form.
+
+```seal
+verdict: fixed b573c3b
+answer: The grounds `[WINDOW, "--hover"]` and `[WINDOW, "--selected"]` are added to `--state-failed` in `themes.test.ts`, and the case was seen red on the old values: Night watch light 4.20 and Desk light 4.26 on `--ground` under `--selected`, nothing else. The token is `#7f5b00` in Night watch light and `#8b5107` in Desk light, in `themes.css` and both editions of `docs/design.md` in the one commit. Run through the test, the module passed 16 of 16. By the same formula the two reach 4.51 on their selected lines, and Register light keeps `#8f550b` at 4.58 on its own. `seal mutate` put each old value back alone, and the case of the 4.5 floor went red on that block's line. Night watch light's waiting colour stays `#846000`, so a wait and a failure there now differ by five steps of red and green in one hue. `changelog.md` names the two values.
+location: `seal/threads/1795339001-worktree-setup/changelog.md:9`
+```
 
 ### 3. The frame says this work edits no document of `docs/`, and the branch edits `docs/design.md` and its Korean edition
 
