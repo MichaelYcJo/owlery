@@ -220,6 +220,27 @@ describe("the records place", () => {
     expect(status(repo)).toBe("A  other.txt\n");
   });
 
+  it("writes over nothing that appeared after the plan was made: a file that stands at a path of the setup by the time it is written refuses the setup, and stays as it is", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const plan = await planRecords(made.repo, "pnpm test", VERSION);
+    // A `git` before the real one on the path: at the plan's last question, whether git ignores its paths, the person's own file appears, after the plan read that nothing stands there.
+    const bin = join(made.base, "bin");
+    const path = process.env.PATH ?? "";
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$1" = check-ignore ]; then mkdir -p seal && printf 'theirs\\n' > seal/config.json; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${path}`;
+    cleanups.push(() => {
+      process.env.PATH = path;
+    });
+    await expect(setUpRecords(made.repo, "pnpm test", VERSION, plan.stamp)).rejects.toThrow("EEXIST");
+    process.env.PATH = path;
+    expect(readFileSync(join(made.repo, "seal/config.json"), "utf8")).toBe("theirs\n");
+    // The file the setup had written before the refusal is gone, the folder the person's file stands in stays, and nothing is staged.
+    expect(tree(made.repo)).toEqual(["README.md", "seal", "seal/config.json"]);
+    expect(status(made.repo)).toBe("?? seal/config.json\n");
+  });
+
   it("sets up in a repository with no commit yet, as its first commit, and a commit that fails there leaves nothing staged and no file", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
