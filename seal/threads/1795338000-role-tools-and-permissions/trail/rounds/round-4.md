@@ -51,6 +51,11 @@ trail/phases/phase-3.md:37, replaced whole:
 **The built-app case was committed in `ddff5d0` before its first run, and was not run against the code before it.** Its red is each guard's mutation below, run in the phase's batch of built-app runs after that commit, each red on the line of the guard it breaks.
 ```
 
+```seal
+verdict: fixed 528f806
+answer: The finding holds, and its three statements and its row are written. `528f806` replaces `trail/phases/phase-3.md:37` whole with the round's text: the built-app case was committed in `ddff5d0` before its first run, and its red is each guard's mutation run after that commit. `713c85c` rewrites the acceptance line `frame/design.md:130` and the "Verified by" cell of phase 3 at `frame/plan.md:66`. The orchestrator wrote both in its own words, and each says what the round's text says. `bd2877d` writes the row of *Judgments of the run* at `frame/plan.md:110` as the round gives it. A `git grep` over the work item's records for the old statement found it at `phase-3.md:37` alone, outside this round record. The case was not run against the renderer of `1526f4e`, and no other command ran in this pass.
+```
+
 ### 2. The judgment that dropped every decision from the screenshot scene rests on a mark that a record of applied or carried decisions does not raise
 
 ```seal
@@ -71,6 +76,11 @@ This finding does not decide whether the scene should hold such a record. That i
 frame/plan.md:109, the cell "Judgment", replaced whole:
 
 Giving the request's work item neither mark (`f4f871b`) left the screenshot run without a decision record or a failed setup anywhere in its scene. The record the run wrote held decisions in state `decided` and one `reversed`, and `view.ts#decisionMark` counts each of those, so it marks any line it is written under, and moving it would change another item's shots. A record whose decisions are `applied` or `carried` alone, with a block that is not read, marks no line (`view.test.ts`, the case "an applied and a carried decision in neither count") and still shows "Decided without asking" in the view (`shared.ts#detail`). It was not weighed when this row was first written. Accepted for this item: #119's and #155's committed screenshots stand in their own records, and the scene that shows both marks, a decision record and a failed setup is carried to #157, which changes the row they crowd
+```
+
+```seal
+verdict: fixed bd2877d
+answer: The finding holds. `bd2877d` replaces the "Judgment" cell of `frame/plan.md:109` whole with the round's text. The cell now says that a record whose decisions are `applied` or `carried` alone marks no line and still shows "Decided without asking" in the view, and that this was not weighed when the row was first written. The scene of the screenshot run is not changed, so `test/screenshots.test.ts`, `docs/design.md` and the twelve shots stand as `f4f871b` left them.
 ```
 
 ## Confirmations
