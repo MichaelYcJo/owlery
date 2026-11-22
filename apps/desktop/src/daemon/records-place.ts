@@ -23,6 +23,13 @@ const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
 const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
 /** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
 const FILE_MODES = ["100644", "100755"];
+/**
+ * Names a work item's records bear below its directory, `threads/<work-item-id>/`
+ * of the root. They are a sample and no list of every record: a stage writes
+ * a phase and a round under other numbers, and a later release may add a
+ * record.
+ */
+const RECORDS = ["routing.md", "frame/design.md", "frame/plan.md", "frame/questions.md", "gaps.md", "changelog.md", "pr.md", "decisions.md", "trail/phases/phase-1.md", "trail/rounds/round-1.md", "trail/gate.md", "guarantee.md"] as const;
 
 /** What a new root's `README.md` holds. Its first line is the marker. */
 function readmeText(): string {
@@ -228,6 +235,15 @@ function standsAsNoFolder(folder: string, path: string): boolean {
   }
 }
 
+/** Whether a file stands at a path of the repository. A link is not followed, and is none. */
+function standsAsFile(folder: string, path: string): boolean {
+  try {
+    return lstatSync(join(folder, path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** The names in a sentence: one, two with "and", or more with commas and "and". */
 function named(names: readonly string[]): string {
   return names.length < 3 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
@@ -271,19 +287,31 @@ function shows(folder: string, path: string): boolean {
  *
  * The checkout then has to hold the place as the commit does, since the
  * setup writes into the checkout and the daemon reads the place from it.
- * The paths compared are the plan's files, the `README.md` of each of the
- * root's names and the two workflows, which are the files the plan reads,
- * and every path below a new root. A path differs where git's status
- * reports it, changed, removed, staged, untracked or ignored, and where the
- * commit holds a file and the working tree shows none or the reverse, which
- * status does not report of a sparse checkout or of a file behind a link.
+ * What is compared is what the plan keeps or writes and what the daemon
+ * reads. The plan's files, Owlery's workflow and every path below a new
+ * root differ where git's status reports them, changed, removed, staged,
+ * untracked or ignored, and where the commit holds something at the path
+ * and the working tree shows nothing or the reverse, which status does not
+ * report of a sparse checkout or of a file behind a link. A kept file also
+ * differs where its text in the checkout, hashed as git would store it, is
+ * not the commit's: status reports no change of a path it is told not to
+ * look at, by the skip-worktree or the assume-unchanged flag of its index
+ * entry. The `README.md` of the other name of the root and a `hygiene.yml`
+ * the plan does not keep are the project's own, and the daemon reads one
+ * thing of each, whether it opens with the marker and whether it runs the
+ * check: such a file differs where the checkout's text or the index's
+ * answers that otherwise than the commit's, and no other edit of it does.
  *
  * The plan is `blocked` by the first of these that holds: the commit holds
  * something of the project's own at both names of the root; git ignores a
- * file of the plan; something other than a folder is at a folder above a
- * path the plan writes, in the checkout, the index or the commit; the
- * checkout differs from the commit at a path of the place, and each such
- * path is named; the plan writes a file and no branch is checked out.
+ * file of the plan; git ignores the folder `threads/` of the root or one of
+ * the sample of record paths below it; something other than a folder is at
+ * a folder above a path the plan writes, in the checkout, the index or the
+ * commit; the disk finds a path the setup needs under the same name in
+ * other letters; the commit holds a link, a submodule or a folder at a
+ * path the plan writes; the checkout differs from the commit as above, and
+ * each such path is named; the plan writes a file and no branch is checked
+ * out.
  * The stamp is made of the commit the checkout stands at, the branch and
  * the files, so it is another once a commit lands, the branch changes or
  * the command is another.
@@ -298,6 +326,8 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const [inCommit, inIndex] = await Promise.all([head === null ? new Map<string, string>() : listed(folder, ["ls-tree", "-r", "-z", head]), listed(folder, ["ls-files", "--cached", "--stage", "-z"])]);
   /** Whether the commit holds a file at the path. A link and a submodule are none. */
   const holdsFile = (path: string): boolean => FILE_MODES.includes(inCommit.get(path) ?? "");
+  /** Whether the commit holds anything at the path or below it: a file, a link, a submodule or a folder. */
+  const holds = (path: string): boolean => [...inCommit.keys()].some((held) => held === path || held.startsWith(`${path}/`));
   /** The commit's text of a file it holds, as git stores it, or null where it holds no file there. */
   const committed = async (path: string): Promise<string | null> => {
     if (head === null || !holdsFile(path)) return null;
@@ -311,7 +341,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   for (const name of ROOTS) {
     if (kept === null && opensWithMarker(await committed(`${name}/README.md`))) kept = name;
   }
-  const root = kept ?? ROOTS.find((name) => ![...inCommit.keys()].some((held) => held === name || held.startsWith(`${name}/`))) ?? null;
+  const root = kept ?? ROOTS.find((name) => !holds(name)) ?? null;
   const check = holdsFile(WORKFLOW) ? WORKFLOW : runsPluginCheck(await committed(PLUGIN_WORKFLOW)) ? PLUGIN_WORKFLOW : null;
   const files: RecordsPlan["files"] = [];
   if (root !== null) {
@@ -321,25 +351,61 @@ export async function planRecords(folder: string, broadGate: string, version: st
   files.push({ path: check ?? WORKFLOW, text: check === null ? workflowText(version) : null });
   const written = files.filter((file) => file.text !== null).map((file) => file.path);
 
-  // The paths at which the checkout does not hold the place as the commit does. Status is asked of the files the plan lists or read and of everything below a new root, so every entry it prints is one of them.
-  const place = [...new Set([...files.map((file) => file.path), ...readmes, WORKFLOW, PLUGIN_WORKFLOW])];
-  const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--ignored", "--untracked-files=all", "--", ...place, ...(kept === null && root !== null ? [root] : [])]);
+  const planned = files.map((file) => file.path);
+
+  // The plan's files and Owlery's workflow, as git holds them. Status is asked of them and of everything below a new root, so every entry it prints is one of those.
+  const own = [...new Set([...planned, WORKFLOW])];
+  const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--ignored", "--untracked-files=all", "--", ...own, ...(kept === null && root !== null ? [root] : [])]);
   if (status.code !== 0) throw new Error(status.stderr.trim() || "git could not say how the checkout differs from its commit");
   const reported = status.stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.slice(3));
-  const differing = [...place.filter((path) => reported.includes(path) || holdsFile(path) !== shows(folder, path)), ...reported.filter((path) => !place.includes(path))];
+  const apart = new Set(own.filter((path) => reported.includes(path) || holds(path) !== shows(folder, path)));
+  // A kept file's text in the checkout, hashed as git would store it, against the commit's. Status is not the reading of that: it reports no change of a path whose index entry is flagged skip-worktree or assume-unchanged, whatever the checkout holds.
+  const keptFiles = files.filter((file) => file.text === null).map((file) => file.path);
+  const standing = keptFiles.filter((path) => standsAsFile(folder, path));
+  for (const path of keptFiles) if (!standing.includes(path)) apart.add(path);
+  if (standing.length > 0) {
+    const [hashed, stored] = await Promise.all([git(folder, ["hash-object", "--", ...standing]), git(folder, ["rev-parse", ...standing.map((path) => `${head ?? ""}:${path}`)])]);
+    if (hashed.code !== 0 || stored.code !== 0) throw new Error(`${hashed.stderr}${stored.stderr}`.trim() || "git could not compare the checkout's files of the records place with the commit's");
+    const [inCheckout, atCommit] = [hashed.stdout.trim().split("\n"), stored.stdout.trim().split("\n")];
+    standing.forEach((path, at) => {
+      if (inCheckout[at] !== atCommit[at]) apart.add(path);
+    });
+  }
+  // A file the plan neither keeps nor writes is the project's own, and the daemon reads one thing of it. The index's text is read too, since the person's next commit takes it.
+  const reads = (path: string): ((text: string | null) => boolean) => (path === PLUGIN_WORKFLOW ? runsPluginCheck : opensWithMarker);
+  for (const path of [...readmes, PLUGIN_WORKFLOW].filter((other) => !planned.includes(other))) {
+    const atCommit = reads(path)(await committed(path));
+    const staged = FILE_MODES.includes(inIndex.get(path) ?? "") ? (await git(folder, ["cat-file", "blob", `:${path}`])).stdout : null;
+    if (reads(path)(textOf(join(folder, path))) !== atCommit || reads(path)(staged) !== atCommit) apart.add(path);
+  }
+  const differing = [...[...new Set([...planned, ...readmes, WORKFLOW, PLUGIN_WORKFLOW])].filter((path) => apart.has(path)), ...reported.filter((path) => !own.includes(path))];
+
   // The folders above the written paths at which the checkout, the index or the commit holds a file, a link or a submodule.
   const above = new Set<string>();
   for (const path of written) for (let at = dirname(path); at !== "."; at = dirname(at)) above.add(at);
   const notFolders = [...above].filter((at) => standsAsNoFolder(folder, at) || inCommit.has(at) || inIndex.has(at));
+  // A written path or a folder above one that the disk finds and the folder's own listing does not name: it stands under other letters, on a disk that takes the two names for one. The highest such name of a path is the one named. On a disk that tells them apart nothing stands there, and none is named.
+  const otherLetters = [...above, ...written].filter((at) => stands(folder, at) && !shows(folder, at) && (dirname(at) === "." || shows(folder, dirname(at))));
+  // A path the plan writes at which the commit holds a link, a submodule or a folder: the checkout may hold it as the commit does, and the setup still has no place for its file.
+  const occupied = written.filter(holds);
   // Where git cannot say whether it ignores a path, behind a link for one, the path is among those that differ or below a folder that is none.
-  const ignored = await ignoredAmong(folder, files.map((file) => file.path)).catch(() => []);
+  const ignored = await ignoredAmong(folder, planned).catch(() => []);
+  // Where a work item's records go is asked too: a rule over it leaves a root that cannot keep a record, though git ignores none of the root's own files. The paths asked are the folder and RECORDS below a work item's directory, a sample, since the patterns of a `.gitignore` have no end: a rule that names a work item's id or another record is not found.
+  const records = root === null ? [] : [`${root}/threads/`, ...RECORDS.map((name) => `${root}/threads/0-work-item/${name}`)];
+  const ignoredRecords = await ignoredAmong(folder, records).catch(() => []);
   let blocked: string | null = null;
   if (root === null) {
     blocked = "Both seal/ and agentic-seal/ hold something of this repository's own, so Owlery has no folder to keep work records in.";
   } else if (ignored.length > 0) {
     blocked = `Git ignores ${named(ignored)} in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.`;
+  } else if (ignoredRecords.length > 0) {
+    blocked = `Git ignores ${ignoredRecords.length} of the ${records.length} paths Owlery asked about where a work item's records go in this repository, ${ignoredRecords[0] ?? ""} among them, so it cannot keep work records in its tree. The paths asked are ${root}/threads/ and a sample of the names a work item's records bear, so a rule that ignores another record is not found here. A repository that cannot keep work records in its tree is out of scope for Owlery.`;
   } else if (notFolders.length > 0) {
     blocked = `The setup needs a folder at ${named(notFolders)}, and something else stands there in this repository. Rename or remove it, and open this again.`;
+  } else if (otherLetters.length > 0) {
+    blocked = `The setup needs ${named(otherLetters)}, and this disk finds something of the repository there under the same name in other letters, which git and GitHub take for another name. Rename it, and open this again.`;
+  } else if (occupied.length > 0) {
+    blocked = `The commit this checkout stands at holds something other than a file at ${named(occupied)}, where the setup writes one. Rename it in a commit, and open this again.`;
   } else if (differing.length > 0) {
     blocked = `This checkout does not hold ${named(differing)} as the commit it stands at does. Owlery plans the records place from the commit, which is what a clone and the check on GitHub get. Commit what is named or put it back as the commit has it, widening a sparse checkout that leaves it out, and open this again.`;
   } else if (written.length > 0 && branch === null) {

@@ -243,6 +243,45 @@ describe("the records place", () => {
     expect([head(repo), tree(repo)]).toEqual(before);
   });
 
+  it("blocks a plan where git ignores where a work item's records go, in a new root and in a kept one: the folder threads/ of the root, or a record by its name, and a setup of it writes nothing", async () => {
+    /** The refusal where git ignores `count` of the 13 paths asked below a root, `first` the first of them. */
+    const says = (root: string, count: number, first: string): string =>
+      `Git ignores ${count} of the 13 paths Owlery asked about where a work item's records go in this repository, ${first} among them, so it cannot keep work records in its tree. The paths asked are ${root}/threads/ and a sample of the names a work item's records bear, so a rule that ignores another record is not found here. A repository that cannot keep work records in its tree is out of scope for Owlery.`;
+    // A new root: none of the three files is ignored, and every record below the root would be.
+    const repo = repository();
+    write(repo, ".gitignore", "seal/threads/\n");
+    commitAll(repo, "chore: ignore the records");
+    const before = [head(repo), tree(repo)];
+    let plan = await planRecords(repo, "pnpm test", VERSION);
+    expect(plan.files.map((file) => [file.path, file.text === null])).toEqual([
+      ["seal/README.md", false],
+      ["seal/config.json", false],
+      [WORKFLOW, false],
+    ]);
+    expect(plan.blocked).toBe(says("seal", 13, "seal/threads/"));
+    await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(says("seal", 13, "seal/threads/"));
+    expect([head(repo), tree(repo), status(repo)]).toEqual([...before, ""]);
+
+    // A kept root with every part committed: nothing is left to write, and the plan is blocked all the same.
+    const kept = repository();
+    write(kept, "agentic-seal/README.md", `${MARKER}\n`);
+    write(kept, "agentic-seal/config.json", '{ "Broad gate": "make check" }\n');
+    write(kept, WORKFLOW, "name: seal\n");
+    commitAll(kept, "chore: the place");
+    expect((await planRecords(kept, "pnpm test", VERSION)).blocked).toBeNull();
+    write(kept, ".gitignore", "agentic-seal/threads/\n");
+    commitAll(kept, "chore: ignore the records");
+    plan = await planRecords(kept, "pnpm test", VERSION);
+    expect(plan.files.map((file) => file.text)).toEqual([null, null, null]);
+    expect(plan.blocked).toBe(says("agentic-seal", 13, "agentic-seal/threads/"));
+
+    // A rule on one record's name, anywhere in the tree: the folder is not ignored, and that record is.
+    const one = repository();
+    write(one, ".gitignore", "guarantee.md\n");
+    commitAll(one, "chore: ignore a name");
+    expect((await planRecords(one, "pnpm test", VERSION)).blocked).toBe(says("seal", 1, "seal/threads/0-work-item/guarantee.md"));
+  });
+
   it("blocks a plan where the checkout holds a file of the place the commit does not: a root left untracked, the files of a setup whose commit never landed, and a root behind a link; a setup of each writes nothing, and the plan is free once the files are committed", async () => {
     const untracked = repository();
     write(untracked, "seal/README.md", `${MARKER}\n`);
@@ -407,6 +446,81 @@ describe("the records place", () => {
     git(edited, "add", "seal/config.json");
     write(edited, "seal/config.json", '{ "Broad gate": "make check" }\n');
     expect((await planRecords(edited, "pnpm test", VERSION)).blocked).toBe(differs("seal/config.json"));
+
+    // Git is told not to compare the file with the checkout, by either flag of its index entry, so its status reports no change: the checkout's text is another than the commit's all the same, and the plan names the file.
+    for (const flag of ["skip-worktree", "assume-unchanged"]) {
+      const flagged = repository();
+      write(flagged, "seal/README.md", `${MARKER}\n`);
+      write(flagged, "seal/config.json", '{ "Broad gate": "make check" }\n');
+      write(flagged, WORKFLOW, "name: seal\n");
+      commitAll(flagged, "chore: the place");
+      git(flagged, "update-index", `--${flag}`, "seal/config.json");
+      // The flag alone, over the commit's own text, blocks nothing.
+      expect((await planRecords(flagged, "pnpm test", VERSION)).blocked).toBeNull();
+      write(flagged, "seal/config.json", '{ "Broad gate": "make all" }\n');
+      expect(status(flagged)).toBe("");
+      plan = await planRecords(flagged, "pnpm test", VERSION);
+      expect(plan.files.map((file) => file.text)).toEqual([null, null, null]);
+      expect(plan.blocked).toBe(differs("seal/config.json"));
+    }
+  });
+
+  it("reads a file the plan neither keeps nor writes for what the daemon reads of it alone: an edit of the project's own seal/README.md or hygiene.yml that makes neither a root nor the check blocks nothing, and a marker staged alone blocks the plan", async () => {
+    const repo = repository();
+    write(repo, "seal/README.md", "# Our seal package\n");
+    write(repo, ".github/workflows/hygiene.yml", "name: hygiene\njobs:\n  lint:\n    steps:\n      - run: npm run lint\n");
+    commitAll(repo, "chore: the project's own seal package and lint");
+    // Both are edited in the checkout, one staged too, and neither edit is a marker or the check's step.
+    write(repo, "seal/README.md", "# Our seal package\n\nIt seals envelopes.\n");
+    write(repo, ".github/workflows/hygiene.yml", "name: hygiene\njobs:\n  lint:\n    steps:\n      - run: npm run lint -- --fix\n");
+    git(repo, "add", "seal/README.md");
+    const plan = await planRecords(repo, "pnpm test", VERSION);
+    expect(plan.files.map((file) => [file.path, file.text === null])).toEqual([
+      ["agentic-seal/README.md", false],
+      ["agentic-seal/config.json", false],
+      [WORKFLOW, false],
+    ]);
+    expect(plan.blocked).toBeNull();
+    await setUpRecords(repo, "pnpm test", VERSION, plan.stamp);
+    // The setup's commit holds its three files, and the person's two edits stay as they were, one staged.
+    expect(git(repo, "show", "--name-only", "--format=", "HEAD").trim().split("\n")).toEqual([WORKFLOW, "agentic-seal/README.md", "agentic-seal/config.json"]);
+    expect(status(repo)).toBe(" M .github/workflows/hygiene.yml\nM  seal/README.md\n");
+
+    // The marker is staged in the project's own README.md and the checkout is put back: the next commit of the person's makes `seal/` a root, and the plan names the file.
+    const staged = repository();
+    write(staged, "seal/README.md", "# Our seal package\n");
+    commitAll(staged, "docs: the seal package");
+    write(staged, "seal/README.md", `${MARKER}\n`);
+    git(staged, "add", "seal/README.md");
+    write(staged, "seal/README.md", "# Our seal package\n");
+    expect(readRecordsPlace(staged).root).toBeNull();
+    expect((await planRecords(staged, "pnpm test", VERSION)).blocked).toBe(differs("seal/README.md"));
+  });
+
+  it("blocks a plan where the commit holds something other than a file at a path the setup writes, though the checkout holds it as the commit does: a link, and a folder; a setup of it writes nothing", async () => {
+    const says = (path: string): string => `The commit this checkout stands at holds something other than a file at ${path}, where the setup writes one. Rename it in a commit, and open this again.`;
+    // A link at the workflow's path, committed, and the checkout holds the same link: git's status reports nothing.
+    const linked = repository();
+    mkdirSync(join(linked, ".github/workflows"), { recursive: true });
+    symlinkSync("ci.yml", join(linked, WORKFLOW));
+    commitAll(linked, "ci: a link at the workflow's path");
+    expect(status(linked)).toBe("");
+    const before = [head(linked), tree(linked)];
+    let plan = await planRecords(linked, "pnpm test", VERSION);
+    expect(plan.files.at(-1)?.text).not.toBeNull();
+    expect(plan.blocked).toBe(says(WORKFLOW));
+    await expect(setUpRecords(linked, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(says(WORKFLOW));
+    expect([head(linked), tree(linked), status(linked)]).toEqual([...before, ""]);
+
+    // A kept root whose `config.json` is a folder in the commit.
+    const folder = repository();
+    write(folder, "seal/README.md", `${MARKER}\n`);
+    write(folder, "seal/config.json/notes.txt", "x\n");
+    write(folder, WORKFLOW, "name: seal\n");
+    commitAll(folder, "chore: a folder named config.json");
+    plan = await planRecords(folder, "pnpm test", VERSION);
+    expect(plan.files.map((file) => file.text === null)).toEqual([true, false, true]);
+    expect(plan.blocked).toBe(says("seal/config.json"));
   });
 
   it("keeps a root the commit holds and the checkout does not show, and blocks the plan in place of a second root: one removed and not staged, and one a sparse checkout leaves out", async () => {
@@ -488,6 +602,41 @@ describe("the records place", () => {
     symlinkSync(join(linked.base, "elsewhere"), join(linked.repo, ".github"));
     expect((await planRecords(linked.repo, "pnpm test", VERSION)).blocked).toBe(says);
     expect(readdirSync(join(linked.base, "elsewhere"))).toEqual([]);
+  });
+
+  it("blocks a plan, on a disk that takes two names for one where they differ only in the case of their letters, where a path the setup needs stands under other letters: the root's folder, the folder .github, and a file of a kept root", async () => {
+    const says = (names: string): string =>
+      `The setup needs ${names}, and this disk finds something of the repository there under the same name in other letters, which git and GitHub take for another name. Rename it, and open this again.`;
+    const repo = repository();
+    // On a disk that tells the two names apart nothing stands at the setup's paths, and no plan below is blocked.
+    const folds = existsSync(join(repo, "readme.md"));
+    write(repo, "Seal/notes.txt", "the project's\n");
+    commitAll(repo, "docs: notes in Seal/");
+    const before = [head(repo), tree(repo), status(repo)];
+    let plan = await planRecords(repo, "pnpm test", VERSION);
+    // The plan is the commit's, which holds nothing at `seal`.
+    expect(plan.files.map((file) => file.path)).toEqual(["seal/README.md", "seal/config.json", WORKFLOW]);
+    expect(plan.blocked).toBe(folds ? says("seal") : null);
+    if (folds) {
+      await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(says("seal"));
+      expect([head(repo), tree(repo), status(repo)]).toEqual(before);
+    }
+
+    // The folder above the workflow: the one that stands under other letters is named, and no folder below it.
+    const workflows = repository();
+    write(workflows, ".GitHub/workflows/ci.yml", "name: ci\n");
+    commitAll(workflows, "ci: theirs, in .GitHub/");
+    expect((await planRecords(workflows, "pnpm test", VERSION)).blocked).toBe(folds ? says(".github") : null);
+
+    // A kept root that holds `Config.json`: the setup writes `config.json`, where the disk finds the other.
+    const file = repository();
+    write(file, "seal/README.md", `${MARKER}\n`);
+    write(file, "seal/Config.json", "{}\n");
+    write(file, WORKFLOW, "name: seal\n");
+    commitAll(file, "chore: a root with Config.json");
+    plan = await planRecords(file, "pnpm test", VERSION);
+    expect(plan.files[1]?.text).not.toBeNull();
+    expect(plan.blocked).toBe(folds ? says("seal/config.json") : null);
   });
 
   it("blocks a plan where no branch is checked out, and a setup of it writes nothing", async () => {
