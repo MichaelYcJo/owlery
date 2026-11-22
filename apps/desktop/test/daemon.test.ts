@@ -3709,9 +3709,10 @@ describe("headless sessions", () => {
         write(join(worktree, "new-folder", "deep", "new.ts")),
         write("inner/new.ts"),
         { tool: "Edit", action: "write", path: "src/../README.md", text: "src/../README.md" },
-        // Outside: another folder, a way out through `..`, through a link, through a link and back, through a link whose target is not there, and the worktree's own folder.
+        // Outside: another folder, a way out through `..`, the folder above, through a link, through a link and back, through a link whose target is not there, a folder whose name opens with the worktree's, the bundle's, and a write that names no file.
         write(join(outside, "a.txt")),
         write("../outside.txt"),
+        write(".."),
         write("link/a.txt"),
         write("link/../b.txt"),
         write("dangling"),
@@ -3730,6 +3731,7 @@ describe("headless sessions", () => {
         "allowed: Edit",
         `refused: Write: ${OUTSIDE("crafter", join(outside, "a.txt"))}`,
         `refused: Write: ${OUTSIDE("crafter", "../outside.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "..")}`,
         `refused: Write: ${OUTSIDE("crafter", "link/a.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", "link/../b.txt")}`,
         `refused: Write: ${OUTSIDE("crafter", "dangling")}`,

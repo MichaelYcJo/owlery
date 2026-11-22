@@ -86,7 +86,7 @@ function insideWorktree(path: string, worktree: string): boolean {
   const real = realLocation(isAbsolute(path) ? path : `${worktree}${sep}${path}`);
   if (real === null) return false;
   const from = relative(root, real);
-  return from !== "" && from !== ".." && !from.startsWith(`..${sep}`) && !isAbsolute(from);
+  return from !== ".." && !from.startsWith(`..${sep}`) && !isAbsolute(from);
 }
 
 /**
