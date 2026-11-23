@@ -2,7 +2,9 @@
 // repository with the records root, a client, the round records a fake
 // proofer answers with, the fix a fake crafter makes and the blocks a fake
 // orchestrator answers with. No case starts an agent: every stage runs on
-// the fake adapter.
+// the fake adapter. The repository's broad gate is a stand-in command the
+// case names, `true` where it names none, and it runs with the suite's own
+// `PATH`, so no case runs a repository's check or asks a login shell.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
@@ -12,10 +14,11 @@ import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { MARKER } from "../src/daemon/records-place";
 import { createWorktree } from "../src/daemon/worktrees";
-import type { Chain, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
+import type { Chain, ClientMessage, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
-const TOKEN = "t".repeat(64);
+/** The token the cases' daemons take. */
+export const TOKEN = "t".repeat(64);
 
 /** The daemon's clock in the cases: a directory the daemon makes is named `1795388700-<slug>`. */
 export const NOW = 1_795_388_700_000;
@@ -70,6 +73,11 @@ export async function client(url: string, cleanups: Cleanups) {
         const chain = workItem(id)?.chain;
         return chain?.state === state ? chain : undefined;
       }),
+    /** The first message that answers a request: the one the daemon sends with the request's id. */
+    asked: async (message: Extract<ClientMessage, { requestId: number }>): Promise<Extract<ServerMessage, { requestId: number }>> => {
+      socket.send(JSON.stringify(message));
+      return until(() => messages.find((m): m is Extract<ServerMessage, { requestId: number }> => "requestId" in m && m.requestId === message.requestId));
+    },
     /** The answer to a `getSeal` of the work item: `done`, or the error's sentence. */
     getSeal: async (id: number, requestId: number): Promise<string> => {
       socket.send(JSON.stringify({ type: "getSeal", requestId, workItemId: id }));
@@ -139,15 +147,17 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * from `main`, and its branch holds one commit after it, which adds
  * `feature.txt`. The work items stand in the run folder before the daemon
  * starts, so no pane is started for them. With `root: false` the repository
- * holds no records root.
+ * holds no records root. `gate` is the broad gate command its `config.json`
+ * names, `true` where none is given, and null for a `config.json` with no
+ * such key.
  */
-export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean } = {}) {
+export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
-  const { root = true, ...daemonOptions } = options;
+  const { root = true, gate = "true", ...daemonOptions } = options;
   if (root) {
     write(made.repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-    write(made.repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
+    write(made.repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", ...(gate === null ? {} : { "Broad gate": gate }) }, null, 2)}\n`);
     commitAll(made.repo, "chore: add the place for work records");
   }
   const runDir = join(made.base, "run");
@@ -169,6 +179,7 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
       runDir,
       worktreesRoot: made.root,
       now: () => NOW,
+      gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
       ...daemonOptions,
       ...more,
     });
@@ -221,6 +232,16 @@ export function roundRecord(heading: string, target: string, findings: number[] 
     ...findings.map(findingSection),
     ...(confirms.length === 0 ? [] : ["## Confirmations", "", ...confirms.flatMap((reference) => ["```seal", `confirms: ${reference}`, "```", "What holds: the full stop stands at `feature.txt:1`, read.", ""])]),
   ].join("\n");
+}
+
+/** The answer of the proofer that finds nothing: a round record with no finding. */
+export function clean(given: { heading: string; target: string }): string {
+  return roundRecord(given.heading, given.target);
+}
+
+/** A gate record as the daemon writes one: the heading, then one run block for each run, the oldest first, each as its head and the base's commit. */
+export function gateRecord(workItem: string, runs: readonly (readonly [head: string, base: string])[]): string {
+  return [`# Broad gate: ${workItem}\n`, ...runs.map(([at, base]) => ["```seal", `run: ${at} against ${base}`, "```", ""].join("\n"))].join("\n");
 }
 
 /** A close block as a fix pass appends one. */

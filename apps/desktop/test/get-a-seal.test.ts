@@ -54,6 +54,8 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
     // The place for work records stands on the branch the work item is cut from.
     mkdirSync(join(made.repo, "seal"));
     writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+    // A chain starts only where the records name a broad gate command. No round of this file settles, so the stand-in never runs.
+    writeFileSync(join(made.repo, "seal", "config.json"), '{ "Broad gate": "true" }\n');
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon also runs the CLI at its start, to read its version: that run prints one and is no session.

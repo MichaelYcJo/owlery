@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, holdsCommit, mainCheckout, newCommits, pathsOfCommit, pathsOfCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, holdsCommit, mainCheckout, newCommits, pathsBetween, pathsOfCommit, pathsOfCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
@@ -1124,6 +1124,33 @@ describe("what a chain reads of a worktree", () => {
     const between = await diffBetween(repo, moved, head, false);
     expect(between.paths.sort()).toEqual(["a.txt", "on-main.txt", "sub/b c.txt"]);
     expect(between.text).toContain("-on-main.txt\n");
+  });
+
+  it("gives the paths at which the trees of two commits differ, whatever commits lie between them: a merge's own changes are among them, a moved file is both of its paths, a file a later commit took back is none, and it throws where a name is no commit", async () => {
+    const { repo } = repository();
+    const base = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "-b", "work");
+    commitFile(repo, "kept.txt");
+    commitFile(repo, "taken-back.txt");
+    git(repo, "rm", "--quiet", "taken-back.txt");
+    git(repo, "commit", "--quiet", "-m", "take it back");
+    git(repo, "mv", "README.md", "moved.md");
+    git(repo, "commit", "--quiet", "-m", "move the file");
+    git(repo, "checkout", "--quiet", "main");
+    commitFile(repo, "on-main.txt");
+    git(repo, "checkout", "--quiet", "work");
+    // A merge that changes a file of its own, which a walk of the commits leaves out.
+    git(repo, "merge", "--quiet", "--no-ff", "--no-commit", "main");
+    writeFileSync(join(repo, "in-the-merge.txt"), "changed by the merge alone\n");
+    git(repo, "add", "in-the-merge.txt");
+    git(repo, "commit", "--quiet", "-m", "merge main");
+    const head = commitOf(repo, "HEAD");
+    expect((await pathsBetween(repo, base, head)).sort()).toEqual(["README.md", "in-the-merge.txt", "kept.txt", "moved.md", "on-main.txt"]);
+    expect(await pathsOfCommits(repo, base, head)).not.toContain("in-the-merge.txt");
+    expect((await pathsBetween(repo, head, base)).sort()).toEqual(["README.md", "in-the-merge.txt", "kept.txt", "moved.md", "on-main.txt"]);
+    expect(await pathsBetween(repo, head, head)).toEqual([]);
+    await expect(pathsBetween(repo, "a".repeat(40), head)).rejects.toThrow();
+    await expect(pathsBetween(repo, base, "no-such-branch")).rejects.toThrow();
   });
 
   it("gives a file's text as a commit holds it, whatever the worktree and the commits after it hold, and the files that commit holds directly in a folder, and none of either where the commit holds none", async () => {

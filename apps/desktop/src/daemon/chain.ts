@@ -12,12 +12,16 @@
 // from the records (docs/architecture.md, "Code runs the order, the
 // orchestrator judges").
 //
+// Once the rounds settle the chain owes the repository's broad gate, which
+// is no session: `Daemon#runGate` runs the command, and this module reads
+// whether the gate holds at the branch's head.
+//
 // The order is code and two things are the orchestrator agent's: whether the
 // rounds are converging, asked before a fix pass on the record of round 2 or
 // a later round (`gateBefore`), and what a stage's question is decided as,
 // from the code and the policy, or whether it parks the work item.
 import { join, relative } from "node:path";
-import type { Chain, ChainStage, ChainStageKind, RoleStage } from "../shared/protocol";
+import type { Chain, ChainStage, ChainStageKind, GateRun, RoleStage } from "../shared/protocol";
 import { CHAIN_STAGE_KINDS } from "../shared/protocol";
 import type { PermissionAction } from "./adapters/adapter";
 import { RECORD_FILE, readDecisionRecord } from "./decision-record";
@@ -25,7 +29,8 @@ import { ASK_BLOCK, CONVERGENCE_BLOCK, ROUND_BASE, RULING_BLOCK, type Block, typ
 import { repositoryFileText } from "./repository-file";
 import type { RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
-import { commitNamed, fileAt, filesAt, holdsCommit, pathsOfCommit, pathsOfCommits } from "./worktrees";
+import { GATE_FILE, GUARANTEE_FILE, readGate } from "./seal-records";
+import { commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits } from "./worktrees";
 
 /** How many of a chain's stages the daemon keeps with its work item, the newest. A chain of two rounds and one fix pass is three, and each round after them adds two or three. */
 export const CHAIN_STAGES_KEPT = 50;
@@ -41,6 +46,17 @@ export const REFUSALS_FILE = join("trail", "refusals.md");
 
 /** The folder of a work item's directory that holds its round records. */
 export const ROUNDS_FOLDER = join("trail", "rounds");
+
+/**
+ * The closing records of a work item's directory: the files a commit after
+ * the broad gate's commit may change with the gate still holding. The pull
+ * request check holds the same list
+ * (`pr-check/skills/code-review/scripts/chain_check.py#CLOSING_RECORDS`).
+ */
+export const CLOSING_RECORDS: readonly string[] = [GATE_FILE, GUARANTEE_FILE, REFUSALS_FILE];
+
+/** The subject of the commit that records a passed run of the broad gate. */
+export const GATE_SUBJECT = "chore: record the broad gate's run";
 
 /** The name of a round's record. */
 export function roundFile(round: number): string {
@@ -59,8 +75,9 @@ export class ChainStop extends Error {}
 /** A stage that failed: its message is the chain's whole sentence, which names the stage and says why. */
 export class StageStopped extends Error {}
 
-/** What a stage is called in a sentence. */
+/** What a stage is called in a sentence. The broad gate is named without its round: a chain runs one after its rounds. */
 export function stageName(kind: ChainStageKind, round: number): string {
+  if (kind === "gate") return "The broad gate";
   if (kind === "round") return `Review round ${String(round)}`;
   if (kind === "fix-pass") return `The fix pass of round ${String(round)}`;
   if (kind === "ruling") return `The ruling after round ${String(round)}`;
@@ -83,9 +100,14 @@ export const READING_SAYS = "Owlery is reading the work item's records.";
 /** The sentence of a chain that waits for the person's answers. */
 export const PARKED_SAYS = "The chain waits for the answers to the work item's open questions.";
 
-/** The sentence of a chain whose rounds settled. */
+/** The sentence of a chain whose rounds settled and whose broad gate holds at the branch's head, which the sentence names. */
 export function reviewedSays(round: number, head: string): string {
   return `The review rounds settled at ${head.slice(0, 7)}, after round ${String(round)}.`;
+}
+
+/** The sentence of a chain whose broad gate did not start: why, as a sentence's second half. */
+export function gateNotRunSays(why: string): string {
+  return `The broad gate did not run: ${why.replace(/\.+$/u, "")}.`;
 }
 
 /** The sentence of a chain the orchestrator's judgment stopped. */
@@ -141,6 +163,10 @@ export interface Standing {
   changed: string[];
   /** The work item's directory, from the worktree's top. */
   directory: string;
+  /** The gate's commit, whole: the commit the newest run block of `trail/gate.md` names, as the branch's head holds the file. Null where the head holds no such file or the file holds no run block, and where the repository holds no commit of that name. */
+  gateCommit: string | null;
+  /** The paths that differ between the gate's commit and the branch's head, from the worktree's top, and none where `gateCommit` is null. */
+  sinceGate: string[];
 }
 
 /**
@@ -163,6 +189,8 @@ export type Step =
   | { is: "round"; round: number; target: string; from: string | null }
   // `round` is the record the pass answers, `open` the numbers of its findings with no close block.
   | { is: "fix-pass"; round: number; open: number[]; reversals: Reversal[] }
+  // `round` is the last round, and `head` the branch's head, which the command runs on.
+  | { is: "gate"; round: number; head: string }
   // `round` is the last round, and `at` the branch's head.
   | { is: "reviewed"; round: number; at: string };
 
@@ -170,6 +198,24 @@ export type Step =
 export function inFolder(path: string, folder: string): boolean {
   const top = folder.split("\\").join("/").replace(/\/+$/u, "");
   return path === top || path.startsWith(`${top}/`);
+}
+
+/** Whether a path is a closing record of the work item's directory. Both are read from the worktree's top, as `inFolder` reads them. */
+export function closingRecord(path: string, directory: string): boolean {
+  const top = directory.split("\\").join("/").replace(/\/+$/u, "");
+  return CLOSING_RECORDS.some((file) => path === `${top}/${file.split("\\").join("/")}`);
+}
+
+/**
+ * Whether the broad gate holds at the branch's head: a run stands, and no
+ * path but a closing record differs between the gate's commit and the head.
+ * The two trees are compared, and no commit between them is walked, so a
+ * merge, a decision's commit and an answer's commit after the gate's commit
+ * each leave the gate owed again, and a commit that the next one reverts
+ * leaves it holding.
+ */
+export function gateHolds(standing: Pick<Standing, "gateCommit" | "sinceGate" | "directory">): boolean {
+  return standing.gateCommit !== null && standing.sinceGate.every((path) => closingRecord(path, standing.directory));
 }
 
 /**
@@ -183,6 +229,8 @@ export function inFolder(path: string, folder: string): boolean {
  * - The last record holds a `fixed` or `rejected` finding, or a commit after
  *   its target changed a path outside the work item's directory: a verifying
  *   round, on the commits after that target.
+ * - The broad gate does not hold at the branch's head (`gateHolds`): the
+ *   gate, on that head.
  * - Otherwise the chain is reviewed at the branch's head.
  */
 export function stepOwed(standing: Standing): Step {
@@ -194,6 +242,7 @@ export function stepOwed(standing: Standing): Step {
   const answered = last.findings.some((finding) => finding.close?.verdict === "fixed" || finding.close?.verdict === "rejected");
   const outside = standing.changed.some((path) => !inFolder(path, standing.directory));
   if (answered || outside) return { is: "round", round: last.round + 1, target: `${standing.head}, fixes ${last.target.commit}..${standing.head}`, from: last.target.commit };
+  if (!gateHolds(standing)) return { is: "gate", round: last.round, head: standing.head };
   return { is: "reviewed", round: last.round, at: standing.head };
 }
 
@@ -251,7 +300,7 @@ function listed(numbers: readonly number[]): string {
 }
 
 /** The first refusal of a record the reader made, as the half of a sentence: `<the reader refuses> line 12 of <what>: <why>`, or with no line for a refusal of the record whole. Null where the reader refused nothing. */
-function firstRefusal(record: RoundRecord, what: string): string | null {
+function firstRefusal(record: Pick<RoundRecord, "refusals">, what: string): string | null {
   const [refusal] = record.refusals;
   if (refusal === undefined) return null;
   return `the reader refuses ${refusal.line === 0 ? "" : `line ${String(refusal.line)} of `}${what}: ${refusal.why}`;
@@ -260,12 +309,15 @@ function firstRefusal(record: RoundRecord, what: string): string | null {
 /**
  * What the order reads of a work item, in its worktree: each round record of
  * the directory as the commit `head` holds it, the record of decisions and
- * questions as the worktree holds it, committed or not, and the paths the
- * commits after the last record's target changed. A round record that only
+ * questions as the worktree holds it, committed or not, the paths the
+ * commits after the last record's target changed, and the gate's commit
+ * with the paths that differ between it and the head, from the gate's record
+ * as the commit `head` holds it. A round record that only
  * the worktree holds is not read: a round reads a committed tree, and the
  * next round reads what a commit holds. It throws a `ChainStop` where a
- * round record the head holds does not read whole or names no target, and
- * where its target names no commit, and what
+ * round record the head holds does not read whole or names no target,
+ * where its target names no commit, and where the reader refuses a line of
+ * the gate's record, with the file and the line, and what
  * `repository-file.ts#repositoryFileText` throws where the record of
  * decisions stands and cannot be read.
  */
@@ -293,6 +345,13 @@ export async function standingOf(worktree: string, directory: string, head: stri
     if ((await commitNamed(worktree, last.target.commit)) === null) throw new ChainStop(`${join(folder, roundFile(last.round))} names the target ${last.target.commit}, and the repository holds no such commit`);
     changed = await pathsOfCommits(worktree, last.target.commit, head);
   }
+  const gateFile = join(from(directory), GATE_FILE);
+  const gate = readGate((await fileAt(worktree, head, gateFile)) ?? "");
+  const unread = firstRefusal(gate, gateFile);
+  if (unread !== null) throw new ChainStop(unread);
+  const newest = gate.runs.at(-1);
+  // A run that names a commit the repository does not hold is no run of this branch, and the gate is owed.
+  const gateCommit = newest === undefined ? null : await commitNamed(worktree, newest.commit);
   return {
     rounds,
     openQuestion: decisions?.questions.some((question) => question.state.is === "open") ?? false,
@@ -301,6 +360,8 @@ export async function standingOf(worktree: string, directory: string, head: stri
     base,
     changed,
     directory: from(directory),
+    gateCommit,
+    sinceGate: gateCommit === null ? [] : await pathsBetween(worktree, gateCommit, head),
   };
 }
 
@@ -771,7 +832,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isTextOrNull = (value: unknown): value is string | null => value === null || typeof value === "string";
 const isNumberOrNull = (value: unknown): value is number | null => value === null || typeof value === "number";
 
-function isChainStage(value: unknown): value is ChainStage {
+function isGateRun(value: unknown): value is GateRun {
+  return isRecord(value) && typeof value.command === "string" && isNumberOrNull(value.exitCode) && typeof value.output === "boolean";
+}
+
+/** A stage as a file holds one: one written before a chain ran a broad gate has no `gate`. */
+type WrittenStage = Omit<ChainStage, "gate"> & { gate?: GateRun | null };
+
+function isChainStage(value: unknown): value is WrittenStage {
   return (
     isRecord(value) &&
     CHAIN_STAGE_KINDS.includes(value.kind as ChainStageKind) &&
@@ -781,12 +849,13 @@ function isChainStage(value: unknown): value is ChainStage {
     typeof value.startedAt === "number" &&
     isNumberOrNull(value.endedAt) &&
     isNumberOrNull(value.headlessId) &&
-    typeof value.refusals === "number"
+    typeof value.refusals === "number" &&
+    (value.gate === undefined || value.gate === null || isGateRun(value.gate))
   );
 }
 
-/** A chain as a file holds one: one written before a chain kept the time of its state has no `since`. */
-export type WrittenChain = Omit<Chain, "since"> & { since?: number };
+/** A chain as a file holds one: one written before a chain kept the time of its state has no `since`, and its stages are as a file holds them. */
+export type WrittenChain = Omit<Chain, "since" | "stages"> & { since?: number; stages: WrittenStage[] };
 
 /** Whether a value is a chain as the store writes one, or wrote one before a chain kept the time of its state. */
 export function isChain(value: unknown): value is WrittenChain {
@@ -801,14 +870,14 @@ export function isChain(value: unknown): value is WrittenChain {
   );
 }
 
-/** Only the fields of a chain, each stage a copy. A chain written with no `since` takes the end of its newest stage, the start of that stage where it did not end, and 0 where it holds no stage. */
+/** Only the fields of a chain, each stage a copy, with no run of a broad gate where it was written with none. A chain written with no `since` takes the end of its newest stage, the start of that stage where it did not end, and 0 where it holds no stage. */
 export function chainOf(chain: WrittenChain): Chain {
   const newest = chain.stages.at(-1);
   return {
     state: chain.state,
     says: chain.says,
     reviewedAt: chain.reviewedAt,
-    stages: chain.stages.map(({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals }) => ({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals })),
+    stages: chain.stages.map(({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate }) => ({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate: gate ? { command: gate.command, exitCode: gate.exitCode, output: gate.output } : null })),
     since: chain.since ?? newest?.endedAt ?? newest?.startedAt ?? 0,
   };
 }

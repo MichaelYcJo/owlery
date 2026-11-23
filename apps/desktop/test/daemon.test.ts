@@ -4121,6 +4121,8 @@ describe("the commit of a person's word", () => {
     const { c, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
     const a = workItems[0]!;
     const directory = withDirectory(a, "1795388700-renamed");
+    // A chain starts only on a branch whose records name a broad gate command.
+    writeFileSync(join(a.worktree, "seal", "config.json"), '{ "Broad gate": "true" }\n');
     git(a.worktree, "add", "--all");
     git(a.worktree, "commit", "--quiet", "-m", "chore: add the records and declare the routing");
     const stood = readFileSync(join(directory, "routing.md"), "utf8");

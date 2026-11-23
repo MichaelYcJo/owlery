@@ -148,7 +148,7 @@ describe("RepositoryStore", () => {
     const dir = runDir();
     const store = new RepositoryStore(dir, () => 1);
     const { item } = store.addWorkItem(PLACE);
-    const stage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 4, refusals: 0 } as const;
+    const stage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 4, refusals: 0, gate: null } as const;
     const chain: Chain = { state: "reviewed", says: "The review rounds settled at ccccccc, after round 1.", reviewedAt: "c".repeat(40), stages: [stage], since: 3 };
     expect(store.setWorkItem(item.id, { chain })).toBe(true);
     expect(store.setWorkItem(item.id, { chain })).toBe(false);
@@ -163,6 +163,12 @@ describe("RepositoryStore", () => {
     const { since: _since, ...written } = chain;
     writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: written }));
     expect(new RepositoryStore(dir).workItem(1)?.item.chain).toEqual({ ...chain, since: 2, stages: [{ ...stage, headlessId: null }] });
+    // A stage a build before the broad gate wrote holds no run of one, and a gate's stage is read with its run.
+    const { gate: _gate, ...old } = stage;
+    const gate = { ...stage, kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: 3, output: true } };
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, stages: [old, gate] } }));
+    expect(new RepositoryStore(dir).workItem(1)?.item.chain).toEqual({ ...chain, stages: [{ ...stage, headlessId: null }, gate] });
+    expect(new RepositoryStore(dir).repositories()).toHaveLength(1);
     // A file whose chain is none of a chain's states is read as no repository, as a file whose setup is none is.
     writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, state: "sealed" } }));
     expect(new RepositoryStore(dir).repositories()).toEqual([]);

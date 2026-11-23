@@ -970,6 +970,17 @@ export async function pathsOfCommits(worktree: string, from: string, to: string)
 }
 
 /**
+ * The paths at which the trees of two commits differ, each once: what
+ * `git diff --name-only` prints for the two, with a file that was moved as
+ * both of its paths. It walks no commit between them, so a merge's own
+ * changes are among the paths and a change that a later commit took back is
+ * not. It throws git's words where either names no commit.
+ */
+export async function pathsBetween(worktree: string, from: string, to: string): Promise<string[]> {
+  return nulPaths(await git(worktree, ["diff", "--name-only", "--no-renames", "-z", from, to], BRANCH_OUTPUT_BYTES));
+}
+
+/**
  * What `to` changed against `from`, as `git diff` prints it: the paths, and
  * the diff's text. With `sinceFork` the diff is from the commit the two last
  * shared, so what `from` gained since is no part of it. It throws git's

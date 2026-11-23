@@ -32,7 +32,7 @@ const QUESTIONS: Question[] = [
 ];
 const UNREAD: Unread[] = [{ line: 40, why: "an empty `seal` block" }];
 const SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
-const CHAIN: Chain = { state: "stopped", says: "Review round 2 failed: the session reached its time limit and was stopped.", reviewedAt: null, stages: [{ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 1, refusals: 0 }, { kind: "round", round: 2, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: 3, endedAt: 4, headlessId: 2, refusals: 1 }], since: 6 };
+const CHAIN: Chain = { state: "stopped", says: "Review round 2 failed: the session reached its time limit and was stopped.", reviewedAt: null, stages: [{ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 1, refusals: 0, gate: null }, { kind: "round", round: 2, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: 3, endedAt: 4, headlessId: 2, refusals: 1, gate: null }], since: 6 };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -329,6 +329,10 @@ describe("LastLook", () => {
     const { since: _since, ...written } = CHAIN;
     writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: written }] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, since: 4 } }] });
+    // A stage a build before the broad gate wrote holds no run of one, and a gate's stage is kept with its run.
+    const gate = { ...CHAIN.stages[0], kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: 3, output: true } };
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages.map(({ gate: _gate, ...old }) => old), { ...gate, gate: { ...gate.gate, extra: 1 } }] } }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages, gate] } }] });
     for (const chain of ["running", { ...CHAIN, state: "sealed" }, { ...CHAIN, since: "6" }, { ...CHAIN, stages: [{ ...CHAIN.stages[0], kind: "seal" }] }]) {
       writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain }] }));
       expect(new LastLook(dir).get(), JSON.stringify(chain)).toBeNull();

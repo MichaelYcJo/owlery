@@ -1,11 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { basename, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type Repository, type RoleStage, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
+import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type Repository, type RoleStage, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -14,6 +14,7 @@ import {
   type Ask,
   CHAIN_STAGES_KEPT,
   ChainStop,
+  GATE_SUBJECT,
   ORCHESTRATOR,
   PARKED_SAYS,
   READING_SAYS,
@@ -36,6 +37,7 @@ import {
   fixPassRecord,
   fixedCommitsHeld,
   gateBefore,
+  gateNotRunSays,
   inFolder,
   leftOpen,
   leftOpenAgain,
@@ -59,6 +61,7 @@ import {
   stoppedSays,
 } from "./chain";
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
+import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -69,6 +72,8 @@ import { type Held, RepositoryStore, type StoredRepository } from "./repositorie
 import { writeRecordFile } from "./record-writer";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
+import { GATE_FILE, gateText } from "./seal-records";
+import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
@@ -166,7 +171,7 @@ export interface DaemonOptions {
   setupCommandFor?: (command: string, id: number) => PaneCommand;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, and the times the daemon first read each block of a work item's record at, in `record-times.json`, and the cost ledger, in `ledger.jsonl`; without it all five are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all six are in memory alone. */
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
@@ -196,6 +201,12 @@ export interface DaemonOptions {
   keptHeadless?: number;
   /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer; `ROUNDS_CEILING` of `chain.ts` when absent. */
   roundsCeiling?: number;
+  /** How long a broad gate's command may run, from its start, before the daemon ends it; `GATE_LIMIT_MS` of `gate.ts` when absent. */
+  gateLimitMs?: number;
+  /** The environment a broad gate's command runs with. When absent, it is a pane's without the variables that say a terminal stands, with the `PATH` the person's interactive login shell prints, which the daemon asks that shell for once (`gate.ts#gateEnvironment`). */
+  gateEnv?: Record<string, string>;
+  /** How many of the last characters a broad gate's command printed the daemon keeps; `GATE_OUTPUT_CHARS` of `gate.ts` when absent. */
+  gateOutputChars?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -244,6 +255,13 @@ interface HeadlessSession {
   entered: boolean;
 }
 
+/** A broad gate whose command runs: its process, the wait for its time limit, and what stopped it before it ended by itself, once something did, with the second half of the sentence that says so. */
+interface RunningGate {
+  process: GateProcess;
+  limit: NodeJS.Timeout | undefined;
+  stopped: { by: "limit" | "request" | "daemon"; why: string } | null;
+}
+
 /** The features an adapter declares to launch a role: without the first a role session would hold every tool, and without the second no call of it would be answered by its role's rule. */
 const ROLE_FEATURES: readonly RoleFeature[] = ["role-tools", "permission-requests"];
 
@@ -274,7 +292,7 @@ export class Daemon {
   private readonly keepAwake: KeepAwakeStore;
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
   private readonly times: RecordTimes;
-  // The cost ledger: one entry for each headless session that ended. Between two reads it holds in memory only the entries whose append failed.
+  // The cost ledger: one entry for each headless session that ended and for each run of a broad gate that ended. Between two reads it holds in memory only the entries whose append failed.
   private readonly ledger: Ledger;
   // What was last read of each work item's record of decisions and questions, by the work item's id, as a client is sent it. The record is the store: this is what the last read found, and nothing is written from it.
   private readonly recordsRead = new Map<number, RecordRead>();
@@ -308,6 +326,12 @@ export class Daemon {
   private noticeAsks = 0;
   // The work items whose chain is running, by their ids, each with the promise of its run's end. A chain is here from its start until it rests, between two stages too, when no session of it works.
   private readonly chains = new Map<number, Promise<void>>();
+  // The broad gates whose command runs, by their work items' ids. A work item's chain runs one stage at a time, so it holds one at most.
+  private readonly gates = new Map<number, RunningGate>();
+  // The `PATH` of the person's interactive login shell, asked of that shell once in the daemon's life, at the first broad gate: null where the shell printed none.
+  private gatePath: Promise<string | null> | undefined;
+  // What each work item's newest broad gate printed, by the work item's id, where the daemon was given no run folder to keep it in.
+  private readonly gateOutputs = new Map<number, string>();
   // Settled once the daemon closes, so a chain that waits for a stage's session waits no longer.
   private closing: () => void = () => {};
   private readonly closes = new Promise<void>((resolve) => {
@@ -554,6 +578,11 @@ export class Daemon {
       if (session.info.state === "working") this.enter(session, "failed", "daemon");
       if (session.run) stops.push(session.run.stop());
     }
+    // A broad gate's command is ended as a stage's session is: its chain's run waits for the command's process, and the close waits for that run.
+    for (const id of this.gates.keys()) {
+      const stopping = this.stopGate(id, "daemon", "the daemon closed");
+      if (stopping !== undefined) stops.push(stopping);
+    }
     this.fetches.close();
     this.hold?.release();
     this.hold = undefined;
@@ -660,6 +689,8 @@ export class Daemon {
             // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
             this.times.drop([stored.item.id]);
             this.flushTimes();
+            // What an earlier work item's broad gate printed is kept under its id too, and is none of this one's.
+            this.dropGateOutput(stored.item.id);
             // A creation is also how a repository is added, so the inbox below says what it holds of the records place.
             this.readRecords(stored.repository);
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
@@ -1198,6 +1229,31 @@ export class Daemon {
         if (session.info.state === "working") void this.stopHeadless(session, "the session was stopped at a request before it finished", "request");
         return;
       }
+      case "stopGate": {
+        const { workItemId } = message as { workItemId: unknown };
+        if (typeof workItemId !== "number" || !this.gates.has(workItemId)) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: `No broad gate of work item ${String(workItemId)} is running.` });
+          return;
+        }
+        // The answer first, so the client that asked knows its request was carried out when the inbox carries the stopped chain.
+        this.send(socket, { type: "done", requestId: message.requestId });
+        void this.stopGate(workItemId, "request", "the command was stopped at a request before it ended");
+        return;
+      }
+      case "readGateOutput": {
+        const held = this.store.workItem(message.workItemId);
+        if (!held) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: `no work item ${String(message.workItemId)}` });
+          return;
+        }
+        const text = this.gateOutput(held.item.id);
+        if (text === null) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: `Owlery keeps no output of a broad gate of work item ${String(held.item.id)}.` });
+          return;
+        }
+        this.send(socket, { type: "gateOutput", requestId: message.requestId, workItemId: held.item.id, text, cut: outputCut(text, this.options.gateOutputChars ?? GATE_OUTPUT_CHARS) });
+        return;
+      }
       case "readLedger": {
         const held = this.store.workItem(message.workItemId);
         if (!held) {
@@ -1313,7 +1369,7 @@ export class Daemon {
     return `An archive of work item ${String(id)} is ending its sessions. Try again.`;
   }
 
-  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch and of each record, and the times of each record's blocks, which leave `record-times.json` with them. A delete and a repository's removal call it. The record itself goes with the worktree. The ledger keeps their entries: it is published after its work items are merged and deleted (docs/roadmap.md, "Done criteria"). What the times hold under an id that is given to a new work item is dropped where the id is given, in the `createWorkItem` case. The store of the repositories is not touched. */
+  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch and of each record, what each one's newest broad gate printed, with its file of the run folder, and the times of each record's blocks, which leave `record-times.json` with them. A delete and a repository's removal call it. The record itself goes with the worktree. The ledger keeps their entries: it is published after its work items are merged and deleted (docs/roadmap.md, "Done criteria"). What the times hold under an id that is given to a new work item is dropped where the id is given, in the `createWorkItem` case. The store of the repositories is not touched. */
   private dropWorkItems(ids: ReadonlySet<number>): void {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
@@ -1330,6 +1386,7 @@ export class Daemon {
       this.aheadCounts.delete(id);
       this.branches.delete(id);
       this.recordsRead.delete(id);
+      this.dropGateOutput(id);
     }
     this.times.drop(ids);
     this.flushTimes();
@@ -1387,8 +1444,10 @@ export class Daemon {
    * carries the sessions the person was told of. Where a session runs that
    * `told` does not name, it refuses and ends none. Otherwise it kills each
    * pane's process and stops each headless run, which is then `failed` with
-   * the error `why` and stopped at a request, and waits until each pane's
-   * process has exited and each headless run it stopped has ended. Where a
+   * the error `why` and stopped at a request, ends the command of a broad
+   * gate that runs for one of them, whose stage then fails with `why`, and
+   * waits until each pane's process has exited and each headless run and
+   * each command it stopped has ended. Where a
    * pane's has not within the wait, it refuses with the sentence `late`, and
    * goes on where `late` is null; a headless run that has not ended by then
    * refuses nothing. It refuses where a session started in one of the work
@@ -1397,6 +1456,11 @@ export class Daemon {
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
     const stops = headless.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
+    // A broad gate is no session the person was told of by its id: it is the chain's, and it ends with the work item's sessions.
+    for (const id of workItemIds) {
+      const stopping = this.stopGate(id, "request", `the command was ${why}`);
+      if (stopping !== undefined) stops.push(stopping);
+    }
     for (const session of panes) {
       session.ended = true;
       session.terminal.kill();
@@ -1948,7 +2012,9 @@ export class Daemon {
    * of, as a sentence a window shows as it is, or null where it can. The
    * first of these that holds is the reason: a chain of the work item is
    * running; a session of it is working; the worktree cannot take a commit
-   * (`worktrees.ts#whyNoCommit`); it holds no records root; two directories
+   * (`worktrees.ts#whyNoCommit`); it holds no records root; the `Broad gate`
+   * key of its `config.json` holds no command, so no gate could pass and a
+   * round would be spent for nothing; two directories
    * of its records name the branch; it holds a change no commit holds, or an
    * untracked file, outside the work item's directory, and anywhere where
    * the work item has no directory yet; the work item records no base
@@ -1965,7 +2031,9 @@ export class Daemon {
     if (this.works(workItemId)) return `A session of work item ${String(workItemId)} is working, and a round reads a tree nothing is changing. Get a seal once the session has finished.`;
     const why = await whyNoCommit(worktree, branch);
     if (why !== null) return `Owlery cannot commit a record in the worktree now: ${why}.`;
-    if (rootOf(worktree) === null) return "The worktree holds no place for work records, so a round's record has nowhere to stand. Set up the records in the repository, and bring them onto this branch.";
+    const root = rootOf(worktree);
+    if (root === null) return "The worktree holds no place for work records, so a round's record has nowhere to stand. Set up the records in the repository, and bring them onto this branch.";
+    if ((readRecordsPlace(worktree).broadGate ?? "").trim() === "") return `${root}/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository's check there, and commit it.`;
     const directories = workItemDirectories(worktree, branch);
     if (directories.length > 1) return `Two directories of the worktree's records name the branch ${branch}: ${directories.map((directory) => relative(worktree, directory)).join(" and ")}. Owlery cannot tell which is the work item's.`;
     const [directory] = directories;
@@ -1996,8 +2064,8 @@ export class Daemon {
   /**
    * Runs a work item's chain from where its records stand until it rests:
    * before each stage it reads the step the records owe (`chain.ts#stepOwed`)
-   * and runs that stage, and it rests `parked` or `reviewed` where the
-   * records owe none. Before a fix pass it reads what the chain owes first
+   * and runs that stage, the broad gate among them (`runGate`), and it rests
+   * `parked` or `reviewed` where the records owe none. Before a fix pass it reads what the chain owes first
    * (`chain.ts#gateBefore`): the orchestrator's judgment of whether the
    * rounds are converging, whose `no` stops the chain, or a stop at the
    * ceiling of its rounds. A stage whose answer asks questions is followed
@@ -2037,7 +2105,8 @@ export class Daemon {
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
         if (step.is === "reviewed") return rest("reviewed", reviewedSays(step.round, step.at), step.at);
-        if (step.is === "round") {
+        if (step.is === "gate") await this.runGate(held, directory, standing, step.round);
+        else if (step.is === "round") {
           const asks = await this.runRound(held, directory, standing, step);
           if (asks.length > 0) await this.runRuling(held, directory, standing.directory, "round", step.round, "proofer", asks);
         } else {
@@ -2161,7 +2230,7 @@ export class Daemon {
     const before = held?.item.chain;
     if (!held || !before) throw new ChainStop("the daemon no longer keeps the work item");
     const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, worktree);
-    const working: ChainStage = { kind, round, state: "working", failure: null, startedAt: session.info.startedAt, endedAt: null, headlessId: session.info.id, refusals: 0 };
+    const working: ChainStage = { kind, round, state: "working", failure: null, startedAt: session.info.startedAt, endedAt: null, headlessId: session.info.id, refusals: 0, gate: null };
     this.chainSet(workItemId, { ...before, says: runningSays(kind, round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
     await Promise.race([session.ended, this.closes]);
     // The stage's process is ended before the next stage starts, and before the daemon reads or commits what the stage left.
@@ -2310,6 +2379,184 @@ export class Daemon {
       if (parked.length > 0 && this.park(item.id, { by, questions: parked }) === undefined) throw unwritten;
       await this.chainCommit(item, directory, [record], `chore: record the orchestrator's judgment after round ${String(round)}`, { refused });
     });
+  }
+
+  /**
+   * Runs the broad gate of a work item's chain: the command the `Broad
+   * gate` key of the records root's `config.json` holds in the worktree,
+   * handed whole to `/bin/sh -c` there with no terminal (`gate.ts#startGate`),
+   * listed with the chain as its newest stage. It is no session, so it
+   * starts through no adapter and answers no permission request.
+   *
+   * Before the command starts, the worktree's head is the one the order was
+   * read at and the worktree holds no change outside the work item's
+   * directory, so the command the daemon then reads is the one the head
+   * commit holds and the tree it runs on is that commit's. Where one of
+   * those does not hold, where the key holds no command and where the work
+   * item records no base commit, nothing starts and the chain stops with a
+   * sentence that says so.
+   *
+   * Only the exit of the daemon's own process counts. Where the command
+   * exits with 0, and the head and the tree then stand as they stood, the
+   * daemon appends one run block, `run: <head> against <base commit>`, to
+   * `trail/gate.md` as the head holds the file (`seal-records.ts#gateText`)
+   * and commits it. Every other end fails the stage and commits nothing: an
+   * exit with another code, a signal, the time limit, a `stopGate`, an end
+   * of the work item's sessions, a head that moved, and a change the
+   * command left outside the work item's directory. What an earlier run of
+   * the work item printed is removed before the command starts, and what
+   * this one printed is kept once it has ended, whichever of those ends it
+   * was. The run has one entry in the ledger, with no usage. A failed stage
+   * throws a `StageStopped` with the chain's sentence. A daemon that closed
+   * meanwhile has ended the command: it enters the run as stopped by the
+   * daemon, keeps nothing the command printed and stores nothing of the
+   * chain, so the stage stays stored as working with no output.
+   */
+  private async runGate(held: Held, directory: string, standing: Standing, round: number): Promise<void> {
+    const { item, repository } = held;
+    const { worktree, baseCommit } = item;
+    const now = this.options.now ?? Date.now;
+    const file = join(directory, GATE_FILE);
+    const notRun = (why: string): StageStopped => new StageStopped(gateNotRunSays(why));
+    const head = await worktreeHead(worktree);
+    if (head !== standing.head) throw notRun(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
+    const loose = await this.looseOutside(worktree, directory);
+    if (loose !== null) throw notRun(loose);
+    const command = readRecordsPlace(worktree).broadGate ?? "";
+    if (command.trim() === "") throw notRun(`the worktree's config.json names no command under "Broad gate"`);
+    if (baseCommit === null) throw notRun("the work item records no commit its branch was cut at, so the run's record has no base to name");
+    const env = this.options.gateEnv ?? gateEnvironment(process.env, await (this.gatePath ??= loginPath(process.env)));
+    // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
+    if (this.closed) throw new ChainStop("the daemon closed");
+    const gone = this.whyNoRun(item.id);
+    if (gone !== null) throw new ChainStop(gone);
+    const before = this.store.workItem(item.id)?.item.chain;
+    if (!before) throw new ChainStop("the daemon no longer keeps the work item");
+    // From here to the stage's listing nothing waits, so a stop that arrives finds the gate.
+    this.dropGateOutput(item.id);
+    const startedAt = now();
+    const started = startGate({ command, cwd: worktree, env, outputChars: this.options.gateOutputChars });
+    const gate: RunningGate = { process: started, limit: undefined, stopped: null };
+    gate.limit = setTimeout(() => void this.stopGate(item.id, "limit", "the command reached its time limit and was stopped"), this.options.gateLimitMs ?? GATE_LIMIT_MS);
+    this.gates.set(item.id, gate);
+    const run: GateRun = { command: cutText(command), exitCode: null, output: false };
+    const working: ChainStage = { kind: "gate", round, state: "working", failure: null, startedAt, endedAt: null, headlessId: null, refusals: 0, gate: run };
+    this.chainSet(item.id, { ...before, says: runningSays("gate", round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
+    // The command's process has exited before anything else of the chain happens in the worktree.
+    const end = await started.ended;
+    clearTimeout(gate.limit);
+    this.gates.delete(item.id);
+    const endedAt = now();
+    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, startedAt, endedAt, state, stopped, usage: null });
+    if (this.closed) {
+      enter("failed", "daemon");
+      throw new ChainStop("the daemon closed");
+    }
+    const output = this.keepGateOutput(item.id, end.output);
+    let failure: string | null = null;
+    // A command that was stopped did not pass, whatever it exited with: one that takes the signal can exit with 0.
+    if (gate.stopped !== null) failure = gate.stopped.why;
+    else if (end.error !== null) failure = `the command did not start: ${end.error}`;
+    else if (end.signal !== null) failure = `the signal ${end.signal} ended the command`;
+    else if (end.exitCode !== 0) failure = `the command exited with code ${String(end.exitCode)}`;
+    else {
+      try {
+        const after = await worktreeHead(worktree);
+        if (after !== head) throw new ChainStop(`the worktree's head moved during the run, from ${head.slice(0, 7)} to ${after.slice(0, 7)}, so the command did not run on one commit`);
+        const left = await this.looseOutside(worktree, directory);
+        if (left !== null) throw new ChainStop(`after the run ${left}`);
+        // The record's text is built on the file as the head holds it, so no line the worktree alone holds is committed with the run.
+        const stood = await fileAt(worktree, head, relative(worktree, file));
+        await this.chainCommit(item, directory, [file], GATE_SUBJECT, { write: () => writeRecordFile(worktree, file, gateText(stood, basename(directory), { head, base: baseCommit })) });
+      } catch (error) {
+        if (this.closed) throw error;
+        failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
+      }
+    }
+    const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt, gate: { ...run, exitCode: end.exitCode, output } };
+    enter(ended.state === "finished" ? "finished" : "failed", gate.stopped?.by ?? null);
+    const chain = this.store.workItem(item.id)?.item.chain;
+    if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
+    if (failure !== null) throw new StageStopped(stoppedSays("gate", round, failure));
+  }
+
+  /** Why a broad gate cannot run on the worktree as the head's tree, as the second half of a sentence, or null where it can: the worktree holds a change no commit holds, or an untracked file, outside the work item's directory. */
+  private async looseOutside(worktree: string, directory: string): Promise<string | null> {
+    try {
+      await this.noChangeOutside(worktree, directory);
+      return null;
+    } catch (error) {
+      if (!(error instanceof ChainStop)) throw error;
+      return error.message;
+    }
+  }
+
+  /**
+   * Ends the command of the broad gate that runs for a work item: it
+   * signals the command's process group and kills it where the command has
+   * not exited after the wait (`gate.ts#startGate`). The gate's stage then
+   * fails with `why`, the first one given where two stops arrive, and its
+   * entry of the ledger says what stopped it. It gives the promise of the
+   * command's end, and nothing where no gate of the work item runs.
+   */
+  private stopGate(workItemId: number, by: "limit" | "request" | "daemon", why: string): Promise<void> | undefined {
+    const gate = this.gates.get(workItemId);
+    if (gate === undefined) return undefined;
+    gate.stopped ??= { by, why };
+    return gate.process.stop();
+  }
+
+  /** The file of the run folder that holds what a work item's newest broad gate printed, or nothing for a daemon given no run folder. */
+  private gateOutputFile(workItemId: number): string | undefined {
+    return this.options.runDir === undefined ? undefined : join(this.options.runDir, GATE_OUTPUT_FOLDER, `${String(workItemId)}.txt`);
+  }
+
+  /**
+   * Keeps what a work item's broad gate printed, and gives whether a text
+   * is kept: in its file of the run folder, readable by the user alone and
+   * written whole, so a reader after the daemon's end finds it, and in
+   * memory for a daemon given no run folder. A command that printed nothing
+   * leaves nothing kept. A write that fails is logged, and nothing is kept.
+   */
+  private keepGateOutput(workItemId: number, text: string): boolean {
+    if (text === "") return false;
+    const file = this.gateOutputFile(workItemId);
+    if (file === undefined) {
+      this.gateOutputs.set(workItemId, text);
+      return true;
+    }
+    try {
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+      writeWholeFile(file, text);
+      return true;
+    } catch (error) {
+      console.error(`the output of the broad gate of work item ${String(workItemId)} was not written: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
+  /** Removes what is kept of a work item's broad gate: before its next run starts, and where the work item leaves the lists or its id is given to a new one. */
+  private dropGateOutput(workItemId: number): void {
+    this.gateOutputs.delete(workItemId);
+    const file = this.gateOutputFile(workItemId);
+    if (file === undefined) return;
+    try {
+      rmSync(file, { force: true });
+    } catch (error) {
+      console.error(`the output of the broad gate of work item ${String(workItemId)} was not removed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** What is kept of a work item's newest broad gate, or null where nothing is. */
+  private gateOutput(workItemId: number): string | null {
+    const file = this.gateOutputFile(workItemId);
+    if (file === undefined) return this.gateOutputs.get(workItemId) ?? null;
+    try {
+      return readFileSync(file, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error(`the output of the broad gate of work item ${String(workItemId)} was not read: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   /** Sends every client the whole of the four lists, after one of them changed. */
