@@ -333,7 +333,7 @@ describe("LastLook", () => {
     }
   });
 
-  it("reads a look a build before the chain wrote, whose work items lack it, with none, keeps a chain a look holds with only a chain's fields, reads a chain an earlier build stored as reviewed as none with the look around it kept, and reads a look whose chain is none as no look", () => {
+  it("reads a look a build before the chain wrote, whose work items lack it, with none, keeps a chain a look holds with only a chain's fields, reads a chain an earlier build stored as reviewed or as sealed as none with the look around it kept, and reads a look whose chain is none as no look", () => {
     const dir = runDir();
     const file = join(dir, "last-look.json");
     const { chain: _chain, ...before } = WORK_ITEM;
@@ -349,12 +349,12 @@ describe("LastLook", () => {
     const gate = { ...CHAIN.stages[0], kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: 3, output: true } };
     writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages.map(({ gate: _gate, ...old }) => old), { ...gate, gate: { ...gate.gate, extra: 1 } }] } }] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages, gate] } }] });
-    // A sealed chain and a seal's stage are kept, and a field an earlier build wrote on every chain is dropped.
+    // A chain that rests and a seal's stage are kept, and a field an earlier build wrote on every chain is dropped.
     const seal = { ...CHAIN.stages[0], kind: "seal" };
-    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "sealed", reviewedAt: null, stages: [seal] } }] }));
-    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "sealed", stages: [seal] } }] });
-    // A build before the seal rested a chain `reviewed`: the look is read, with that work item's chain as none.
-    for (const reviewed of [{ ...CHAIN, state: "reviewed", reviewedAt: "c".repeat(40) }, { ...CHAIN, state: "reviewed" }]) {
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", reviewedAt: null, stages: [seal] } }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", stages: [seal] } }] });
+    // A build before the seal rested a chain `reviewed`, and an earlier build of this release rested one `sealed`: the look is read, with that work item's chain as none.
+    for (const reviewed of [{ ...CHAIN, state: "reviewed", reviewedAt: "c".repeat(40) }, { ...CHAIN, state: "reviewed" }, { ...CHAIN, state: "sealed", stages: [seal] }]) {
       writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: reviewed }] }));
       expect(new LastLook(dir).get(), JSON.stringify(reviewed)).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: null }] });
     }

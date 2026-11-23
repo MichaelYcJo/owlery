@@ -151,7 +151,7 @@ const BASE = "c".repeat(40);
 const BLOCK = [`target: ${GATE} against main`, "Verdict: sealed", "built-by: the session, s-1", "judged-by: s-2", "model: fake", "rules: owlery 0.0.2"];
 
 /** The seal section the composer writes for `BLOCK`. */
-const SECTION = [SECTION_OPEN, "## Owlery seal", "", `The newest verdict of \`${DIRECTORY}/guarantee.md\`, as this pull request's head commit holds it:`, "", "```seal", ...BLOCK, "```", SECTION_CLOSE].join("\n");
+const SECTION = [SECTION_OPEN, "## Owlery seal", "", `The newest verdict of \`${DIRECTORY}/guarantee.md\`. A seal binds the commit it names, and the check \`Owlery seal\` says whether it holds at this pull request's head commit:`, "", "```seal", ...BLOCK, "```", SECTION_CLOSE].join("\n");
 
 /** A round record with one finding closed by the verdict given, or with none. */
 function round(number: number, closed: string | null): string {

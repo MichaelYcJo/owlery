@@ -12,7 +12,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
-import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
+import { byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
   answersFor,
   askButton,
@@ -50,6 +50,7 @@ import {
   screenMoves,
   sealButton,
   type SealRefusal,
+  sealShown,
   type ScreenTurns,
   screenTurns,
   stageOf,
@@ -152,6 +153,10 @@ const questionsList = byId("questions-list");
 const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
 const getSeal = byId<HTMLButtonElement>("get-seal");
+const sealHead = byId("view-seal-head");
+const sealWhy = byId("view-seal-why");
+// The seal's place at the view's foot is made once, and drawn again for each work item the view shows.
+const viewSeal = sealPlace("view", null);
 const sealSays = byId("seal-says");
 const sealRefusal = byId("seal-refusal");
 const pullRequestSection = byId("view-pull-request");
@@ -894,13 +899,22 @@ function sendAnswers(): void {
 }
 
 /**
- * Draws "Get a seal" at the view's foot for the view's work item (./view,
- * `sealButton`): the button where the daemon sent the work item's chain,
- * the chain's sentence above it and the daemon's refusal of the last press
- * under it, while the chain stands as it stood at that refusal.
+ * Draws the view's foot for the view's work item: the seal's place and its
+ * words for the seal its branch's head holds (./view, `sealShown`), with
+ * the seal's sentence under its head where the seal is broken, and
+ * "Get a seal" (./view, `sealButton`): the button where the daemon sent the
+ * work item's chain, in its words for that seal, the chain's sentence above
+ * it and the daemon's refusal of the last press under it, while the chain
+ * stands as it stood at that refusal.
  */
 function showSeal(workItem: WorkItem): void {
+  drawSeal(viewSeal, workItem.seal);
+  const shown = sealShown(workItem.seal);
+  sealHead.textContent = shown.words;
+  // The daemon's sentence is plain text, never markup.
+  sealWhy.textContent = shown.why;
   const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
+  getSeal.textContent = button.words;
   getSeal.hidden = !button.offered;
   getSeal.disabled = !button.enabled;
   getSeal.title = button.title;
@@ -1223,7 +1237,7 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     },
     { capture: true },
   );
-  byId("view-seal-place").replaceWith(sealPlace("view"));
+  byId("view-seal-place").replaceWith(viewSeal);
   getSeal.addEventListener("click", askSeal);
   byId("pull-request-open").addEventListener("click", () => {
     if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);

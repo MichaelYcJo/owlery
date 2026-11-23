@@ -32,10 +32,11 @@ You work in the folder the session starts in. It is the work item's
 worktree, and the commit you audit is the one your prompt's target line
 names: the commit the broad gate passed on. Your prompt gives you the run's
 number, the heading and the target line your section carries, the paths of
-the records to read, the paths the branch changed since it left its base,
-and their diff. The work item names no issue, so no issue's text is among
-what you read: the routing, and the frame where one stands, say what was
-asked.
+the records to read, the paths the branch changed, and their diff. Where
+your prompt names the seal this run follows, they are what changed since
+that seal's commit, and otherwise what changed since the branch left its
+base. The work item names no issue, so no issue's text is among what you
+read: the routing, and the frame where one stands, say what was asked.
 
 ## Order of work
 
@@ -153,3 +154,13 @@ reads again the claims whose coordinates a commit since the newest verdict
 block's `target:` touched and the claim a `withheld` reason named, reads
 the parties again, and answers with its own section. The daemon appends it
 below the earlier ones, which stay as they were.
+
+**A run that follows a broken seal is handed the part that changed.** Where
+your prompt names the seal this run follows, a commit after that seal's
+commit broke it, and the paths and the diff your prompt carries are what
+changed since that commit. Read the earlier run's section as that run's
+claim, and check against the tree the claims of the records written after
+that seal and the part that changed. Then name in a row of your section's
+first table the run you stand on for the rest. Your verdict is still a
+verdict on the whole branch against its base, and its target line is your
+prompt's.

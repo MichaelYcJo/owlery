@@ -12,7 +12,8 @@
 // leads with the stand-in for `gh` (fixtures/sample-gh/gh), so the daemon
 // then pushes the branch to a bare repository in the case's temporary
 // folder and opens the pull request through the stand-in, and nothing
-// reaches GitHub. The app is started with `OWLERY_OPENER` naming a script
+// reaches GitHub. The last case commits once more with git in the work
+// item's worktree after the seal, which breaks it, and pushes nothing. The app is started with `OWLERY_OPENER` naming a script
 // that notes each address it is handed, so no browser opens. The page's
 // `Notification` is replaced by a recorder, so nothing reaches the system's
 // notifications.
@@ -344,6 +345,41 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
       await app.click("#nav-inbox");
       await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('${line} .says')?.textContent === "Checks passed"`, "the pull request's result in the line's second row");
       expect(await app.evaluate(`document.querySelector('${line} .state-icon').classList.contains("finished")`)).toBe(true);
+    } finally {
+      second.close();
+    }
+  });
+
+  it("once a commit lands after the seal, parts the seal on the line, gives the line the state waiting and Seal broken in its second row, notifies of the broken seal, and shows at the view's foot Get a new seal and the seal's sentence, above the pull request's section, which still lists the pull request", async () => {
+    const second = await client();
+    try {
+      const workItem = second.alpha();
+      expect(workItem.seal?.state).toBe("sealed");
+      const sealedAt = workItem.seal?.commit.slice(0, 7) ?? "";
+      // The inbox is in front, as the case before left it, so the window tells of the seal that broke.
+      const line = `#inbox-lines button[data-work-item="${workItem.id}"]`;
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('${line} .says')?.textContent === "Checks passed"`, "the line of the pull request whose checks passed");
+      commitFile(workItem.worktree, "after-the-seal.ts");
+      await app.until(`document.querySelector('${line} .says')?.textContent === "Seal broken"`, "the broken seal in the line's second row", 20_000);
+      expect(await app.evaluate(`[document.querySelector('${line} .state-icon').classList.contains("waiting"), document.querySelector('${line} .seal').dataset.seal]`)).toEqual([true, "broken"]);
+      expect(await app.evaluate(`window.__notifications.filter((told) => told.body === "Seal broken").map((told) => told.title)`)).toEqual(["Alpha"]);
+
+      await app.click(`#repositories button[data-work-item="${workItem.id}"]`);
+      const why = `\`after-the-seal.ts\` changed after the sealed commit \`${sealedAt}\`.`;
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha" && document.getElementById("view-seal-why").textContent === ${JSON.stringify(why)}`, "the seal's sentence at the view's foot");
+      expect(
+        await app.evaluate(`(() => {
+          const seal = document.getElementById("view-seal");
+          const pullRequest = document.getElementById("view-pull-request");
+          const button = document.getElementById("get-seal");
+          return {
+            head: document.getElementById("view-seal-head").textContent,
+            underHead: document.getElementById("view-seal-head").nextElementSibling.id,
+            button: [button.textContent, button.hidden, button.disabled],
+            pullRequest: [pullRequest.hidden, document.getElementById("pull-request-number").textContent, Boolean(seal.compareDocumentPosition(pullRequest) & Node.DOCUMENT_POSITION_FOLLOWING)],
+          };
+        })()`),
+      ).toEqual({ head: `Seal broken, sealed at ${sealedAt}`, underHead: "view-seal-why", button: ["Get a new seal", false, false], pullRequest: [false, "Pull request #12", true] });
     } finally {
       second.close();
     }

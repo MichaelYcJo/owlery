@@ -1027,17 +1027,15 @@ def is_ancestor(root, sha, ref):
     return r.returncode == 0
 
 
-def follows(root, sha, base, item, only=None):
+def follows(root, sha, base, item):
     """None where `sha` is HEAD or every commit after it on the branch
-    touches only `item/` — only the files of `item/` named in `only`, where
-    it is given; else why not.
+    touches only `item/`; else why not.
 
     `("unseen", sha, "")` for a commit this repository cannot resolve,
     `("off", sha, "")` for one HEAD does not descend from, `("after",
     commit, path)` for the first commit after it, oldest first, touching
-    `path` outside what may follow. Merge commits and the base's own commits
-    are not the branch's."""
-    allowed = None if only is None else {f"{item}/{name}" for name in only}
+    `path` outside `item/`. Merge commits and the base's own commits are not
+    the branch's."""
     full = git(root, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
     if full is None:
         return ("unseen", sha, "")
@@ -1052,16 +1050,12 @@ def follows(root, sha, base, item, only=None):
             root, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", later
         )
         for path in (touched or "").split("\0"):
-            if not path:
-                continue
-            if not path.startswith(f"{item}/") or (
-                allowed is not None and path not in allowed
-            ):
+            if path and not path.startswith(f"{item}/"):
                 return ("after", later, path)
     return None
 
 
-def follows_reason(found, what, outside="the work item's records"):
+def follows_reason(found, what):
     """The sentence `follows`'s answer is refused with, about `what`."""
     kind, sha, path = found
     if kind == "unseen":
@@ -1070,8 +1064,95 @@ def follows_reason(found, what, outside="the work item's records"):
         return f"{what} names `{sha}`, which HEAD does not descend from"
     return (
         f"{what} is behind HEAD: commit {sha[:8]} after it touches `{path}`, "
-        f"outside {outside}"
+        "outside the work item's records"
     )
+
+
+def since_sealed(root, sha, item, base):
+    """None where nothing but the closing records of `item/` differs between
+    the tree of `sha` and HEAD's, HEAD descends from `sha`, and no commit of
+    the base that a merge brought after `sha` touches a path outside
+    `item/`; else why not.
+
+    The two trees are compared, so a merge commit, and a change one brings,
+    is read as any other commit, as Owlery's daemon reads a seal
+    (`seal-state.ts#sealAt`). The base's own commits that a merge brought
+    after `sha` are walked too: those `git merge-base HEAD <base>` holds and
+    `sha` does not, read with the paths `git log --name-only` prints for
+    them, as the daemon reads the commits after a round
+    (`worktrees.ts#pathsOfCommits`). The rounds arm's walk (`follows`)
+    leaves them out, and the two trees hold the same where the sealed tree
+    already held what they changed. `base` is the check's baseline, a ref
+    the checkout resolves; where git names no fork of HEAD and `base`,
+    nothing of the base is walked. `("unseen", sha, "")` for a commit this
+    repository cannot resolve, `("off", sha, "")` for one HEAD does not
+    descend from, `("differs", sha, path)` for the first path, in git's
+    order, that is no closing record and differs, and `("brought", sha,
+    path)` for the first path, newest commit first, that such a commit of
+    the base touched outside `item/`."""
+    allowed = {f"{item}/{name}" for name in CLOSING_RECORDS}
+    full = git(root, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
+    if full is None:
+        return ("unseen", sha, "")
+    full = full.strip()
+    if not is_ancestor(root, full, "HEAD"):
+        return ("off", sha, "")
+    out = git(root, "diff", "--name-only", "--no-renames", "-z", full, "HEAD")
+    for path in (out or "").split("\0"):
+        if path and path not in allowed:
+            return ("differs", full, path)
+    fork = git(root, "merge-base", "HEAD", base)
+    if fork is None:
+        return None
+    brought = git(root, "log", "--format=", "--name-only", "-z", fork.strip(), f"^{full}")
+    for path in (brought or "").split("\0"):
+        path = path.lstrip("\n")
+        if path and not path.startswith(f"{item}/"):
+            return ("brought", full, path)
+    return None
+
+
+# What the guarantee arm says of a seal that does not hold at HEAD, after
+# the reason `since_sealed` gives.
+BROKEN_SAYS = "the seal is broken: {why}; a new seal is owed at HEAD"
+
+
+def since_sealed_reason(found, sealed):
+    """The sentence `since_sealed`'s answer is refused with: that the seal is
+    broken where the newest verdict block reads `sealed`, and that the
+    guarantee is behind HEAD where it does not. Where the two trees hold the
+    same and a commit of the base that a merge brought after the sealed
+    commit touched a path outside the work item's records, it names that
+    path."""
+    kind, sha, path = found
+    if not sealed:
+        if kind == "differs":
+            return (
+                f"the guarantee is behind HEAD: `{path}` changed after the commit "
+                f"it names, `{sha[:7]}`, outside the closing records"
+            )
+        if kind == "brought":
+            return (
+                "the guarantee is behind HEAD: a commit of the base that a merge "
+                f"brought after the commit it names, `{sha[:7]}`, touches "
+                f"`{path}`, outside the work item's records"
+            )
+        return follows_reason(found, "the guarantee")
+    if kind == "unseen":
+        why = f"this repository cannot resolve the sealed commit `{sha}`"
+    elif kind == "off":
+        why = f"HEAD does not descend from the sealed commit `{sha[:7]}`"
+    elif kind == "brought":
+        why = (
+            "a commit of the base that a merge brought after the sealed commit "
+            f"`{sha[:7]}` touches `{path}`, outside the work item's records"
+        )
+    else:
+        why = (
+            f"`{path}` changed after the sealed commit `{sha[:7]}`, outside the "
+            "closing records"
+        )
+    return BROKEN_SAYS.format(why=why)
 
 
 def frame_foot(reader, text):
@@ -1490,7 +1571,7 @@ def verdict_problems(root, path, f):
     ]
 
 
-def records(reader, routing, root, item, rel, base):
+def records(reader, routing, root, item, rel, base, behind=None):
     """[(path, line, problem)] for a work item declared through the review
     chain: no record; a record `round_of` cannot read; a finding with no
     close block; a `fixed` naming a commit HEAD does not descend from, or
@@ -1498,7 +1579,9 @@ def records(reader, routing, root, item, rel, base):
     or lies under; what `channel` names between the rounds, a `fixed` of the
     last record located in the work item's own records alone, whose commit
     touched them alone, passing as read at HEAD by the sealer; a last record
-    behind HEAD. A finding is named by its line and its heading."""
+    behind HEAD. A finding is named by its line and its heading. Where the
+    last record is behind HEAD, what `follows` answered is appended to
+    BEHIND."""
     found = round_records(routing, root, item)
     if not found:
         return [
@@ -1529,16 +1612,18 @@ def records(reader, routing, root, item, rel, base):
     last = rounds[-1]
     # A record naming no commit it reviewed was refused by `round_read`.
     if last.target is not None:
-        behind = follows(root, last.target, base, item)
-        if behind is not None:
+        found = follows(root, last.target, base, item)
+        if found is not None:
             problems.append(
                 (
                     last.path,
                     0,
-                    follows_reason(behind, f"the last round's `{FIELDS.TARGET}`")
-                    + (f"; {VERIFYING_ROUND}" if behind[0] == "after" else ""),
+                    follows_reason(found, f"the last round's `{FIELDS.TARGET}`")
+                    + (f"; {VERIFYING_ROUND}" if found[0] == "after" else ""),
                 )
             )
+            if behind is not None:
+                behind.append(found)
     return problems
 
 
@@ -1689,10 +1774,11 @@ def blocks_of(rel, text, kinds, notices=None):
     return found.blocks, [(rel, line, why) for line, why in found.refusals]
 
 
-def broad_gate(reader, root, item, base, notices=None):
+def broad_gate(reader, root, item, base, notices=None, behind=None):
     """[(path, line, problem)] for the work item's `trail/gate.md`: absent,
     a line `lib/fields.py` refuses, no run block, or a newest run, the
-    last block, behind HEAD. A fence named as not read goes to NOTICES."""
+    last block, behind HEAD. A fence named as not read goes to NOTICES, and
+    what `follows` answered of a run behind HEAD to BEHIND."""
     rel = f"{item}/{BROAD_GATE_FILE}"
     text = read_record(root, rel)
     if text is None:
@@ -1711,10 +1797,12 @@ def broad_gate(reader, root, item, base, notices=None):
     if not runs:
         return [(rel, 0, NO_RUN_BLOCK)]
     sha = runs[-1].fields[FIELDS.RUN].match["commit"]
-    behind = follows(root, sha, base, item)
-    if behind is None:
+    found = follows(root, sha, base, item)
+    if found is None:
         return []
-    return [(rel, 0, follows_reason(behind, "the newest gate run"))]
+    if behind is not None:
+        behind.append(found)
+    return [(rel, 0, follows_reason(found, "the newest gate run"))]
 
 
 # A guarantee with no verdict block: one of the older shape, its verdict
@@ -1735,13 +1823,17 @@ JUDGE_BUILT = (
 )
 
 
-def guarantee(reader, root, item, base, notices=None):
+def guarantee(reader, root, item, base, notices=None, behind=None):
     """[(path, line, problem)] for the work item's `guarantee.md`: absent, a
     line `lib/fields.py` refuses, a fence nobody closed and a line that
     begins with `<!--` among them, no verdict block, or a newest block, the
-    last, naming a commit with anything but the closing records after it, a
-    verdict other than `sealed`, or as its judge one of the sessions its
-    `built-by:` line names. A fence named as not read goes to NOTICES."""
+    last, naming a commit HEAD does not hold, whose tree differs from HEAD's
+    in anything but the closing records, or after which a merge brought a
+    commit of BASE, the check's baseline, that touched a path outside the
+    work item's records (`since_sealed`), a verdict other than `sealed`, or
+    as its judge one of the sessions its `built-by:` line names. A fence
+    named as not read goes to NOTICES, and what `since_sealed` answered of
+    a newest block that does not hold to BEHIND."""
     rel = f"{item}/{GUARANTEE_FILE}"
     text = read_record(root, rel)
     if text is None:
@@ -1761,18 +1853,14 @@ def guarantee(reader, root, item, base, notices=None):
         return [(rel, 0, NO_VERDICT_BLOCK)]
     newest = verdicts[-1]
     sha = newest.fields[FIELDS.TARGET].match["commit"]
-    behind = follows(root, sha, base, item, only=CLOSING_RECORDS)
-    if behind is not None:
-        problems.append(
-            (
-                rel,
-                0,
-                follows_reason(behind, "the guarantee", "the closing records")
-                + ("; the sealer runs again" if behind[0] == "after" else ""),
-            )
-        )
+    sealed = FIELDS.verdict_word(newest) == FIELDS.SEALED
+    found = since_sealed(root, sha, item, base)
+    if found is not None:
+        problems.append((rel, 0, since_sealed_reason(found, sealed)))
+        if behind is not None:
+            behind.append(found)
     said = newest.fields[FIELDS.SEALER_VERDICT]
-    if FIELDS.verdict_word(newest) != FIELDS.SEALED:
+    if not sealed:
         line = f"{FIELDS.SEALER_VERDICT} {said.value}"
         problems.append(
             (
@@ -2239,11 +2327,16 @@ def retired(reader, root, fork, records):
 
 # What `judge` found, which `outcome` reads: whether the check ran, whether
 # it judged a work item, the refusals, whether a refusal fails the pull
-# request, whether the guarantee arm refused, the newest verdict block of
-# each judged work item as `newest_verdict` gives it, and the sentence that
-# says why nothing was judged or why the check stopped.
+# request, whether the guarantee arm refused, the sealed commit of each
+# judged work item whose seal is broken, the newest verdict block of each
+# judged work item as `newest_verdict` gives it, and the sentence that says
+# why nothing was judged or why the check stopped. A seal is broken where
+# the newest verdict block reads `sealed` and the rounds arm, the gate arm
+# or the guarantee arm found its record behind HEAD, off it, or naming a
+# commit the repository cannot resolve: a fact the arms' comparisons
+# answered, and no sentence read back.
 Judged = collections.namedtuple(
-    "Judged", "ran judged problems strict unsealed verdicts why"
+    "Judged", "ran judged problems strict unsealed broken verdicts why"
 )
 COULD_NOT_RUN = Judged(
     False,
@@ -2251,6 +2344,7 @@ COULD_NOT_RUN = Judged(
     [],
     True,
     False,
+    [],
     [],
     "chain_check.py stopped before it judged the records, and the job's log "
     "says why",
@@ -2348,7 +2442,7 @@ def judge(args):
             print(CONSOLE.annotate("notice", rel, line, message))
         for rel, line, message in problems:
             print(CONSOLE.annotate(kind, rel, line, message))
-        return Judged(True, False, problems, strict, False, [], why)
+        return Judged(True, False, problems, strict, False, [], [], why)
 
     # A declared work item's commit can write another work item's section
     # without touching its `routing.md`, so the diff's designs are read too.
@@ -2367,8 +2461,9 @@ def judge(args):
     # The judged work items whose declaration reads, which the body arm
     # chooses its one work item from.
     bodied = []
-    # Whether the guarantee arm refused, which `outcome` tells apart.
-    unsealed = False
+    # Whether the guarantee arm refused, and the sealed commit of each work
+    # item whose seal is broken, which `outcome` tells apart.
+    unsealed, broken = False, []
     for rel in declarations:
         item = os.path.dirname(rel)
         text = texts[rel]
@@ -2404,14 +2499,18 @@ def judge(args):
         if found is None:
             return COULD_NOT_RUN
         problems.extend(found)
+        # What the arms' comparisons with HEAD refused of this work item.
+        behind, closing = [], []
         if declared["review"] == routing.CHAIN:
-            problems.extend(records(reader, routing, root, item, rel, args.baseline))
+            problems.extend(
+                records(reader, routing, root, item, rel, args.baseline, behind)
+            )
             chained.append(item)
         else:
             direct.append(item)
         notices.extend(unread(reader, routing, root, item, item in chained))
-        gate = broad_gate(reader, root, item, args.baseline, notices)
-        sealing = guarantee(reader, root, item, args.baseline, notices)
+        gate = broad_gate(reader, root, item, args.baseline, notices, closing)
+        sealing = guarantee(reader, root, item, args.baseline, notices, closing)
         if args.sealing:
             notices.extend(
                 (p, n, f"{SEALING_SAYS}: {m}") for p, n, m in gate + sealing
@@ -2419,6 +2518,10 @@ def judge(args):
         else:
             problems.extend(gate + sealing)
             unsealed = unsealed or bool(sealing)
+            behind.extend(closing)
+        newest = newest_verdict(root, item) if behind else None
+        if newest and FIELDS.verdict_word(newest[1]) == FIELDS.SEALED:
+            broken.append(newest[1].fields[FIELDS.TARGET].match["commit"])
     text, said = (None, BODY_WORKTREE) if WORKTREE else pull_request_body()
     found, unread_body = body(root, bodied, text, said)
     notices.extend(unread_body)
@@ -2443,7 +2546,7 @@ def judge(args):
     for rel, line, message in problems:
         print(CONSOLE.annotate(kind, rel, line, message))
     verdicts = [v for v in (newest_verdict(root, item) for item in bodied) if v]
-    return Judged(True, True, problems, strict, unsealed, verdicts, "")
+    return Judged(True, True, problems, strict, unsealed, broken, verdicts, "")
 
 
 # The check `--post` sends, and its title for each outcome.
@@ -2453,6 +2556,7 @@ SUCCESS, FAILURE, NEUTRAL = "success", "failure", "neutral"
 COULD_NOT_RUN_TITLE = "The seal check could not run"
 NOT_JUDGED_TITLE = "Not judged: no work item is declared"
 SEALED_TITLE = "Sealed at {commits}"
+BROKEN_TITLE = "Seal broken: a commit landed after {commits}"
 NO_SEAL_TITLE = "No seal at the head commit"
 REFUSED_TITLE = "The records are refused"
 DRAFT_TITLE = "Draft: judged when it is ready"
@@ -2470,25 +2574,38 @@ def outcome(judged):
     reading of the check's result, whose exit code `main` returns and which
     `post` sends. The exit code is 2 where the check could not run, 1 where a
     refusal fails the pull request, and 0 otherwise. A refusal in a draft is
-    `neutral`. One in a ready pull request is a `failure`, titled by whether
-    the guarantee arm refused. With none the check passes, titled with each
-    judged work item's sealed commit, or as not judged where it judged
-    none."""
+    `neutral`. One in a ready pull request is a `failure`, titled with each
+    broken seal's sealed commit where a seal is broken, and otherwise by
+    whether the guarantee arm refused. With none the check passes, titled
+    with each judged work item's sealed commit, or as not judged where it
+    judged none."""
     if not judged.ran:
         return Outcome(2, FAILURE, COULD_NOT_RUN_TITLE)
     if judged.problems and not judged.strict:
         return Outcome(0, NEUTRAL, DRAFT_TITLE)
+    if judged.problems and judged.broken:
+        commits = shortened(judged.broken)
+        return Outcome(1, FAILURE, BROKEN_TITLE.format(commits=", ".join(commits)))
     if judged.problems:
         title = NO_SEAL_TITLE if judged.unsealed else REFUSED_TITLE
         return Outcome(1, FAILURE, title)
-    sealed = []
-    for _rel, block, _lines in judged.verdicts:
-        commit = block.fields[FIELDS.TARGET].match["commit"][:7]
-        if commit not in sealed:
-            sealed.append(commit)
+    sealed = shortened(
+        block.fields[FIELDS.TARGET].match["commit"]
+        for _rel, block, _lines in judged.verdicts
+    )
     if not judged.judged or not sealed:
         return Outcome(0, SUCCESS, NOT_JUDGED_TITLE)
     return Outcome(0, SUCCESS, SEALED_TITLE.format(commits=", ".join(sealed)))
+
+
+def shortened(commits):
+    """Each distinct commit of COMMITS by its first seven characters, in the
+    order they come, as a title names them."""
+    seen = []
+    for commit in commits:
+        if commit[:7] not in seen:
+            seen.append(commit[:7])
+    return seen
 
 
 def plain(path, line, message):

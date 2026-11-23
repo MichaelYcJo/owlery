@@ -129,7 +129,7 @@
       @keyframes turn { to { transform: rotate(360deg); } }
       .state-words { display: flex; align-items: center; gap: var(--space-3); font-size: var(--size-second); font-weight: 600; }
 
-      /* The seal's place. Before a seal it is blank: a disc on a line, and in the preview and a view the seal's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
+      /* The seal's place, drawn from the seal the branch's head holds. Before a seal it is blank: a disc on a line, and in the preview and a view the seal's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
       .seal { position: relative; flex: none; display: block; box-sizing: border-box; width: var(--seal-size-line); height: var(--seal-size-line); border-radius: 50%; }
       .seal[data-seal="none"] { background: var(--seal-blank-ground); box-shadow: var(--seal-blank-edge); }
       .seal.drawn { width: var(--seal-size); height: var(--seal-size); border-radius: 0; }
@@ -139,9 +139,15 @@
       /* The drawing's outline holds the blank's ground, and its light parts, read as a mask laid twice, the owl's tone. */
       .seal.drawn[data-seal="none"]::before { background: var(--seal-blank-ground); }
       .seal.drawn[data-seal="none"]::after { background: var(--seal-blank-owl); -webkit-mask-image: url("./owl.svg"), url("./owl.svg"); mask-image: url("./owl.svg"), url("./owl.svg"); mask-mode: luminance; }
-      /* A sealed place shows the wax seal as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size. Nothing sets it before a work item can be sealed. */
+      /* A sealed place shows the wax seal as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size, where the seal holds at the branch's head. */
       .seal[data-seal="sealed"] { background: url("./owl-icon-cream.svg") center / contain no-repeat; filter: var(--seal-light); }
       .seal.drawn[data-seal="sealed"] { background-image: url("./owl.svg"); }
+      /* A broken place shows the same drawing parted in two along one slanted break, with a gap between its halves, the same in every theme: each half is the drawing clipped by the page's own break. The theme's light takes the wax's red out and lays its shadow. */
+      .seal[data-seal="broken"] { filter: var(--seal-broken-light); }
+      .seal[data-seal="broken"]::before, .seal[data-seal="broken"]::after { content: ""; position: absolute; inset: 0; background: url("./owl-icon-cream.svg") center / contain no-repeat; }
+      .seal.drawn[data-seal="broken"]::before, .seal.drawn[data-seal="broken"]::after { background-image: url("./owl.svg"); }
+      .seal[data-seal="broken"]::before { clip-path: polygon(0 0, 55% 0, 43% 100%, 0 100%); }
+      .seal[data-seal="broken"]::after { clip-path: polygon(63% 0, 100% 0, 100% 100%, 51% 100%); }
       .seal-slot { flex: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
 
       /* What the preview and a view's right column say of a work item alike: what its agent says, the decisions made for it without asking, its commits, its changed files and its setup. */
@@ -420,6 +426,9 @@
       #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
       #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
+      /* Where the seal is broken, the seal's sentence, which says why, stands under the head in the ink of the text, and takes no room otherwise. */
+      #view-seal .why { font-size: var(--size-second); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+      #view-seal .why:empty { display: none; }
       /* The chain's sentence stands above the button that starts the chain, and the daemon's refusal of a start under it. */
       #view-seal .says, #view-seal .refusal { font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; }
       #view-seal .says { margin-top: var(--space-3); color: var(--ink); }
@@ -637,7 +646,7 @@
                   <span data-part="preview-repo"></span>
                 </p>
               </div>
-              <span class="seal-slot"><span data-part="preview-seal"></span>No seal yet</span>
+              <span class="seal-slot"><span data-part="preview-seal"></span><span data-part="preview-seal-words"></span></span>
             </div>
             <div data-part="preview-detail" class="detail"></div>
           </div>
@@ -699,7 +708,8 @@
         <section id="view-seal">
           <span id="view-seal-place"></span>
           <span class="words">
-            <span class="name head">No seal yet</span>
+            <span id="view-seal-head" class="name head"></span>
+            <span id="view-seal-why" class="why"></span>
             <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
             <span id="seal-says" class="says"></span>
             <button type="button" id="get-seal" class="primary" hidden>Get a seal</button>

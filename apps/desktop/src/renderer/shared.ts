@@ -3,8 +3,8 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { APPROVAL_HEAD, approvalPlaces, choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
+import { APPROVAL_HEAD, approvalPlaces, choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -113,24 +113,29 @@ export function titleClass(workItemId: number): string {
   return changedSince(workItemId) ? "title changed" : "title";
 }
 
-const NO_SEAL = "No seal yet";
-
 /**
- * The seal's place: on a line a small disc, and in the preview and at the
- * foot of a view's right column the seal's own drawing, which the page's
- * style presses blank into the ground. The window lights no seal yet: a
- * chain can rest sealed, and whether its seal still holds at the branch's
- * head is not read. So `data-seal` is `none` everywhere, and the place says
- * so.
+ * The seal's place for a work item's seal (./view, `sealShown`): on a line
+ * the small mark, and in the preview and at the foot of a view's right
+ * column the seal's own drawing. `data-seal` says which form the page's
+ * style draws: pressed blank into the ground before a seal, the seal lit
+ * where it holds at the branch's head, and the seal parted in two where a
+ * later commit broke it. The place says its words to a pointer and to a
+ * screen reader.
  */
-export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
+export function sealPlace(where: "line" | "preview" | "view", seal: Seal | null | undefined): HTMLElement {
   const place = document.createElement("span");
   place.className = where === "line" ? "seal" : where === "preview" ? "seal drawn" : "seal drawn large";
-  place.dataset.seal = "none";
   place.setAttribute("role", "img");
-  place.setAttribute("aria-label", NO_SEAL);
-  place.title = NO_SEAL;
+  drawSeal(place, seal);
   return place;
+}
+
+/** Draws a seal's place again for another seal, as the preview and the view's foot do for each work item they show. */
+export function drawSeal(place: HTMLElement, seal: Seal | null | undefined): void {
+  const shown = sealShown(seal);
+  place.dataset.seal = shown.state;
+  place.setAttribute("aria-label", shown.words);
+  place.title = shown.words;
 }
 
 /** The class that gives a state its colour and its mark the theme's shapes. */
@@ -287,7 +292,7 @@ function approvalSection(entry: Entry): HTMLElement | null {
   line.className = "places";
   line.append(
     ...places.map((place) => {
-      const head = row(iconOf(place.state, placeWords(place, now)), part("name", place.name), place.role === "sealer" ? sealPlace("line") : part("join", ""));
+      const head = row(iconOf(place.state, placeWords(place, now)), part("name", place.name), place.role === "sealer" ? sealPlace("line", entry.workItem.seal) : part("join", ""));
       const element = item(`place ${place.state}`, head, part("note", place.note));
       element.dataset.role = place.role;
       return element;
