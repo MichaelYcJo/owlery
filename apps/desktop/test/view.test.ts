@@ -18,6 +18,9 @@ import {
   bellSays,
   cardStaysAt,
   chainNotifications,
+  changedSet,
+  changedSetAfter,
+  changesOf,
   changesSince,
   choiceNote,
   closeAsks,
@@ -111,6 +114,7 @@ import {
   sealButton,
   sealNotifications,
   sealShown,
+  sealSinceLook,
   selectedLine,
   settingsBases,
   settingsFields,
@@ -140,6 +144,7 @@ import {
   type FormPlan,
   type InboxLine,
   type MenuEntry,
+  type SealSince,
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
@@ -1845,6 +1850,7 @@ describe("changesSince", () => {
         session: waits,
         sentence: "Needs you. 2 new commits since you were last here.",
         decided: 0,
+        sealSince: null,
       },
     ]);
     expect(summarySentence(changes)).toBe("1 needs you");
@@ -1926,6 +1932,99 @@ describe("changesSince", () => {
     expect(changes.map((change) => change.workItem.id)).toEqual([3, 4, 2, 1]);
   });
 
+  describe("the seal since the look", () => {
+    const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
+    const OTHER = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d";
+    const WHY = "`src/app.ts` changed after the sealed commit `3f2a9c1`.";
+    const sealedAt = (commit: string): Seal => ({ state: "sealed", commit, why: null });
+    const brokenAt = (commit: string): Seal => ({ state: "broken", commit, why: WHY });
+    const TWO_ROUNDS: Recorded = { framed: true, rounds: 2, gate: COMMIT, verdict: { is: "sealed", commit: COMMIT, says: null } };
+    const MERGED: PullRequest = { number: 12, url: "https://github.com/o/r/pull/12", state: "merged", head: COMMIT, pushed: COMMIT, checks: "passed", list: [], listCount: 0, readAt: 10, failure: null };
+
+    it("gives a work item whose seal was given since the look as the one change, its sentence opening with the sealed commit in short and how many review rounds came before it, of one and of several, with the commit alone where the daemon sent no count or the count is 0, and what follows as before", () => {
+      const before = look([{ ...LOGIN, seal: null, newCommits: 1 }]);
+      const sealed = (fields: Partial<WorkItem>) => changesSince(before, [{ ...LOGIN, seal: sealedAt(COMMIT), newCommits: 1, ...fields }], [], KINDS);
+      expect(sealed({ recorded: TWO_ROUNDS }).map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([[1, "given", "Sealed at 3f2a9c1 after 2 review rounds."]]);
+      expect(sealed({ recorded: { ...TWO_ROUNDS, rounds: 1 } })[0]?.sentence).toBe("Sealed at 3f2a9c1 after 1 review round.");
+      expect(sealed({})[0]?.sentence).toBe("Sealed at 3f2a9c1.");
+      expect(sealed({ recorded: { ...TWO_ROUNDS, rounds: 0 } })[0]?.sentence).toBe("Sealed at 3f2a9c1.");
+      // The new commits and the decisions follow the seal's words as they follow a state's.
+      expect(sealed({ recorded: TWO_ROUNDS, newCommits: 3 })[0]?.sentence).toBe("Sealed at 3f2a9c1 after 2 review rounds. 2 new commits since you were last here.");
+    });
+
+    it("gives a work item whose seal broke since the look as the one change, its sentence opening with Seal broken and then the seal's own sentence as the daemon sent it, and with Seal broken alone where it sent none", () => {
+      const before = look([{ ...LOGIN, seal: sealedAt(COMMIT) }]);
+      const changes = changesSince(before, [{ ...LOGIN, seal: brokenAt(COMMIT) }], [], KINDS);
+      expect(changes.map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([[1, "broke", "Seal broken. `src/app.ts` changed after the sealed commit `3f2a9c1`."]]);
+      expect(changesSince(before, [{ ...LOGIN, seal: { ...brokenAt(COMMIT), why: null } }], [], KINDS)[0]?.sentence).toBe("Seal broken.");
+    });
+
+    it("answers each pair of the look's seal and the present one by the table: given where the present seal holds and the look did not hold it at that commit, broke where it is broken and the look did not hold it broken at that commit, and nothing of the seal otherwise, a work item the look does not hold counting its seal as since the look, and a broken seal under a merged pull request saying nothing", () => {
+      const rows: [Seal | null, Seal | null, SealSince | null][] = [
+        [null, sealedAt(COMMIT), "given"],
+        [null, brokenAt(COMMIT), "broke"],
+        [null, null, null],
+        [sealedAt(COMMIT), sealedAt(COMMIT), null],
+        [sealedAt(COMMIT), brokenAt(COMMIT), "broke"],
+        [sealedAt(COMMIT), null, null],
+        [sealedAt(OTHER), sealedAt(COMMIT), "given"],
+        [sealedAt(OTHER), brokenAt(COMMIT), "broke"],
+        [sealedAt(OTHER), null, null],
+        [brokenAt(COMMIT), sealedAt(COMMIT), "given"],
+        [brokenAt(COMMIT), brokenAt(COMMIT), null],
+        [brokenAt(COMMIT), null, null],
+        [brokenAt(OTHER), sealedAt(COMMIT), "given"],
+        [brokenAt(OTHER), brokenAt(COMMIT), "broke"],
+        [brokenAt(OTHER), null, null],
+      ];
+      for (const [then, now, answer] of rows) {
+        const row = `${then ? `${then.state} at ${then.commit.slice(0, 1)}` : "null"} to ${now ? `${now.state} at ${now.commit.slice(0, 1)}` : "null"}`;
+        expect(changesSince(look([{ ...LOGIN, seal: then }]), [{ ...LOGIN, seal: now }], [], KINDS)[0]?.sealSince ?? null, row).toBe(answer);
+        expect(sealSinceLook({ ...LOGIN, seal: then }, { ...LOGIN, seal: now }), row).toBe(answer);
+      }
+      // A work item the look does not hold.
+      expect(sealSinceLook(undefined, { ...LOGIN, seal: sealedAt(COMMIT) })).toBe("given");
+      expect(sealSinceLook(undefined, { ...LOGIN, seal: brokenAt(COMMIT) })).toBe("broke");
+      expect(sealSinceLook(undefined, { ...LOGIN, seal: null })).toBeNull();
+      const fresh = changesSince(look([]), [{ ...LOGIN, seal: sealedAt(COMMIT), recorded: TWO_ROUNDS }], [], KINDS);
+      expect(fresh.map((change) => [change.sealSince, change.sentence])).toEqual([["given", "Sealed at 3f2a9c1 after 2 review rounds. New since you were last here."]]);
+      // A merged pull request says more than a broken seal on the line, and so in the summary.
+      expect(sealSinceLook({ ...LOGIN, seal: sealedAt(COMMIT), pullRequest: MERGED }, { ...LOGIN, seal: brokenAt(COMMIT), pullRequest: MERGED })).toBeNull();
+      const merged = changesSince(look([{ ...LOGIN, seal: sealedAt(COMMIT), pullRequest: MERGED, newCommits: 0 }]), [{ ...LOGIN, seal: brokenAt(COMMIT), pullRequest: MERGED, newCommits: 1 }], [], KINDS);
+      expect(merged.map((change) => [change.sealSince, change.sentence])).toEqual([[null, "Finished. 1 new commit since you were last here."]]);
+    });
+
+    it("reads a side that carries no seal with the other side's seal, so a daemon that has read no branch yet and a look written before the look kept the seal change nothing of the seal, and a pane that moved still changes the work item, with no word of the seal", () => {
+      const sealed = { ...LOGIN, seal: sealedAt(COMMIT) };
+      expect(changesSince(look([sealed]), [LOGIN], [], KINDS)).toEqual([]);
+      expect(changesSince(look([LOGIN]), [sealed], [], KINDS)).toEqual([]);
+      expect(sealSinceLook(sealed, LOGIN)).toBeNull();
+      expect(sealSinceLook(LOGIN, sealed)).toBeNull();
+      for (const [then, now] of [
+        [sealed, LOGIN],
+        [LOGIN, sealed],
+      ] as const) {
+        const changes = changesSince(look([then], [session(3, { state: "working" })]), [now], [session(3, { state: "finished" })], KINDS);
+        expect(changes.map((change) => [change.sealSince, change.sentence])).toEqual([[null, "Finished."]]);
+      }
+    });
+
+    it("puts the work items whose seal was given first and the ones whose seal broke next, each in the daemon's order, then the others in the order of the inbox's groups, and counts each once, the seals first", () => {
+      const ids = (id: number, title: string, seal: Seal | null): WorkItem => ({ ...LOGIN, id, title, seal });
+      const before = look([ids(1, "Waits", null), ids(2, "Works", null), ids(3, "Broke", sealedAt(COMMIT)), ids(4, "Given", null), ids(5, "Given first", null)]);
+      const now = [ids(1, "Waits", null), ids(2, "Works", null), ids(5, "Given first", sealedAt(COMMIT)), ids(3, "Broke", brokenAt(COMMIT)), ids(4, "Given", sealedAt(OTHER))];
+      const changes = changesSince(before, now, [session(6, { workItemId: 1, state: "waiting" }), session(7, { workItemId: 2, state: "working" })], KINDS);
+      expect(changes.map((change) => [change.workItem.id, change.sealSince])).toEqual([
+        [5, "given"],
+        [4, "given"],
+        [3, "broke"],
+        [1, null],
+        [2, null],
+      ]);
+      expect(summarySentence(changes)).toBe("2 sealed, 1 seal broken, 1 needs you, 1 working");
+    });
+  });
+
   describe("the decisions made without asking since the look", () => {
     function decision(id: number, fields: Partial<Decision> = {}): Decision {
       return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: null, state: "decided", reversal: null, landed: null, since: 2000, ...fields };
@@ -1984,9 +2083,55 @@ describe("changesSince", () => {
   });
 });
 
+describe("the changed set of a load", () => {
+  const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
+  const SEALED: Seal = { state: "sealed", commit: COMMIT, why: null };
+  const BROKEN: Seal = { state: "broken", commit: COMMIT, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+  function look(workItems: WorkItem[], sessions: SessionInfo[] = []): Look {
+    return { at: 1000, sessions, workItems };
+  }
+
+  it("keeps the work items the load changed, and works out what each says from the present lists: a seal that broke since the load says so and counts as a broken seal, one nothing of which differs from the look any more says its state alone, one the lists no longer hold has no line, and a work item outside the set has none", () => {
+    const before = look([{ ...LOGIN, seal: null }, { ...SEARCH, seal: null }]);
+    const set = changedSet(before, [{ ...LOGIN, seal: SEALED }, { ...SEARCH, seal: null }], [session(4, { workItemId: 2, state: "working" })], KINDS);
+    expect(set.ids).toEqual([1, 2]);
+    const later = [{ ...LOGIN, seal: BROKEN }, { ...SEARCH, seal: null }];
+    const changes = changesOf(before, set.ids, later, [], KINDS);
+    expect(changes.map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([
+      [1, "broke", "Seal broken. `src/app.ts` changed after the sealed commit `3f2a9c1`."],
+      [2, null, "No agent is running."],
+    ]);
+    expect(summarySentence(changes)).toBe("1 seal broken");
+    expect(changesOf(before, set.ids, [later[0] as WorkItem], [], KINDS).map((change) => change.workItem.id)).toEqual([1]);
+    const third: WorkItem = { ...LOGIN, id: 3, title: "Third", seal: null };
+    const withThird = changesOf(look([...before.workItems, third]), set.ids, [...later, third], [session(5, { workItemId: 3, state: "waiting" })], KINDS);
+    expect(withThird.map((change) => change.workItem.id)).toEqual([1, 2]);
+  });
+
+  it("names the work items the load carried without a seal reading, and lets one join the set once, at the first lists that carry its reading, where its seal was given or broke since the look, and no other", () => {
+    const before = look([{ ...LOGIN, seal: null }, { ...SEARCH, seal: null }]);
+    const load = [LOGIN, { ...SEARCH, seal: null }];
+    const set = changedSet(before, load, [], KINDS);
+    expect(set).toEqual({ ids: [], unread: [1] });
+    // Lists that still carry no reading leave the set as it was.
+    expect(changedSetAfter(before, set, load)).toEqual(set);
+    const sealed = [{ ...LOGIN, seal: SEALED }, { ...SEARCH, seal: SEALED }];
+    const joined = changedSetAfter(before, set, sealed);
+    expect(joined).toEqual({ ids: [1], unread: [] });
+    expect(changesOf(before, joined.ids, sealed, [], KINDS).map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([[1, "given", "Sealed at 3f2a9c1."]]);
+    expect(changedSetAfter(before, set, [{ ...LOGIN, seal: BROKEN }, { ...SEARCH, seal: null }])).toEqual({ ids: [1], unread: [] });
+    // Read with no seal, it joins nothing, then or at a seal given later.
+    const read = changedSetAfter(before, set, [{ ...LOGIN, seal: null }, { ...SEARCH, seal: null }]);
+    expect(read).toEqual({ ids: [], unread: [] });
+    expect(changedSetAfter(before, read, sealed)).toEqual({ ids: [], unread: [] });
+    // A look written before the look kept the seal has no reading to measure against.
+    expect(changedSetAfter(look([LOGIN, SEARCH]), set, sealed)).toEqual({ ids: [], unread: [] });
+  });
+});
+
 describe("summarySentence", () => {
-  function change(state: InboxLine["state"], decided = 0): { line: InboxLine; decided: number } {
-    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, decided };
+  function change(state: InboxLine["state"], decided = 0, sealSince: SealSince | null = null): { line: InboxLine; decided: number; sealSince: SealSince | null } {
+    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, decided, sealSince };
   }
 
   it("counts the changed work items by their present state, in the inbox's order and words, and leaves out the ones with no state", () => {
@@ -2004,6 +2149,15 @@ describe("summarySentence", () => {
     expect(summarySentence([change("working", 1)])).toBe("1 working. 1 decision made without asking.");
     expect(summarySentence([change(null, 2), change(null)])).toBe("2 work items changed. 2 decisions made without asking.");
     expect(summarySentence([change("waiting", 0), change("waiting")])).toBe("2 need you");
+  });
+
+  it("counts the work items whose seal was given as sealed and the ones whose seal broke as broken seals, before the states, each work item once, of one and of several", () => {
+    expect(summarySentence([change("waiting", 0, "broke")])).toBe("1 seal broken");
+    expect(summarySentence([change("waiting", 0, "broke"), change("waiting", 0, "broke")])).toBe("2 seals broken");
+    expect(summarySentence([change("finished", 0, "given"), change("waiting", 0, "given"), change("waiting")])).toBe("2 sealed, 1 needs you");
+    expect(summarySentence([change("finished", 3, "given")])).toBe("1 sealed. 3 decisions made without asking.");
+    // A work item with no state beside a seal is left out of the count, as beside a state.
+    expect(summarySentence([change(null, 0, "given"), change(null)])).toBe("1 sealed");
   });
 });
 
@@ -3095,16 +3249,30 @@ describe("emptyList", () => {
 });
 
 describe("summaryControls", () => {
-  function change(id: number, state: InboxLine["state"]): { workItem: WorkItem; line: InboxLine } {
-    return { workItem: { ...LOGIN, id }, line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" } };
+  function change(id: number, state: InboxLine["state"], fields: Partial<WorkItem> = {}, pane?: SessionInfo): { workItem: WorkItem; line: InboxLine; session: SessionInfo | undefined } {
+    return { workItem: { ...LOGIN, id, ...fields }, line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, session: pane };
   }
+  const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: 3000 };
+  const ASK: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 95 };
+  const BROKE: Seal = { state: "broken", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+  const STOPPED: Chain = { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [] };
 
-  it("makes answering the first work item that waits the main control, with the inbox beside it", () => {
-    expect(summaryControls([change(4, "finished"), change(7, "waiting"), change(9, "waiting")])).toEqual({
-      main: { label: "Answer the first question", opens: 7 },
-      second: { label: "Open the inbox", opens: "inbox" },
-      hint: "Enter opens the first that needs you.",
-    });
+  it("makes answering the first work item that waits on a question, a call to allow or a pane that waits the main control, with the inbox beside it, past a line before it that waits for another reason", () => {
+    const answer = (opens: number) => ({ main: { label: "Answer the first question", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first that needs you." });
+    expect(summaryControls([change(4, "finished"), change(7, "waiting", { questions: [ASKED] }), change(9, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
+    expect(summaryControls([change(3, "waiting", { seal: BROKE }), change(7, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
+    expect(summaryControls([change(3, "waiting", { chain: STOPPED }), change(8, "waiting", { permissions: [ASK] })])).toEqual(answer(8));
+    expect(summaryControls([change(3, "waiting", { seal: BROKE }), change(9, "waiting", {}, session(5, { workItemId: 9, state: "waiting" }))])).toEqual(answer(9));
+  });
+
+  it("opens the first work item that waits for another reason, a broken seal, a stopped chain or a failed check, saying so, where none waits on a question, a call or a pane, with the inbox beside it", () => {
+    const first = (opens: number) => ({ main: { label: "Open the first that needs you", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first that needs you." });
+    expect(summaryControls([change(4, "finished"), change(3, "waiting", { seal: BROKE }), change(5, "waiting", { chain: STOPPED })])).toEqual(first(3));
+    expect(summaryControls([change(5, "waiting", { chain: STOPPED })])).toEqual(first(5));
+    const failed: PullRequest = { number: 12, url: "https://github.com/o/r/pull/12", state: "open", head: "3f2a9c1", pushed: "3f2a9c1", checks: "failed", list: [{ name: "seal", state: "failed", link: null }], listCount: 1, readAt: 10, failure: null };
+    expect(summaryControls([change(4, "working"), change(2, "waiting", { pullRequest: failed })])).toEqual(first(2));
+    // A pane that finished is no pane that waits.
+    expect(summaryControls([change(6, "waiting", { seal: BROKE }, session(5, { workItemId: 6, state: "finished" }))])).toEqual(first(6));
   });
 
   it("makes the inbox the main control and the only one where no changed work item waits, or none changed", () => {
@@ -3115,7 +3283,7 @@ describe("summaryControls", () => {
 });
 
 describe("summaryHead", () => {
-  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine, decided: 0 }];
+  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine, decided: 0, sealSince: null }];
 
   it("is the summary's sentence where a work item changed", () => {
     expect(summaryHead(true, waits)).toBe("1 needs you");
