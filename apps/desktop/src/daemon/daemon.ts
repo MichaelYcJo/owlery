@@ -1588,7 +1588,7 @@ export class Daemon {
     return this.options.version;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with what was last read of its record: its decisions, its questions and what the reader did not read; and with the requests of its headless sessions that wait for the person, the oldest first. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -1763,7 +1763,8 @@ export class Daemon {
 
   /**
    * Reads from git the new commits of each work item that is not archived,
-   * from its worktree its record of decisions and questions, and from each
+   * from its worktree its record of decisions and questions and what its
+   * records say of its chain, and from each
    * repository's working tree what it holds of the records place, and tells
    * every client where a count changed, a branch's head moved, a record
    * reads otherwise or a repository's records place is another. An archived
