@@ -47,6 +47,19 @@ export const SECTION_OPEN = "<!-- owlery:seal -->";
 /** The line that closes a body's seal section, as `chain_check.py#SECTION_CLOSE` reads it. */
 export const SECTION_CLOSE = "<!-- /owlery:seal -->";
 
+/**
+ * Which marker a line is, or null: a line is a marker line where it is
+ * `SECTION_OPEN` or `SECTION_CLOSE` once the spaces and tabs at its ends are
+ * taken off, and no other character is taken off. The daemon and the check
+ * (`chain_check.py#marker_of`) hold this one rule, since the white space
+ * JavaScript's `trim` and Python's `str.strip` take off differ. A line is
+ * asked after a text is split at GFM's line endings.
+ */
+export function markerOf(line: string): "open" | "close" | null {
+  const bare = line.replace(/^[ \t]+|[ \t]+$/gu, "");
+  return bare === SECTION_OPEN ? "open" : bare === SECTION_CLOSE ? "close" : null;
+}
+
 /** The fields a read of a pull request asks `gh pr view` for. */
 export const VIEW_FIELDS = "number,url,state,isDraft,headRefOid,mergedAt,statusCheckRollup";
 
@@ -431,11 +444,10 @@ export function sealSection(records: Pick<BodyRecords, "directory" | "block">): 
  * gate and each decision made without asking. Where the body would pass
  * `limit` UTF-16 code units, the parts below the seal section are replaced,
  * the last first, by a line under the part's heading that names its record,
- * until the body fits. A part whose text holds a line that is a marker line
- * once the white space at its ends is taken off is replaced so whatever the
- * body's length, since neither `withSealSection` nor the check reads a fence
- * when it counts marker lines: the body holds one opening and one closing
- * marker. The seal section is never cut.
+ * until the body fits. A part whose text holds a marker line (`markerOf`)
+ * is replaced so whatever the body's length, since neither `withSealSection`
+ * nor the check reads a fence when it counts marker lines: the body holds one
+ * opening and one closing marker. The seal section is never cut.
  */
 export function pullRequestBody(records: BodyRecords, limit = BODY_LIMIT): string {
   const held = (heading: string, path: string): string => `${heading}\n\n\`${under(records.directory, path)}\` holds this part.`;
@@ -450,7 +462,7 @@ export function pullRequestBody(records: BodyRecords, limit = BODY_LIMIT): strin
     const listed = records.decisions.map(({ decided, grounds, state }) => `- Decided: ${decided}\n  Grounds: ${grounds}\n  State: ${state}`);
     parts.push({ whole: `## Decided without asking\n\n${listed.join("\n")}`, held: held("## Decided without asking", "decisions.md") });
   }
-  const marked = (text: string): boolean => gfmLines(text).some((line) => line.trim() === SECTION_OPEN || line.trim() === SECTION_CLOSE);
+  const marked = (text: string): boolean => gfmLines(text).some((line) => markerOf(line) !== null);
   const texts = parts.map(({ whole, held: line }) => (marked(whole) ? line : whole));
   const body = (): string => `${[sealSection(records), ...texts].join("\n\n")}\n`;
   for (let index = parts.length - 1; index >= 0 && body().length > limit; index -= 1) texts[index] = parts[index]?.held ?? "";
@@ -459,7 +471,7 @@ export function pullRequestBody(records: BodyRecords, limit = BODY_LIMIT): strin
 
 /**
  * A body with its seal section replaced: the lines from the opening marker
- * to the closing marker, each read with the white space at its ends, give
+ * to the closing marker, each read as `markerOf` reads a line, give
  * way to the section, and no other line changes. The section's lines end as
  * the body's first line does. Where the body holds no marker line, the
  * section is put before its first line. It throws, with the second half of
@@ -471,9 +483,9 @@ export function withSealSection(body: string, section: string): string {
   const ending = (piece: string): string => /(?:\r\n|\r|\n)$/u.exec(piece)?.[0] ?? "";
   const eol = pieces.map(ending).find((end) => end !== "") ?? "\n";
   const text = section.split("\n").join(eol);
-  const bare = pieces.map((piece) => piece.replace(/(?:\r\n|\r|\n)$/u, "").trim());
-  const opens = bare.flatMap((line, index) => (line === SECTION_OPEN ? [index] : []));
-  const closes = bare.flatMap((line, index) => (line === SECTION_CLOSE ? [index] : []));
+  const markers = pieces.map((piece) => markerOf(piece.replace(/(?:\r\n|\r|\n)$/u, "")));
+  const opens = markers.flatMap((marker, index) => (marker === "open" ? [index] : []));
+  const closes = markers.flatMap((marker, index) => (marker === "close" ? [index] : []));
   if (opens.length === 0 && closes.length === 0) return body === "" ? `${text}${eol}` : `${text}${eol}${eol}${body}`;
   for (const [marker, found] of [
     [SECTION_OPEN, opens],

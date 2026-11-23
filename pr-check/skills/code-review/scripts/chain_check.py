@@ -1802,6 +1802,19 @@ def guarantee(reader, root, item, base, notices=None):
 # other line of the body is the person's, and no arm reads it.
 SECTION_OPEN = "<" + "!-- owlery:seal -->"
 SECTION_CLOSE = "<" + "!-- /owlery:seal -->"
+
+
+def marker_of(line):
+    """`SECTION_OPEN` or `SECTION_CLOSE` where LINE is that marker once the
+    spaces and tabs at its ends are taken off, and None otherwise. No other
+    character is taken off: the check and Owlery's daemon
+    (`github.ts#markerOf`) hold this one rule, since the white space Python's
+    `str.strip` and JavaScript's `trim` take off differ. LINE is a line of a
+    text split at GFM's line endings."""
+    bare = line.strip(" \t")
+    return bare if bare in (SECTION_OPEN, SECTION_CLOSE) else None
+
+
 SECTION_IS = (
     f"the seal section, between `{SECTION_OPEN}` and `{SECTION_CLOSE}`, is the "
     f"newest verdict block of the work item's `{GUARANTEE_FILE}` at the head "
@@ -1866,7 +1879,8 @@ def body(root, items, text, why):
     """`(problems, notices)` of the pull request's body TEXT: its seal
     section against the newest verdict block of the `guarantee.md` of each of
     ITEMS, the judged work item directories, at HEAD. Where TEXT is None the
-    body is named as not read for WHY; so is a body with no marker line, one
+    body is named as not read for WHY; so is a body with no marker line
+    (`marker_of`), one
     with more than one opening or closing marker, one whose closing marker
     does not follow its opening one, and one judged with no work item. The
     lines between the markers are read through `lib/fields.py` with the
@@ -1881,8 +1895,8 @@ def body(root, items, text, why):
     if text is None:
         return [], [("", 0, BODY_UNREAD.format(why=why))]
     lines = BLOCKS.gfm_lines(text)
-    opens = [i for i, line in enumerate(lines) if line.strip() == SECTION_OPEN]
-    closes = [i for i, line in enumerate(lines) if line.strip() == SECTION_CLOSE]
+    opens = [i for i, line in enumerate(lines) if marker_of(line) == SECTION_OPEN]
+    closes = [i for i, line in enumerate(lines) if marker_of(line) == SECTION_CLOSE]
     where = items[0] if len(items) == 1 else ""
     said = None
     if not opens and not closes:

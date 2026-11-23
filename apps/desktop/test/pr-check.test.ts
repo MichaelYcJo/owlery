@@ -384,6 +384,16 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     await unread([...sealSection(...made.block)].reverse().join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
     await unread(sealSection(...made.block).slice(0, -1).join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
     await unread(null, "the event payload holds no `pull_request.body`");
+    // A marker line is one of the two markers with spaces and tabs at its ends, and with no other character there: the daemon reads it so too.
+    await unread([`\u0085<!-- owlery:seal -->`, "x", `\ufeff<!-- /owlery:seal -->`].join("\n"), "it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
+    const spaced = sealSection(...made.block);
+    spaced[0] = ` \t${spaced[0] ?? ""}\t `;
+    spaced[spaced.length - 1] = `\t${spaced.at(-1) ?? ""}  `;
+    for (const end of ["\u0085", "\u001c", "\ufeff"]) {
+      const read = await run(made, { body: [...spaced, "", "## What changed", "", `${end}<!-- /owlery:seal -->`, `<!-- owlery:seal -->${end}`].join("\n") });
+      expect(read.exit, read.output).toBe(0);
+      expect(read.output, JSON.stringify(end)).not.toContain("the pull request's body");
+    }
 
     // A declaration that does not read judges no work item, so the section has no record to be compared with.
     write(made.repo, "seal/threads/1-x/routing.md", "# Routing: 1-x\n\nNo table.\n");

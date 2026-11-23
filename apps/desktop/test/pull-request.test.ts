@@ -247,9 +247,12 @@ describe("the body of a pull request", () => {
     expect(body).toBe(`${[SECTION, held("## What changed", "changelog.md"), ROUNDS, GATE_PART, DECIDED].join("\n\n")}\n`);
     const lines = body.split("\n").map((line) => line.trim());
     expect([lines.filter((line) => line === SECTION_OPEN).length, lines.filter((line) => line === SECTION_CLOSE).length]).toEqual([1, 1]);
-    // A closing marker alone, with white space at its ends, is a marker line too.
+    // A closing marker alone with a tab and a space at its ends is a marker line too.
     const closing = records(made, { changelog: `- The section ends at:\n\n\t${SECTION_CLOSE} \n` });
     expect(pullRequestBody(await bodyRecords(made.repo, closing, DIRECTORY), 1_000_000)).toBe(`${[SECTION, held("## What changed", "changelog.md"), ROUNDS, GATE_PART, DECIDED].join("\n\n")}\n`);
+    // A marker after any other character is no marker line, for the daemon as for the check, so the part is copied whole and the body holds one seal section.
+    const other = records(made, { changelog: `- The section ends at:\n\n\u0085${SECTION_CLOSE}\n` });
+    expect(pullRequestBody(await bodyRecords(made.repo, other, DIRECTORY), 1_000_000)).toBe(`${[SECTION, `## What changed\n\n- The section ends at:\n\n\u0085${SECTION_CLOSE}`, ROUNDS, GATE_PART, DECIDED].join("\n\n")}\n`);
   });
 
   it("replaces the parts below the seal section, the last first, by a line that names each part's record, until the body is within the limit, and never cuts the seal section", async () => {
@@ -281,8 +284,9 @@ describe("the seal section of a body a person may have edited", () => {
       const body = ["A person's line above.", "", ...OLD, "", "A person's line below, with `<!-- a comment -->` in it.", ""].join(end);
       expect(withSealSection(body, SECTION)).toBe(["A person's line above.", "", ...SECTION.split("\n"), "", "A person's line below, with `<!-- a comment -->` in it.", ""].join(end));
     }
-    // A marker is read with the white space at its ends.
+    // A marker line is one of the two markers with spaces and tabs at its ends, and with no other character there.
     expect(withSealSection(`  ${SECTION_OPEN} \nold\n${SECTION_CLOSE}\t\nbelow`, SECTION)).toBe(`${SECTION}\nbelow`);
+    expect(withSealSection(`\u0085${SECTION_OPEN}\nold\n\ufeff${SECTION_CLOSE}\n`, SECTION)).toBe(`${SECTION}\n\n\u0085${SECTION_OPEN}\nold\n\ufeff${SECTION_CLOSE}\n`);
   });
 
   it("puts the section before the body's first line where the body holds no marker line, and is the section alone for an empty body", () => {
