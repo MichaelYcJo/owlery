@@ -1657,6 +1657,9 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const reviewed = await stood.c.chain(a.id, "reviewed");
       expect(stagesOf(reviewed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"]]);
       expect(reviewed.since).toBe(NOW + 110 * 60_000);
+      // While it ran, each start's chain was running since that start: the first, and the person's after the stop.
+      const ran = stood.c.messages.flatMap((message) => (message.type === "inbox" ? message.workItems : [])).flatMap((item) => (item.id === a.id && item.chain?.state === "running" ? [item.chain.since] : []));
+      expect([...new Set(ran)]).toEqual([NOW, NOW + 100 * 60_000]);
     });
 
     it("asks for the judgment of convergence at a person's start where round 2's chain stopped after the ruling on its proofer's question: a ruling the chain's last stage holds is no answered judgment of convergence", async () => {
