@@ -25,13 +25,14 @@ export function pairKey(role: RoleStage): PairKey {
 
 /**
  * The grants. A crafter at a fix pass changes the work item's worktree. A
- * proofer at a round and a sealer at the seal judge a tree, and change
- * nothing of it.
+ * proofer at a round, a sealer at the seal and the orchestrator at a
+ * judgment judge a tree or its records, and change nothing of it.
  */
 const GRANTS: Record<PairKey, RoleGrant> = {
   "proofer at round": { writes: "nowhere", runs: false },
   "crafter at fix-pass": { writes: "worktree", runs: true },
   "sealer at seal": { writes: "nowhere", runs: false },
+  "orchestrator at judgment": { writes: "nowhere", runs: false },
 };
 
 /** The grant of each pair of `ROLE_STAGES`. */
@@ -39,8 +40,19 @@ export function grantOf(role: RoleStage): RoleGrant {
   return GRANTS[pairKey(role)];
 }
 
-/** What the daemon answers a request with: an allowance, a refusal with the reason the agent is told, or the person. */
-export type Verdict = { answer: "allow" } | { answer: "refuse"; reason: string } | { answer: "person" };
+/**
+ * The rules a role's request is refused by, each by its name in a work
+ * item's records: the role's grant writes nowhere, the write names a path
+ * outside the worktree, the grant runs no command that asks, and every other
+ * call.
+ */
+export const REFUSAL_RULES = ["no-write", "outside-worktree", "no-command", "other"] as const;
+
+/** One of `REFUSAL_RULES`. */
+export type RefusalRule = (typeof REFUSAL_RULES)[number];
+
+/** What the daemon answers a request with: an allowance, a refusal with the reason the agent is told and the name of the rule that refused, or the person. */
+export type Verdict = { answer: "allow" } | { answer: "refuse"; reason: string; rule: RefusalRule } | { answer: "person" };
 
 /**
  * Where a path really is: the links on the part of it that exists followed,
@@ -117,18 +129,19 @@ function insideWorktree(path: string, worktree: string): boolean {
  * person's own, and the person answers each of its requests. A role
  * session's request is answered by its grant and never reaches the person:
  * a write inside the place the grant names is allowed, a command is allowed
- * where the grant runs commands, and every other call is refused. The rule
- * reads no command's text: it answers a command by the role alone.
+ * where the grant runs commands, and every other call is refused, with the
+ * name of the rule that refused it. The rule reads no command's text: it
+ * answers a command by the role alone.
  */
 export function verdictOn(role: RoleStage | null, request: { action: PermissionAction; path: string | null }, worktree: string): Verdict {
   if (role === null) return { answer: "person" };
   const grant = grantOf(role);
-  const refuse = (what: string, needed: string): Verdict => ({ answer: "refuse", reason: `${what} Do not work around it: say in your report which step needed ${needed}.` });
+  const refuse = (rule: RefusalRule, what: string, needed: string): Verdict => ({ answer: "refuse", reason: `${what} Do not work around it: say in your report which step needed ${needed}.`, rule });
   if (request.action === "write") {
-    if (grant.writes === "nowhere") return refuse(`Owlery gives the ${role.role} no call that writes a file.`, "the write");
+    if (grant.writes === "nowhere") return refuse("no-write", `Owlery gives the ${role.role} no call that writes a file.`, "the write");
     // A write that names no file is no write the rule can place.
-    if (request.path !== null) return insideWorktree(request.path, worktree) ? { answer: "allow" } : refuse(`Owlery lets the ${role.role} write only inside the work item's worktree, and ${request.path} is outside it.`, "the write");
+    if (request.path !== null) return insideWorktree(request.path, worktree) ? { answer: "allow" } : refuse("outside-worktree", `Owlery lets the ${role.role} write only inside the work item's worktree, and ${request.path} is outside it.`, "the write");
   }
-  if (request.action === "run") return grant.runs ? { answer: "allow" } : refuse(`Owlery gives the ${role.role} no command that asks for permission.`, "the command");
-  return refuse(`Owlery's rule for the ${role.role} does not allow this call.`, "it");
+  if (request.action === "run") return grant.runs ? { answer: "allow" } : refuse("no-command", `Owlery gives the ${role.role} no command that asks for permission.`, "the command");
+  return refuse("other", `Owlery's rule for the ${role.role} does not allow this call.`, "it");
 }

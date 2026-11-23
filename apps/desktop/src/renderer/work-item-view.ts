@@ -3,7 +3,8 @@
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
 // above the "Ask" section, where the calls its headless sessions ask the
-// person to allow are answered, and the seal's place. The pool of terminal screens the window holds lives here, and so
+// person to allow are answered, and the seal's place with "Get a seal",
+// which starts the work item's chain. The pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -36,9 +37,12 @@ import {
   pathCandidates,
   pathTarget,
   recentKept,
+  refusedSeal,
   replayStep,
   repoNameOf,
   screenMoves,
+  sealButton,
+  type SealRefusal,
   type ScreenTurns,
   screenTurns,
   stageOf,
@@ -85,6 +89,10 @@ let questionsDrawn: string | undefined;
 let askDrawn: string | undefined;
 // The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
 let answersRequest: number | undefined;
+// The request a press of "Get a seal" is waiting on, with its work item: the button stays off until the daemon answers.
+let sealRequest: { requestId: number; workItemId: number } | undefined;
+// The daemon's refusal of the last "Get a seal", and the work item it refused it for.
+let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
 // The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
@@ -130,6 +138,9 @@ const questionsAge = byId("questions-age");
 const questionsList = byId("questions-list");
 const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
+const getSeal = byId<HTMLButtonElement>("get-seal");
+const sealSays = byId("seal-says");
+const sealRefusal = byId("seal-refusal");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
@@ -814,6 +825,47 @@ function sendAnswers(): void {
 }
 
 /**
+ * Draws "Get a seal" at the view's foot for the view's work item (./view,
+ * `sealButton`): the button where the daemon sent the work item's chain,
+ * the chain's sentence above it and the daemon's refusal of the last press
+ * under it, while the chain stands as it stood at that refusal.
+ */
+function showSeal(workItem: WorkItem): void {
+  const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
+  getSeal.hidden = !button.offered;
+  getSeal.disabled = !button.enabled;
+  getSeal.title = button.title;
+  sealSays.textContent = button.says;
+  sealRefusal.textContent = button.refusal;
+}
+
+/** Asks the daemon to start the chain of the work item whose view is on screen, as a press of "Get a seal" does. The daemon answers `done` once the chain has started, and the `inbox` that follows carries it. */
+function askSeal(): void {
+  const workItem = viewed();
+  // One request per answer: a second press before the daemon has answered would ask for a second start.
+  if (!workItem || sealRequest !== undefined || !sealButton(workItem, false, null).enabled) return;
+  sealRequest = { requestId: request(), workItemId: workItem.id };
+  send({ type: "getSeal", requestId: sealRequest.requestId, workItemId: workItem.id });
+  showSeal(workItem);
+}
+
+/**
+ * Takes the daemon's answer to a press of "Get a seal", `refusal` being its
+ * refusal or null for `done`, and answers whether the request was that
+ * press's. A refusal is shown under the button, with the button on again,
+ * and is kept with the chain as the window holds it at the answer.
+ */
+export function takeSeal(requestId: number, refusal: string | null): boolean {
+  if (requestId !== sealRequest?.requestId) return false;
+  const { workItemId } = sealRequest;
+  sealRefused = refusal === null ? undefined : { workItemId, refusal: refusedSeal(held.workItems.find((item) => item.id === workItemId), refusal) };
+  sealRequest = undefined;
+  const workItem = viewed();
+  if (workItem) showSeal(workItem);
+  return true;
+}
+
+/**
  * Takes the daemon's answer to the section's request, `refusal` being its
  * refusal or null for `done`, and answers whether the request was the
  * section's. A refusal is shown in the section, with "Send answers" on
@@ -910,6 +962,7 @@ export function showView(): void {
     }),
   );
   showQuestions(workItem);
+  showSeal(workItem);
   viewDetail.replaceChildren(...detail(entry, 0, { reverse: (decisionId) => reverseDecision(workItem.id, decisionId), runSetup: (command) => runSetup(workItem.id, command) }));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
@@ -935,6 +988,8 @@ export function enterView(workItemId: number, pane?: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
+  // A press whose answer never came, as where the daemon ended first, holds the button off no longer.
+  sealRequest = undefined;
   held.viewing = workItemId;
   front = undefined;
   if (pane !== undefined) broughtToFront(workItemId, pane);
@@ -1057,6 +1112,7 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     { capture: true },
   );
   byId("view-seal-place").replaceWith(sealPlace("view"));
+  getSeal.addEventListener("click", askSeal);
   askField.addEventListener("input", () => {
     const workItem = viewed();
     if (workItem) showAsk(workItem);

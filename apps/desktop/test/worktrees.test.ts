@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, createWorktree, fetchBase, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, holdsCommit, mainCheckout, newCommits, pathsOfCommit, pathsOfCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
@@ -966,6 +966,183 @@ describe("renaming a work item's branch", () => {
     await expect(renameBranch(repo, made.branch, "owlery/taken")).rejects.toThrow("a branch named 'owlery/taken' already exists");
     expect(worktrees(repo)[made.worktree]).toBe("refs/heads/owlery/first-name");
     expect(commitOf(repo, "refs/heads/owlery/taken")).toBe(commitOf(repo, "refs/heads/main"));
+  });
+});
+
+describe("committing files of a worktree", () => {
+  const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";
+  const TRAILER = "Seal-Routing: 1-x";
+  /** How many commits the folder's branch holds. */
+  const commitsIn = (folder: string): number => Number(git(folder, "rev-list", "--count", "HEAD"));
+  /** The newest commit of the folder's branch: its subject, the rest of its message, who wrote and who committed it, and the paths it changed. */
+  const newest = (folder: string) => ({
+    subject: git(folder, "log", "-1", "--format=%s").trim(),
+    body: git(folder, "log", "-1", "--format=%b").trim(),
+    by: git(folder, "log", "-1", "--format=%an <%ae>, %cn <%ce>").trim(),
+    paths: git(folder, "show", "--name-only", "--format=", "HEAD").trim().split("\n"),
+  });
+  /** What git says of the folder's changes, a line for each path. */
+  const status = (folder: string): string[] => git(folder, "status", "--porcelain", "--untracked-files=all").split("\n").filter((line) => line !== "").sort();
+  /** Writes a file of the folder, with the folders above it. */
+  const write = (folder: string, path: string, text: string): void => {
+    mkdirSync(join(folder, path, ".."), { recursive: true });
+    writeFileSync(join(folder, path), text);
+  };
+
+  it("commits the paths given together and nothing else: one commit that holds them, with the subject and the trailer as its two paragraphs, under the person's identity, while a change staged beside them and one not staged stand as they stood", async () => {
+    const { repo } = repository();
+    write(repo, "seal/threads/1-x/trail/rounds/round-1.md", "# Review round 1: 1-x\n");
+    write(repo, "seal/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
+    write(repo, "staged.txt", "staged\n");
+    git(repo, "add", "staged.txt");
+    write(repo, "README.md", "changed and not staged\n");
+    await commitPaths(repo, "main", ["seal/threads/1-x/trail/rounds/round-1.md", "seal/threads/1-x/decisions.md"], "chore: record review round 1", TRAILER);
+    expect(commitsIn(repo)).toBe(2);
+    expect(newest(repo)).toEqual({ subject: "chore: record review round 1", body: TRAILER, by: WHO, paths: ["seal/threads/1-x/decisions.md", "seal/threads/1-x/trail/rounds/round-1.md"] });
+    expect(status(repo)).toEqual([" M README.md", "A  staged.txt"]);
+  });
+
+  it("commits one path alone, and of two paths the one that differs from the newest commit; where none differs it commits nothing", async () => {
+    const { repo } = repository();
+    write(repo, "seal/threads/1-x/decisions.md", "one\n");
+    write(repo, "seal/threads/1-x/routing.md", "routing\n");
+    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md"], "chore: record a word", TRAILER);
+    expect(newest(repo)).toMatchObject({ subject: "chore: record a word", body: TRAILER, paths: ["seal/threads/1-x/decisions.md"] });
+    expect(status(repo)).toEqual(["?? seal/threads/1-x/routing.md"]);
+
+    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md", "seal/threads/1-x/routing.md"], "chore: declare the routing", TRAILER);
+    expect(commitsIn(repo)).toBe(3);
+    expect(newest(repo)).toMatchObject({ subject: "chore: declare the routing", paths: ["seal/threads/1-x/routing.md"] });
+
+    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md", "seal/threads/1-x/routing.md"], "chore: nothing to carry", TRAILER);
+    expect(commitsIn(repo)).toBe(3);
+    expect(status(repo)).toEqual([]);
+  });
+
+  it("throws why the worktree takes no commit, on another branch than the one named, with nothing staged and nothing committed", async () => {
+    const { repo } = repository();
+    write(repo, "a.md", "a\n");
+    write(repo, "b.md", "b\n");
+    await expect(commitPaths(repo, "owlery/other", ["a.md", "b.md"], "chore: record", TRAILER)).rejects.toThrow("the worktree is not on the branch owlery/other");
+    expect(commitsIn(repo)).toBe(1);
+    expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
+  });
+
+  it("throws git's words and takes every path out of the index again where a path names no file, and where a hook of the repository refuses the commit, so each file stands written and not staged", async () => {
+    const { repo } = repository();
+    write(repo, "a.md", "a\n");
+    write(repo, "b.md", "b\n");
+    await expect(commitPaths(repo, "main", ["a.md", "no-such.md"], "chore: record", TRAILER)).rejects.toThrow("pathspec 'no-such.md' did not match any files");
+    expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
+
+    write(repo, ".git/hooks/pre-commit", "#!/bin/sh\necho 'the hook says no' >&2\nexit 1\n");
+    chmodSync(join(repo, ".git", "hooks", "pre-commit"), 0o755);
+    await expect(commitPaths(repo, "main", ["a.md", "b.md"], "chore: record", TRAILER)).rejects.toThrow("the hook says no");
+    expect(commitsIn(repo)).toBe(1);
+    expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
+  });
+});
+
+describe("what a chain reads of a worktree", () => {
+  it("gives the head whole, the commit a name gives, a shortened hash and a branch among them, and none for a name that names no commit", async () => {
+    const { repo } = repository();
+    const first = commitOf(repo, "HEAD");
+    const second = commitFile(repo, "a.txt");
+    expect(await worktreeHead(repo)).toBe(second);
+    expect([await commitNamed(repo, second.slice(0, 7)), await commitNamed(repo, "main"), await commitNamed(repo, first)]).toEqual([second, second, first]);
+    expect([await commitNamed(repo, "a".repeat(40)), await commitNamed(repo, "no-such-branch"), await commitNamed(repo, "--all")]).toEqual([null, null, null]);
+  });
+
+  it("says whether one commit holds another: itself and each of its ancestors, and no commit after it or beside it, and throws for a name that is no commit", async () => {
+    const { repo } = repository();
+    const first = commitOf(repo, "HEAD");
+    const second = commitFile(repo, "a.txt");
+    git(repo, "checkout", "--quiet", "-b", "beside", first);
+    const beside = commitFile(repo, "b.txt");
+    expect([await holdsCommit(repo, second, first), await holdsCommit(repo, second, second), await holdsCommit(repo, first, second), await holdsCommit(repo, second, beside)]).toEqual([true, true, false, false]);
+    await expect(holdsCommit(repo, second, "a".repeat(40))).rejects.toThrow(/a{40}/u);
+  });
+
+  it("lists each path with a change no commit holds, staged or not, and each untracked file, a moved file as both of its paths, and no ignored file and no committed one", async () => {
+    const { repo } = repository();
+    writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
+    for (const file of ["staged.txt", "moved from.txt", "kept.txt"]) writeFileSync(join(repo, file), `${file}\n`);
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "three files");
+    expect(await uncommittedPaths(repo)).toEqual([]);
+    writeFileSync(join(repo, "README.md"), "changed\n");
+    writeFileSync(join(repo, "staged.txt"), "staged, changed\n");
+    git(repo, "add", "staged.txt");
+    git(repo, "mv", "moved from.txt", "moved to.txt");
+    mkdirSync(join(repo, "new folder"));
+    writeFileSync(join(repo, "new folder", "untracked.txt"), "untracked\n");
+    writeFileSync(join(repo, "ignored.txt"), "ignored\n");
+    expect((await uncommittedPaths(repo)).sort()).toEqual(["README.md", "moved from.txt", "moved to.txt", "new folder/untracked.txt", "staged.txt"]);
+  });
+
+  it("lists the paths one commit changed, as the pull request check reads them: a path with a space whole, the first commit's files, none for a merge, and throws for a name that is no commit", async () => {
+    const { repo } = repository();
+    const first = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "-b", "work");
+    mkdirSync(join(repo, "sub"));
+    writeFileSync(join(repo, "sub", "b c.txt"), "b\n");
+    writeFileSync(join(repo, "a.txt"), "a\n");
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "two files");
+    const two = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "main");
+    commitFile(repo, "on-main.txt");
+    git(repo, "merge", "--quiet", "--no-ff", "-m", "merge work", "work");
+    const merge = commitOf(repo, "HEAD");
+    expect((await pathsOfCommit(repo, two)).sort()).toEqual(["a.txt", "sub/b c.txt"]);
+    expect(await pathsOfCommit(repo, first)).toEqual(git(repo, "ls-tree", "-r", "--name-only", first).trim().split("\n"));
+    expect(await pathsOfCommit(repo, merge)).toEqual([]);
+    await expect(pathsOfCommit(repo, "a".repeat(40))).rejects.toThrow();
+  });
+
+  it("lists the paths the commits after one commit changed, each once, and what one commit changed against another: from the commit they last shared where asked, so what the base gained since is no part of it", async () => {
+    const { repo } = repository();
+    const base = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "-b", "work");
+    commitFile(repo, "a.txt");
+    writeFileSync(join(repo, "a.txt"), "a.txt, again\n");
+    mkdirSync(join(repo, "sub"));
+    writeFileSync(join(repo, "sub", "b c.txt"), "b\n");
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "again");
+    const head = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "main");
+    const moved = commitFile(repo, "on-main.txt");
+    expect((await pathsOfCommits(repo, base, head)).sort()).toEqual(["a.txt", "sub/b c.txt"]);
+    expect(await pathsOfCommits(repo, head, head)).toEqual([]);
+    await expect(pathsOfCommits(repo, "a".repeat(40), head)).rejects.toThrow();
+    const since = await diffBetween(repo, "main", head, true);
+    expect(since.paths.sort()).toEqual(["a.txt", "sub/b c.txt"]);
+    expect(since.text).toContain("+a.txt, again\n");
+    expect(since.text).not.toContain("on-main.txt");
+    // Read between the two commits themselves, what the base gained reads as removed.
+    const between = await diffBetween(repo, moved, head, false);
+    expect(between.paths.sort()).toEqual(["a.txt", "on-main.txt", "sub/b c.txt"]);
+    expect(between.text).toContain("-on-main.txt\n");
+  });
+
+  it("gives a file's text as a commit holds it, whatever the worktree and the commits after it hold, and the files that commit holds directly in a folder, and none of either where the commit holds none", async () => {
+    const { repo } = repository();
+    mkdirSync(join(repo, "rounds", "deeper"), { recursive: true });
+    for (const file of ["rounds/round-1.md", "rounds/round-2.md", "rounds/deeper/round-3.md"]) writeFileSync(join(repo, file), `${file}\n`);
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "records");
+    const held = commitOf(repo, "HEAD");
+    writeFileSync(join(repo, "rounds/round-1.md"), "changed in a later commit\n");
+    writeFileSync(join(repo, "rounds/round-4.md"), "added in a later commit\n");
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "later");
+    writeFileSync(join(repo, "rounds/round-1.md"), "changed in the worktree\n");
+    writeFileSync(join(repo, "rounds/round-9.md"), "untracked\n");
+    expect([await fileAt(repo, held, "rounds/round-1.md"), await fileAt(repo, held, "rounds/round-4.md"), await fileAt(repo, held, "rounds/round-9.md")]).toEqual(["rounds/round-1.md\n", null, null]);
+    expect(await fileAt(repo, "HEAD", "rounds/round-1.md")).toBe("changed in a later commit\n");
+    expect(await filesAt(repo, held, "rounds")).toEqual(["rounds/deeper", "rounds/round-1.md", "rounds/round-2.md"]);
+    expect([await filesAt(repo, held, "rounds/"), await filesAt(repo, held, "no-such-folder")]).toEqual([["rounds/deeper", "rounds/round-1.md", "rounds/round-2.md"], []]);
   });
 });
 

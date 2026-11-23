@@ -1,12 +1,12 @@
 // The daemon's reader and writer of a `seal` block. The pull request check
 // reads the same blocks in Python (`pr-check/lib/fields.py`), so the first
 // case hands one set of fixtures to both readers and compares what they
-// return. The other cases read the count this module adds and what
-// `assemble` builds.
+// return, and the second does the same for the four kinds of a round record.
+// The other cases read the count this module adds and what `assemble` builds.
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DECISION_BLOCK, QUESTION_BLOCK, RUN_BLOCK, VERDICT_BLOCK, assemble, field, read, type BlocksRead } from "../src/daemon/record-blocks";
+import { ASK_BLOCK, CONVERGENCE_BLOCK, DECISION_BLOCK, QUESTION_BLOCK, ROUND_RECORD, RULING_BLOCK, RUN_BLOCK, VERDICT_BLOCK, assemble, field, read, type BlocksRead } from "../src/daemon/record-blocks";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
 
@@ -70,6 +70,51 @@ const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]
   { name: "a fence run after a tag left open and a comment's closer", text: `prose <span\nmore -->\n${F}a\`b\n`, blocks: 0, refusals: [3], notices: [] },
 ];
 
+/** A block of a round record's kinds, from its lines. */
+const sealed = (...lines: string[]): string => [`${F}seal`, ...lines, F, ""].join("\n");
+
+/**
+ * Each fixture of a round record's four kinds with what both readers return
+ * of it, as `FIXTURES` gives it for the verdict kind and the run kind.
+ */
+const ROUND_FIXTURES: { name: string; text: string; blocks: number; refusals: number[]; notices: number[] }[] = [
+  { name: "a round block that names a base", text: sealed("target: 0123abc against release/v0.0.2"), blocks: 1, refusals: [], notices: [] },
+  { name: "a round block of a verifying round, with its original", text: sealed("target: 0123abc, fixes 89abcde..0123abc", "original: 89abcde"), blocks: 1, refusals: [], notices: [] },
+  { name: "a target with neither a base nor a range", text: sealed("target: 0123abc"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a target whose base ends with a dot", text: sealed("target: 0123abc against main."), blocks: 0, refusals: [2], notices: [] },
+  { name: "a target whose base is spelt in letters of another script", text: sealed("target: 0123abc against 기준"), blocks: 1, refusals: [], notices: [] },
+  { name: "a target whose base ends with a combining mark, which is no letter", text: sealed("target: 0123abc against main\u0301"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a target whose range names one commit", text: sealed("target: 0123abc, fixes 89abcde"), blocks: 0, refusals: [2], notices: [] },
+  {
+    name: "a finding block with every key but a reopening",
+    text: sealed("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`, `docs/c.md`", "evidence: read `src/a.ts:12`", "regression: round-1#2"),
+    blocks: 1,
+    refusals: [],
+    notices: [],
+  },
+  { name: "a finding block whose severity and evidence hold no word, and a regression that names a round alone", text: sealed("severity:", "location: `a.ts`", "evidence:", "regression: round-2"), blocks: 1, refusals: [], notices: [] },
+  { name: "a finding block that reopens a finding", text: sealed("severity: should", "location: `a.ts:1`", "reopens: round-1#1"), blocks: 1, refusals: [], notices: [] },
+  { name: "a reopening that names a round alone", text: sealed("severity: should", "location: `a.ts:1`", "reopens: round-1"), blocks: 0, refusals: [4], notices: [] },
+  { name: "a regression beside a reopening", text: sealed("severity: must", "location: `a.ts:1`", "regression: round-1#1", "reopens: round-1#1"), blocks: 0, refusals: [5], notices: [] },
+  { name: "a reopening beside a regression, the second of another shape", text: sealed("severity: must", "location: `a.ts:1`", "reopens: round-1#1", "regression: nothing"), blocks: 0, refusals: [5], notices: [] },
+  { name: "a finding block with no location", text: sealed("severity: must", "evidence: read it"), blocks: 0, refusals: [1], notices: [] },
+  { name: "a location with no backticks", text: sealed("severity: must", "location: src/a.ts:12"), blocks: 0, refusals: [3], notices: [] },
+  { name: "a location that opens with a slash", text: sealed("severity: must", "location: `/src/a.ts`"), blocks: 0, refusals: [3], notices: [] },
+  { name: "a location that holds a no-break space", text: sealed("severity: must", "location: `src/a\u00a0b.ts`"), blocks: 0, refusals: [3], notices: [] },
+  { name: "two locations joined by a comma alone", text: sealed("severity: must", "location: `a.ts`,`b.ts`"), blocks: 0, refusals: [3], notices: [] },
+  { name: "a round numbered from zero", text: sealed("severity: must", "location: `a.ts`", "regression: round-0#1"), blocks: 0, refusals: [4], notices: [] },
+  { name: "a close block that reads fixed, with its answer and a location", text: sealed("verdict: fixed 0123abc", "answer: The guard moved above the read.", "location: `src/c.ts`"), blocks: 1, refusals: [], notices: [] },
+  { name: "a close block that reads rejected, and one deferred to an issue", text: `${sealed("verdict: rejected", "answer:")}\n${sealed("verdict: deferred #42")}`, blocks: 2, refusals: [], notices: [] },
+  { name: "a deferral whose home is several words", text: sealed("verdict: deferred the frame, at its next fold"), blocks: 1, refusals: [], notices: [] },
+  { name: "a deferral with no home", text: sealed("verdict: deferred"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a deferral whose home ends with a no-break space", text: sealed("verdict: deferred #42\u00a0"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a verdict that reads open", text: sealed("verdict: open"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a fixed verdict with no commit, and one whose commit is six digits", text: `${sealed("verdict: fixed")}\n${sealed("verdict: fixed 0123ab")}`, blocks: 0, refusals: [2, 6], notices: [] },
+  { name: "a confirmation, and one of an earlier release that names none", text: `${sealed("confirms: round-1#2")}\n${sealed("confirms: none")}`, blocks: 2, refusals: [], notices: [] },
+  { name: "a confirmation that names a round alone", text: sealed("confirms: round-1"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a verdict block of a guarantee, which a round record holds no kind for", text: VERDICT, blocks: 0, refusals: [3], notices: [] },
+];
+
 /** What a reader returned, in the one shape both readers are compared in. */
 interface Compared {
   blocks: { kind: string; line: number; end: number; fields: Record<string, { value: string; line: number; groups: Record<string, string | null> }> }[];
@@ -77,15 +122,15 @@ interface Compared {
   notices: [number, string][];
 }
 
-/** The Python reader's answer for each text, for the verdict kind and the run kind. `-B` keeps Python from writing its bytecode into `pr-check/`. */
-function pythonRead(texts: string[]): Compared[] {
+/** The Python reader's answer for each text, for the kinds its module holds under that name. `-B` keeps Python from writing its bytecode into `pr-check/`. */
+function pythonRead(texts: string[], kinds: "GUARANTEE + fields.GATE" | "ROUND_RECORD"): Compared[] {
   const script = [
     "import json, sys",
     "sys.path.insert(0, sys.argv[1])",
     "import fields",
     "out = []",
     "for text in json.loads(sys.stdin.buffer.read().decode('utf-8')):",
-    "    got = fields.read(text, (fields.VERDICT_BLOCK, fields.RUN_BLOCK))",
+    `    got = fields.read(text, fields.${kinds})`,
     "    out.append({",
     "        'blocks': [{'kind': b.kind.name, 'line': b.line, 'end': b.end, 'fields': {k: {'value': f.value, 'line': f.line, 'groups': f.match.groupdict()} for k, f in b.fields.items()}} for b in got.blocks],",
     "        'refusals': [list(r) for r in got.refusals],",
@@ -124,9 +169,28 @@ function compared(got: BlocksRead): Compared {
 describe("the reader of a seal block", () => {
   // The case starts Python, which takes seconds while the rest of the suite runs beside it.
   it("returns the blocks, the refusals and the notices the pull request check's reader returns, for every fixture", { timeout: 30_000 }, () => {
-    const python = pythonRead(FIXTURES.map((fixture) => fixture.text));
+    const python = pythonRead(
+      FIXTURES.map((fixture) => fixture.text),
+      "GUARANTEE + fields.GATE",
+    );
     for (const [index, fixture] of FIXTURES.entries()) {
       const own = compared(read(fixture.text, [VERDICT_BLOCK, RUN_BLOCK]));
+      expect(own, fixture.name).toEqual(python[index]);
+      expect({ blocks: own.blocks.length, refusals: own.refusals.map(([line]) => line), notices: own.notices.map(([line]) => line) }, fixture.name).toEqual({
+        blocks: fixture.blocks,
+        refusals: fixture.refusals,
+        notices: fixture.notices,
+      });
+    }
+  });
+
+  it("returns, for the four kinds of a round record, the blocks, the refusals and the notices the pull request check's reader returns, for every fixture", { timeout: 30_000 }, () => {
+    const python = pythonRead(
+      ROUND_FIXTURES.map((fixture) => fixture.text),
+      "ROUND_RECORD",
+    );
+    for (const [index, fixture] of ROUND_FIXTURES.entries()) {
+      const own = compared(read(fixture.text, ROUND_RECORD));
       expect(own, fixture.name).toEqual(python[index]);
       expect({ blocks: own.blocks.length, refusals: own.refusals.map(([line]) => line), notices: own.notices.map(([line]) => line) }, fixture.name).toEqual({
         blocks: fixture.blocks,
@@ -176,6 +240,55 @@ describe("the reader of a seal block", () => {
     const twice = read([...question.slice(0, 8), "default: `no`", ...question.slice(8)].join("\n"), [DECISION_BLOCK, QUESTION_BLOCK]);
     expect(twice.blocks).toEqual([]);
     expect(twice.refusals).toEqual([{ line: 9, why: "a second `default:` line: a question block holds one", block: 1 }]);
+  });
+
+  describe("the kinds a stage's answer holds", () => {
+    const block = (...lines: string[]): string => [`${F}seal`, ...lines, F, ""].join("\n");
+    const refusal = (text: string, kinds: Parameters<typeof read>[1]): string => read(text, kinds).refusals.map(({ line, why }) => `${String(line)}: ${why}`).join("; ");
+
+    it("reads a stage's question: what it asks and its grounds, any number of options each with a label and what it implies, and at most one default that names an option", () => {
+      const got = read(block("asks: May the pass push the branch to `origin`?", "grounds: No document grants it.", "option: `yes` The branch is pushed.", "option: `no`", "default: `no`"), [ASK_BLOCK]);
+      expect(got.refusals).toEqual([]);
+      expect(got.blocks.map((each) => [each.kind.name, field(each, "asks:")?.value, field(each, "grounds:")?.value, field(each, "default:")?.groups.label])).toEqual([["question", "May the pass push the branch to `origin`?", "No document grants it.", "no"]]);
+      expect(got.blocks[0]?.fields.get("option:")?.map((option) => [option.groups.label, option.groups.implies])).toEqual([["yes", "The branch is pushed."], ["no", undefined]]);
+      expect(read(block("asks: May it?", "grounds: None."), [ASK_BLOCK]).blocks).toHaveLength(1);
+    });
+
+    it("refuses a question with no grounds, with a field of a record's question, with two options of one label and with a default that names no option", () => {
+      expect(refusal(block("asks: May it?"), [ASK_BLOCK])).toBe("1: the question block holds no `grounds:` line, and it holds one");
+      expect(refusal(block("asks: May it?", "grounds: None.", "state: open"), [ASK_BLOCK])).toBe("4: `state: open` is no field of a question block, which takes `asks:`, `grounds:`, `option:` and `default:`, each written `<key>: <value>`");
+      expect(refusal(block("asks: May it?", "grounds: None.", "option: `a` One.", "option: `a` Two."), [ASK_BLOCK])).toBe("1: two `option:` lines hold the label `a`: a question block holds each label once");
+      expect(refusal(block("asks: May it?", "grounds: None.", "option: `a` One.", "default: `b`"), [ASK_BLOCK])).toBe("1: `default:` names `b`, and no `option:` line of the block holds that label");
+      // A record's question opens with its id, so an answer's reader takes it for none of its own.
+      expect(read(block("question: 1", "asks: May it?", "grounds: None.", "state: open"), [ASK_BLOCK]).blocks).toEqual([]);
+    });
+
+    it("reads the judgment of convergence as yes or no with its grounds, and refuses another word, a judgment with no grounds and a second line of either key", () => {
+      const got = read(`${block("converging: yes", "grounds: Each round found less.")}\n${block("converging: no", "grounds: Round 3 reopened a fix.")}`, [CONVERGENCE_BLOCK]);
+      expect(got.refusals).toEqual([]);
+      expect(got.blocks.map((each) => [each.kind.name, field(each, "converging:")?.groups.converging, field(each, "grounds:")?.value])).toEqual([["judgment", "yes", "Each round found less."], ["judgment", "no", "Round 3 reopened a fix."]]);
+      expect(refusal(block("converging: Yes", "grounds: It is."), [CONVERGENCE_BLOCK])).toBe("2: `converging: Yes` does not read whole as `converging: <value>`: it is `yes` or `no`");
+      expect(refusal(block("converging: yes"), [CONVERGENCE_BLOCK])).toBe("1: the judgment block holds no `grounds:` line, and it holds one");
+      expect(refusal(block("converging: yes", "converging: no", "grounds: Both."), [CONVERGENCE_BLOCK])).toBe("3: a second `converging:` line: a judgment block holds one");
+    });
+
+    it("reads a ruling as the question's number and one of four words, with what was decided for every word but park, and refuses a park that decides, a decision that says nothing, and another word", () => {
+      const text = ["default", "scope", "answered"].map((word, index) => block(`rules: ${String(index + 1)} ${word}`, "decided: It stays.", "grounds: The frame.")).join("\n");
+      const got = read(`${text}\n${block("rules: 4 park", "grounds: A credential.")}`, [RULING_BLOCK]);
+      expect(got.refusals).toEqual([]);
+      expect(got.blocks.map((each) => [each.kind.name, field(each, "rules:")?.groups.question, field(each, "rules:")?.groups.ruling, field(each, "decided:")?.value])).toEqual([
+        ["ruling", "1", "default", "It stays."],
+        ["ruling", "2", "scope", "It stays."],
+        ["ruling", "3", "answered", "It stays."],
+        ["ruling", "4", "park", undefined],
+      ]);
+      expect(refusal(block("rules: 1 park", "decided: Wait.", "grounds: A credential."), [RULING_BLOCK])).toBe("1: the ruling block parks its question and holds a `decided:` line: a park decides nothing");
+      expect(refusal(block("rules: 1 answered", "grounds: The frame."), [RULING_BLOCK])).toBe("1: the ruling block holds no `decided:` line, and every ruling but `park` says what was decided");
+      expect(refusal(block("rules: 1 route", "decided: Go.", "grounds: The frame."), [RULING_BLOCK])).toBe(
+        "2: `rules: 1 route` does not read whole as `rules: <value>`: it is `<question> <ruling>`: the question's number, a whole number from 1 with no leading zero and at most 15 digits, and one of `default`, `scope`, `answered` and `park`",
+      );
+      expect(refusal(block("rules: 0 park", "grounds: A credential."), [RULING_BLOCK])).toContain("2: `rules: 0 park` does not read whole");
+    });
   });
 
   it("says of a refusal which block it refused, by the line of the block's opener, and of a refusal outside every block that it refused none", () => {

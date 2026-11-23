@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { AskedQuestion, Decision, Look, PermissionAsk, Question, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
+import type { AskedQuestion, Chain, Decision, Look, PermissionAsk, Question, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -32,6 +32,7 @@ const QUESTIONS: Question[] = [
 ];
 const UNREAD: Unread[] = [{ line: 40, why: "an empty `seal` block" }];
 const SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
+const CHAIN: Chain = { state: "stopped", says: "Review round 2 failed: the session reached its time limit and was stopped.", reviewedAt: null, stages: [{ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 1, refusals: 0 }, { kind: "round", round: 2, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: 3, endedAt: 4, headlessId: 2, refusals: 1 }], since: 6 };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -57,6 +58,7 @@ const WORK_ITEM: WorkItem = {
   unread: UNREAD,
   setup: SETUP,
   permissions: [ASK],
+  chain: CHAIN,
 };
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
@@ -313,6 +315,24 @@ describe("LastLook", () => {
     const { setup: _setup, ...before } = WORK_ITEM;
     writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, workItems: [before] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, setup: null }] });
+  });
+
+  it("reads a look a build before the chain wrote, whose work items lack it, with none, keeps a chain a look holds with only a chain's fields, and reads a look whose chain is none as no look", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { chain: _chain, ...before } = WORK_ITEM;
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, chain: null }] });
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, extra: 1, stages: CHAIN.stages.map((stage) => ({ ...stage, extra: 1 })) } }] }));
+    expect(new LastLook(dir).get()).toEqual(LOOK);
+    // A chain a build before the time of its state wrote is kept as in its state since its newest stage ended.
+    const { since: _since, ...written } = CHAIN;
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: written }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, since: 4 } }] });
+    for (const chain of ["running", { ...CHAIN, state: "sealed" }, { ...CHAIN, since: "6" }, { ...CHAIN, stages: [{ ...CHAIN.stages[0], kind: "seal" }] }]) {
+      writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain }] }));
+      expect(new LastLook(dir).get(), JSON.stringify(chain)).toBeNull();
+    }
   });
 
   it("holds the look it was given though the file cannot be written, and says that it was not", () => {

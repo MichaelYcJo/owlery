@@ -26,10 +26,10 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
-/** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
+/** What a work item holds of the fields set after its creation, by a person, by its setup or by its chain, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null };
 /** What a work item holds of its record of decisions and questions where its worktree holds none. */
 const NO_RECORD = { decisions: [], questions: [], unread: [] };
 /** What a repository holds of the fields a person sets, before any is set. */
@@ -4088,6 +4088,60 @@ describe("the commit of a person's word", () => {
     expect(status(a.worktree)).toEqual(left);
   });
 
+  it("rewrites the `Branch` row of the work item's `routing.md` at a rename of its branch, in a commit of that file alone with the trailer that names the directory, so the work item still carries its decision at the reads after it; a rename of the name alone writes and commits nothing", async () => {
+    const { d, c, url, workItems } = await withWorkItems(["First name"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795388700-renamed");
+    const routing = "seal/threads/1795388700-renamed/routing.md";
+    const stood = readFileSync(join(directory, "routing.md"), "utf8");
+    d.decided(a.id, DEFAULT);
+    await c.message("inbox", (m) => m.workItems[0]?.decisions.length === 1);
+
+    c.send({ type: "renameWorkItem", requestId: 1, id: a.id, title: "Another name", branch: false });
+    await c.message("done", (m) => m.requestId === 1);
+    await settled(c);
+    expect([readFileSync(join(directory, "routing.md"), "utf8"), commitsIn(a.worktree)]).toEqual([stood, 1]);
+
+    c.send({ type: "renameWorkItem", requestId: 2, id: a.id, title: "Second name", branch: true });
+    await c.message("done", (m) => m.requestId === 2);
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(stood).toContain(`| Branch | ${a.branch} |\n`);
+    expect(readFileSync(join(directory, "routing.md"), "utf8")).toBe(stood.replace(`| Branch | ${a.branch} |`, "| Branch | owlery/second-name |"));
+    expect(newest(a.worktree)).toEqual({ subject: "chore: name the renamed branch in the work item's routing", body: "Seal-Routing: 1795388700-renamed", by: WHO, paths: [routing] });
+    expect(git(a.worktree, "show", `HEAD:${routing}`)).toBe(readFileSync(join(directory, "routing.md"), "utf8"));
+    expect(status(a.worktree)).toEqual(["?? seal/README.md", "?? seal/threads/1795388700-renamed/decisions.md"]);
+    // The record is read again at each interval, by the branch's new name.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const later = (await (await client(url)).message("ready")).workItems[0];
+    expect([later?.branch, later?.decisions.map((decision) => decision.says)]).toEqual(["owlery/second-name", ["Start from main."]]);
+  });
+
+  it("refuses a rename of the branch while the work item's chain is running, with the branch, the routing and the name as they were, takes a rename of the name alone meanwhile, and renames the branch once the chain rests", async () => {
+    // The fake proofer's answer holds no round record, so the chain stops when round 1's session ends.
+    const { c, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795388700-renamed");
+    git(a.worktree, "add", "--all");
+    git(a.worktree, "commit", "--quiet", "-m", "chore: add the records and declare the routing");
+    const stood = readFileSync(join(directory, "routing.md"), "utf8");
+    const chainOf = (): WorkItem["chain"] | undefined => c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems : [])).at(-1)?.chain;
+
+    c.send({ type: "getSeal", requestId: 1, workItemId: a.id });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "renameWorkItem", requestId: 2, id: a.id, title: "Second name", branch: true });
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe("The work item's chain is running, and it finds the work item's records by the branch's name. Rename the branch once the chain rests.");
+    expect(chainOf()?.state).toBe("running");
+    expect([git(a.worktree, "symbolic-ref", "--short", "HEAD").trim(), readFileSync(join(directory, "routing.md"), "utf8"), commitsIn(a.worktree)]).toEqual([a.branch, stood, 2]);
+    c.send({ type: "renameWorkItem", requestId: 3, id: a.id, title: "Second name", branch: false });
+    await c.message("done", (m) => m.requestId === 3);
+    expect((await c.message("inbox", (m) => m.workItems[0]?.title === "Second name")).workItems[0]).toMatchObject({ title: "Second name", branch: a.branch });
+
+    await c.until(() => (chainOf()?.state === "stopped" ? true : undefined), 10_000);
+    c.send({ type: "renameWorkItem", requestId: 4, id: a.id, title: "Second name", branch: true });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(git(a.worktree, "symbolic-ref", "--short", "HEAD").trim()).toBe("owlery/second-name");
+  });
+
   /** Runs git in a worktree where the command is expected to stop on a conflict, and gives its exit code. */
   const stopping = (worktree: string, ...args: string[]): number | null => spawnSync("git", args, { cwd: worktree, encoding: "utf8" }).status;
   /**
@@ -4536,6 +4590,7 @@ describe("headless sessions", () => {
       { role: "proofer", stage: "round" },
       { role: "crafter", stage: "fix-pass" },
       { role: "sealer", stage: "seal" },
+      { role: "orchestrator", stage: "judgment" },
     ]);
     for (const [index, pair] of ROLE_STAGES.entries()) {
       c.send({ type: "ask", requestId: index + 1, workItemId: workItem.id, prompt: "Q", role: { ...pair, more: "not kept" } });
@@ -5337,6 +5392,7 @@ describe("headless sessions", () => {
     it.each([
       ["proofer", { role: "proofer", stage: "round" }],
       ["sealer", { role: "sealer", stage: "seal" }],
+      ["orchestrator", { role: "orchestrator", stage: "judgment" }],
     ] as const)("refuses every request of a %s, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report, and nothing waits for the person", async (name, role) => {
       const { held, adapter } = asking();
       const { c, workItem } = await withWorkItem({ roleAdapter: adapter });

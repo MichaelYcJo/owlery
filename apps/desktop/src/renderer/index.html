@@ -295,7 +295,7 @@
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
       .line .title { flex: 1; }
-      /* The second row's text is the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
+      /* The second row's text is a question the work item is parked with, a call a session asks to make, the sentence of a chain that stopped, the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
       .line .says { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink-muted); }
       .line .says.branch { font-size: var(--size-caption); }
       /* The setup's words after the text, in the failure's colour where it failed. */
@@ -409,6 +409,12 @@
       #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
       #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
+      /* The chain's sentence stands above the button that starts the chain, and the daemon's refusal of a start under it. */
+      #view-seal .says, #view-seal .refusal { font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; }
+      #view-seal .says { margin-top: var(--space-3); color: var(--ink); }
+      #view-seal .refusal { color: var(--state-failed); }
+      #view-seal .says:empty, #view-seal .refusal:empty { display: none; }
+      #get-seal { align-self: flex-start; margin-top: var(--space-3); }
 
       #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #ask-form { flex: none; display: flex; gap: var(--space-3); }
@@ -666,6 +672,9 @@
           <span class="words">
             <span class="name head">No seal yet</span>
             <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
+            <span id="seal-says" class="says"></span>
+            <button type="button" id="get-seal" class="primary" hidden>Get a seal</button>
+            <span id="seal-refusal" class="refusal" role="alert"></span>
           </span>
         </section>
       </aside>

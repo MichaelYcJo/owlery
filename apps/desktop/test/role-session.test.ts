@@ -37,7 +37,7 @@ const UNCHANGED = [".claude/settings.json", ".claude/settings.local.json", ".cla
 
 const PROMPT = [
   "Answer these three questions in three short numbered lines, and do nothing else: run no command and write no file.",
-  "1. Your definition names the directory you clone the repository into for a round. Quote that path exactly as your definition writes it.",
+  "1. Your definition names the file the daemon writes your round record to. Quote that path exactly as your definition writes it.",
   "2. Which rule numbers of the agent contract are retired? Quote the numbers as the contract lists them.",
   "3. Read the file `templates/records/sdd-round.md` of the role bundle, and quote its first line exactly.",
 ].join("\n");
@@ -134,7 +134,7 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
 
     expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, { role: "proofer", stage: "round" }]);
     // Only `agents/proofer.md` states this path.
-    expect(headless.answer).toContain("round-<n>/clone");
+    expect(headless.answer).toContain("trail/rounds/round-<n>.md");
     // Only `skills/agent-contract/SKILL.md` states the retired numbers.
     expect(headless.answer).toMatch(/8, 16,? and 20/);
     // The first line of `templates/records/sdd-round.md`, which no appended document holds.

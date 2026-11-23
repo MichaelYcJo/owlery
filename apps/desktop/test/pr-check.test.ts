@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { planRecords, setUpRecords } from "../src/daemon/records-place";
+import { type Cleanups, proofs, roles, standing } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
@@ -82,9 +83,9 @@ const DECISIONS = [
 
 // Each run of the check starts Python and its git, which takes seconds while the rest of the suite runs beside it.
 describe("the pull request check", { timeout: 30_000 }, () => {
-  const cleanups: (() => void)[] = [];
-  afterEach(() => {
-    for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+  const cleanups: Cleanups = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
   /** A temporary repository with one commit on `main`, removed when the case ends. */
@@ -98,11 +99,13 @@ describe("the pull request check", { timeout: 30_000 }, () => {
    * Runs the check in the repository against `main`, as a pull request that is
    * ready or a draft. The environment is the few names the run needs and no
    * other, and `-B` keeps Python from writing its bytecode into `pr-check/`.
+   * `sealing` runs it as the broad gate's step does, before the sealer has
+   * written: what only the later stages write is then printed and not failed.
    */
-  const check = (made: { base: string; repo: string }, state: "ready" | "draft"): { exit: number | null; output: string } => {
+  const check = (made: { base: string; repo: string }, state: "ready" | "draft", sealing = false): { exit: number | null; output: string } => {
     const payload = join(made.base, `${state}.json`);
     writeFileSync(payload, JSON.stringify({ pull_request: { draft: state === "draft", body: "hello" } }));
-    const run = spawnSync("python3", ["-B", CHAIN_CHECK, "--baseline", "main"], {
+    const run = spawnSync("python3", ["-B", CHAIN_CHECK, "--baseline", "main", ...(sealing ? ["--sealing"] : [])], {
       cwd: made.repo,
       encoding: "utf8",
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: made.base, GITHUB_EVENT_PATH: payload },
@@ -169,6 +172,30 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     // The written `config.json` names both languages, so the check refuses nothing of it.
     expect(ready.output).not.toContain("config.json");
     expect(ready.output).not.toContain("language");
+  });
+
+  it("passes the records a chain of two rounds and one fix pass left, as the broad gate's step runs it on a ready pull request, and fails the same branch before round 2 for the verifying round it owes", async () => {
+    // The first start stops after the fix pass: round 2's proofer answers with no record until the case lets it.
+    let verifies = false;
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: (given) => (given.round === 2 && !verifies ? "No record." : proofs(given)) }) });
+    const a = workItems[0]!;
+    const worktree = { base: join(a.worktree, ".."), repo: a.worktree };
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "stopped");
+    const owed = check(worktree, "ready", true);
+    expect(owed.output).toContain("a verifying round is owed");
+    expect(owed.exit).toBe(1);
+
+    verifies = true;
+    expect(await c.getSeal(a.id, 2)).toBe("done");
+    await c.chain(a.id, "reviewed");
+    const reviewed = check(worktree, "ready", true);
+    expect(reviewed.output).not.toContain("a verifying round is owed");
+    expect(reviewed.exit, reviewed.output).toBe(0);
+    // Without the broad gate's flag the same records fail on what the later stages write, and on nothing of a round.
+    const ready = check(worktree, "ready");
+    expect(ready.exit).toBe(1);
+    expect(ready.output).not.toContain("round-");
   });
 
   it("does not read decisions.md: a reversed decision and an open question in the work item's directory change neither its exit nor its output", () => {

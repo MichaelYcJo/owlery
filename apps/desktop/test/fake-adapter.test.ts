@@ -209,6 +209,48 @@ describe("the fake adapter", () => {
     expect(events).toEqual([{ type: "permission", id: "ask-1", ...SHELL }]);
   });
 
+  it("does its work in the session's folder before the first piece of its answer and after its requests were answered, with the folder, the prompt and the role, and waits for it; and reports nothing more where it was stopped meanwhile", async () => {
+    const order: string[] = [];
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const adapter = fakeAdapter({
+      asks: () => [{ tool: "Bash", action: "run", path: null, text: "git commit" }],
+      work: async (cwd, prompt, role) => {
+        order.push(`work in ${cwd} for ${JSON.stringify(prompt)} as ${role ? `${role.role}/${role.stage}` : "no role"}`);
+        await held;
+        order.push("work done");
+      },
+    });
+    let run: RoleRun | undefined;
+    const exited = new Promise<void>((resolve) => {
+      void adapter
+        .start({ prompt: "Fix it", cwd: "/a/worktree", role: { role: "crafter", stage: "fix-pass" } }, (event) => {
+          order.push(event.type);
+          if (event.type === "permission") run?.answer(event.id, { allow: true });
+          if (event.type === "exit") resolve();
+        })
+        .then((started) => {
+          run = started;
+        });
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    // The answer waits for the work: nothing of it was reported yet.
+    expect(order).toEqual(["permission", "text", 'work in /a/worktree for "Fix it" as crafter/fix-pass']);
+    release();
+    await exited;
+    expect(order).toEqual(["permission", "text", 'work in /a/worktree for "Fix it" as crafter/fix-pass', "work done", "text", "result", "exit"]);
+
+    const events: RoleEvent[] = [];
+    let stop = (): void => {};
+    const stopped = fakeAdapter({ work: async () => (await new Promise((r) => setTimeout(r, 20)), stop()) });
+    const second = await stopped.start({ prompt: "Q", cwd: "/nowhere" }, (event) => void events.push(event));
+    stop = () => void second.stop();
+    await new Promise((r) => setTimeout(r, 60));
+    expect(events).toEqual([]);
+  });
+
   it("has no notice of its agent unless it is given one, and gives the one it was given at every call", async () => {
     expect(await fakeAdapter().notice()).toBeNull();
     const adapter = fakeAdapter({ notice: "The fake agent is old." });
