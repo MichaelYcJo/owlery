@@ -19,4 +19,4 @@ The owner's words that hand the run over: "알아서 진행하고 완료되면 �
 - **Implementation, crafter:** the daemon's reading of the seal at the branch's head, the protocol, the inbox line and its notification, and the check.
 - **Review, through the review chain:** this is the promise that a seal binds one commit; a defect shows a seal as holding on a tree it never judged.
 - **Automation, yes:** the cases commit to temporary repositories and read the line; no case reaches GitHub or starts a real `claude`.
-- **Branch:** cut from `release/v0.0.2` at `41e8aa4`; the branch merged `release/v0.0.2` at `fbebc4f`; the pull request merges into `release/v0.0.2` by squash, after #43's.
+- **Branch:** cut from `release/v0.0.2` at `41e8aa4`; the branch merged `release/v0.0.2` at `fbebc4f` and, after #43 merged at `70504e2`, at `a53b22b`; the pull request merges into `release/v0.0.2` by squash.
