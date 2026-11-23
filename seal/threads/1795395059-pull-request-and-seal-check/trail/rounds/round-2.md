@@ -49,6 +49,11 @@ import { execFileSync } from "node:child_process";
 
 The fix pass owes `gaps.md:27` too: the row is answered once the case stands, and it is closed in place, not taken out. The case is seen red with `daemon.ts:2694` handing `pushBranch` the branch's name.
 
+```seal
+verdict: fixed 4933560
+answer: The finding's case stands in the describe "the pull request stage of a work item's chain" of `test/chain.test.ts`: a `git` first on the stage's `PATH` commits in the worktree just before it pushes, and the case holds that the remote's branch and the stored `pushed` are the head the stage checked. The mutant that has `daemon.ts#runPullRequest` hand `pushBranch` the branch's name turns it red (executed, `seal mutate`). The row of `gaps.md` that handed the call to the review rounds is closed in place with this case.
+```
+
 ### 2. The changelog says Owlery pushes the commit "the seal ... speak[s] of", and the commit pushed is the head, which follows the sealed commit
 
 ```seal
@@ -66,6 +71,11 @@ The snippet replaces the bullet's third sentence:
 
 ```markdown
 Owlery pushes the commit it read as the branch's head, named by its id, so a commit you make on the branch while the stage runs is not pushed.
+```
+
+```seal
+verdict: fixed dd1a74e
+answer: The changelog's bullet now says that Owlery pushes the commit it read as the branch's head, named by its id, as *Scope* item 4 and the `add` of *Rule changes* word it.
 ```
 
 ### 3. A record line that is a marker after U+0085 or U+001C is copied into the body whole, and the check again names the body as not read
@@ -111,6 +121,12 @@ function markerLine(line: string): boolean {
 
 The snippet does not cover three other statements of the fact, and the fix pass owes them too. The doc comment of `pullRequestBody` (`github.ts:434-438`) says "once the white space at its ends is taken off", and it should say whose white space: either reader's. *Scope* item 9 says the same and is the framer's to fold. `withSealSection` (`github.ts:474`) counts the markers of a body GitHub holds with `trim`. It is a unit of phase 2 and outside this round's bound, so `## Not judged` names it. The case is seen red against `github.ts:453` as it stands.
 
+```seal
+verdict: fixed 5257869
+location: `pr-check/skills/code-review/scripts/chain_check.py`, `apps/desktop/test/pr-check.test.ts`, `seal/threads/1795395059-pull-request-and-seal-check/changelog.md`
+answer: The two characters were not added. The fix pass decided what a marker line is, as one rule both readers hold: a line is a marker line where it is one of the two markers once the spaces and tabs at its ends are taken off, and no other character is taken off. Lines are split at GFM's line endings first, as both readers already did. `github.ts#markerOf` states the rule, and `pullRequestBody`'s `marked` and `withSealSection` read through it; `chain_check.py#marker_of` states it for the check's `body`. Each comment states the rule, with no list of characters. Its inputs are the characters at a line's ends, in three kinds: a space and a tab, which are taken off, and any other character, which is kept, so the line is no marker. Each kind is pinned in each reader: the body's case and the section's case of `test/pull-request.test.ts`, and the case of `test/pr-check.test.ts` that names a body as not read, which also has the check read a body whose seal section has spaces and tabs around its markers and whose lines below quote a marker after U+0085, U+001C or U+FEFF, the characters the round measured, as examples of the other kind. Seen red against `e7d94d9`'s readers; eight mutants, among them each reader stripping its language's white space, stripping nothing and stripping spaces alone, were red (executed, `seal mutate`). The changelog's bullet says the rule. *Scope* item 9 still says "once the white space at its ends is taken off", which is the framer's to fold.
+```
+
 ### 4. The bundle's proofer still reads `pr.md` whole in every round, and the bundle's own row of `pr.md` now says nobody writes one
 
 ```seal
@@ -135,6 +151,12 @@ The snippet replaces `agents/proofer.md:29-32`, and the rest of step 3 from `` `
 
 ```ts
     expect(read("agents/proofer.md").replace(/\s+/gu, " ")).toContain("`changelog.md`, and, where one stands, `pr.md` and `pr.<lang>.md`, each whole at the target");
+```
+
+```seal
+verdict: fixed d83717f
+location: `seal/threads/1795395059-pull-request-and-seal-check/gaps.md`
+answer: Step 3 of the bundle's `agents/proofer.md` takes the finding's text: a round reads `pr.md` and `pr.<lang>.md` where one stands. The case at `test/role-bundle.test.ts` holds the sentence, and the mutant that puts back the read of `pr.md` in every round turned it red (executed, `seal mutate`). The paragraph of `gaps.md` *Not done* that left the line was removed at `4933560`. This answers the reopened round-1#7: with `git grep -n pr\.md -- apps/desktop/role-bundle`, the bundle's lines on `pr.md` are step 3, which reads it where one stands, the proofer's lines 127 to 136, which hold a `pr.md` and a `pr.<lang>.md` that stand to their sources, and the row of `skills/implement/SKILL.md`, which says nobody writes one.
 ```
 
 ## Confirmations
