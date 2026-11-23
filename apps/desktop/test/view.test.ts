@@ -1261,6 +1261,15 @@ describe("the approval line", () => {
   ];
   const ASKS: Question = { id: 1, asks: "Does a stopped round count as a round?", grounds: "No document says.", by: "proofer", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
 
+  /** A stage of a chain: round 2, at work for 4 minutes, but for the fields given. */
+  const stage = (fields: Partial<ChainStage>): ChainStage => ({ kind: "round", round: 2, state: "working", failure: null, startedAt: NOW - 4 * MINUTE, endedAt: null, headlessId: 3, refusals: 0, ...fields });
+  /** Round 1, which finished. */
+  const ROUND_ONE = stage({ round: 1, state: "finished", startedAt: NOW - 30 * MINUTE, endedAt: NOW - 20 * MINUTE });
+  /** The work item of the records with a chain in that state, which holds those stages, the oldest first. */
+  const chained = (state: Chain["state"], ...stages: ChainStage[]): WorkItem => ({ ...RECORDED, chain: { state, says: "", reviewedAt: null, stages, since: NOW - 4 * MINUTE } });
+  /** A chain that runs round 2 after round 1. */
+  const RUNS_ROUND = chained("running", ROUND_ONE, stage({}));
+
   /** Each place as a person reads it: its role, its state's class, its note and its mark's words. */
   const read = (workItem: WorkItem): string[][] | null => approvalPlaces(workItem)?.map((place) => [place.role, place.state, place.note, placeWords(place, NOW)]) ?? null;
   /** The lines of text under the places. */
@@ -1338,8 +1347,54 @@ describe("the approval line", () => {
     const { recorded: _recorded, ...earlier } = RECORDED;
     expect(approvalPlaces(earlier as WorkItem)).toBeNull();
     expect(approvalPlaces({ ...earlier, questions: [ASKS] } as WorkItem)).toBeNull();
+    expect(approvalPlaces({ ...earlier, chain: RUNS_ROUND.chain } as WorkItem)).toBeNull();
+    // A daemon of a build between the two sends what the records say and no chain.
+    const { chain: _chain, ...noChain } = RECORDED;
     expect(RECORDED.chain).toBeNull();
-    expect(read(RECORDED)).not.toBeNull();
+    expect(read(noChain as WorkItem)).toEqual(read(RECORDED));
+    expect(read({ ...noChain, questions: [ASKS] } as WorkItem)).toEqual(read({ ...RECORDED, questions: [ASKS] }));
+  });
+
+  it("marks the proofer's place working at the round a running chain's newest stage is, and the crafter's at its fix pass, each with the stage's age in the mark's words, and marks no place for a judgment, for a ruling, for a stage that is not the newest, or for a chain that does not run", () => {
+    expect(read(RUNS_ROUND)?.[2]).toEqual(["proofer", "working", "Round 2", "Proofer: Round 2, 4 min"]);
+    expect(read(RUNS_ROUND)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    expect(under(RUNS_ROUND)).toEqual([]);
+    const fix = chained("running", ROUND_ONE, stage({ kind: "fix-pass", round: 1 }));
+    expect(read(fix)?.[1]).toEqual(["crafter", "working", "Fix pass", "Crafter: Fix pass on round 1, 4 min"]);
+    expect(read(fix)?.filter((_, place) => place !== 1)).toEqual(read(RECORDED)?.filter((_, place) => place !== 1));
+    // The orchestrator's two kinds of stage belong to none of the four roles.
+    for (const kind of ["judgment", "ruling"] as const) expect(read(chained("running", ROUND_ONE, stage({ kind })))).toEqual(read(RECORDED));
+    // Between two stages the newest one has ended, and an older stage marks no place whatever it says.
+    expect(read(chained("running", stage({}), stage({ kind: "judgment", state: "finished", endedAt: NOW - MINUTE })))).toEqual(read(RECORDED));
+    // A chain a restarted daemon reads as stopped keeps a newest stage that still says working, and no place works.
+    for (const state of ["stopped", "parked", "reviewed"] as const) expect(read(chained(state, ROUND_ONE, stage({})))).toEqual(read(RECORDED));
+    // An open question of the role stands over the stage that runs.
+    expect(read({ ...RUNS_ROUND, questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+  });
+
+  it("marks the proofer's place failed where the chain's newest stage is a round that failed, and the crafter's where it is a fix pass, each over what the records say and with the stage's failure under the line, and marks no place for a judgment or a ruling that failed or for a failed stage that is not the newest", () => {
+    const why = "the session reached its time limit and was stopped";
+    const failed = (fields: Partial<ChainStage>): ChainStage => stage({ state: "failed", failure: why, endedAt: NOW - MINUTE, ...fields });
+    const round = chained("stopped", ROUND_ONE, failed({}));
+    expect(read(round)?.[2]).toEqual(["proofer", "failed", "Failed", "Proofer: Round 2 failed"]);
+    expect(read(round)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    expect(under(round)).toEqual([`Proofer: ${why}`]);
+    const fix = chained("stopped", ROUND_ONE, failed({ kind: "fix-pass", round: 1 }));
+    expect(read(fix)?.[1]).toEqual(["crafter", "failed", "Failed", "Crafter: Fix pass on round 1 failed"]);
+    expect(under(fix)).toEqual([`Crafter: ${why}`]);
+    for (const kind of ["judgment", "ruling"] as const) {
+      expect(read(chained("stopped", ROUND_ONE, failed({ kind })))).toEqual(read(RECORDED));
+      expect(under(chained("stopped", ROUND_ONE, failed({ kind })))).toEqual([]);
+    }
+    // The round runs again after its failure: the newest stage says where the place stands, and the failure leaves the line.
+    const again = chained("running", failed({}), stage({}));
+    expect(read(again)?.[2]).toEqual(["proofer", "working", "Round 2", "Proofer: Round 2, 4 min"]);
+    expect(under(again)).toEqual([]);
+    // A fix pass runs after a round that failed earlier: the proofer's place is as the records give it.
+    expect(read(chained("running", failed({}), stage({ kind: "fix-pass" })))?.[2]).toEqual(read(RECORDED)?.[2]);
+    // An open question of the role stands over the failure, with the question under the line.
+    expect(read({ ...round, questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+    expect(under({ ...round, questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
   });
 });
 
@@ -1395,11 +1450,25 @@ describe("a work item's chain", () => {
     expect(lineText(STOPPED, finished, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
   });
 
-  it("says in the second row what the line says without a chain where the chain is running, reviewed or parked", () => {
-    for (const workItem of [RUNNING, REVIEWED, PARKED]) {
+  it("names the stage a running chain runs in the line's second row, in short, where nothing on the line needs the person, and says what the line says without the stage where a question is open, a call waits to be allowed, the line's pane waits, a search is typed, the chain's newest stage has ended or the chain does not run", () => {
+    const runs = (fields: Partial<ChainStage>): WorkItem => ({ ...LOGIN, chain: chain("running", { stages: [ROUND, { ...ROUND, state: "working", endedAt: null, ...fields }] }) });
+    for (const pane of [finished, working, undefined]) expect(lineText(runs({ round: 2 }), pane, false)).toEqual({ says: "stage", text: "Proofer, round 2" });
+    expect(lineText(RUNNING, finished, false)).toEqual({ says: "stage", text: "Proofer, round 1" });
+    expect(lineText(runs({ kind: "fix-pass" }), finished, false)).toEqual({ says: "stage", text: "Crafter, fix pass" });
+    expect(lineText(runs({ kind: "judgment", round: 2 }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, judgment" });
+    expect(lineText(runs({ kind: "ruling" }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, ruling" });
+    // A line that waits keeps saying what it waits on while the stage runs.
+    expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...RUNNING, permissions: [BASH] }, finished, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(RUNNING, waiting, false)).toEqual({ says: "state", text: "May I run the tests?" });
+    expect(lineText(RUNNING, finished, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+    // Between two stages the newest one has ended, and a chain that rests runs none.
+    for (const workItem of [{ ...LOGIN, chain: chain("running", { stages: [ROUND] }) }, { ...LOGIN, chain: chain("running") }, REVIEWED, PARKED]) {
       expect(lineText(workItem, finished, false)).toEqual({ says: "state", text: "The form is done." });
       expect(lineText(workItem, undefined, false)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
     }
+    // A chain a restarted daemon reads as stopped keeps a newest stage that still says working, and the line says the chain's sentence.
+    expect(lineText({ ...LOGIN, chain: chain("stopped", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) }, finished, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
   });
 
   it("counts the age of a stopped chain's line from when the chain stopped, whenever its newest stage ended, and from the earlier of that and its questions' and its requests' times", () => {
@@ -1417,11 +1486,19 @@ describe("a work item's chain", () => {
     expect(lineSince({ ...LOGIN, chain: chain("stopped", { since: NOW - MINUTE }), permissions: [BASH] }, finished)).toBe(NOW - 2 * MINUTE);
   });
 
-  it("gives the line of a running chain no age where the chain alone says that it works, and the pane's where the pane works or waits", () => {
-    expect(lineSince(RUNNING, finished)).toBeNull();
-    expect(lineSince(RUNNING, undefined)).toBeNull();
-    expect(lineSince(RUNNING, working)).toBe(NOW - 40 * MINUTE);
+  it("counts the age of a running chain's line from the start of the stage it runs where nothing on the line needs the person, from what the line waits on where it waits, and gives no age between two stages where the chain alone says that it works", () => {
+    // The round started 30 minutes ago, and the pane took its state at another time.
+    for (const pane of [finished, working, undefined]) expect(lineSince(RUNNING, pane)).toBe(NOW - 30 * MINUTE);
+    expect(stateWithAge(inboxLine(RUNNING, [finished], KINDS).state, lineSince(RUNNING, finished), NOW)).toBe("Working, 30 min");
     expect(lineSince(RUNNING, waiting)).toBe(NOW - 3 * MINUTE);
+    expect(lineSince({ ...RUNNING, questions: [QUESTION] }, finished)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince({ ...RUNNING, permissions: [BASH] }, finished)).toBe(NOW - 2 * MINUTE);
+    // Between two stages the newest one has ended.
+    const between: WorkItem = { ...LOGIN, chain: chain("running", { stages: [ROUND] }) };
+    expect(lineSince(between, finished)).toBeNull();
+    expect(lineSince(between, undefined)).toBeNull();
+    expect(lineSince(between, working)).toBe(NOW - 40 * MINUTE);
+    expect(lineSince(between, waiting)).toBe(NOW - 3 * MINUTE);
     for (const workItem of [REVIEWED, PARKED]) expect(lineSince(workItem, finished)).toBe(NOW - 50 * MINUTE);
   });
 

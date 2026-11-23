@@ -137,7 +137,7 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     const first = part("first", "");
     // A pin and a mute each put a mark after the title.
     first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(lineSince(workItem, session), Date.now())));
-    // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question, otherwise the oldest call its headless sessions ask the person to allow, and otherwise the sentence of its chain where the chain stopped.
+    // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question, otherwise the oldest call its headless sessions ask the person to allow, otherwise the sentence of its chain where the chain stopped, and otherwise the stage its chain runs, in short.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
     // After the text, how many decisions made without asking the person has not seen, the look not holding them, and how many reversals wait for a stage; then the setup's words while it runs and where it failed.
