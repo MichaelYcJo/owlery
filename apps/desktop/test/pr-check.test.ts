@@ -476,7 +476,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(quiet.sent).toEqual([]);
   }, 60_000);
 
-  it("posts a ready pull request whose seal a later commit broke as a failure titled with the broken seal and its sealed commit, also where the commit after the seal was taken back and the guarantee arm refuses nothing, posts the same head as a draft as neutral, and keeps the title of no seal for a head with no guarantee and for one whose newest verdict is withheld", async () => {
+  it("posts a ready pull request whose seal a later commit broke as a failure titled with the broken seal and its sealed commit, also where the commit after the seal was taken back and the guarantee arm refuses nothing, posts the same head as a draft as neutral, keeps the title of no seal for a head with no guarantee and for one whose newest verdict is withheld, which no later commit breaks, and titles as broken a seal whose commit HEAD does not descend from or the repository cannot resolve", async () => {
     const { url, sent } = await server();
     const env = posting(url);
     const last = (): Sent["body"] | undefined => sent.at(-1)?.body;
@@ -519,7 +519,28 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     commitAll(withheld.repo, "fix: x", "1-x");
     expect((await run(withheld, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
-    expect(sent).toHaveLength(5);
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD: \`x\` changed after the commit it names, \`${withheld.gate.slice(0, 7)}\`, outside the closing records\n`);
+    expect(last()?.output.summary).not.toContain("the seal is broken");
+
+    // A seal whose commit HEAD does not descend from, and one whose commit the repository does not hold, are broken, as the daemon reads them.
+    const off = reviewed();
+    gated(off);
+    git(off.repo, "checkout", "--quiet", "-b", "aside", "main");
+    write(off.repo, "aside.txt", "Aside\n");
+    commitAll(off.repo, "feat: aside");
+    const aside = git(off.repo, "rev-parse", "HEAD").trim();
+    git(off.repo, "checkout", "--quiet", "feature");
+    guaranteed(off, section(1, aside, ...DAEMONS_LINES));
+    expect((await run(off, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN(aside) } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: HEAD does not descend from the sealed commit \`${aside.slice(0, 7)}\`; a new seal is owed at HEAD`);
+    const nowhere = reviewed();
+    gated(nowhere);
+    guaranteed(nowhere, section(1, "d".repeat(40), ...DAEMONS_LINES));
+    expect((await run(nowhere, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN("d".repeat(40)) } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: this repository cannot resolve the sealed commit \`${"d".repeat(40)}\`; a new seal is owed at HEAD`);
+    expect(sent).toHaveLength(7);
   }, 60_000);
 
   it("passes the gate's record and the seal as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {
