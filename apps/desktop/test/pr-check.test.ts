@@ -101,10 +101,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
    * other, and `-B` keeps Python from writing its bytecode into `pr-check/`.
    * `sealing` runs it as the broad gate's step does, before the sealer has
    * written: what only the later stages write is then printed and not failed.
+   * With `body` false the payload holds no body, so the check reads none: the
+   * pull request's body is a later stage's.
    */
-  const check = (made: { base: string; repo: string }, state: "ready" | "draft", sealing = false): { exit: number | null; output: string } => {
+  const check = (made: { base: string; repo: string }, state: "ready" | "draft", sealing = false, body = true): { exit: number | null; output: string } => {
     const payload = join(made.base, `${state}.json`);
-    writeFileSync(payload, JSON.stringify({ pull_request: { draft: state === "draft", body: "hello" } }));
+    writeFileSync(payload, JSON.stringify({ pull_request: { draft: state === "draft", ...(body ? { body: "hello" } : {}) } }));
     const run = spawnSync("python3", ["-B", CHAIN_CHECK, "--baseline", "main", ...(sealing ? ["--sealing"] : [])], {
       cwd: made.repo,
       encoding: "utf8",
@@ -196,6 +198,103 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const ready = check(worktree, "ready");
     expect(ready.exit).toBe(1);
     expect(ready.output).not.toContain("round-");
+  });
+
+  /**
+   * The branch `declared` makes, after one round that left no finding: the
+   * round's record, committed, and the gate's commit, which is the head that
+   * record leaves. Nothing of the gate or the seal is written.
+   */
+  const reviewed = (): { base: string; repo: string; gate: string } => {
+    const made = declared();
+    const target = git(made.repo, "rev-parse", "HEAD").trim();
+    write(made.repo, "seal/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```seal", `target: ${target} against main`, "```", "", "## Findings", "", "## Confirmations", ""].join("\n"));
+    commitAll(made.repo, "chore: record review round 1", "1-x");
+    return { ...made, gate: git(made.repo, "rev-parse", "HEAD").trim() };
+  };
+
+  /** Commits the gate's record as the daemon writes it: one run block that names the gate's commit against the base's commit. */
+  const gated = (made: { repo: string; gate: string }): void => {
+    write(made.repo, "seal/threads/1-x/trail/gate.md", ["# Broad gate: 1-x", "", "```seal", `run: ${made.gate} against ${git(made.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
+    commitAll(made.repo, "chore: record the broad gate's run", "1-x");
+  };
+
+  /** One run's section of a guarantee: its heading, and a verdict block that targets the gate's commit and holds the lines given after its verdict. */
+  const section = (run: number, gate: string, ...lines: string[]): string => [`## Run ${String(run)}`, "", "```seal", `target: ${gate} against main`, "Verdict: sealed", ...lines, "```", ""].join("\n");
+
+  /** Commits a guarantee of the sections given, with whatever else the case wrote. */
+  const guaranteed = (made: { repo: string }, ...sections: string[]): void => {
+    write(made.repo, "seal/threads/1-x/guarantee.md", ["# Guarantee: 1-x", "", sections.join("\n")].join("\n"));
+    commitAll(made.repo, "chore: record the sealer's verdict", "1-x");
+  };
+
+  const REFUSED_CALLS = ["# Refused calls: 1-x", "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| seal 1 | sealer | Write | writes a file | no-write |", ""].join("\n");
+  const DAEMONS_LINES = ["built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"];
+
+  it("passes the gate's record and the seal as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {
+    const made = reviewed();
+    gated(made);
+    write(made.repo, "seal/threads/1-x/trail/refusals.md", REFUSED_CALLS);
+    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES));
+    const sealed = check(made, "ready", false, false);
+    expect(sealed.exit, sealed.output).toBe(0);
+    expect(sealed.output).not.toContain("guarantee.md");
+
+    // Only the closing records follow the sealed commit: a decision committed after it leaves the guarantee behind the head.
+    write(made.repo, "seal/threads/1-x/decisions.md", DECISIONS);
+    commitAll(made.repo, "chore: record a decision and a question", "1-x");
+    const behind = check(made, "ready", false, false);
+    expect(behind.output).toContain("seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD:");
+    expect(behind.output).toContain("touches `seal/threads/1-x/decisions.md`, outside the closing records; the sealer runs again");
+    expect(behind.exit).toBe(1);
+  });
+
+  it("refuses a verdict block whose judge is one of its builders, at the judged-by line, and reads the newest block alone: a judge that built none of the work passes, and so does a block that names no builder", () => {
+    const made = reviewed();
+    gated(made);
+    guaranteed(made, section(1, made.gate, "built-by: the session, s-1", "judged-by: s-1", "model: owl-large", "rules: owlery 0.0.2"));
+    const same = check(made, "ready", false, false);
+    // The file's heading, a blank line, the run's heading and a blank line stand above the block, whose fourth line names the judge.
+    expect(same.output).toContain(
+      "seal/threads/1-x/guarantee.md:9  `judged-by: s-1` names a session that the block's `built-by:` line names too: the session that judges a work item built none of it, so this verdict block is no seal",
+    );
+    expect(same.exit).toBe(1);
+
+    // A second run by another session: the first block still stands above it, and only the newest is read for its judge.
+    guaranteed(made, section(1, made.gate, "built-by: the session, s-1", "judged-by: s-1", "model: owl-large", "rules: owlery 0.0.2"), section(2, made.gate, "built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"));
+    const other = check(made, "ready", false, false);
+    expect(other.output).not.toContain("judged-by");
+    expect(other.exit, other.output).toBe(0);
+
+    // A block written before the daemon wrote its lines names no builder and no judge, and one that names a judge alone has nothing to compare.
+    guaranteed(made, section(1, made.gate), section(2, made.gate, "judged-by: s-1"));
+    expect(check(made, "ready", false, false).exit).toBe(0);
+    // `the session` is a builder's name and no id: a judge's id that is a part of a builder's is another session.
+    guaranteed(made, section(1, made.gate, "built-by: the session, s-10", "judged-by: s-1"));
+    expect(check(made, "ready", false, false).exit).toBe(0);
+  });
+
+  it("says of a missing gate record, of one with no run, of a missing guarantee and of one with no verdict what Owlery's daemon writes, and names no command and no template of AgenticSeal", () => {
+    const made = reviewed();
+    const none = check(made, "ready", false, false);
+    expect(none.exit).toBe(1);
+    expect(none.output).toContain(
+      "seal/threads/1-x/trail/gate.md:0  git carries no gate record: once the review rounds settle, Owlery's daemon runs the repository's broad gate on the branch's head and commits this record where the run passes",
+    );
+    expect(none.output).toContain("seal/threads/1-x/guarantee.md:0  git carries no guarantee file: the sealer's stage of Owlery's daemon writes it once the broad gate has passed on the branch's head");
+
+    write(made.repo, "seal/threads/1-x/trail/gate.md", "# Broad gate: 1-x\n\nThe run passed.\n");
+    write(made.repo, "seal/threads/1-x/guarantee.md", "# Guarantee: 1-x\n\nVerdict: sealed\n");
+    commitAll(made.repo, "chore: write both records with no block", "1-x");
+    const empty = check(made, "ready", false, false);
+    expect(empty.exit).toBe(1);
+    expect(empty.output).toContain(
+      "seal/threads/1-x/trail/gate.md:0  no run block: a passed run of the broad gate stands in a `seal` block holding `run: <tree> against <base commit>`, which Owlery's daemon appends below the text already there",
+    );
+    expect(empty.output).toContain(
+      "seal/threads/1-x/guarantee.md:0  no verdict block: the sealer's verdict stands in a `seal` block holding `target: <sha> against <base>`, the `original:` line where one is owed and `Verdict:`, which the sealer's stage of Owlery's daemon appends below the text already there once the broad gate has passed on the branch's head",
+    );
+    for (const said of [none.output, empty.output]) for (const word of ["seal gate", "orchestrator", "templates/", "#1198"]) expect(said, word).not.toContain(word);
   });
 
   it("does not read decisions.md: a reversed decision and an open question in the work item's directory change neither its exit nor its output", () => {

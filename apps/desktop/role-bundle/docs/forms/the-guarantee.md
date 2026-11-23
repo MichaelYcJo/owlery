@@ -25,9 +25,9 @@ check: tests/skills/test_pr_body.py tests/behaviour/test_the_sealer_guarantees.p
 **Its verdict is `guarantee.md`, from `templates/records/sdd-guarantee.md`**: the claims re-run and the parties compared, in tables for people, and one `seal` block per run of the sealer, appended below the blocks of earlier runs and never edited after its run. A verdict block holds `target: <sha> against <base>`, each one word, the `original:` line where `docs/checks/the-pull-request-check.md` *What the check reads at the pull request* owes one, and one `Verdict:` line, `sealed`, `withheld reason: <the claim, its party, its coordinate>` or `undecided question: <the question, for the owner>`, written exactly so. The last block is the newest run and the others are the earlier runs, which the stamp reads. A guarantee with no verdict block, or with a line of a block that does not parse, is refused naming the file and the line. An undecided question is the owner's: the answer goes on a line below the newest block, and the sealer runs again at the new HEAD and appends its block.
 check: tests/behaviour/test_the_sealer_guarantees.py tests/skills/test_chain_check.py
 
-**A ready pull request passes only where the newest verdict block of `guarantee.md` names HEAD and reads `sealed`.** Only the closing records, `trail/gate.md` and `guarantee.md`,
+**A ready pull request passes only where the newest verdict block of `guarantee.md` names HEAD and reads `sealed`.** Only the closing records, `trail/gate.md`, `guarantee.md` and `trail/refusals.md`,
 may follow the commit it names, since every other file on the branch is one
-the sealer audited. A newest block reading `withheld` or `undecided`, an unfilled template, a block that does not parse or a stale commit each fail naming the file; a draft prints them.
+the sealer audited, and the rows `trail/refusals.md` gains with the verdict are the daemon's account of the sealer's own stage. A newest block reading `withheld` or `undecided`, one whose `judged-by:` session is one of its `built-by:` sessions, an unfilled template, a block that does not parse or a stale commit each fail naming the file; a draft prints them.
 check: ready-needs-sealed
 
 **How it errs.** It samples, so a false claim outside the sample passes, and
