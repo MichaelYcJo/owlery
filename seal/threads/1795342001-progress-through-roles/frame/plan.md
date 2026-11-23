@@ -49,7 +49,7 @@ The tree as read at `b6cd259`.
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1. The daemon sends what the records say | `frame/design.md` *Scope* items 1 and 2 | Scenarios 1, 2 and 3: `test/chain-records.test.ts`, `test/daemon.test.ts` | |
+| 1. The daemon sends what the records say | `frame/design.md` *Scope* items 1 and 2 | Scenarios 1, 2 and 3: `test/chain-records.test.ts`, `test/daemon.test.ts` | `45cd4bb` |
 | 2. The view and the preview draw the line from the records and the questions | *Scope* items 4 to 7, of item 3 the rows the table of *Data & interfaces* gives to phase 2, and of item 8 the form's rows, the sentence under the components' table and the tokens. The two editions of `docs/design.md` change in the commit that adds the properties to `themes.css` | Scenarios 4, 5, 6, 9, 10, 13 and 15: `test/view.test.ts`, `test/approval-line.test.ts`, `test/themes.test.ts` | |
 | 3. The line reads the chain, the inbox names the running stage, and the screenshots show both. It starts once #41 is merged into this branch through the release branch | *Scope* items 9 and 10, of item 3 the rows given to phase 3, and of item 8 the paragraph on the screenshot run. The screenshots are committed under this work item's directory, and `gaps.md` and `changelog.md` are written | Scenarios 7, 8, 11, 12 and 14: `test/view.test.ts`, `test/approval-line.test.ts`, and `OWLERY_SCREENSHOT_THEMES=all pnpm run screenshots` | |
 
