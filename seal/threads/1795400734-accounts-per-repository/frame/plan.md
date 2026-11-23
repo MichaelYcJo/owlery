@@ -17,6 +17,7 @@ Constraints the build keeps: no real `claude` runs in any case, nothing under th
 
 - A later version adds a file of the person's that the list of linked names does not hold. That file then stays with each account, so one tool of the person's is missing under a second account until the list names it. The list is an allow-list for this reason: the other failure, a file of the account's that gets linked, would merge two logins without a sign.
 - A later version stops following a linked `projects`, or keeps conversations elsewhere. A conversation is then not found under a second account. The change of a running pane's account fails visibly, at a `--resume` that finds nothing, and `frame/questions.md` Q3 holds the run that would show it first.
+- A turn far from a limit emits no `rate_limit_event`, or a later version changes the event's fields. A refresh then spends its turn and shows no number, and the row says that the CLI handed over none. The fixture line of the adapter's case is the reference's type until `frame/questions.md` Q5's run replaces it with a recorded one.
 - An account's folder is removed outside Owlery. Its Keychain entry stays, and the account's row names a folder that is gone. The daemon then says the account is not signed in, because `claude auth status` exits 1 for it.
 
 ## Alternatives considered
@@ -45,7 +46,10 @@ Constraints the build keeps: no real `claude` runs in any case, nothing under th
 | Run the sign-in in a terminal pane | A pane with no work item is a new case of the window | Chosen. The CLI's sign-in can ask for a pasted code, which needs a terminal |
 | Run the sign-in with pipes and no terminal, or show the command for the person to run elsewhere | The first cannot take a pasted code. The second is not "the app runs that CLI's own login" of the issue | Rejected |
 | Read each account's token and call the usage endpoint, to show an idle account's use | Anthropic's Legal and compliance page: developers may not collect, store or intermediate Claude.ai credentials or session tokens. The reasons `docs/architecture.md` *Reading usage limits* gives stand beside it | Ruled out. `frame/design.md` *Rule changes* closes the open decision, and `frame/questions.md` Q2 puts the closing to the person |
-| Start a small headless session under each idle account to refresh its values | It spends each account's limit to draw a number, on a timer nobody asked for | Not built. Issue #73 owns what the app shows |
+| Start a short headless session under an idle account on the person's press, and keep the limit values its stream hands over | It spends a little of that account's limit at each press. The documented `rate_limit_event` is emitted "when the session encounters a rate limit" and names one utilization, so a turn far from a limit may hand over nothing, or one window of two (`frame/questions.md` Q5) | Chosen, by the owner's word of 2026-11-23 on the orchestrator's proposal. The row then says that the CLI handed over no value, and no number is made up |
+| The same session on a timer, or at the dialog's opening | It spends every account's limit to draw numbers nobody asked for, and a subscription's limits assume ordinary, individual usage | Rejected |
+| Write a ledger entry for a refresh | An entry names a work item, its repository and its branch (`LedgerEntry` of issue #45), and a refresh has none, so the entry's shape would change for a cost of a few tokens | Rejected. The refresh's reported cost is shown with its result |
+| Leave the reading of `rate_limit_event` to issue #73 and build the refresh after it | Issue #73 is in release 0.1.0, so the owner's addition would leave release 0.0.3 | Rejected. Phase 5 builds the adapter's event for a headless session, which is one line of issue #73's *Done when*, and issue #73 builds on it |
 | Read the accounts Orca already made from Orca's index | Owlery follows another product's private files from version to version | Rejected. A person hands over any config folder by its path, an Orca account's `home` among them |
 | Build accounts for Codex now | No adapter and no pane of Codex exists in the tree (`docs/architecture.md` *Agent adapters*, issue #112) | Not built. An account's row names its adapter, and the feature is the adapter's to declare |
 
@@ -59,6 +63,7 @@ Each phase ends with its cases passing through the narrow run of the files it na
 | 2 | Panes under an account, and the window's settings and names: the pane's part of scope item 7, and of item 10 the list of accounts, the adding of a handed folder, the default, the repository's and the work item's setting, the choice at a new pane and a new headless session, and the names on a line, a view and a tab | Scenarios 4, 11 and 14 and the pane's half of 3, in `apps/desktop/test/hooks.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/view.test.ts` and `apps/desktop/test/screenshots.test.ts` | |
 | 3 | The accounts Owlery makes: scope items 3, 4, 5 and 11, and of item 10 the adding with no folder, the sign-in pane in the Accounts dialog, and the removal with what it names | Scenarios 5, 6 and 13 and the removing half of 7, in `apps/desktop/test/accounts.test.ts`, `apps/desktop/test/daemon.test.ts` and `apps/desktop/test/view.test.ts` | |
 | 4 | The change of a running pane's account: scope item 9, and the window's control and its sentence before the change | Scenarios 8 and 9, in `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/hooks.test.ts` and `apps/desktop/test/view.test.ts` | |
+| 5 | The pressed refresh of an idle account's usage: scope item 13. It needs from issue #73 one thing, the adapter's neutral event for a headless session's limit values. Issue #73 is in release 0.1.0, so the phase builds that event itself, from the reference's type and from what `frame/questions.md` Q5's run records where that run was made before the phase. Where issue #73 has landed the event first, the phase uses it. The phase needs the `usage` of a result from issue #45 for the refresh's reported cost | Scenario 15, in `apps/desktop/test/accounts.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/claude-adapter.test.ts`, `apps/desktop/test/fake-adapter.test.ts` and `apps/desktop/test/view.test.ts` | |
 
 ## Overlap with the release
 
@@ -78,13 +83,13 @@ The spawn names the open work items of release 0.0.2, which is not this work's r
 
 ## Operational impact
 
-- **New state in the daemon's run folder.** `accounts.json`, and `accounts/` with one folder for each account Owlery made. Neither is committed anywhere. A build before this work ignores both.
+- **New state in the daemon's run folder.** `accounts.json`, and `accounts/` with one folder for each account Owlery made and one empty folder that a refresh runs in. Neither is committed anywhere. A build before this work ignores both.
 - **`repositories.json` gains a field.** `accountId` on a repository and on a work item. A file without it reads as nothing set, and an older build that rewrites the file drops the field, which sets every repository back to the default.
 - **A variable reaches role sessions.** `CLAUDE_CONFIG_DIR`, and under System default only where the person's login shell holds one. A person whose profile sets it gets role sessions under that login from this release on, where they ran under the default folder before. The changelog fragment says so.
 - **No new dependency, and no change of the oldest supported CLI.** `MIN_CLAUDE_VERSION` stays 2.1.326. `claude auth status` carries `loginExpiresAt` from 2.1.318 by the CLI reference. The version that first had `claude auth login` is not named there, and Q3's run shows it on the installed CLI.
 - **The protocol only gains.** Every new field and message is absent from an earlier daemon, and the window reads its absence as the feature being off.
 - **This pull request does not move the version.** The first pull request of release 0.0.3 does (`docs/roadmap.md` *Releases and the tracker*).
-- **Issues whose text this frame makes stale, for the orchestrator.** Issue #73 says the row "How to read usage limits" stays open, and issues #73 and #74 say nothing of an account. Issue #160 names the sign-in command `claude login`.
+- **Issues whose text this frame makes stale, for the orchestrator.** Issue #73 says the row "How to read usage limits" stays open, and issues #73 and #74 say nothing of an account. Phase 5 builds the line of issue #73's *Done when* on a role session's limit events, so that line names this work once it merges. Issue #160 names the sign-in command `claude login`.
 
 ## Judgments of the run
 
