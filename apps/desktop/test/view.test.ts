@@ -1330,7 +1330,11 @@ describe("a work item's chain", () => {
     expect(chainNotifications([RUNNING], [{ ...STOPPED, muted: true }], undefined)).toEqual([]);
     expect(chainNotifications([RUNNING], [STOPPED], 1)).toEqual([]);
     expect(chainNotifications([STOPPED], [STOPPED], undefined)).toEqual([]);
-    for (const rests of [RUNNING, REVIEWED, PARKED, LOGIN]) expect(chainNotifications([STOPPED], [rests], undefined)).toEqual([]);
+    // A chain in another state tells nothing, whatever the window held of it.
+    for (const rests of [RUNNING, REVIEWED, PARKED, LOGIN]) {
+      expect(chainNotifications([STOPPED], [rests], undefined)).toEqual([]);
+      expect(chainNotifications([LOGIN], [rests], undefined)).toEqual([]);
+    }
   });
 
   it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal until the chain runs', () => {

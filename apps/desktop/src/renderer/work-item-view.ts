@@ -843,7 +843,6 @@ function askSeal(): void {
   // One request per answer: a second press before the daemon has answered would ask for a second start.
   if (!workItem || sealRequest !== undefined || !sealButton(workItem, false, null).enabled) return;
   sealRequest = { requestId: request(), workItemId: workItem.id };
-  sealRefused = undefined;
   send({ type: "getSeal", requestId: sealRequest.requestId, workItemId: workItem.id });
   showSeal(workItem);
 }
