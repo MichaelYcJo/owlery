@@ -61,6 +61,12 @@ export async function pushBranch(cli: GitHubCli, remote: string, branch: string,
 
 The snippet leaves three statements the fix pass owes too. `frame/design.md:95`, *Scope* item 4, says "The daemon runs `git push --set-upstream <remote> <branch>`". The doc comment of `runPullRequest` (`daemon.ts:2640-2650`) says "pushes the branch". A case owed in `apps/desktop/test/pull-request.test.ts` reads the head, commits on the branch, calls `pushBranch` with the read head, and holds that the bare remote's branch is the read head and that `branch.<b>.remote` and `branch.<b>.merge` are set. It is seen red against `github.ts:227` as it stands. Finding 2 changes the same function, and the two fixes compose.
 
+```seal
+verdict: fixed e84ade6
+location: `apps/desktop/test/pull-request.test.ts`, `seal/threads/1795395059-pull-request-and-seal-check/changelog.md`
+answer: `github.ts#pushBranch` pushes the commit it is given, `git push <remote> <commit>:refs/heads/<branch>`, then writes `branch.<b>.remote` and `branch.<b>.merge` with `git config`, and a config that fails fails the stage; `daemon.ts#runPullRequest` hands it the head it checked, and its doc comment and the changelog's push bullet say so. The case of scenario 6 in `test/pull-request.test.ts` (with the config failure added at `7fe8ef0`) was seen red against the push of the branch's name. The frame's part was folded at `c06a583`. The mutant that has the daemon push the branch's name survived the chain's cases, since no case commits between the check and the push, and `gaps.md` names it.
+```
+
 ### 2. A push the remote refuses as not a fast-forward stops the chain with "git push to origin failed: To <address>", which says nothing of why
 
 ```seal
@@ -79,6 +85,12 @@ Why it matters: the chain's sentence is what the work item's line shows under "N
 
 The fix pass owes `frame/design.md:95` the same words: "fails the stage with git's first line that is not its `To <address>` line". A case owed in `apps/desktop/test/pull-request.test.ts` pushes after a second clone moved the remote's branch and holds that the sentence names `rejected`.
 
+```seal
+verdict: fixed e84ade6
+location: `apps/desktop/test/chain.test.ts`, `seal/threads/1795395059-pull-request-and-seal-check/changelog.md`
+answer: A refused push's sentence holds git's first line that is not its `To <address>` line. Scenario 5's case in `test/chain.test.ts` moves the remote's branch from the main clone and holds that the sentence names `! [rejected]`; it was seen red with the `To <path>` line. The changelog gives the example. The frame's part was folded at `c06a583`.
+```
+
 ### 3. A record line that is a marker alone, copied below the seal section, leaves the section unread by the check and fails every later update
 
 ```seal
@@ -96,6 +108,12 @@ Why it matters: `pullRequestBody` copies `changelog.md` whole below the seal sec
 ```
 
 The fix pass owes the doc comment of `pullRequestBody` (`github.ts:412-420`) and *Scope* item 9 (`frame/design.md:100`) one sentence saying that such a part is replaced by its line, and the changelog's bullet "The body opens with the seal" the same. A case owed in `apps/desktop/test/pull-request.test.ts` holds a changelog with a fenced marker line and holds that the body has one opening and one closing marker. It is seen red against `github.ts:434` as it stands.
+
+```seal
+verdict: fixed e84ade6
+location: `apps/desktop/test/pull-request.test.ts`, `seal/threads/1795395059-pull-request-and-seal-check/changelog.md`
+answer: `github.ts#pullRequestBody` replaces a part whose text holds a marker line, once trimmed, by its heading and the line naming its record, whatever the body's length, and its doc comment and the changelog's body bullet say so. Scenario 7's case in `test/pull-request.test.ts` holds one opening and one closing marker and was seen red at `github.ts:434`; the case of a closing marker alone with white space was added at `7fe8ef0` after two mutants survived. The frame's part was folded at `c06a583`.
+```
 
 ### 4. The rule changes on the screenshot section leave its list of five views, and `gaps.md` still lists the fold as not done
 
@@ -132,6 +150,11 @@ On #42's pending operation on the same paragraph: the `from` of this work's firs
 
 The second sentence names "three sentences" once the fix pass has added the two operations above. Where it adds them otherwise, the count in that sentence follows.
 
+```seal
+verdict: fixed 756a358
+answer: The two `change` operations on the sentence that lists the views were folded at `c06a583`, and `gaps.md` *Not done* now says that the operations change three sentences in each edition, folded at `dfd7f67` and `c06a583`.
+```
+
 ### 5. The README says the workflow's job ends with the same result as `Owlery seal`, and for a draft and a refused post it does not
 
 ```seal
@@ -152,6 +175,11 @@ The check posts its verdict as a GitHub check named `Owlery seal` on the pull re
 
 Each replaces the matching sentence of line 28. The heading and table-row counts of the two editions do not change.
 
+```seal
+verdict: fixed be412b4
+answer: Both READMEs take the finding's sentences: the job `seal` fails where `Owlery seal` fails and passes where it passes or is neutral. Each edition keeps 6 headings and 15 table rows.
+```
+
 ### 6. `pr.md` says the check passes "Sealed at" where the guarantee arm refuses nothing, and it passes only where no arm refuses
 
 ```seal
@@ -168,6 +196,11 @@ The check posts `Owlery seal` on the pull request's head commit, passed and titl
 
 The snippet replaces the row's last sentence.
 
+```seal
+verdict: fixed 742ba93
+answer: The orchestrator repaired `pr.md` at `742ba93`: the check passes "Sealed at" only where no arm refuses.
+```
+
 ### 7. The role bundle's invariant table still says the body arm fails a body that is not what `seal pr-body` composes
 
 ```seal
@@ -183,6 +216,12 @@ Why it matters: the bundle is what Owlery hands its proofer, crafter and sealer 
 ```
 
 The snippet replaces row 108. The fix pass owes the three other lines too, or a `deferred <home>` naming the issue that takes them: `skills/implement/SKILL.md:292`, the row of `pr.md`, which no "Get a seal" work item writes now; and `docs/forms/the-round-record.md:21` and `:39`, which name lines `seal pr-body` copies, where the daemon's composer now copies each finding's heading and its close's verdict.
+
+```seal
+verdict: fixed 5612da0
+location: `apps/desktop/test/role-bundle.test.ts`
+answer: Row 108 of the bundle's `skills/core/SKILL.md` takes the finding's row in other words: the body arm fails where the body's seal section holds a verdict block other than the newest of `guarantee.md` at HEAD. The row of `pr.md` in `skills/implement/SKILL.md` says that the daemon writes no `pr.md` and composes the body from the records. `docs/forms/the-round-record.md:21` names the lines the daemon copies into the body, and `:39` drops the copy, which the daemon does not make of an `evidence:` line. A case of `test/role-bundle.test.ts` holds the two rows and that none of the three files names `seal pr-body`; three mutants that put each old sentence back were red. `git grep -n pr-body -- apps/desktop/role-bundle` prints nothing. The proofer's definition still reads `pr.md`, which `gaps.md` *Not done* names.
+```
 
 ### 8. The rule change for *Records are committed to the repository* repeats the README's sentence on the posted check, so the settle leaves the fact in two places
 
@@ -203,6 +242,11 @@ Why it matters: the check's notice at the frame's line reads: "seal/threads/1795
 ```
 
 Each replaces the `to:` line of its operation, at `frame/design.md:282` and `:287`, and keeps its `check:` line. The fix pass reruns the same check with `--worktree` and reads that the notice at line 282 is gone.
+
+```seal
+verdict: fixed c06a583
+answer: The framer rewrote the two `to:` lines at `c06a583` to point at the README. The plugin's `chain_check.py --worktree`, run with `PATH=/usr/bin:/bin` after the fix pass's last commit `6dc7679`, prints no notice at `frame/design.md`.
+```
 
 ## Confirmations
 
