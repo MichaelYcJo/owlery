@@ -1307,7 +1307,8 @@ describe("repositories", () => {
       [3, 4, "/r/docs", "docs", true, true, 3, null],
     ]);
     expect(ready.archived.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.archivedAt])).toEqual([[2, 1, "/r/project", "The project", 50]]);
-    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS);
+    // The daemon reads no archived work item's branch, so one it has not read since it started carries no `seal`.
+    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS.filter((key) => key !== "seal"));
     // An inbox carries the same lists: a change to a work item sends one.
     c.send({ type: "setWorkItem", requestId: 1, id: 1, pinned: true });
     const inbox = await c.message("inbox");

@@ -1867,7 +1867,7 @@ export class Daemon {
     return this.options.version;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. Where nothing of its branch was read, as before the first read after the daemon starts, it carries no `seal`, so a null says that the head was read and holds none. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
