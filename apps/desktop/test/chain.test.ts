@@ -971,6 +971,24 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(early.after).toEqual([]);
     });
 
+    it("holds the pass to the record as the commit before the pass holds it, and to the round's target: a change of the proofer's text that the worktree held before the pass refuses the record, and a fixed that names a commit made after the round's target and before the pass is taken", async () => {
+      const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
+      const a = stood.workItems[0]!;
+      const record = `${DIRECTORY}/trail/rounds/round-1.md`;
+      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+      const target = commitAll(a.worktree, "chore: declare the work item's routing");
+      const text = roundRecord(HEADING(1), `${target} against main`, [1]);
+      write(a.worktree, record, text);
+      commitAll(a.worktree, "chore: record review round 1");
+      write(a.worktree, record, text.replace("severity: must", "severity: should"));
+      expect(await stood.c.getSeal(a.id, 1)).toBe("done");
+      expect((await stood.c.chain(a.id, "stopped")).says).toBe("The fix pass of round 1 failed: the round record it left differs from the committed one at line 12 by more than a close block.");
+
+      const taken = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${head(cwd)}`) }) });
+      expect(await taken.c.getSeal(1, 1)).toBe("done");
+      expect((await taken.c.chain(1, "reviewed")).stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"], ["round", "finished"]]);
+    });
+
     it("commits nothing where the crafter removed the round record", async () => {
       const removed = await stoppedWith((cwd, prompt) => rmSync(join(cwd, givenFix(prompt).record)));
       expect(removed.says).toBe(`The fix pass of round 1 failed: the round record no longer stands at ${DIRECTORY}/trail/rounds/round-1.md.`);
