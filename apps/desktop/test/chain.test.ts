@@ -140,7 +140,7 @@ describe("the step a chain owes", () => {
 
 describe("a round's answer", () => {
   const TARGET = `${A} against main`;
-  const given = { round: 1, workItem: NAME, target: TARGET, before: null };
+  const given = { round: 1, workItem: NAME, target: TARGET, earlier: [] };
   const refused = (answer: string, more: Partial<Parameters<typeof roundRecordOf>[1]> = {}): string => {
     try {
       roundRecordOf(answer, { ...given, ...more });
@@ -184,16 +184,58 @@ describe("a round's answer", () => {
   it("is refused in a verifying round where it names no line for a fixed or a rejected finding of the record before it, and taken where a confirms, a reopens or a regression line names each", () => {
     const before = round(1, closedRecord(1, TARGET, { 1: `fixed ${B}`, 2: "rejected", 3: "deferred #4" }));
     const target = `${HEAD}, fixes ${A}..${HEAD}`;
-    const verifying = { round: 2, target, before };
+    const verifying = { round: 2, target, earlier: [before] };
     expect(refused(roundRecord(HEADING(2), target), verifying)).toBe("its record names no `confirms:`, `reopens:` or `regression:` line for findings 1 and 2 of round 1, which the fix pass closed");
     expect(refused(roundRecord(HEADING(2), target, [], ["round-1#1"]), verifying)).toBe("its record names no `confirms:`, `reopens:` or `regression:` line for finding 2 of round 1, which the fix pass closed");
-    // A reference to another round's finding of the same number names nothing of this one.
-    expect(refused(roundRecord(HEADING(2), target, [], ["round-1#1", "round-3#2"]), verifying)).toContain("for finding 2 of round 1");
+    // A reference to an earlier round's finding of the same number names nothing of the record before this one.
+    const third = { round: 3, target, earlier: [round(1, closedRecord(1, TARGET, { 1: "deferred #4", 2: "deferred #4" })), { ...before, round: 2 }] };
+    expect(refused(roundRecord(HEADING(3), target, [], ["round-2#1", "round-1#2"]), third)).toBe("its record names no `confirms:`, `reopens:` or `regression:` line for finding 2 of round 2, which the fix pass closed");
     expect(refused(roundRecord(HEADING(2), target, [], ["round-1#1", "round-1#2"]), verifying)).toBe("taken");
     const reopening = roundRecord(HEADING(2), target, [1, 2], ["round-1#1"]).replace("evidence: read `feature.txt:2`", "evidence: read `feature.txt:2`\nreopens: round-1#2");
     expect(refused(reopening, verifying)).toBe("taken");
     const regressing = roundRecord(HEADING(2), target, [1], ["round-1#2"]).replace("evidence: read `feature.txt:1`", "evidence: read `feature.txt:1`\nregression: round-1#1");
     expect(refused(regressing, verifying)).toBe("taken");
+  });
+});
+
+describe("a reference a round's answer makes", () => {
+  const TARGET = `${A} against main`;
+  const refused = (answer: string, given: Parameters<typeof roundRecordOf>[1]): string => {
+    try {
+      roundRecordOf(answer, given);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ChainStop);
+      return (error as Error).message;
+    }
+    return "taken";
+  };
+  const first = round(1, closedRecord(1, TARGET, { 1: `fixed ${B}`, 2: "deferred #4" }));
+  const target = `${HEAD}, fixes ${A}..${HEAD}`;
+  const verifying = { round: 2, workItem: NAME, target, earlier: [first] };
+
+  it("is refused in the first record, which names no earlier round: on a confirms, a reopens and a regression line alike, with the line", () => {
+    const given = { round: 1, workItem: NAME, target: TARGET, earlier: [] };
+    expect(refused(roundRecord(HEADING(1), TARGET, [], ["round-1#1"]), given)).toBe("its record names `round-1#1` at line 12, and the first record names no earlier round: what it confirms is prose");
+    const reopening = roundRecord(HEADING(1), TARGET, [1]).replace("evidence: read `feature.txt:1`", "evidence: read `feature.txt:1`\nreopens: round-1#1");
+    expect(refused(reopening, given)).toBe("its record names `round-1#1` at line 15, and the first record names no earlier round: what it confirms is prose");
+    const regressing = roundRecord(HEADING(1), TARGET, [1]).replace("evidence: read `feature.txt:1`", "evidence: read `feature.txt:1`\nregression: round-2");
+    expect(refused(regressing, given)).toBe("its record names `round-2` at line 15, and the first record names no earlier round: what it confirms is prose");
+  });
+
+  it("is refused where it names a round that is no earlier record of the work item: the round itself, a later one, and a number no record holds", () => {
+    expect(refused(roundRecord(HEADING(2), target, [], ["round-1#1", "round-2#1"]), verifying)).toBe("its record names `round-2#1` at line 17, which is not an earlier record of this work item");
+    expect(refused(roundRecord(HEADING(2), target, [], ["round-3#2", "round-1#1"]), verifying)).toBe("its record names `round-3#2` at line 12, which is not an earlier record of this work item");
+    // Round 2 was never written: the records before round 4 are those of rounds 1 and 3.
+    const fourth = { round: 4, workItem: NAME, target, earlier: [first, { ...first, round: 3 }] };
+    expect(refused(roundRecord(HEADING(4), target, [], ["round-3#1", "round-2#1"]), fourth)).toBe("its record names `round-2#1` at line 17, which is not an earlier record of this work item");
+    expect(refused(roundRecord(HEADING(4), target, [], ["round-3#1", "round-1#2"]), fourth)).toBe("taken");
+  });
+
+  it("is refused where the record it names holds no finding of that number, and taken where a regression line names a record alone", () => {
+    expect(refused(roundRecord(HEADING(2), target, [], ["round-1#1", "round-1#9"]), verifying)).toBe("its record names `round-1#9` at line 17, and round-1.md holds no finding 9");
+    const regressing = roundRecord(HEADING(2), target, [1], ["round-1#1"]).replace("evidence: read `feature.txt:1`", "evidence: read `feature.txt:1`\nregression: round-1");
+    expect(refused(regressing, verifying)).toBe("taken");
+    expect(refused(regressing.replace("regression: round-1", "regression: round-1#3"), verifying)).toBe("its record names `round-1#3` at line 15, and round-1.md holds no finding 3");
   });
 });
 
@@ -212,7 +254,7 @@ describe("the record a fix pass left", () => {
 
   it("holds where it differs from the committed record by close blocks alone, and names each block's finding and the findings still open", () => {
     const one = fixPassRecord(committed, closing(committed, 1, `fixed ${B}`));
-    expect(one.closes.map(({ finding, close }) => [finding, close.verdict, close.commit])).toEqual([[1, "fixed", B]]);
+    expect(one.closes.map(({ finding, located, close }) => [finding, located, close.verdict, close.commit, close.located])).toEqual([[1, ["feature.txt"], "fixed", B, []]]);
     expect(one.open).toEqual([2]);
     const both = fixPassRecord(committed, closing(closing(committed, 1, `fixed ${B}`), 2, "rejected"));
     expect(both.closes.map(({ finding, close }) => [finding, close.verdict])).toEqual([[1, "fixed"], [2, "rejected"]]);
@@ -221,6 +263,9 @@ describe("the record a fix pass left", () => {
     // A second pass on the record appends under the finding the first left open, and the first pass's block is no part of what it wrote.
     const first = closing(committed, 1, `fixed ${B}`);
     expect(fixPassRecord(first, closing(first, 2, "deferred #7")).closes.map(({ finding }) => finding)).toEqual([2]);
+    // A close block's own location stands beside its finding's.
+    const elsewhere = committed.replace("finding 2 leaves a sentence with no end.\n", `finding 2 leaves a sentence with no end.\n\n\`\`\`seal\nverdict: fixed ${B}\nlocation: \`docs/greeting.md\`, \`src/greet.ts:4\`\nanswer: The greeting's document said otherwise.\n\`\`\`\n`);
+    expect(fixPassRecord(committed, elsewhere).closes.map(({ finding, located, close }) => [finding, located, close.located])).toEqual([[2, ["feature.txt"], ["docs/greeting.md", "src/greet.ts"]]]);
   });
 
   it("holds whatever blank lines stand around an appended block, and with a block appended at the end of a record that ends with no line end", () => {
@@ -405,7 +450,7 @@ describe("the questions a stage's answer asks", () => {
 
   it("are a proofer's only above its record: a record that holds an asks block is one the record's reader refuses", () => {
     const record = roundRecord(HEADING(1), `${HEAD} against main`, [1]);
-    const given = { round: 1, workItem: NAME, target: `${HEAD} against main`, before: null };
+    const given = { round: 1, workItem: NAME, target: `${HEAD} against main`, earlier: [] };
     expect(roundRecordOf(`${FREE}\n${record}`, given)).toBe(record);
     expect(() => roundRecordOf(`${record}\n${FREE}`, given)).toThrow(/^the reader refuses line 20 of its record: .*`asks: May the pass change the protocol\?` opens no `seal` block this record holds/u);
   });
@@ -1224,6 +1269,11 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await stoppedWith((given) => (given.round === 1 ? proofs(given) : roundRecord(given.heading, given.target)))).toBe("Review round 2 failed: its record names no `confirms:`, `reopens:` or `regression:` line for finding 1 of round 1, which the fix pass closed.");
     });
 
+    it("is not written where the first round's record names an earlier round, and where a verifying round's names a finding the record before it does not hold", async () => {
+      expect(await stoppedWith(({ heading, target }) => roundRecord(heading, target, [1], ["round-1#1"]))).toBe("Review round 1 failed: its record names `round-1#1` at line 22, and the first record names no earlier round: what it confirms is prose.");
+      expect(await stoppedWith((given) => (given.round === 1 ? proofs(given) : roundRecord(given.heading, given.target, [], ["round-1#1", "round-1#2"])))).toBe("Review round 2 failed: its record names `round-1#2` at line 17, and round-1.md holds no finding 2.");
+    });
+
     it("is not written where the worktree's head moved during the round, and where the round left a change outside the work item's directory", async () => {
       const moved = roles({}, { work: (cwd, _prompt, role) => (role?.role === "proofer" ? void commitFix(cwd) : undefined) });
       const first = await standing(cleanups, ["Sealed work"], { roleAdapter: moved });
@@ -1271,6 +1321,22 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(early.after).toEqual([]);
     });
 
+    it("commits nothing where a fixed names a commit that changed no path its finding's location names, and takes one whose close block names a folder the fix went to", async () => {
+      /** A commit of the crafter's that changes a file the finding does not name. */
+      const elsewhere = (cwd: string): string => {
+        write(cwd, "notes/greeting.md", "The greeting ends with a full stop.\n");
+        return commitAll(cwd, "docs: note the greeting");
+      };
+      const untouched = await stoppedWith((cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}`));
+      expect(untouched.says).toMatch(/^The fix pass of round 1 failed: finding 1 is closed `fixed [0-9a-f]{40}`, and that commit changed no path its `location:` lines name: a fix that went elsewhere names its path on a `location:` line of the close block\.$/u);
+      expect(untouched.after).toEqual(["docs: note the greeting"]);
+      expect(status(untouched.worktree)).toEqual([` M ${DIRECTORY}/trail/rounds/round-1.md`]);
+
+      const located = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}\nlocation: \`notes\``) }) });
+      expect(await located.c.getSeal(1, 1)).toBe("done");
+      expect((await located.c.chain(1, "reviewed")).stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"], ["round", "finished"]]);
+    });
+
     it("holds the pass to the record as the commit before the pass holds it, and to the round's target: a change of the proofer's text that the worktree held before the pass refuses the record, and a fixed that names a commit made after the round's target and before the pass is taken", async () => {
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
       const a = stood.workItems[0]!;
@@ -1284,9 +1350,17 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await stood.c.getSeal(a.id, 1)).toBe("done");
       expect((await stood.c.chain(a.id, "stopped")).says).toBe("The fix pass of round 1 failed: the round record it left differs from the committed one at line 12 by more than a close block.");
 
+      // A fix a person committed after round 1's record and before the pass: the pass closes the finding with that commit.
       const taken = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${head(cwd)}`) }) });
-      expect(await taken.c.getSeal(1, 1)).toBe("done");
-      expect((await taken.c.chain(1, "reviewed")).stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"], ["round", "finished"]]);
+      const b = taken.workItems[0]!;
+      write(b.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, b.branch, TODAY));
+      const reviewed = commitAll(b.worktree, "chore: declare the work item's routing");
+      write(b.worktree, record, roundRecord(HEADING(1), `${reviewed} against main`, [1]));
+      commitAll(b.worktree, "chore: record review round 1");
+      const fix = commitFix(b.worktree);
+      expect(await taken.c.getSeal(b.id, 1)).toBe("done");
+      expect((await taken.c.chain(b.id, "reviewed")).stages.map(({ kind, state }) => [kind, state])).toEqual([["fix-pass", "finished"], ["round", "finished"]]);
+      expect(readFileSync(join(b.worktree, record), "utf8")).toContain(`verdict: fixed ${fix}\n`);
     });
 
     it("commits nothing where the crafter removed the round record", async () => {

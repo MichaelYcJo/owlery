@@ -2152,7 +2152,7 @@ export class Daemon {
     const prompt = roundPrompt({ round: step.round, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(directory, RECORD_FILE)), paths, diff: text });
     const file = join(directory, ROUNDS_FOLDER, roundFile(step.round));
     return this.runStage(item.id, "round", step.round, { role: "proofer", stage: "round" }, worktree, prompt, async (answer, refused) => {
-      const record = roundRecordOf(answer, { round: step.round, workItem: basename(directory), target: step.target, before: step.from === null ? null : (standing.rounds.at(-1) ?? null) });
+      const record = roundRecordOf(answer, { round: step.round, workItem: basename(directory), target: step.target, earlier: standing.rounds });
       // The record's reader refused a record that holds an `asks:` block, so each question stands above the record's heading.
       const asks = asksOf(answer);
       const head = await worktreeHead(worktree);
@@ -2171,6 +2171,7 @@ export class Daemon {
    * and commits it, where it differs from the one committed before the pass
    * by close blocks alone, the reader refuses no line, each `fixed <commit>`
    * names a commit the branch's head holds and the round's target does not,
+   * which changed a path its finding's `location:` or its close block's names,
    * and the worktree holds no change outside the work item's directory.
    * Where one does not hold, nothing is committed. The record's commit
    * carries each decision the prompt gave as reversed, written `applied`

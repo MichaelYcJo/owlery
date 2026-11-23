@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, holdsCommit, mainCheckout, newCommits, pathsOfCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, holdsCommit, mainCheckout, newCommits, pathsOfCommit, pathsOfCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
@@ -1078,6 +1078,26 @@ describe("what a chain reads of a worktree", () => {
     writeFileSync(join(repo, "new folder", "untracked.txt"), "untracked\n");
     writeFileSync(join(repo, "ignored.txt"), "ignored\n");
     expect((await uncommittedPaths(repo)).sort()).toEqual(["README.md", "moved from.txt", "moved to.txt", "new folder/untracked.txt", "staged.txt"]);
+  });
+
+  it("lists the paths one commit changed, as the pull request check reads them: a path with a space whole, the first commit's files, none for a merge, and throws for a name that is no commit", async () => {
+    const { repo } = repository();
+    const first = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "-b", "work");
+    mkdirSync(join(repo, "sub"));
+    writeFileSync(join(repo, "sub", "b c.txt"), "b\n");
+    writeFileSync(join(repo, "a.txt"), "a\n");
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "two files");
+    const two = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "main");
+    commitFile(repo, "on-main.txt");
+    git(repo, "merge", "--quiet", "--no-ff", "-m", "merge work", "work");
+    const merge = commitOf(repo, "HEAD");
+    expect((await pathsOfCommit(repo, two)).sort()).toEqual(["a.txt", "sub/b c.txt"]);
+    expect(await pathsOfCommit(repo, first)).toEqual(git(repo, "ls-tree", "-r", "--name-only", first).trim().split("\n"));
+    expect(await pathsOfCommit(repo, merge)).toEqual([]);
+    await expect(pathsOfCommit(repo, "a".repeat(40))).rejects.toThrow();
   });
 
   it("lists the paths the commits after one commit changed, each once, and what one commit changed against another: from the commit they last shared where asked, so what the base gained since is no part of it", async () => {

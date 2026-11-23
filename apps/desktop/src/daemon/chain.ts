@@ -25,7 +25,7 @@ import { ASK_BLOCK, CONVERGENCE_BLOCK, ROUND_BASE, RULING_BLOCK, type Block, typ
 import { repositoryFileText } from "./repository-file";
 import type { RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
-import { commitNamed, fileAt, filesAt, holdsCommit, pathsOfCommits } from "./worktrees";
+import { commitNamed, fileAt, filesAt, holdsCommit, pathsOfCommit, pathsOfCommits } from "./worktrees";
 
 /** How many of a chain's stages the daemon keeps with its work item, the newest. A chain of two rounds and one fix pass is three, and each round after them adds two or three. */
 export const CHAIN_STAGES_KEPT = 50;
@@ -618,9 +618,9 @@ export function refusalsText(before: string | null, workItem: string, refused: S
   return `${stood}${stood.endsWith("\n") ? "" : "\n"}${rows.join("")}`;
 }
 
-/** Every reference a record makes to an earlier finding: its `confirms:` lines, and each finding's `reopens:` and `regression:` lines. */
+/** Every reference a record makes to an earlier record: its `confirms:` lines, and each finding's `reopens:` and `regression:` lines, in the record's order. */
 function references(record: RoundRecord): Reference[] {
-  return [...record.confirmations, ...record.findings.flatMap((finding) => [finding.reopens, finding.regression].filter((reference) => reference !== null))];
+  return [...record.confirmations, ...record.findings.flatMap((finding) => [finding.reopens, finding.regression].filter((reference) => reference !== null))].sort((a, b) => a.line - b.line);
 }
 
 /**
@@ -629,11 +629,17 @@ function references(record: RoundRecord): Reference[] {
  * `ChainStop`, which says which, where the answer holds no such line, where
  * that heading names another round or another directory, where the reader
  * refuses a line, where the `target:` line is not the one the prompt gave,
- * where a finding holds a close block, and, in a verifying round, where a
- * `fixed` or `rejected` finding of the record before it is named by no
- * `confirms:`, `reopens:` or `regression:` line.
+ * where a finding holds a close block, where a `confirms:`, a `reopens:` or
+ * a `regression:` line names anything in the first record, a round that is
+ * no earlier record of the work item, or a finding the record it names
+ * does not hold, and, in a verifying round, where a `fixed` or `rejected`
+ * finding of the record before it is named by no such line. `earlier` are
+ * the records the branch's head holds, the lowest round first, each read
+ * whole (`standingOf`), so its findings are every finding it holds. The
+ * rules on a reference are `channel`'s of
+ * `pr-check/skills/code-review/scripts/chain_check.py`.
  */
-export function roundRecordOf(answer: string, given: { round: number; workItem: string; target: string; before: RoundStanding | null }): string {
+export function roundRecordOf(answer: string, given: { round: number; workItem: string; target: string; earlier: readonly RoundStanding[] }): string {
   const heading = roundHeading(given.round, given.workItem);
   const lines = answer.split("\n");
   const at = lines.findIndex((line) => line.startsWith("# Review round "));
@@ -647,9 +653,16 @@ export function roundRecordOf(answer: string, given: { round: number; workItem: 
   if (record.target?.said !== given.target) throw new ChainStop(`its record's target line reads \`${record.target?.said ?? ""}\`, and the round was given \`${given.target}\``);
   const closed = record.findings.find((finding) => finding.close !== null);
   if (closed !== undefined) throw new ChainStop(`its record holds a close block under finding ${String(closed.number)}, and a round writes none: the fix pass closes a finding`);
-  if (given.before !== null) {
-    const before = given.before;
-    const named = references(record);
+  const named = references(record);
+  for (const reference of named) {
+    const said = `its record names \`round-${String(reference.round)}${reference.finding === null ? "" : `#${String(reference.finding)}`}\` at line ${String(reference.line)}`;
+    if (given.earlier.length === 0) throw new ChainStop(`${said}, and the first record names no earlier round: what it confirms is prose`);
+    const holder = given.earlier.find((each) => each.round === reference.round && each.round < given.round);
+    if (holder === undefined) throw new ChainStop(`${said}, which is not an earlier record of this work item`);
+    if (reference.finding !== null && !holder.findings.some((finding) => finding.number === reference.finding)) throw new ChainStop(`${said}, and ${roundFile(reference.round)} holds no finding ${String(reference.finding)}`);
+  }
+  const before = given.earlier.at(-1);
+  if (before !== undefined) {
     const unnamed = before.findings.filter((finding) => (finding.close?.verdict === "fixed" || finding.close?.verdict === "rejected") && !named.some((reference) => reference.round === before.round && reference.finding === finding.number)).map((finding) => finding.number);
     if (unnamed.length > 0) {
       throw new ChainStop(`its record names no \`confirms:\`, \`reopens:\` or \`regression:\` line for ${unnamed.length === 1 ? "finding" : "findings"} ${listed(unnamed)} of round ${String(before.round)}, which the fix pass closed`);
@@ -668,21 +681,28 @@ function padding(lines: readonly string[], blocks: readonly Close[]): Set<number
   return found;
 }
 
+/** A close block a fix pass appended: its finding's number, the paths the finding's own `location:` names, and the block. */
+export interface ClosedFinding {
+  finding: number;
+  located: string[];
+  close: Close;
+}
+
 /**
  * What a fix pass left of a round record, read against the record as it was
  * committed before the pass: the close blocks the pass appended, each with
- * its finding's number, and the numbers of the findings still open. It
+ * its finding's number and places, and the numbers of the findings still open. It
  * throws a `ChainStop` where the record differs from the committed one by
  * more than close blocks, each under a finding that was open, and the blank
  * lines around them, and where the reader refuses a line.
  */
-export function fixPassRecord(before: string, after: string): { closes: { finding: number; close: Close }[]; open: number[] } {
+export function fixPassRecord(before: string, after: string): { closes: ClosedFinding[]; open: number[] } {
   const was = readRoundRecord(before);
   const now = readRoundRecord(after);
   const refused = firstRefusal(now, "the round record it left");
   if (refused !== null) throw new ChainStop(refused);
   const wasOpen = new Set(was.findings.filter((finding) => finding.close === null).map((finding) => finding.number));
-  const closes = now.findings.flatMap((finding) => (finding.close !== null && wasOpen.has(finding.number) ? [{ finding: finding.number, close: finding.close }] : []));
+  const closes = now.findings.flatMap((finding) => (finding.close !== null && wasOpen.has(finding.number) ? [{ finding: finding.number, located: finding.located, close: finding.close }] : []));
   const committed = gfmLines(before);
   const left = gfmLines(after);
   const appended = new Set<number>();
@@ -701,16 +721,24 @@ export function fixPassRecord(before: string, after: string): { closes: { findin
 /**
  * Holds each `fixed <commit>` a fix pass wrote to the branch: the commit is
  * one the branch's head holds and the round's target does not, so it is a
- * commit of the pass or of an earlier one, which the next round reads. It
- * throws a `ChainStop` that names the first finding whose commit is neither.
+ * commit of the pass or of an earlier one, which the next round reads, and
+ * it changed a path the finding's `location:` or the close block's names,
+ * or a path under one, as `verdict_problems` of
+ * `pr-check/skills/code-review/scripts/chain_check.py` asks. It throws a
+ * `ChainStop` that names the first finding whose commit does not hold.
  */
-export async function fixedCommitsHeld(worktree: string, closes: readonly { finding: number; close: Close }[], head: string, target: string): Promise<void> {
-  for (const { finding, close } of closes) {
+export async function fixedCommitsHeld(worktree: string, closes: readonly ClosedFinding[], head: string, target: string): Promise<void> {
+  for (const { finding, located, close } of closes) {
     // Only a `fixed` verdict names a commit.
     if (close.commit === null) continue;
     const commit = await commitNamed(worktree, close.commit);
     if (commit === null || !(await holdsCommit(worktree, head, commit))) throw new ChainStop(`finding ${String(finding)} is closed \`fixed ${close.commit}\`, and the branch holds no such commit`);
     if (await holdsCommit(worktree, target, commit)) throw new ChainStop(`finding ${String(finding)} is closed \`fixed ${close.commit}\`, and the round's target already held that commit`);
+    const places = [...located, ...close.located];
+    const changed = await pathsOfCommit(worktree, commit);
+    if (!changed.some((path) => places.some((place) => inFolder(path, place)))) {
+      throw new ChainStop(`finding ${String(finding)} is closed \`fixed ${close.commit}\`, and that commit changed no path its \`location:\` lines name: a fix that went elsewhere names its path on a \`location:\` line of the close block`);
+    }
   }
 }
 

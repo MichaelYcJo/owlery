@@ -953,6 +953,17 @@ export async function uncommittedPaths(worktree: string): Promise<string[]> {
   return [...new Set(paths.filter((path) => path !== ""))];
 }
 
+/**
+ * The paths one commit changed, as the pull request check's `touched` reads
+ * them (`pr-check/skills/code-review/scripts/chain_check.py`): against its
+ * parent, the first commit's own files, and none for a merge, which the
+ * command prints nothing for. It throws git's words where the name is no
+ * commit.
+ */
+export async function pathsOfCommit(worktree: string, commit: string): Promise<string[]> {
+  return nulPaths(await git(worktree, ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "-z", commit], BRANCH_OUTPUT_BYTES));
+}
+
 /** The paths the commits that `to` holds and `from` does not changed, each once, a merge's own changes left out. It throws git's words where either names no commit. */
 export async function pathsOfCommits(worktree: string, from: string, to: string): Promise<string[]> {
   return nulPaths(await git(worktree, ["log", "--format=", "--name-only", "-z", `${from}..${to}`], BRANCH_OUTPUT_BYTES));
