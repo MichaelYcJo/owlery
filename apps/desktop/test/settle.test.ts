@@ -485,7 +485,7 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     const kept = run(repo, "--apply");
     expect(kept.code).toBe(2);
     expect(kept.out.endsWith("\nPut back no directory.\n"), kept.out).toBe(true);
-  }, 20_000);
+  });
 
   it("refuses, runs nothing and names the directory where a kept directory differs from HEAD, by an edit or by a file not committed, whatever `status.showUntrackedFiles` the repository sets", () => {
     for (const change of [
