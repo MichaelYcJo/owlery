@@ -38,6 +38,11 @@ The snippet replaces `test/pull-request.test.ts:253-255` and keeps the comment a
 
 This round put the snippet in its clone and ran the case twice. With `github.ts:465` reading `line.trim()`, it failed at the U+FEFF iteration (`test/pull-request.test.ts:257` in the patched file). With `github.ts` at `0ed5c16`, it passed. The fix pass shows it red the same way.
 
+```seal
+verdict: deferred #47
+answer: The rounds stop at round 3 by the row of 2026-11-24 committed at `85064cd` in `frame/plan.md` *Judgments of the run*, so this `should` takes a home that costs no round. Issue #47 owns the ground: its build changes how the daemon composes the pull request's body in `github.ts`. The comment https://github.com/MichaelYcJo/owlery/issues/47#issuecomment-7107532908 names the case to add, U+FEFF beside U+0085, with this round's snippet. The code of both readers holds the rule, as this round's *Confirmations* read.
+```
+
 ### 2. *Scope* item 4 still says the pushed commit is "the one commit the seal section speaks of", which the frame's own *Data & interfaces* denies
 
 ```seal
@@ -53,6 +58,11 @@ The snippet replaces that sentence of item 4. It is the framer's to fold, as the
 
 ```markdown
 The push names the commit and not the branch, so a commit that lands on the branch after the stage read its head is not pushed, and the remote's branch, the pull request's head and the stored `pushed` are the one commit the stage read as the branch's head.
+```
+
+```seal
+verdict: fixed ae28a35
+answer: The framer rewrote *Scope* item 4 to say the pushed commit and the stored `pushed` are the one commit the stage read as the branch's head, and that this is not the sealed commit the section's `target:` names, which it follows by commits of closing records. Scenario 3, which read the same two ways, now names the section's `target:` as the new seal's sealed commit and the remote's branch as the new head. The fix lies in the frame alone, so the sealer reads it, by the row of `85064cd`.
 ```
 
 ## Confirmations
