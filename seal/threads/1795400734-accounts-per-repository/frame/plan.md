@@ -1,0 +1,93 @@
+# Implementation Plan: accounts per repository, work item and session (#160)
+
+## Technical context
+
+The tree as read at `dac6fed`. The build starts after release 0.0.2 ships and `release/v0.0.3` is cut, so it starts on a tree that also holds what *Overlap with the release* lists. The first phase's crafter opens each coordinate below at its own HEAD before it builds on it.
+
+- **One seam for role sessions.** `apps/desktop/src/daemon/daemon.ts#startHeadless` is the one caller of `RoleAdapter.start` (`apps/desktop/src/daemon/adapters/adapter.ts`). The Claude adapter builds the session's environment in `apps/desktop/src/daemon/adapters/claude.ts#claudeEnv` and spawns the CLI with it. An account's folder enters at `start` and leaves as one variable of `claudeEnv`.
+- **One seam for panes.** `apps/desktop/src/daemon/daemon.ts#startSession` asks `DaemonOptions.commandFor` for a pane's command and merges its `env` over the daemon's. `apps/desktop/src/daemon/hooks.ts#paneCommands` is the `commandFor` the daemon runs with, and `#claudePaneCommand` writes the one line the login shell executes.
+- **The stores.** `apps/desktop/src/daemon/repositories.ts` reads and writes `repositories.json` whole, and reads a field a later build added as absent. The accounts store follows it.
+- **Hook events.** `apps/desktop/src/daemon/daemon.ts#agentEvent` receives each hook's whole payload from `apps/desktop/src/daemon/main.ts` and keeps the event's name and tool. `docs/architecture.md` *The phone: the terminal session as a chat* says every event carries `session_id`.
+- **The lookup of the CLI.** `apps/desktop/src/daemon/adapters/claude.ts#lookupCommand` runs the person's interactive login shell once per daemon and reads marked lines from what it prints. The person's own config folder is read the same way.
+- **Cases.** The fake adapter (`apps/desktop/src/daemon/adapters/fake.ts`) stands for role sessions. A stand-in for `claude` on the case's `PATH`, as `apps/desktop/test/fixtures/claude-stand-in/claude` is for the terminal cases, stands for the pane's CLI and for `claude auth`. The built app is started only through `BuiltApp.start` with `OWLERY_BACKGROUND=1`, in as few starts as the window's cases need.
+
+Constraints the build keeps: no real `claude` runs in any case, nothing under the person's own config folder is written, and no case reads or writes the app's real data folder.
+
+**What breaks in six months.** Claude Code's layout of its config folder is the CLI's to change. Three ways it fails here, and what each costs:
+
+- A later version adds a file of the person's that the list of linked names does not hold. That file then stays with each account, so one tool of the person's is missing under a second account until the list names it. The list is an allow-list for this reason: the other failure, a file of the account's that gets linked, would merge two logins without a sign.
+- A later version stops following a linked `projects`, or keeps conversations elsewhere. A conversation is then not found under a second account. The change of a running pane's account fails visibly, at a `--resume` that finds nothing, and `frame/questions.md` Q3 holds the run that would show it first.
+- An account's folder is removed outside Owlery. Its Keychain entry stays, and the account's row names a folder that is gone. The daemon then says the account is not signed in, because `claude auth status` exits 1 for it.
+
+## Alternatives considered
+
+| Approach | Failure scenario | Verdict |
+|---|---|---|
+| A config folder per account, passed as `CLAUDE_CONFIG_DIR` | The failures *Technical context* names | Chosen. It is the way Claude Code's own documentation keeps two accounts apart, and Owlery holds no token |
+| A long-lived token per account, from `claude setup-token`, passed as `CLAUDE_CODE_OAUTH_TOKEN` | Owlery would store each token. `docs/architecture.md` *Authentication of the Claude adapter* forbids it, and Anthropic's Legal and compliance page says developers may not collect or store credentials | Rejected |
+| One folder, and the daemon signs the CLI out and in before a launch | Every running session's login changes under it, and each change needs the person in a browser | Rejected |
+| A folder per account with nothing shared, as Anthropic's page describes it | The person's skills, plugins and hooks are missing under a second account, and a conversation begun under one account is not found under another, so a running session's account cannot change | Rejected for the folders Owlery makes. It is what a handed folder is, and scope item 2 keeps it |
+| Link every entry of the person's folder but for a list of the account's names | A file of the account's that a later CLI version adds is linked on the day it appears, and two logins share it with no sign | Rejected for the allow-list of scope item 4 |
+| Keep `settings.json` as the account's own file, as the issue's text and Anthropic's page have it | `enabledPlugins`, hooks and permissions live in that file, so the linked plugins are off and the person's hooks do not run under a second account | Rejected, and `frame/questions.md` Q1 puts it to the person |
+| Copy the person's `settings.json` into each account and sync chosen keys, as Orca does | A copy kept in step with its source is a mechanism of its own, with a list of keys and a moment it runs, and it is stale between two runs | Rejected. A link has no second copy |
+| Link `settings.json` | A key of the person's settings that names a credential, `apiKeyHelper` or an API key in `env`, then applies under every account in a pane. It applies to no role session, whose setting sources are empty | Chosen. `claude auth status` reports how the folder is signed in, and the account's row says it |
+| One selected account for the host, and a shell function that wraps `claude`, as Orca does | The person switches before handing work over, a wrong switch is seen at the bill, and the wrapper is code for each shell that Owlery ships and keeps | Rejected. The daemon knows each session's repository and work item, and resolves the account at launch |
+| A wrapper for `claude` in a shell pane, so a later change of account reaches it | The same per-shell code, for a pane whose CLI Owlery did not launch | Rejected. A shell pane gets the variable in its environment, and its account cannot change while it runs |
+| Give a Claude Code pane the variable in its environment alone | A profile that exports `CLAUDE_CONFIG_DIR` replaces it, and the pane runs under another login with no sign (probed, `frame/design.md` *Grounding*) | Rejected for the variable set in the pane's command |
+| Keep the cleared environment of a role session and add one named variable to it | A name added there is one more thing that reaches a verdict's session | Chosen. The premise that keeps the structure is the tested row of `docs/architecture.md` *Role sessions run detached from the user's environment*: plugins that came in through variables dropped out, and the subscription login still worked |
+| Replace the cleared environment by the pane's own environment for role sessions, so both run under whatever the shell sets | Every variable of the person's shell reaches a role session, the plugin folders among them, which that same row removed | Rejected |
+| Keep an account's setting with its repository and work item in `repositories.json` | A removal of an account has to clear settings in a second file | Chosen. The setting is deleted, archived and restored with what it is set on, and the store already reads a later field as absent |
+| A settings file of its own, keyed by repository and work item ids | It has to follow every delete and every restore of the things it names | Rejected |
+| Resume a moved pane by its conversation id, with `projects` shared | It finds nothing where the two folders hold different conversations | Chosen, and refused in that case with its reason. `docs/architecture.md` *What a session survives* already resumes by id |
+| Resume a moved pane by the absolute path of its transcript, which `--resume` also takes | It needs no shared folder, and it is a second way to resume beside the one issue #61 builds. Where the resumed conversation then writes was not run | Not built. It is the fallback `frame/questions.md` Q3 names if the run with two logins fails |
+| Keep a pane's conversation id in memory now | The id is lost at the daemon's end, so a pane cannot change account after a restart of the daemon until issue #61 keeps it | Chosen. The change needs a live pane, and a live pane's daemon is alive |
+| Wait for issue #61 before building the change of a running pane | The owner's third requirement leaves release 0.0.3 | Rejected |
+| Run the sign-in in a terminal pane | A pane with no work item is a new case of the window | Chosen. The CLI's sign-in can ask for a pasted code, which needs a terminal |
+| Run the sign-in with pipes and no terminal, or show the command for the person to run elsewhere | The first cannot take a pasted code. The second is not "the app runs that CLI's own login" of the issue | Rejected |
+| Read each account's token and call the usage endpoint, to show an idle account's use | Anthropic's Legal and compliance page: developers may not collect, store or intermediate Claude.ai credentials or session tokens. The reasons `docs/architecture.md` *Reading usage limits* gives stand beside it | Ruled out. `frame/design.md` *Rule changes* closes the open decision, and `frame/questions.md` Q2 puts the closing to the person |
+| Start a small headless session under each idle account to refresh its values | It spends each account's limit to draw a number, on a timer nobody asked for | Not built. Issue #73 owns what the app shows |
+| Read the accounts Orca already made from Orca's index | Owlery follows another product's private files from version to version | Rejected. A person hands over any config folder by its path, an Orca account's `home` among them |
+| Build accounts for Codex now | No adapter and no pane of Codex exists in the tree (`docs/architecture.md` *Agent adapters*, issue #112) | Not built. An account's row names its adapter, and the feature is the adapter's to declare |
+
+## Phases
+
+Each phase ends with its cases passing through the narrow run of the files it names, and the broad gate is the orchestrator's.
+
+| Phase | Delivers | Verified by | Status |
+|---|---|---|---|
+| 1 | The accounts store and the role sessions under it, with no window: scope items 1, 2, 6, 8 and 12, and the parts of item 7 that concern a role session, a headless session with no role and System default | Scenarios 1, 2, 10 and 12, the adding half of 7, and the role session's half of 3, in `apps/desktop/test/accounts.test.ts`, `apps/desktop/test/claude-adapter.test.ts`, `apps/desktop/test/fake-adapter.test.ts`, `apps/desktop/test/repositories.test.ts` and `apps/desktop/test/ledger.test.ts` | |
+| 2 | Panes under an account, and the window's settings and names: the pane's part of scope item 7, and of item 10 the list of accounts, the adding of a handed folder, the default, the repository's and the work item's setting, the choice at a new pane and a new headless session, and the names on a line, a view and a tab | Scenarios 4, 11 and 14 and the pane's half of 3, in `apps/desktop/test/hooks.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/view.test.ts` and `apps/desktop/test/screenshots.test.ts` | |
+| 3 | The accounts Owlery makes: scope items 3, 4, 5 and 11, and of item 10 the adding with no folder, the sign-in pane in the Accounts dialog, and the removal with what it names | Scenarios 5, 6 and 13 and the removing half of 7, in `apps/desktop/test/accounts.test.ts`, `apps/desktop/test/daemon.test.ts` and `apps/desktop/test/view.test.ts` | |
+| 4 | The change of a running pane's account: scope item 9, and the window's control and its sentence before the change | Scenarios 8 and 9, in `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/hooks.test.ts` and `apps/desktop/test/view.test.ts` | |
+
+## Overlap with the release
+
+The spawn names the open work items of release 0.0.2, which is not this work's release: #41 to #47 and #22. Each ships in release 0.0.2 before this work's first phase is built, so each merges first, and this work is built on what it merged. The rows say what each changes under this frame, read on its branch at the commit named. The spawn names no other work item of release 0.0.3, this work's own release, and none was read: issues #55 and #54, which add the framer's and the crafter's stages, and #129, which sets a model for each stage, are the likeliest to meet it.
+
+| Work item | Where both change | Merges first | Grounds |
+|---|---|---|---|
+| #41, review rounds (`b1e0e26`, built) | `apps/desktop/src/daemon/daemon.ts#startHeadless`, still the one caller of `RoleAdapter.start`, now also for the stages a chain starts. `apps/desktop/src/daemon/repositories.ts#StoredWorkItem` gains `chain`, read as absent in an older file. `apps/desktop/src/shared/protocol.ts` gains the chain's types and a role `orchestrator` | #41 | It ships in release 0.0.2. This work adds `accountId` beside `chain` in the same way, and resolves the account in `startHeadless`, so every stage of a chain takes the nearest setting when it starts, which is scope item 9's last sentence with no code of its own |
+| #45, cost per stage (`7f0976a`, built) | `apps/desktop/src/shared/protocol.ts#LedgerEntry` and `apps/desktop/src/daemon/ledger.ts#entryOf`, which reads a line into the protocol's fields alone. `RoleEvent`'s `result` carries `usage` in place of `costUsd`. The fake adapter and `apps/desktop/src/daemon/main.ts` change too | #45 | It ships in release 0.0.2. Scope item 8 adds `account` to the entry it defines, and `entryOf` has to read a line without it as null (scenario 10). The entry already names its repository's folder and its branch as they stood, and the account is named the same way |
+| #46, progress through roles (`9be0035`, built) | `apps/desktop/src/renderer/view.ts`, `apps/desktop/src/renderer/index.html` and `apps/desktop/src/renderer/shared.ts`, where a work item's view and a line are drawn. `docs/design.md`, which its diff edits in place: *The themes*, the tokens, and in *Components and their states* the row of the approval line and the paragraph under the table | #46 | It ships in release 0.0.2. Its approval line shows a stage per role, and this work adds an account's name to a line and a tab, not to the approval line. This work's `add` to *Components and their states* is a new last row of the same table, placed at the settle, and it quotes no text #46 rewrites |
+| #27, what the agent asks (`4883ab1`, built) | `apps/desktop/src/daemon/daemon.ts#agentEvent` and `apps/desktop/src/daemon/agent-events.ts`, where a hook's payload is read, and `SessionInfo` in the protocol | #27 | It ships in release 0.0.2. Scope item 9 reads `session_id` from the same payload in the same function, so phase 4 builds on its reading of the payload |
+| #42, broad gate and sealer (`0cff3e9`, framed) | Its frame adds the gate's run and the sealer's stage, and calls `Ledger#add` for the gate with no role | #42 | It ships in release 0.0.2. The gate runs no agent, so its entry's `account` is null. The sealer's stage is a role session and takes its account in `startHeadless` |
+| #43, pull request and seal check (`3c13a7a`, framed) | Its frame reaches GitHub through the person's `gh` and adds no ledger entry | #43 | It ships in release 0.0.2. `gh` has a login of its own, which is no account of this work. Nothing of this frame changes for it |
+| #44, a commit after the seal (`ce987b7`, framed) | Its frame changes `docs/architecture.md` *Records are committed to the repository* and the seal's state | #44 | It ships in release 0.0.2, and it meets no file, rule or fact of this work |
+| #47, the back of the seal (`b33ebef`, routed, no frame on its branch) | The issue sets each stage's cost beside what each round caught, read from the ledger | #47 | It ships in release 0.0.2. Once an entry names its account, the back of the seal can say which account paid for a stage. Whether it does is that view's to decide, and this work adds no column to it |
+| #22, the summary of seals (`df6a250`, framed) | Its frame changes what the last look says of seals | #22 | It ships in release 0.0.2, and it meets no file, rule or fact of this work beyond `SessionInfo`'s new field being absent from a look written earlier, which `apps/desktop/src/daemon/last-look.ts` has to read as it reads `Repository.records` |
+
+## Operational impact
+
+- **New state in the daemon's run folder.** `accounts.json`, and `accounts/` with one folder for each account Owlery made. Neither is committed anywhere. A build before this work ignores both.
+- **`repositories.json` gains a field.** `accountId` on a repository and on a work item. A file without it reads as nothing set, and an older build that rewrites the file drops the field, which sets every repository back to the default.
+- **A variable reaches role sessions.** `CLAUDE_CONFIG_DIR`, and under System default only where the person's login shell holds one. A person whose profile sets it gets role sessions under that login from this release on, where they ran under the default folder before. The changelog fragment says so.
+- **No new dependency, and no change of the oldest supported CLI.** `MIN_CLAUDE_VERSION` stays 2.1.326. `claude auth status` carries `loginExpiresAt` from 2.1.318 by the CLI reference. The version that first had `claude auth login` is not named there, and Q3's run shows it on the installed CLI.
+- **The protocol only gains.** Every new field and message is absent from an earlier daemon, and the window reads its absence as the feature being off.
+- **This pull request does not move the version.** The first pull request of release 0.0.3 does (`docs/roadmap.md` *Releases and the tracker*).
+- **Issues whose text this frame makes stale, for the orchestrator.** Issue #73 says the row "How to read usage limits" stays open, and issues #73 and #74 say nothing of an account. Issue #160 names the sign-in command `claude login`.
+
+## Judgments of the run
+
+| Date | Judgment | Grounds | Judged against |
+|---|---|---|---|
+| | | | |
