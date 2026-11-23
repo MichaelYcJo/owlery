@@ -422,7 +422,7 @@ function counted(count: number, one: string, many: string): string {
 function asSentence(failure: string): string {
   const text = failure.trim();
   if (text === "") return text;
-  const opened = /^\p{Ll}[\p{L}'’]*(?=\s|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  const opened = /^\p{Ll}\p{L}*(?=\s|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
   return /[.?!]$/u.test(opened) ? opened : `${opened}.`;
 }
 

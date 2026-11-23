@@ -1403,6 +1403,7 @@ describe("the approval line", () => {
     // The clause the daemon writes, with no capital and no full stop.
     expect(says("the daemon ended while the stage ran")).toEqual(["Proofer: The daemon ended while the stage ran."]);
     expect(says("its record's target line reads `target: HEAD`")).toEqual(["Proofer: Its record's target line reads `target: HEAD`."]);
+    expect(says("stopped")).toEqual(["Proofer: Stopped."]);
     // A text that is a sentence already, as a CLI's own error can be, stands as it is, and so does the mark it ends with.
     expect(says("The session is out of turns.")).toEqual(["Proofer: The session is out of turns."]);
     expect(says("is the CLI signed in?")).toEqual(["Proofer: Is the CLI signed in?"]);
