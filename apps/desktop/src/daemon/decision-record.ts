@@ -123,6 +123,16 @@ function routingRows(text: string): Map<string, { value: string; index: number }
 }
 
 /**
+ * What a `routing.md` answers on one axis: the value of the row whose first
+ * cell is the label, or null where no such row stands or the label is
+ * written twice, as `declaredBranch` reads a row.
+ */
+export function routingAnswer(text: string, label: string): string | null {
+  const values = routingRows(text).get(label) ?? [];
+  return values.length === 1 ? (values[0]?.value ?? null) : null;
+}
+
+/**
  * The branch a `routing.md` declares, or null where the text is no
  * declaration, as `pr-check/lib/routing.py#parse` reads it: the rows of two
  * cells or more that a renderer shows, a label written twice holding no value,

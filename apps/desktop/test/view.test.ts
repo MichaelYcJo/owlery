@@ -1246,10 +1246,10 @@ describe("a work item's chain", () => {
   const ROUND: ChainStage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: NOW - 30 * MINUTE, endedAt: NOW - 20 * MINUTE, headlessId: 3, refusals: 0, gate: null };
   const FIX: ChainStage = { kind: "fix-pass", round: 1, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: NOW - 19 * MINUTE, endedAt: NOW - 6 * MINUTE, headlessId: 4, refusals: 0, gate: null };
   const STOPPED_SAYS = "The fix pass of round 1 failed: the session reached its time limit and was stopped.";
-  const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", reviewedAt: null, stages: [], since: NOW - 4 * MINUTE, ...fields });
+  const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", stages: [], since: NOW - 4 * MINUTE, ...fields });
   const RUNNING: WorkItem = { ...LOGIN, chain: chain("running", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) };
   const STOPPED: WorkItem = { ...LOGIN, chain: chain("stopped", { stages: [ROUND, FIX] }) };
-  const REVIEWED: WorkItem = { ...LOGIN, chain: chain("reviewed", { says: "The review rounds settled at 1a2b3c4.", reviewedAt: "1a2b3c4", stages: [ROUND] }) };
+  const REVIEWED: WorkItem = { ...LOGIN, chain: chain("sealed", { says: "The sealer sealed 1a2b3c4, after round 1.", stages: [ROUND] }) };
   const PARKED: WorkItem = { ...LOGIN, chain: chain("parked", { says: "The work item waits for the answers to its questions.", stages: [ROUND] }) };
   const QUESTION: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "crafter", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
   const BASH: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: NOW - 2 * MINUTE };
@@ -1345,7 +1345,7 @@ describe("a work item's chain", () => {
     const start = "Start the review rounds on Fix the login bug";
     expect(sealButton(LOGIN, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: "" });
     expect(sealButton(STOPPED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
-    expect(sealButton(REVIEWED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The review rounds settled at 1a2b3c4.", refusal: "" });
+    expect(sealButton(REVIEWED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
     expect(sealButton(PARKED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
     expect(sealButton(RUNNING, false, null)).toEqual({ offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
     expect(sealButton(STOPPED, true, null)).toEqual({ offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });

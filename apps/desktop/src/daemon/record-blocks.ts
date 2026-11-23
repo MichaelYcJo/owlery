@@ -390,6 +390,10 @@ export const ROUND_RECORD: readonly Kind[] = [ROUND_BLOCK, FINDING_BLOCK, CLOSE_
 
 /** A session's id as a verdict block names it: one word that holds no comma. */
 const SESSION = `[^${SPACE},]+`;
+/** Whether a text is a session's id as a verdict block names one. The daemon writes no other into a commit's trailer. */
+export function isSessionId(text: string): boolean {
+  return new RegExp(`^${SESSION}$`, "u").test(text);
+}
 /** The name a verdict block gives a building session that a person drove, whose id the daemon does not keep. */
 export const THE_SESSION = "the session";
 /** What joins the names of a verdict block's `built-by:` line. */

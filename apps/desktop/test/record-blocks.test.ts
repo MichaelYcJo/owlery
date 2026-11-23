@@ -6,7 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ASK_BLOCK, CONVERGENCE_BLOCK, DECISION_BLOCK, QUESTION_BLOCK, ROUND_RECORD, RULING_BLOCK, RUN_BLOCK, VERDICT_BLOCK, assemble, field, read, type BlocksRead } from "../src/daemon/record-blocks";
+import { ASK_BLOCK, CONVERGENCE_BLOCK, DECISION_BLOCK, QUESTION_BLOCK, ROUND_RECORD, RULING_BLOCK, RUN_BLOCK, VERDICT_BLOCK, assemble, field, isSessionId, read, type BlocksRead } from "../src/daemon/record-blocks";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
 
@@ -228,6 +228,13 @@ describe("the reader of a seal block", () => {
       { commit: "0123abc", base: "main" },
       { commit: "0123abc", base: "89abcde" },
     ]);
+  });
+
+  it("tells a session's id that a verdict block and a commit's trailer can name: one word that holds no comma, and not the name of a session a person drove", () => {
+    for (const id of ["s-1", "fake-12", "0199e5c2-7b1d-7a7e-9c7f-3d2b1a0c9e8f", "the-session"]) expect(isSessionId(id), id).toBe(true);
+    for (const none of ["", "the session", "s-1, s-2", "s-1,s-2", "s 1", " s-1", "s-1 ", "s-1\n", "s-1\ns-2", "s\t1"]) expect(isSessionId(none), JSON.stringify(none)).toBe(false);
+    // The shape is the one the block's `judged-by:` line takes.
+    expect(read(["```seal", `target: ${"a".repeat(40)} against main`, "Verdict: sealed", "judged-by: s-1,s-2", "```", ""].join("\n"), [VERDICT_BLOCK]).refusals).toHaveLength(1);
   });
 
   it("reads a block only for the kinds it is given", () => {

@@ -12,6 +12,7 @@ import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import {
   type Ask,
+  BUILT_BY_TRAILER,
   CHAIN_STAGES_KEPT,
   ChainStop,
   GATE_SUBJECT,
@@ -21,6 +22,10 @@ import {
   REFUSALS_FILE,
   ROUNDS_CEILING,
   ROUNDS_FOLDER,
+  SEALER,
+  SEAL_RULING_SUBJECT,
+  UNDECIDED_CEILING,
+  VERDICT_SUBJECT,
   type RefusedCall,
   type StagePrompt,
   type StageRefusals,
@@ -47,7 +52,6 @@ import {
   passedBefore,
   promptText,
   refusalsText,
-  reviewedSays,
   roundBase,
   roundFile,
   roundPrompt,
@@ -56,11 +60,16 @@ import {
   rulingPrompt,
   rulingsOf,
   runningSays,
+  sealPrompt,
+  sealedSays,
   standingOf,
   stepOwed,
   stoppedSays,
+  undecidedAsk,
+  undecidedParked,
+  withheldSays,
 } from "./chain";
-import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
+import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
@@ -70,12 +79,13 @@ import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { writeRecordFile } from "./record-writer";
+import { THE_SESSION, isSessionId } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
-import { GATE_FILE, gateText } from "./seal-records";
+import { GATE_FILE, GUARANTEE_FILE, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, trailerValues, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
 const STATE_TEXT_CHARS = 2000;
@@ -175,7 +185,7 @@ export interface DaemonOptions {
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
-  /** The version of Owlery this daemon is, which the workflow a setup of the records place writes fetches the check at. A daemon given none plans and sets up no records place. */
+  /** The version of Owlery this daemon is, which the workflow a setup of the records place writes fetches the check at, and which a verdict block names as the version of the rules. A daemon given none plans and sets up no records place, and writes no verdict. */
   version?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
   worktreesRoot?: string;
@@ -201,6 +211,8 @@ export interface DaemonOptions {
   keptHeadless?: number;
   /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer; `ROUNDS_CEILING` of `chain.ts` when absent. */
   roundsCeiling?: number;
+  /** For how many `undecided` verdicts of one guarantee the daemon asks the orchestrator for a ruling before it parks the next one's question with no ruling asked; `UNDECIDED_CEILING` of `chain.ts` when absent. */
+  undecidedCeiling?: number;
   /** How long a broad gate's command may run, from its start, before the daemon ends it; `GATE_LIMIT_MS` of `gate.ts` when absent. */
   gateLimitMs?: number;
   /** The environment a broad gate's command runs with. When absent, it is a pane's without the variables that say a terminal stands, with the `PATH` the person's interactive login shell prints, which the daemon asks that shell for once (`gate.ts#gateEnvironment`). */
@@ -1932,7 +1944,7 @@ export class Daemon {
       const working = this.chains.has(id) || this.works(id);
       if (working) return;
       try {
-        await commitPaths(worktree, branch, [relative(worktree, join(directory, file))], subject, `Seal-Routing: ${basename(directory)}`);
+        await commitPaths(worktree, branch, [relative(worktree, join(directory, file))], subject, [`Seal-Routing: ${basename(directory)}`]);
       } catch (error) {
         console.error(`${file === RECORD_FILE ? "the person's word" : "the renamed branch's routing"} was not committed: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -1981,7 +1993,7 @@ export class Daemon {
     if (why !== null) throw new Error(why);
     const held = this.store.workItem(workItemId);
     if (!held) throw new Error(`no work item ${String(workItemId)}`);
-    this.store.setWorkItem(workItemId, { chain: { state: "running", says: READING_SAYS, reviewedAt: null, stages: held.item.chain?.stages ?? [], since: (this.options.now ?? Date.now)() } });
+    this.store.setWorkItem(workItemId, { chain: { state: "running", says: READING_SAYS, stages: held.item.chain?.stages ?? [], since: (this.options.now ?? Date.now)() } });
     this.chains.set(workItemId, Promise.resolve().then(() => this.runChain(workItemId, byPerson)));
   }
 
@@ -2064,8 +2076,10 @@ export class Daemon {
   /**
    * Runs a work item's chain from where its records stand until it rests:
    * before each stage it reads the step the records owe (`chain.ts#stepOwed`)
-   * and runs that stage, the broad gate among them (`runGate`), and it rests
-   * `parked` or `reviewed` where the records owe none. Before a fix pass it reads what the chain owes first
+   * and runs that stage, the broad gate (`runGate`) and the seal (`runSeal`)
+   * among them, and it rests `parked` or `sealed` where the records owe
+   * none. A sealer's `withheld` verdict stops the chain with its reason.
+   * Before a fix pass it reads what the chain owes first
    * (`chain.ts#gateBefore`): the orchestrator's judgment of whether the
    * rounds are converging, whose `no` stops the chain, or a stop at the
    * ceiling of its rounds. A stage whose answer asks questions is followed
@@ -2078,10 +2092,10 @@ export class Daemon {
    * `byPerson` says that a person's `getSeal` started the run.
    */
   private async runChain(workItemId: number, byPerson: boolean): Promise<void> {
-    const rest = (state: Chain["state"], says: string, reviewedAt: string | null = null): void => {
+    const rest = (state: Chain["state"], says: string): void => {
       const chain = this.store.workItem(workItemId)?.item.chain;
       // The chain rests in a state it was not in while it ran, from now on.
-      if (chain) this.chainSet(workItemId, { ...chain, state, says, reviewedAt, since: (this.options.now ?? Date.now)() });
+      if (chain) this.chainSet(workItemId, { ...chain, state, says, since: (this.options.now ?? Date.now)() });
     };
     const ceiling = this.options.roundsCeiling ?? ROUNDS_CEILING;
     // Whether the step is the first of a start a person made, and the round this run's judgment of convergence was answered yes after.
@@ -2104,9 +2118,12 @@ export class Daemon {
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
-        if (step.is === "reviewed") return rest("reviewed", reviewedSays(step.round, step.at), step.at);
+        if (step.is === "sealed") return rest("sealed", sealedSays(step.round, step.at));
         if (step.is === "gate") await this.runGate(held, directory, standing, step.round);
-        else if (step.is === "round") {
+        else if (step.is === "seal") {
+          const withheld = await this.runSeal(held, directory, standing, step);
+          if (withheld !== null) return rest("stopped", withheldSays(withheld));
+        } else if (step.is === "round") {
           const asks = await this.runRound(held, directory, standing, step);
           if (asks.length > 0) await this.runRuling(held, directory, standing.directory, "round", step.round, "proofer", asks);
         } else {
@@ -2177,13 +2194,14 @@ export class Daemon {
    * refused (`chain.ts#refusalsText`), then commits the files given, each a
    * file of the work item's directory, with the work item's record of
    * decisions and its refusals where each stands, together and nothing else
-   * (`worktrees.ts#commitPaths`), with the subject given and the trailer
-   * `Seal-Routing:` that names the directory. It throws a `ChainStop` with
+   * (`worktrees.ts#commitPaths`), with the subject given, the trailer
+   * `Seal-Routing:` that names the directory, and below it each trailer the
+   * stage gives. It throws a `ChainStop` with
    * what a write refused, or with git's first words where the commit
    * failed, a hook's refusal among them: the files then stand written and
    * not committed.
    */
-  private chainCommit(item: Held["item"], directory: string, files: readonly [string, ...string[]], subject: string, stage: { write?: () => void; refused?: StageRefusals } = {}): Promise<void> {
+  private chainCommit(item: Held["item"], directory: string, files: readonly [string, ...string[]], subject: string, stage: { write?: () => void; refused?: StageRefusals; trailers?: readonly string[] } = {}): Promise<void> {
     const { worktree, branch } = item;
     return this.inWorktree(worktree, async () => {
       const record = join(directory, RECORD_FILE);
@@ -2196,7 +2214,7 @@ export class Daemon {
       }
       const [first, ...others] = [...new Set([...files, ...[record, refusals].filter((file) => existsSync(file))])].map((file) => relative(worktree, file));
       try {
-        await commitPaths(worktree, branch, [first ?? "", ...others], subject, `Seal-Routing: ${basename(directory)}`);
+        await commitPaths(worktree, branch, [first ?? "", ...others], subject, [`Seal-Routing: ${basename(directory)}`, ...(stage.trailers ?? [])]);
       } catch (error) {
         const [said] = (error instanceof Error ? error.message : String(error)).split("\n");
         throw new ChainStop(`${relative(worktree, files[0])} was written and not committed: ${said ?? ""}`);
@@ -2216,8 +2234,9 @@ export class Daemon {
    * the work item's worktree, listed with the chain as its newest stage.
    * When the session is no longer working, the stage's run is stopped and
    * its process has exited before anything else of the chain happens in the
-   * worktree. `after` is then given a finished session's answer and the
-   * calls its role's rule refused, takes and commits what the stage left,
+   * worktree. `after` is then given a finished session's answer, the
+   * calls its role's rule refused, and the id and the model the session
+   * named as its own, or null where it named none, takes and commits what the stage left,
    * and what it gives is what this gives. The stage is `finished` where it
    * did, and `failed`, with why, where the session failed or was stopped or
    * `after` threw; a failed stage throws a `StageStopped` with the chain's
@@ -2225,7 +2244,7 @@ export class Daemon {
    * no record. A daemon that closed meanwhile throws too, and stores
    * nothing.
    */
-  private async runStage<T>(workItemId: number, kind: ChainStageKind, round: number, role: RoleStage, worktree: string, prompt: StagePrompt, after: (answer: string, refused: StageRefusals) => Promise<T>): Promise<T> {
+  private async runStage<T>(workItemId: number, kind: ChainStageKind, round: number, role: RoleStage, worktree: string, prompt: StagePrompt, after: (answer: string, refused: StageRefusals, named: HeadlessSession["named"]) => Promise<T>): Promise<T> {
     const held = this.store.workItem(workItemId);
     const before = held?.item.chain;
     if (!held || !before) throw new ChainStop("the daemon no longer keeps the work item");
@@ -2241,7 +2260,7 @@ export class Daemon {
     if (session.info.state !== "finished") failure = session.info.error ?? "the session failed";
     else {
       try {
-        left = { gave: await after(session.info.answer, { kind, round, role: role.role, calls: session.refusals }) };
+        left = { gave: await after(session.info.answer, { kind, round, role: role.role, calls: session.refusals }, session.named) };
       } catch (error) {
         if (this.closed) throw error;
         failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
@@ -2297,8 +2316,11 @@ export class Daemon {
    * and the worktree holds no change outside the work item's directory.
    * Where one does not hold, nothing is committed. The record's commit
    * carries each decision the prompt gave as reversed, written `applied`
-   * with the branch's head after the pass. It gives the questions the
-   * answer asks (`chain.ts#asksOf`). A pass that leaves a finding open and
+   * with the branch's head after the pass, and the trailer `Seal-Built-By:`
+   * with the id the crafter's session named, where it named one that a
+   * verdict block can name (`record-blocks.ts#isSessionId`): a later seal
+   * reads the sessions that built the work from that trailer. It gives the
+   * questions the answer asks (`chain.ts#asksOf`). A pass that leaves a finding open and
    * asks nothing fails after the record's commit, and so does a second pass
    * on one record (`second`) that leaves one open, whatever it asks.
    */
@@ -2309,7 +2331,7 @@ export class Daemon {
     const target = standing.rounds.at(-1)?.target.commit ?? standing.head;
     const committed = (await fileAt(worktree, standing.head, relative(worktree, file))) ?? "";
     const prompt = fixPassPrompt({ round: step.round, directory: standing.directory, open: step.open, reversals: step.reversals });
-    return this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, worktree, prompt, async (answer, refused) => {
+    return this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, worktree, prompt, async (answer, refused, named) => {
       const asks = asksOf(answer);
       const head = await worktreeHead(worktree);
       await this.noChangeOutside(worktree, directory);
@@ -2324,7 +2346,8 @@ export class Daemon {
         this.readRecord(held);
         this.flushTimes();
       };
-      await this.chainCommit(item, directory, [file], `chore: record the fix pass of round ${String(step.round)}`, { write: applied, refused });
+      const trailers = named !== null && isSessionId(named.id) ? [`${BUILT_BY_TRAILER}: ${named.id}`] : [];
+      await this.chainCommit(item, directory, [file], `chore: record the fix pass of round ${String(step.round)}`, { write: applied, refused, trailers });
       if (open.length > 0 && second) throw new ChainStop(leftOpenAgain(open));
       if (open.length > 0 && asks.length === 0) throw new ChainStop(leftOpen(open));
       return asks;
@@ -2358,12 +2381,14 @@ export class Daemon {
    * each decision with `Daemon#decided`, as made by `orchestrator`, parks
    * the work item with the questions the orchestrator parked, in one
    * `Daemon#park` with the asking role as who asks, and commits the record
-   * of decisions. An answer that does not rule on each question once fails
+   * of decisions, with the subject given, and the subject of a judgment
+   * after the round where none is. The question of a sealer's `undecided`
+   * verdict is ruled on here as a round's and a fix pass's are. An answer that does not rule on each question once fails
    * the stage, and nothing is recorded. The stage is stored as a `ruling`,
    * so `chain.ts#gateBefore` reads a stored `judgment` as the judgment of
    * convergence alone.
    */
-  private async runRuling({ item }: Held, directory: string, inside: string, asked: "round" | "fix-pass", round: number, by: "proofer" | "crafter", asks: Ask[]): Promise<void> {
+  private async runRuling({ item }: Held, directory: string, inside: string, asked: "round" | "fix-pass" | "seal", round: number, by: "proofer" | "crafter" | "sealer", asks: Ask[], subject = `chore: record the orchestrator's judgment after round ${String(round)}`): Promise<void> {
     const record = join(directory, RECORD_FILE);
     const prompt = rulingPrompt({ round, directory: inside, by, asked, asks, decisions: existsSync(record) });
     await this.runStage(item.id, "ruling", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
@@ -2377,8 +2402,83 @@ export class Daemon {
         else if (this.decided(item.id, { kind: ruling.is, says: ruling.decided, grounds: ruling.grounds, by: ORCHESTRATOR.role }) === undefined) throw unwritten;
       }
       if (parked.length > 0 && this.park(item.id, { by, questions: parked }) === undefined) throw unwritten;
-      await this.chainCommit(item, directory, [record], `chore: record the orchestrator's judgment after round ${String(round)}`, { refused });
+      await this.chainCommit(item, directory, [record], subject, { refused });
     });
+  }
+
+  /**
+   * Runs the seal: a fresh sealer session that resumes no conversation, in
+   * the work item's worktree, whose prompt names its run, the `target:`
+   * line its verdict carries, `<gate's commit> against <base>`, the records
+   * to read, and the paths the branch changed since it left its base with
+   * their diff (`chain.ts#sealPrompt`). Its answer is its run's section of
+   * the guarantee. The daemon takes the section from the answer
+   * (`seal-records.ts#sectionOf`), puts its own lines into the section's
+   * verdict block, appends the section to `guarantee.md` as the head holds
+   * the file (`seal-records.ts#guaranteeText`) and commits it, with the
+   * rows of the calls the sealer's rule refused, where each of these holds:
+   * the answer's first line that opens a run's section is this run's
+   * heading, the reader refuses no line of the section, it holds one
+   * verdict block, whose `target:` line is the prompt's and which holds
+   * none of the daemon's lines; the session named its id and a model; the
+   * daemon was given its version; one session or more is named as having
+   * built the work, and the judging session is none of them; and the
+   * worktree's head is the one the step was read at, so the gate still
+   * holds there, with no change outside the work item's directory. Where
+   * one does not hold, nothing is written, and the stage fails with a
+   * sentence that says which.
+   *
+   * The sessions that built the work are `the session` where the
+   * `Implementation` row of the `routing.md` the head holds reads so, then
+   * the id of each fix pass's session, read from the trailer
+   * `Seal-Built-By:` of the commits between the work item's base commit and
+   * the gate's commit.
+   *
+   * The verdict decides what follows. `sealed`: nothing here, and the order
+   * then reads the chain as sealed. `withheld`: it gives the reason, which
+   * stops the chain. `undecided`: the question is a stage's question, and
+   * the orchestrator is asked for a ruling on it (`runRuling`), for the
+   * first verdicts of the guarantee that read `undecided`, as many as the
+   * ceiling; the question of a later one parks the work item with no ruling
+   * asked, in the commit that carries the verdict. It gives null for every
+   * verdict but `withheld`.
+   */
+  private async runSeal(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "seal" }>): Promise<string | null> {
+    const { item } = held;
+    const { worktree, baseBranch, baseCommit } = item;
+    const file = join(directory, GUARANTEE_FILE);
+    const target = `${step.commit} against ${standing.base}`;
+    // The branch is read from where it left its base, as round 1 reads it.
+    const base = (baseBranch !== null && (await commitNamed(worktree, baseBranch)) !== null ? baseBranch : baseCommit) ?? standing.head;
+    const { paths, text: diff } = await diffBetween(worktree, base, step.commit, true);
+    const stands = (...path: string[]): boolean => existsSync(join(directory, ...path));
+    const prompt = sealPrompt({ run: step.run, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), paths, diff });
+    // Whether this run's `undecided` verdict is one the orchestrator rules on, or one past the ceiling.
+    const ruled = standing.verdicts.filter((verdict) => verdict.is === "undecided").length < (this.options.undecidedCeiling ?? UNDECIDED_CEILING);
+    const verdict = await this.runStage(item.id, "seal", step.round, SEALER, worktree, prompt, async (answer, refused, named) => {
+      const section = sectionOf(answer, { run: step.run, target });
+      if (named === null) throw new ChainStop("its session named no id of its own, and a verdict names the session that judged");
+      if (named.model === null) throw new ChainStop("its session named no model, and a verdict names the model that judged");
+      const version = this.options.version;
+      if (version === undefined) throw new ChainStop("this daemon was given no version of Owlery, and a verdict names the version of the rules it was judged under");
+      const head = await worktreeHead(worktree);
+      if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the seal, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the broad gate no longer holds at the head the sealer read`);
+      await this.noChangeOutside(worktree, directory);
+      const routing = await fileAt(worktree, head, relative(worktree, join(directory, ROUTING_FILE)));
+      const passes = baseCommit === null ? [] : (await trailerValues(worktree, baseCommit, step.commit, BUILT_BY_TRAILER)).filter(isSessionId);
+      const builtBy = [...(routingAnswer(routing ?? "", "Implementation") === THE_SESSION ? [THE_SESSION] : []), ...passes];
+      const stood = await fileAt(worktree, head, relative(worktree, file));
+      const written = guaranteeText(stood, basename(directory), section, { builtBy, judgedBy: named.id, model: named.model, version });
+      const newest = readGuarantee(written).verdicts.at(-1);
+      if (newest === undefined) throw new ChainStop("the section appended to the guarantee holds no verdict");
+      if (newest.is === "undecided" && !ruled && this.park(item.id, { by: SEALER.role, questions: [undecidedParked(undecidedAsk(step.run, newest.says ?? ""), this.options.undecidedCeiling ?? UNDECIDED_CEILING)] }) === undefined) {
+        throw new ChainStop("its question was not written into the work item's record of decisions");
+      }
+      await this.chainCommit(item, directory, [file], VERDICT_SUBJECT, { write: () => writeRecordFile(worktree, file, written), refused });
+      return newest;
+    });
+    if (verdict.is === "undecided" && ruled) await this.runRuling(held, directory, standing.directory, "seal", step.round, "sealer", [undecidedAsk(step.run, verdict.says ?? "")], SEAL_RULING_SUBJECT);
+    return verdict.is === "withheld" ? (verdict.says ?? "") : null;
   }
 
   /**

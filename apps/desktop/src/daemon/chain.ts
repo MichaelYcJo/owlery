@@ -14,12 +14,15 @@
 //
 // Once the rounds settle the chain owes the repository's broad gate, which
 // is no session: `Daemon#runGate` runs the command, and this module reads
-// whether the gate holds at the branch's head.
+// whether the gate holds at the branch's head. Where it holds the chain owes
+// the seal, a sealer's session on the gate's commit (`Daemon#runSeal`), until
+// the newest verdict block of the work item's guarantee seals that commit.
 //
 // The order is code and two things are the orchestrator agent's: whether the
 // rounds are converging, asked before a fix pass on the record of round 2 or
 // a later round (`gateBefore`), and what a stage's question is decided as,
-// from the code and the policy, or whether it parks the work item.
+// from the code and the policy, or whether it parks the work item. A sealer's
+// `undecided` verdict is such a question.
 import { join, relative } from "node:path";
 import type { Chain, ChainStage, ChainStageKind, GateRun, RoleStage } from "../shared/protocol";
 import { CHAIN_STAGE_KINDS } from "../shared/protocol";
@@ -29,7 +32,7 @@ import { ASK_BLOCK, CONVERGENCE_BLOCK, ROUND_BASE, RULING_BLOCK, type Block, typ
 import { repositoryFileText } from "./repository-file";
 import type { RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
-import { GATE_FILE, GUARANTEE_FILE, readGate } from "./seal-records";
+import { GATE_FILE, GUARANTEE_FILE, type Verdict, readGate, readGuarantee, runHeading } from "./seal-records";
 import { commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits } from "./worktrees";
 
 /** How many of a chain's stages the daemon keeps with its work item, the newest. A chain of two rounds and one fix pass is three, and each round after them adds two or three. */
@@ -40,6 +43,9 @@ export const PROMPT_DIFF_CHARS = 200_000;
 
 /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer, where the daemon's options name no other. It bounds the usage a chain spends with nobody watching. */
 export const ROUNDS_CEILING = 6;
+
+/** For how many `undecided` verdicts of one guarantee the daemon asks the orchestrator for a ruling, where the daemon's options name no other number. The question of each later one parks the work item with no ruling asked. It bounds the gates and the sessions a sealer that keeps asking spends with nobody watching. */
+export const UNDECIDED_CEILING = 2;
 
 /** The file of a work item's directory that holds each call a role's rule refused. */
 export const REFUSALS_FILE = join("trail", "refusals.md");
@@ -58,6 +64,15 @@ export const CLOSING_RECORDS: readonly string[] = [GATE_FILE, GUARANTEE_FILE, RE
 /** The subject of the commit that records a passed run of the broad gate. */
 export const GATE_SUBJECT = "chore: record the broad gate's run";
 
+/** The subject of the commit that records a sealer's verdict. */
+export const VERDICT_SUBJECT = "chore: record the sealer's verdict";
+
+/** The subject of the commit that records the orchestrator's ruling on the question of a sealer's `undecided` verdict. */
+export const SEAL_RULING_SUBJECT = "chore: record the orchestrator's ruling on the sealer's question";
+
+/** The trailer of the commit that records a fix pass: the id its crafter's session named, which a verdict block then names among the sessions that built the work. */
+export const BUILT_BY_TRAILER = "Seal-Built-By";
+
 /** The name of a round's record. */
 export function roundFile(round: number): string {
   return `round-${String(round)}.md`;
@@ -75,9 +90,10 @@ export class ChainStop extends Error {}
 /** A stage that failed: its message is the chain's whole sentence, which names the stage and says why. */
 export class StageStopped extends Error {}
 
-/** What a stage is called in a sentence. The broad gate is named without its round: a chain runs one after its rounds. */
+/** What a stage is called in a sentence. The broad gate and the seal are named without their round: a chain runs each after its rounds. */
 export function stageName(kind: ChainStageKind, round: number): string {
   if (kind === "gate") return "The broad gate";
+  if (kind === "seal") return "The sealer's session";
   if (kind === "round") return `Review round ${String(round)}`;
   if (kind === "fix-pass") return `The fix pass of round ${String(round)}`;
   if (kind === "ruling") return `The ruling after round ${String(round)}`;
@@ -100,9 +116,14 @@ export const READING_SAYS = "Owlery is reading the work item's records.";
 /** The sentence of a chain that waits for the person's answers. */
 export const PARKED_SAYS = "The chain waits for the answers to the work item's open questions.";
 
-/** The sentence of a chain whose rounds settled and whose broad gate holds at the branch's head, which the sentence names. */
-export function reviewedSays(round: number, head: string): string {
-  return `The review rounds settled at ${head.slice(0, 7)}, after round ${String(round)}.`;
+/** The sentence of a chain that rests sealed: the commit the sealer sealed, which the broad gate passed on, and the last round. */
+export function sealedSays(round: number, commit: string): string {
+  return `The sealer sealed ${commit.slice(0, 7)}, after round ${String(round)}.`;
+}
+
+/** The sentence of a chain a sealer's `withheld` verdict stopped: the verdict's reason, as the sealer wrote it, ended with one full stop. */
+export function withheldSays(reason: string): string {
+  return `The sealer withheld its verdict: ${reason.replace(/\.+$/u, "")}.`;
 }
 
 /** The sentence of a chain whose broad gate did not start: why, as a sentence's second half. */
@@ -167,6 +188,10 @@ export interface Standing {
   gateCommit: string | null;
   /** The paths that differ between the gate's commit and the branch's head, from the worktree's top, and none where `gateCommit` is null. */
   sinceGate: string[];
+  /** The verdict blocks of `guarantee.md` as the branch's head holds the file, the oldest first, and none where the head holds no such file. */
+  verdicts: Verdict[];
+  /** The commit, whole, that the newest of those verdict blocks names where it reads `sealed`. Null where no verdict stands, where the newest reads `withheld` or `undecided`, and where the repository holds no commit of that name. */
+  sealCommit: string | null;
 }
 
 /**
@@ -191,8 +216,10 @@ export type Step =
   | { is: "fix-pass"; round: number; open: number[]; reversals: Reversal[] }
   // `round` is the last round, and `head` the branch's head, which the command runs on.
   | { is: "gate"; round: number; head: string }
-  // `round` is the last round, and `at` the branch's head.
-  | { is: "reviewed"; round: number; at: string };
+  // `round` is the last round, `commit` the gate's commit, which the verdict names, and `run` the sealer's run: one more than the verdict blocks that stand.
+  | { is: "seal"; round: number; commit: string; run: number }
+  // `round` is the last round, and `at` the gate's commit, which the newest verdict block seals.
+  | { is: "sealed"; round: number; at: string };
 
 /** Whether a path is the folder's own or below it. Both are read from the worktree's top, with `/` between their parts, as git prints them. */
 export function inFolder(path: string, folder: string): boolean {
@@ -231,7 +258,13 @@ export function gateHolds(standing: Pick<Standing, "gateCommit" | "sinceGate" | 
  *   round, on the commits after that target.
  * - The broad gate does not hold at the branch's head (`gateHolds`): the
  *   gate, on that head.
- * - Otherwise the chain is reviewed at the branch's head.
+ * - The newest verdict block of the guarantee is no seal of the gate's
+ *   commit: none stands, it reads `withheld` or `undecided`, or it names
+ *   another commit. The seal, on the gate's commit.
+ * - Otherwise the chain is sealed at the gate's commit.
+ *
+ * So no seal is asked for a commit other than the one the gate passed on,
+ * and none while a decision stands `reversed` or a commit is unread.
  */
 export function stepOwed(standing: Standing): Step {
   if (standing.openQuestion) return { is: "parked" };
@@ -242,8 +275,10 @@ export function stepOwed(standing: Standing): Step {
   const answered = last.findings.some((finding) => finding.close?.verdict === "fixed" || finding.close?.verdict === "rejected");
   const outside = standing.changed.some((path) => !inFolder(path, standing.directory));
   if (answered || outside) return { is: "round", round: last.round + 1, target: `${standing.head}, fixes ${last.target.commit}..${standing.head}`, from: last.target.commit };
-  if (!gateHolds(standing)) return { is: "gate", round: last.round, head: standing.head };
-  return { is: "reviewed", round: last.round, at: standing.head };
+  const gate = gateHolds(standing) ? standing.gateCommit : null;
+  if (gate === null) return { is: "gate", round: last.round, head: standing.head };
+  if (standing.sealCommit !== gate) return { is: "seal", round: last.round, commit: gate, run: standing.verdicts.length + 1 };
+  return { is: "sealed", round: last.round, at: gate };
 }
 
 /** What a chain does before a fix pass: nothing, the orchestrator's judgment of whether the rounds are converging, or a stop at the ceiling of its rounds. */
@@ -310,14 +345,15 @@ function firstRefusal(record: Pick<RoundRecord, "refusals">, what: string): stri
  * What the order reads of a work item, in its worktree: each round record of
  * the directory as the commit `head` holds it, the record of decisions and
  * questions as the worktree holds it, committed or not, the paths the
- * commits after the last record's target changed, and the gate's commit
+ * commits after the last record's target changed, the gate's commit
  * with the paths that differ between it and the head, from the gate's record
- * as the commit `head` holds it. A round record that only
+ * as the commit `head` holds it, and the verdicts of the guarantee as that
+ * commit holds it. A round record that only
  * the worktree holds is not read: a round reads a committed tree, and the
  * next round reads what a commit holds. It throws a `ChainStop` where a
  * round record the head holds does not read whole or names no target,
  * where its target names no commit, and where the reader refuses a line of
- * the gate's record, with the file and the line, and what
+ * the gate's record or of the guarantee, with the file and the line, and what
  * `repository-file.ts#repositoryFileText` throws where the record of
  * decisions stands and cannot be read.
  */
@@ -352,6 +388,11 @@ export async function standingOf(worktree: string, directory: string, head: stri
   const newest = gate.runs.at(-1);
   // A run that names a commit the repository does not hold is no run of this branch, and the gate is owed.
   const gateCommit = newest === undefined ? null : await commitNamed(worktree, newest.commit);
+  const guaranteeFile = join(from(directory), GUARANTEE_FILE);
+  const guarantee = readGuarantee((await fileAt(worktree, head, guaranteeFile)) ?? "");
+  const unreadVerdict = firstRefusal(guarantee, guaranteeFile);
+  if (unreadVerdict !== null) throw new ChainStop(unreadVerdict);
+  const verdict = guarantee.verdicts.at(-1);
   return {
     rounds,
     openQuestion: decisions?.questions.some((question) => question.state.is === "open") ?? false,
@@ -362,6 +403,8 @@ export async function standingOf(worktree: string, directory: string, head: stri
     directory: from(directory),
     gateCommit,
     sinceGate: gateCommit === null ? [] : await pathsBetween(worktree, gateCommit, head),
+    verdicts: guarantee.verdicts,
+    sealCommit: verdict?.is === "sealed" ? await commitNamed(worktree, verdict.commit) : null,
   };
 }
 
@@ -412,6 +455,13 @@ export function promptText(prompt: StagePrompt): string {
   return prompt.diff === "" ? prompt.shown : `${prompt.shown}\n${prompt.diff}`;
 }
 
+/** A diff as a stage's prompt carries it below what a window shows: under a line that says it is theirs, cut at `PROMPT_DIFF_CHARS` characters with a line that says how much of it stands, and nothing for an empty one. */
+function diffGiven(diff: string): string {
+  if (diff === "") return "";
+  const head = diff.length > PROMPT_DIFF_CHARS ? `Their diff, its first ${String(PROMPT_DIFF_CHARS)} characters of ${String(diff.length)}. Read the files for the rest.` : "Their diff:";
+  return `${head}\n\n${diff.slice(0, PROMPT_DIFF_CHARS)}`;
+}
+
 /** The heading a round's record opens with. */
 export function roundHeading(round: number, workItem: string): string {
   return `# Review round ${String(round)}: ${workItem}`;
@@ -428,7 +478,6 @@ export function roundHeading(round: number, workItem: string): string {
 export function roundPrompt(given: { round: number; directory: string; target: string; earlier: readonly number[]; decisions: boolean; paths: readonly string[]; diff: string }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
   const rounds = `${given.directory}/trail/rounds`;
-  const cut = given.diff.length > PROMPT_DIFF_CHARS;
   const shown = [
     `Review round ${String(given.round)} of the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
     "",
@@ -444,9 +493,7 @@ export function roundPrompt(given: { round: number; directory: string; target: s
     ...given.paths.map((path) => `- \`${path}\``),
     "",
   ].join("\n");
-  if (given.diff === "") return { shown, diff: "" };
-  const head = cut ? `Their diff, its first ${String(PROMPT_DIFF_CHARS)} characters of ${String(given.diff.length)}. Read the files for the rest.` : "Their diff:";
-  return { shown, diff: `${head}\n\n${given.diff.slice(0, PROMPT_DIFF_CHARS)}` };
+  return { shown, diff: diffGiven(given.diff) };
 }
 
 /**
@@ -468,6 +515,46 @@ export function fixPassPrompt(given: { round: number; directory: string; open: r
     "",
   ].join("\n");
   return { shown, diff: "" };
+}
+
+/** The role and the stage the sealer is launched as. */
+export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
+
+/**
+ * The seal's prompt: the sealer's run, the work item's directory, the
+ * heading its section opens with and the `target:` line its verdict
+ * carries, the paths of the routing, of every round record and of the
+ * gate's record, the paths of the record of decisions, of the frame, of the
+ * phase records and of the changelog fragment where each stands, that the
+ * work item names no issue, the paths the branch changed since it left its
+ * base, and their diff, cut at `PROMPT_DIFF_CHARS` characters with a line
+ * that says so. Every path is from the worktree's top, which is the
+ * session's folder.
+ */
+export function sealPrompt(given: { run: number; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; paths: readonly string[]; diff: string }): StagePrompt {
+  const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
+  const shown = [
+    `Run ${String(given.run)} of the sealer on the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    "",
+    `- The work item's directory: \`${given.directory}\``,
+    `- Your section's heading: \`${runHeading(given.run)}\``,
+    `- Your verdict's target line: \`target: ${given.target}\``,
+    `- The routing: \`${given.directory}/routing.md\``,
+    `- The round records, the oldest first: ${given.rounds.map((round) => `\`${given.directory}/trail/rounds/${roundFile(round)}\``).join(", ")}`,
+    `- The broad gate's record: \`${given.directory}/trail/gate.md\``,
+    ...(given.decisions ? [`- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``] : []),
+    ...(given.frame ? [`- The frame: \`${given.directory}/frame/\``] : []),
+    ...(given.phases ? [`- The phase records: \`${given.directory}/trail/phases/\``] : []),
+    ...(given.changelog ? [`- The changelog fragment: \`${given.directory}/changelog.md\``] : []),
+    "- The issue: the work item names none, so no issue's text is among what you read",
+    "",
+    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of this folder.`,
+    "",
+    given.paths.length === 0 ? "The branch changed no path since it left its base." : "The branch changed these paths since it left its base:",
+    ...given.paths.map((path) => `- \`${path}\``),
+    "",
+  ].join("\n");
+  return { shown, diff: diffGiven(given.diff) };
 }
 
 /** The role and the stage the orchestrator is launched as. */
@@ -548,6 +635,16 @@ export interface Ask {
   grounds: string;
   options: { label: string; implies: string }[];
   default: string | null;
+}
+
+/** The question of a sealer's `undecided` verdict as a stage's question: the verdict's question, grounds that name the run of the guarantee it stands in, and no option. */
+export function undecidedAsk(run: number, question: string): Ask {
+  return { asks: question, grounds: `The sealer asked it in place of a verdict, in run ${String(run)} of ${GUARANTEE_FILE}.`, options: [], default: null };
+}
+
+/** The question of a sealer's `undecided` verdict that parks the work item with no ruling asked: its grounds also say that the guarantee holds more such verdicts than the daemon asks a ruling for. */
+export function undecidedParked(ask: Ask, ceiling: number): Ask {
+  return { ...ask, grounds: `${ask.grounds} The guarantee already holds ${ceiling === 1 ? "one verdict" : `${String(ceiling)} verdicts`} that asked, and Owlery asks the orchestrator for a ruling on no more than that.` };
 }
 
 /** The orchestrator's ruling on one question: a decision of its kind, or a park. `question` is the question's number in the prompt, from 1. */
@@ -655,7 +752,7 @@ export interface StageRefusals {
 /** What a call does, as a row of the refusals says it. */
 const CALL_DOES: Record<PermissionAction, string> = { read: "reads a file", write: "writes a file", run: "runs a command", other: "something else" };
 
-/** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`, `ruling 2`. */
+/** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`, `ruling 2`, `seal 2`. */
 function stageCell(kind: ChainStageKind, round: number): string {
   return `${kind === "fix-pass" ? "fix pass" : kind} ${String(round)}`;
 }
@@ -854,29 +951,51 @@ function isChainStage(value: unknown): value is WrittenStage {
   );
 }
 
-/** A chain as a file holds one: one written before a chain kept the time of its state has no `since`, and its stages are as a file holds them. */
-export type WrittenChain = Omit<Chain, "since" | "stages"> & { since?: number; stages: WrittenStage[] };
+/**
+ * A chain as a file holds one: one written before a chain kept the time of
+ * its state has no `since`, and its stages are as a file holds them. A build
+ * before the seal rested a chain `reviewed` once its broad gate held, with
+ * the head it rested at as `reviewedAt`, and wrote that field, null, on
+ * every other chain.
+ */
+export type WrittenChain = Omit<Chain, "since" | "stages" | "state"> & { state: Chain["state"] | "reviewed"; reviewedAt?: string | null; since?: number; stages: WrittenStage[] };
 
-/** Whether a value is a chain as the store writes one, or wrote one before a chain kept the time of its state. */
+/** The states a chain's file may hold: this build's, and `reviewed`, which a build before the seal wrote. */
+const WRITTEN_STATES: readonly string[] = ["running", "parked", "stopped", "sealed", "reviewed"];
+
+/**
+ * Whether a value is a chain as the store writes one, or as an earlier
+ * build wrote one: before a chain kept the time of its state, and before
+ * the seal. A chain that this guard refused would fail the guard of its
+ * whole file, and the store would then hold no repository.
+ */
 export function isChain(value: unknown): value is WrittenChain {
   return (
     isRecord(value) &&
-    ["running", "parked", "stopped", "reviewed"].includes(value.state as string) &&
+    WRITTEN_STATES.includes(value.state as string) &&
     typeof value.says === "string" &&
-    isTextOrNull(value.reviewedAt) &&
+    (value.reviewedAt === undefined || isTextOrNull(value.reviewedAt)) &&
     Array.isArray(value.stages) &&
     value.stages.every(isChainStage) &&
     (value.since === undefined || typeof value.since === "number")
   );
 }
 
-/** Only the fields of a chain, each stage a copy, with no run of a broad gate where it was written with none. A chain written with no `since` takes the end of its newest stage, the start of that stage where it did not end, and 0 where it holds no stage. */
-export function chainOf(chain: WrittenChain): Chain {
+/**
+ * Only the fields of a chain, each stage a copy, with no run of a broad
+ * gate where it was written with none. A chain written with no `since`
+ * takes the end of its newest stage, the start of that stage where it did
+ * not end, and 0 where it holds no stage. A chain an earlier build stored
+ * `reviewed` is no chain of this build, and is read as none: the state said
+ * that nothing was owed, and a seal now is, which the next `getSeal` reads
+ * from the records.
+ */
+export function chainOf(chain: WrittenChain): Chain | null {
+  if (chain.state === "reviewed") return null;
   const newest = chain.stages.at(-1);
   return {
     state: chain.state,
     says: chain.says,
-    reviewedAt: chain.reviewedAt,
     stages: chain.stages.map(({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate }) => ({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate: gate ? { command: gate.command, exitCode: gate.exitCode, output: gate.output } : null })),
     since: chain.since ?? newest?.endedAt ?? newest?.startedAt ?? 0,
   };
@@ -888,7 +1007,8 @@ export const DAEMON_ENDED = "the daemon ended while the stage ran";
 /**
  * A chain as the store reads it at the daemon's start: only the fields of a
  * chain, each stage naming no headless session, since the next daemon gives
- * that session's id to another. A chain stored `running` is read as
+ * that session's id to another. A chain an earlier build stored `reviewed`
+ * is read as none (`chainOf`). A chain stored `running` is read as
  * `stopped`: its stage's session ended with the daemon that started it, and
  * nothing starts a stage but a `getSeal`. Its sentence says that the daemon
  * ended while the stage ran, the stage that was working is `failed`, and
@@ -896,9 +1016,10 @@ export const DAEMON_ENDED = "the daemon ended while the stage ran";
  * nothing holds when the daemon before it ended.
  */
 export function chainRead(chain: WrittenChain | null | undefined, now: number): Chain | null {
-  if (chain === undefined || chain === null) return null;
-  const stages = chainOf(chain).stages.map((stage): ChainStage => ({ ...stage, headlessId: null }));
-  const read: Chain = { ...chainOf(chain), stages };
+  const copy = chain === undefined || chain === null ? null : chainOf(chain);
+  if (copy === null) return null;
+  const stages = copy.stages.map((stage): ChainStage => ({ ...stage, headlessId: null }));
+  const read: Chain = { ...copy, stages };
   if (read.state !== "running") return read;
   const working = stages.find((stage) => stage.state === "working");
   if (working !== undefined) Object.assign(working, { state: "failed", failure: DAEMON_ENDED });

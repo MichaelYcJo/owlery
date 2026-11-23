@@ -1775,9 +1775,13 @@ def guarantee(reader, root, item, base, notices=None):
                 rel,
                 said.line,
                 f"the sealer's verdict reads `{line}`: a ready pull request needs "
-                f"`{FIELDS.SEALED}`: fix what it names, or answer its question "
-                "below the newest block, and the sealer runs again at the new "
-                "HEAD and appends its block",
+                f"`{FIELDS.SEALED}`. Where the reason of a `withheld` verdict "
+                'names something to fix, fix it and start "Get a seal" again '
+                "in Owlery. The question of an `undecided` verdict is decided "
+                "by Owlery's orchestrator agent, or answered in Owlery where "
+                "it parked the work item. Owlery's daemon then runs the broad "
+                "gate and the sealer's stage on the new head, and each appends "
+                "its block",
             )
         )
     judge = newest.fields.get(FIELDS.JUDGED_BY)

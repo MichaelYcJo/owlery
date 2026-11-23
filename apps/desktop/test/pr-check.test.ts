@@ -176,10 +176,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(ready.output).not.toContain("language");
   });
 
-  it("passes the records a chain of two rounds and one fix pass left, as the broad gate's step runs it on a ready pull request, and fails the same branch before round 2 for the verifying round it owes", async () => {
+  it("passes the records a sealed chain of two rounds and one fix pass left, as a ready pull request with no body: the gate's record, and the guarantee whose verdict block names the fix pass's session among the builders and another as the judge, in a commit that also carries the rows of the two calls the sealer was refused, and fails the same branch before round 2 for the verifying round it owes", async () => {
     // The first start stops after the fix pass: round 2's proofer answers with no record until the case lets it.
     let verifies = false;
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: (given) => (given.round === 2 && !verifies ? "No record." : proofs(given)) }) });
+    // The sealer asks to write a file and to run a command: its grant refuses both, and each is a row of `trail/refusals.md` in the commit that carries the guarantee.
+    const asks = (_prompt: string, role?: { role: string }) => (role?.role === "sealer" ? [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "pnpm -r run check" }] : []);
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: (given) => (given.round === 2 && !verifies ? "No record." : proofs(given)) }, { asks }) });
     const a = workItems[0]!;
     const worktree = { base: join(a.worktree, ".."), repo: a.worktree };
     expect(await c.getSeal(a.id, 1)).toBe("done");
@@ -190,14 +192,18 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 
     verifies = true;
     expect(await c.getSeal(a.id, 2)).toBe("done");
-    await c.chain(a.id, "reviewed");
-    const reviewed = check(worktree, "ready", true);
-    expect(reviewed.output).not.toContain("a verifying round is owed");
-    expect(reviewed.exit, reviewed.output).toBe(0);
-    // Without the broad gate's flag the same records fail on what the later stages write, and on nothing of a round.
+    await c.chain(a.id, "sealed");
+    // The daemon's own records, read by the check's Python: the rounds, the run block and the verdict block with the daemon's lines.
+    const sealed = check(worktree, "ready", false, false);
+    expect(sealed.exit, sealed.output).toBe(0);
+    for (const file of ["round-", "gate.md", "guarantee.md"]) expect(sealed.output, file).not.toContain(file);
+    expect(git(a.worktree, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the sealer's verdict", "", "seal/threads/1795388700-sealed-work/guarantee.md", "seal/threads/1795388700-sealed-work/trail/refusals.md"]);
+    expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/trail/refusals.md"), "utf8")).toContain("| seal 2 | sealer | Write | writes a file | no-write |\n| seal 2 | sealer | Bash | runs a command | no-command |\n");
+    expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/guarantee.md"), "utf8")).toMatch(/\nbuilt-by: the session, fake-\d+\njudged-by: fake-\d+\nmodel: fake\nrules: owlery 0\.0\.2\n```\n/u);
+    // With a body the same records fail on the body alone, which a later stage writes.
     const ready = check(worktree, "ready");
     expect(ready.exit).toBe(1);
-    expect(ready.output).not.toContain("round-");
+    for (const file of ["round-", "gate.md", "guarantee.md"]) expect(ready.output, file).not.toContain(file);
   });
 
   /**
@@ -278,6 +284,23 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     // `the session` is a builder's name and no id: a judge's id that is a part of a builder's is another session.
     guaranteed(made, section(1, made.gate, "built-by: the session, s-10", "judged-by: s-1"));
     expect(check(made, "ready", false, false).exit).toBe(0);
+  });
+
+  it("says of a verdict that is not sealed what Owlery does next, at the verdict's line: the person fixes what a withheld reason names and starts \"Get a seal\" again, an undecided question is decided by the orchestrator agent or answered in Owlery, and the gate and the sealer's stage then append their blocks", () => {
+    const next =
+      ": a ready pull request needs `sealed`. Where the reason of a `withheld` verdict names something to fix, fix it and start \"Get a seal\" again in Owlery. The question of an `undecided` verdict is decided by Owlery's orchestrator agent, or answered in Owlery where it parked the work item. Owlery's daemon then runs the broad gate and the sealer's stage on the new head, and each appends its block";
+    const made = reviewed();
+    gated(made);
+    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: the changelog names `gone.ts`, which the tree does not hold"));
+    const withheld = check(made, "ready", false, false);
+    expect(withheld.output).toContain(`seal/threads/1-x/guarantee.md:7  the sealer's verdict reads \`Verdict: withheld reason: the changelog names \`gone.ts\`, which the tree does not hold\`${next}\n`);
+    expect(withheld.exit).toBe(1);
+
+    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: undecided question: does item 4 cover a renamed branch?"));
+    const undecided = check(made, "ready", false, false);
+    expect(undecided.output).toContain(`seal/threads/1-x/guarantee.md:7  the sealer's verdict reads \`Verdict: undecided question: does item 4 cover a renamed branch?\`${next}\n`);
+    expect(undecided.exit).toBe(1);
+    for (const said of [withheld.output, undecided.output]) for (const word of ["below the newest block", "seal gate", "templates/", "new HEAD"]) expect(said, word).not.toContain(word);
   });
 
   it("says of a missing gate record, of one with no run, of a missing guarantee and of one with no verdict what Owlery's daemon writes, and names no command and no template of AgenticSeal", () => {
