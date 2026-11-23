@@ -2916,6 +2916,26 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     }
   });
 
+  it("pushes nothing more and calls gh no more where a branch sealed once, whose pull request is open, rests at a later head with no seal: a failed broad gate, a sealer that withholds, and a parked chain", async () => {
+    for (const ends of ["gate", "withheld", "parked"] as const) {
+      let later = false;
+      const sealer = (given: { run: number; heading: string; target: string }): string => sealSection(given, !later ? "sealed" : ends === "withheld" ? "withheld reason: the changelog is missing" : "undecided question: May the release wait?");
+      const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean, sealer }), gate: "if [ -e fails ]; then exit 1; fi", undecidedCeiling: 0 });
+      const a = stood.workItems[0]!;
+      expect(await stood.c.getSeal(a.id, 1)).toBe("done");
+      await stood.c.chain(a.id, "sealed");
+      const pushed = head(a.worktree);
+      later = true;
+      write(a.worktree, ends === "gate" ? "fails" : "feature.txt", "A later change\n");
+      commitAll(a.worktree, "feat: change the greeting");
+      const chain = await again(stood.c, a.id, 2, ends === "parked" ? "parked" : "stopped");
+      expect(stood.gh.calls().map((call) => call[1]), ends).toEqual(["list", "create", "view"]);
+      expect(branchesOf(stood.remote), ends).toEqual([`${a.branch} ${pushed}`]);
+      expect(stood.c.workItem(a.id)?.pullRequest, ends).toMatchObject({ pushed });
+      expect(chain.stages.filter(({ kind }) => kind === "pull-request"), ends).toHaveLength(1);
+    }
+  });
+
   it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next getSeal: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections, and gh that never ends", async () => {
     /** A sealed chain whose stage failed as `make` arranges, with the chain, the head and the calls gh had before the stage. */
     const failing = async (options: Partial<DaemonOptions> & { gate?: string }, make: (stood: Awaited<ReturnType<typeof standing>>) => void, says: RegExp): Promise<Awaited<ReturnType<typeof standing>>> => {
