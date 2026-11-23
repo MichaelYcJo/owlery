@@ -123,7 +123,7 @@ Not shown by anything in this frame: a push to GitHub, a pull request on GitHub,
 ### The protocol and the window
 
 25. **The protocol carries the stage and the pull request.** `CHAIN_STAGE_KINDS` gains `pull-request`. `WorkItem.pullRequest` is item 12's. No message is added: `getSeal` starts the stage, and the `inbox` carries the result. No field names a vendor: the checks are named by the neutral states of item 14.
-26. **The work item's view lists the pull request among its facts.** Under the seal's place the view shows the pull request's number, its state, the result of its checks, and one row for each check with its name and its state. The number opens the pull request's address in the system browser, and a check's row opens the check's address, each through the main process's rule for a link: an `http` or `https` address alone, and nothing in an app started with `OWLERY_BACKGROUND=1`. A `failure` of the watch stands under the rows. The stage is not listed under "Ask": the chain's sentence by the "Get a seal" button says what the stage did.
+26. **The work item's view shows the pull request under the seal's place.** In a section of its own under the seal's place, and not as a row of the view's list of facts, the view shows the pull request's number, its state, the result of its checks, and one row for each check with its name and its state. The number opens the pull request's address in the system browser, and a check's row opens the check's address, each through the main process's rule for a link: an `http` or `https` address alone, and nothing in an app started with `OWLERY_BACKGROUND=1`. A `failure` of the watch stands under the rows. The stage is not listed under "Ask": the chain's sentence by the "Get a seal" button says what the stage did.
 27. **The window's table of the kinds of stage gives `pull-request` no place.** In `view.ts#STAGES`, the row of the kind holds `marks: null`, as the rows of `judgment` and `ruling` do, so the kind marks none of the four roles' places. The row's `short` is the second row of the inbox's line while the stage runs.
 28. **The repository's dialog tells an administrator how to make the seal check required.** For a repository whose `records.check` is Owlery's workflow, `recordsDialog` gains one more line, in the state that shows what the repository holds and in the state that shows a plan. It names the check `Owlery seal`, says that an administrator of the repository requires it on GitHub in the repository's rules for the base branch, under the rule that requires status checks, and says that Owlery changes no setting of the repository. For a repository that keeps AgenticSeal's `hygiene.yml`, the line says that this workflow posts no `Owlery seal` check.
 29. **The README says the same, in both editions.** `README.md` and `README.ko.md` each gain one section on the seal check: what posts it, on which commit, what its results mean, how an administrator makes it required, and that Owlery writes no review and merges nothing. The two editions gain the same headings, so the counts the broad gate compares stay equal.
@@ -299,12 +299,36 @@ The request's body: `name` `Owlery seal`; `head_sha`; `status` `completed`; `con
 - add
   file: docs/design.md
   section: A pull request that changes the window carries its screenshots
-  to: **The finished work item of the screenshot run carries a pull request whose checks passed.** Its line says so in its second row, and its view lists the pull request's number, its state and each check among its facts.
+  to: **The finished work item of the screenshot run carries a pull request whose checks passed.** Its chain, the run's fourth, runs to the pull request stage: the push goes to a bare repository in a temporary folder, and a stand-in for `gh` that the run puts first on the login shell's `PATH` opens the pull request and answers its reads, so no call reaches GitHub. Its line says so in its second row, and its view shows the pull request's number, its state and each check under the seal's place.
     check: apps/desktop/test/screenshots.test.ts
 - add
   file: docs/design.ko.md
   section: 창을 바꾸는 PR은 스크린샷을 싣습니다
-  to: **스크린샷 실행에서 끝난 작업은 검사가 통과한 PR을 가집니다.** 그 작업의 줄은 둘째 행에서 그렇게 말하고, 작업 화면은 PR의 번호, 상태, 검사 하나하나를 사실 목록에 올립니다.
+  to: **스크린샷 실행에서 끝난 작업은 검사가 통과한 PR을 가집니다.** 그 작업의 체인은 실행의 네 번째 체인이고 PR 단계까지 갑니다. push는 임시 폴더의 bare 저장소로 가고, 실행이 로그인 셸의 `PATH` 맨 앞에 둔 `gh` 대역이 PR을 열고 그 읽기에 답하므로, 어떤 호출도 GitHub에 닿지 않습니다. 그 작업의 줄은 둘째 행에서 그렇게 말하고, 작업 화면은 인장 자리 아래에 PR의 번호, 상태, 검사 하나하나를 보입니다.
+    check: apps/desktop/test/screenshots.test.ts
+- change
+  file: docs/design.md
+  section: A pull request that changes the window carries its screenshots
+  from: The run starts two chains, and each stays at its first round, which the stand-in for the CLI holds.
+  to: The run starts four chains. Two stay at their first round, which the stand-in for the CLI holds.
+    check: apps/desktop/test/screenshots.test.ts
+- change
+  file: docs/design.ko.md
+  section: 창을 바꾸는 PR은 스크린샷을 싣습니다
+  from: 실행은 체인 두 개를 시작하고, 두 체인은 CLI 대역이 붙잡아 두는 첫 리뷰 회차에 머뭅니다.
+  to: 실행은 체인 네 개를 시작합니다. 그 가운데 둘은 CLI 대역이 붙잡아 두는 첫 리뷰 회차에 머뭅니다.
+    check: apps/desktop/test/screenshots.test.ts
+- change
+  file: docs/design.md
+  section: A pull request that changes the window carries its screenshots
+  from: The command writes one PNG file of the window's size, 1440 by 900, for each of the five views in each appearance of Night watch, ten files named `<theme>-<appearance>-<view>.png`.
+  to: The command writes one PNG file of the window's size, 1440 by 900, for each of the six views in each appearance of Night watch, twelve files named `<theme>-<appearance>-<view>.png`. The sixth view is the finished work item's.
+    check: apps/desktop/test/screenshots.test.ts
+- change
+  file: docs/design.ko.md
+  section: 창을 바꾸는 PR은 스크린샷을 싣습니다
+  from: 명령은 Night watch의 두 모양마다 다섯 화면을 창 크기인 1440 x 900의 PNG 파일로 하나씩 씁니다. 파일은 열 개이고
+  to: 명령은 Night watch의 두 모양마다 여섯 화면을 창 크기인 1440 x 900의 PNG 파일로 하나씩 씁니다. 여섯째 화면은 끝난 작업의 화면입니다. 파일은 열두 개이고
     check: apps/desktop/test/screenshots.test.ts
 
 ## Removes
