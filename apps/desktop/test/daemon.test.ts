@@ -6461,6 +6461,13 @@ describe("the watch of an open pull request", () => {
     expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
   });
 
+  it("says where no gh stands on the PATH of the login shell, and keeps the pull request as the last read gave it", async () => {
+    const w = await watched({ gh: undefined, gateEnv: { PATH: "/usr/bin:/bin" } });
+    const c = await client(w.url);
+    const failed = await c.until(() => (pullRequestIn(c)?.failure ? pullRequestIn(c) : undefined));
+    expect(failed).toEqual({ ...w.stored, failure: "no gh stands on the PATH of the login shell, so Owlery cannot read the pull request; GitHub's CLI is at https://cli.github.com" });
+  });
+
   it("calls gh for no work item while no client is connected, nor once its client left, nor for an archived work item", async () => {
     const w = await watched();
     w.answer([run("Owlery seal", "IN_PROGRESS")]);
