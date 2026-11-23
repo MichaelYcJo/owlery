@@ -5032,12 +5032,12 @@ describe("headless sessions", () => {
       expect(statSync(join(runDir, "ledger.jsonl")).mode & 0o777).toBe(0o600);
       // A line of an earlier work item 1, whose stage started before this one was created: the id was given again after `repositories.json` was lost.
       const earlier = { workItemId: 1, repo: "/earlier", branch: "owlery/earlier", stage: null, startedAt: 5, endedAt: 6, state: "finished", stopped: null, usage: null };
-      appendFileSync(join(runDir, "ledger.jsonl"), `${JSON.stringify(earlier)}\n`);
+      appendFileSync(join(runDir, "ledger.jsonl"), `${JSON.stringify(earlier)}\n{not json\n`);
       const { url } = await daemon({ runDir });
       const later = await client(url);
       await later.message("ready");
-      expect(await ledgerOf(later, workItem.id)).toMatchObject({ workItemId: 1, entries: [kept], unread: 0 });
-      expect(readFileSync(join(runDir, "ledger.jsonl"), "utf8")).toBe(`${JSON.stringify(kept)}\n${JSON.stringify(earlier)}\n`);
+      expect(await ledgerOf(later, workItem.id)).toMatchObject({ workItemId: 1, entries: [kept], unread: 1 });
+      expect(readFileSync(join(runDir, "ledger.jsonl"), "utf8")).toBe(`${JSON.stringify(kept)}\n${JSON.stringify(earlier)}\n{not json\n`);
     });
 
     it("enters a session its limit stopped with no usage", async () => {

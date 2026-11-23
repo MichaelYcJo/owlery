@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -91,7 +91,7 @@ describe("Ledger", () => {
     expect(ledger.read(7, 0)).toEqual({ entries: [kept, added], unread: 2 });
   });
 
-  it("writes the next entry on a line of its own after a last line a crash cut", () => {
+  it("writes the next entry on a line of its own after a last line a crash cut, and the first entry of an empty file on its first line", () => {
     const runDir = runFolder();
     const torn = JSON.stringify(entry(1000)).slice(0, 40);
     writeFileSync(join(runDir, "ledger.jsonl"), torn);
@@ -100,6 +100,10 @@ describe("Ledger", () => {
     ledger.add(added);
     expect(lines(runDir)).toEqual([torn, JSON.stringify(added), ""]);
     expect(ledger.read(7, 0)).toEqual({ entries: [added], unread: 1 });
+    // A crash between the file's creation and its first line leaves it empty.
+    writeFileSync(join(runDir, "ledger.jsonl"), "");
+    ledger.add(added);
+    expect(lines(runDir)).toEqual([JSON.stringify(added), ""]);
   });
 
   it("reads as an entry only a line with every field in its type, a stage a pair the protocol lists, the gate or none, and a usage with its mark", () => {
@@ -133,6 +137,8 @@ describe("Ledger", () => {
       entry(1002, { stage: { role: "sealer", stage: "seal" } }),
       entry(1003, { stage: null, usage: null }),
       entry(1004, { usage: { costUsd: null, converted: false, models: [] } }),
+      entry(1006, { state: "failed", stopped: "request", usage: null }),
+      entry(1007, { state: "failed", stopped: "daemon", usage: null }),
     ];
     // A field the protocol does not name is not given with the entry.
     const more = { ...entry(1005), vendor: "x", stage: { role: "proofer", stage: "round", more: "x" }, usage: { ...good.usage, raw: "x", models: [{ ...model, raw: "x" }] } };
@@ -166,12 +172,32 @@ describe("Ledger", () => {
     expect(new Ledger(runDir).read(7, 0)).toEqual({ entries: [gate], unread: 0 });
   });
 
+  it("gives the entries held since an append failed after the lines of a file it can still read", () => {
+    const said = errors();
+    const runDir = runFolder();
+    const ledger = new Ledger(runDir);
+    const first = entry(1000);
+    ledger.add(first);
+    // A file the user can read and not write refuses the append alone.
+    chmodSync(join(runDir, "ledger.jsonl"), 0o400);
+    const second = entry(2000);
+    ledger.add(second);
+    expect(ledger.read(7, 0)).toEqual({ entries: [first, second], unread: 0 });
+    chmodSync(join(runDir, "ledger.jsonl"), 0o600);
+    const third = entry(3000);
+    ledger.add(third);
+    expect(lines(runDir)).toEqual([first, second, third].map((written) => JSON.stringify(written)).concat(""));
+    expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^an entry of the ledger was not written: /)]);
+  });
+
   it("keeps the entries in memory alone where it is given no run directory", () => {
+    const said = errors();
     const ledger = new Ledger(undefined);
     const first = entry(1000);
     ledger.add(first);
     ledger.add(entry(1100, { workItemId: 8 }));
     expect(ledger.read(7, 0)).toEqual({ entries: [first], unread: 0 });
     expect(ledger.read(7, 1001)).toEqual({ entries: [], unread: 0 });
+    expect(said).toEqual([]);
   });
 });
