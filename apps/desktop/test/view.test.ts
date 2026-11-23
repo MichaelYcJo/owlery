@@ -1379,10 +1379,10 @@ describe("the approval line", () => {
     const round = chained("stopped", ROUND_ONE, failed({}));
     expect(read(round)?.[2]).toEqual(["proofer", "failed", "Failed", "Proofer: Round 2 failed"]);
     expect(read(round)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
-    expect(under(round)).toEqual([`Proofer: ${why}`]);
+    expect(under(round)).toEqual(["Proofer: The session reached its time limit and was stopped."]);
     const fix = chained("stopped", ROUND_ONE, failed({ kind: "fix-pass", round: 1 }));
     expect(read(fix)?.[1]).toEqual(["crafter", "failed", "Failed", "Crafter: Fix pass on round 1 failed"]);
-    expect(under(fix)).toEqual([`Crafter: ${why}`]);
+    expect(under(fix)).toEqual(["Crafter: The session reached its time limit and was stopped."]);
     for (const kind of ["judgment", "ruling"] as const) {
       expect(read(chained("stopped", ROUND_ONE, failed({ kind })))).toEqual(read(RECORDED));
       expect(under(chained("stopped", ROUND_ONE, failed({ kind })))).toEqual([]);
@@ -1396,6 +1396,25 @@ describe("the approval line", () => {
     // An open question of the role stands over the failure, with the question under the line.
     expect(read({ ...round, questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
     expect(under({ ...round, questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
+  });
+
+  it("says a failed stage's failure under the places as a sentence: a capital on a first word of letters alone and a full stop where the text ends with none, and no other change", () => {
+    const says = (failure: string | null): string[] | null => under(chained("stopped", ROUND_ONE, stage({ state: "failed", failure, endedAt: NOW - MINUTE })));
+    // The clause the daemon writes, with no capital and no full stop.
+    expect(says("the daemon ended while the stage ran")).toEqual(["Proofer: The daemon ended while the stage ran."]);
+    expect(says("its record's target line reads `target: HEAD`")).toEqual(["Proofer: Its record's target line reads `target: HEAD`."]);
+    // A text that is a sentence already, as a CLI's own error can be, stands as it is, and so does the mark it ends with.
+    expect(says("The session is out of turns.")).toEqual(["Proofer: The session is out of turns."]);
+    expect(says("is the CLI signed in?")).toEqual(["Proofer: Is the CLI signed in?"]);
+    expect(says("the CLI said: no!")).toEqual(["Proofer: The CLI said: no!"]);
+    // A first word that is a path, a file's name or a number is no word to give a capital.
+    expect(says("seal/threads/one/trail/rounds/round-2.md was written and not committed")).toEqual(["Proofer: seal/threads/one/trail/rounds/round-2.md was written and not committed."]);
+    expect(says("round-2.md holds no target line")).toEqual(["Proofer: round-2.md holds no target line."]);
+    expect(says("2 blocks open with a verdict")).toEqual(["Proofer: 2 blocks open with a verdict."]);
+    // The space around the text is no part of the sentence, and a line break inside it is kept.
+    expect(says("  the session failed\nexit 1\n")).toEqual(["Proofer: The session failed\nexit 1."]);
+    expect(says("")).toEqual(["Proofer: "]);
+    expect(says(null)).toEqual([]);
   });
 });
 

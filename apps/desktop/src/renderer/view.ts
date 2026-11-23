@@ -411,6 +411,21 @@ function counted(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
+/**
+ * A failed stage's failure as the window says it under the places. The
+ * daemon writes it as a clause with no capital and no full stop, which its
+ * own sentence of the chain wraps, and a CLI's own error can be any text.
+ * The first word gains a capital where it is letters alone, so a path, a
+ * file's name and a number stand as written, and the text gains a full stop
+ * where it ends with none.
+ */
+function asSentence(failure: string): string {
+  const text = failure.trim();
+  if (text === "") return text;
+  const opened = /^\p{Ll}[\p{L}'’]*(?=\s|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  return /[.?!]$/u.test(opened) ? opened : `${opened}.`;
+}
+
 /** A place's state and words, before its name and its line of text are added. */
 type Reached = Pick<ApprovalPlace, "state" | "note" | "label" | "since"> & { text: string | null };
 
@@ -445,15 +460,15 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
  * How far a role came by the newest stage of the work item's chain, or null
  * where that stage says nothing of the role: it is of another role's kind
  * or of the orchestrator's, it finished, or no chain ran. The role's place
- * failed where the stage failed, with the stage's failure as its text, and
- * works where the chain runs the stage, with the stage's start as the time
+ * failed where the stage failed, with the stage's failure as a sentence for
+ * its text, and works where the chain runs the stage, with the stage's start as the time
  * its age counts from.
  */
 function byChain(role: Role, workItem: WorkItem): Reached | null {
   const newest = chainOf(workItem)?.stages.at(-1);
   const marks = newest === undefined ? null : STAGES[newest.kind].marks;
   if (newest === undefined || marks === null || marks.role !== role) return null;
-  if (newest.state === "failed") return { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed`, since: null, text: newest.failure };
+  if (newest.state === "failed") return { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed`, since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
   if (runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
   return null;
 }

@@ -225,6 +225,6 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     ]);
     const why = "the session was stopped at a request before it finished";
     expect(second.item("Beta")?.chain?.stages.at(-1)?.failure).toBe(why);
-    expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under failed", `Proofer: ${why}`]]);
+    expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under failed", "Proofer: The session was stopped at a request before it finished."]]);
   });
 });

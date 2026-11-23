@@ -312,7 +312,7 @@ export interface ChainStage {
   round: number;
   /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. */
   state: "working" | "finished" | "failed";
-  /** Why the stage `failed`, as a sentence the window shows as it is, and null in the other two states. */
+  /** Why the stage `failed`, and null in the other two states: a clause with no capital and no full stop where the daemon words it, and a session's own error as the session gave it. The daemon's sentence of the chain wraps it, and the approval line says it as a sentence. */
   failure: string | null;
   startedAt: number;
   /** When the stage ended, or null while it works and where the daemon ended before it did. */
