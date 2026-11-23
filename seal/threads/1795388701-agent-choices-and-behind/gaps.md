@@ -11,6 +11,7 @@
 | `test/role-session.test.ts`, which imports `src/daemon/daemon.ts` and was not run at phase 2's boundary: its cases skip unless an environment variable starts the person's own `claude`, which the owner's rules for this run forbid | the orchestrator's broad gate, where the cases skip; a run of `pnpm run role:run` by the owner for the cases themselves |
 | The full suite and the repository-wide typecheck at phase 2's commits. The typecheck ran over the five modules and the four test files phase 2 changed, and what they import, with a config of the crafter's scratch that extends `apps/desktop/tsconfig.json` | the orchestrator's broad gate |
 | The full suite and the repository-wide typecheck at phase 3's commits. The typecheck ran over `test/screenshots.test.ts` and what it imports, with a config of the crafter's scratch that extends `apps/desktop/tsconfig.json` | the orchestrator's broad gate |
+| The full suite and the repository-wide typecheck at the commit of round 1's fix pass. The typecheck ran over `test/notification-click.test.ts` and what it imports, with a config of the crafter's scratch that extends `apps/desktop/tsconfig.json` | the orchestrator's broad gate |
 | The wait phase 3 added to the screenshot run's inbox step, that the preview names the work item that needs the person, was not run red. The first run's light inbox file shows the state it refuses (`trail/phases/phase-3.md`), and a run with the step removed is one more start of the app | the sealer's reading of the step against that account |
 
 ## Not done

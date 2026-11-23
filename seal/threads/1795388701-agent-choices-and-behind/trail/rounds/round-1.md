@@ -73,6 +73,11 @@ The fix gives the built-app case a second question that takes more than one choi
   });
 ```
 
+```seal
+verdict: fixed db0198b
+answer: The built-app case of `apps/desktop/test/notification-click.test.ts` takes the round's change as given, read against `frame/design.md` *Scope* item 8 and `apps/desktop/src/daemon/agent-events.ts`, which keeps an option whose description is the empty text. It feeds a second question with `multiSelect: true`, waits for the line's text with " (and 1 more question)", and its `card` reader gives `notes`, the words under each `.asked` or null. Both cards must read `[null, "More than one may be chosen."]`, so a note drawn under every question fails as well as a note drawn under none. Executed: `seal mutate apps/desktop/src/renderer/shared.ts --replace '  if (note) element.append(part("hint", note));' ''`, over `node scripts/test-in-electron.mjs test/notification-click.test.ts` in `apps/desktop` through the lock, ran the file green on the unmutated tree, then red with exit 1: 1 failed and 3 passed. The failing line is `notification-click.test.ts:224`, the preview's card, and the only difference is the second entry of `notes`, null where "More than one may be chosen." was expected. The tool restored `shared.ts` from the bytes it held. The case was committed after the red run, and the committed bytes are the ones the green run read. The app was started twice, once per run. Scenario 11's sentence at `frame/design.md:83` is in the frame, which this pass does not write, and the hand-back gives the orchestrator the sentence it should read.
+```
+
 ### 2. The rule change for the card's form leaves out the words under a question that takes more than one choice
 
 ```seal
@@ -91,6 +96,11 @@ The fix adds the form to both `to` texts. Where the fix pass judges `--ink-muted
 
 ```text
   to: 질문의 근거와 선택지가 뜻하는 바는 `--ink-muted`입니다. 에이전트가 질문과 함께 내놓은 선택지는 질문 아래에 번호를 붙인 목록으로 놓이고, 선택지의 이름은 `--ink-strong`, 그것을 고르면 어떻게 되는지는 `--ink-muted`입니다. 여러 개를 고를 수 있는 질문 아래에는 "More than one may be chosen."이라는 말이 `--size-caption`과 `--ink-faint`로 놓입니다. 사람은 에이전트의 칸에서 답하므로, 어느 선택지도 단추가 아니고 카드에는 입력 칸이 없습니다.
+```
+
+```seal
+verdict: fixed e8a2d2a
+answer: The orchestrator's commit `e8a2d2a` replaces both `to` texts of `frame/design.md` *Rule changes* with the round's text, word for word: the English one at line 164 and the Korean one at line 169 each now state the words "More than one may be chosen." under a question that takes more than one choice, in `--size-caption` and `--ink-faint`. Read against the tree at `db0198b`: `apps/desktop/src/renderer/shared.ts:290` draws the words with the class `hint`, and `apps/desktop/src/renderer/index.html:88` gives `.hint` `--size-caption` and `--ink-faint`. The one other `.hint` rule, `.list-head .hint` at `index.html:276`, does not reach the card. The ink stays `--ink-faint`: `.hint` is the window's shared class for a caption, and `apps/desktop/test/themes.test.ts` already holds its contrast on the card's ground. So no code changes with the text. Read.
 ```
 
 ### 3. The pull request body and two frame sentences say the tool's name and the payload's field names stand in the reader alone, and the tree names them elsewhere
@@ -114,6 +124,11 @@ The protocol carries the shapes the daemon's reader produces. The question tool'
 
 frame/design.md:84, the Then of scenario 12:
 Given the built tree, then the question tool's name and its input's field names stand in the daemon alone, and no file of `src/shared`, `src/renderer` or `src/main` names either
+```
+
+```seal
+verdict: fixed e8a2d2a
+answer: The orchestrator's commit `e8a2d2a` replaces the three sentences with the round's text, word for word: `pr.md:9`, and `frame/design.md:12` and `:84`. Each now says that the question tool's name and its input's field names stand in the daemon, and that the protocol and the window name neither. HEAD holds that. Executed at `db0198b`: `git grep -n -e 'AskUserQuestion' -e 'tool_input' -e 'multiSelect' -e 'tool_name' -- apps/desktop/src` printed lines of `src/daemon/agent-events.ts`, `src/daemon/adapters/claude.ts:94`, `:221` and `src/daemon/daemon.ts:290`, all under `src/daemon`. The search of scenario 12 over `src/shared`, `src/renderer` and `src/main` printed nothing and exited 1. The census the finding asks for, executed: `git grep -n -e "reader alone" -e "stay in \`apps/desktop/src/daemon/agent-events.ts\`"` over the work item's directory printed only this record's finding 3. A wider search, adding `daemon's reader`, `stand in the daemon` and `AskUserQuestion` outside `trail/rounds/`, printed no other sentence that states the old fact. `frame/design.md:108` names the two older readings, and `trail/phases/phase-1.md:5` is phase 1's dated account. The search is a sample of the statements of this fact, made from their words. Executed.
 ```
 
 ## Confirmations
