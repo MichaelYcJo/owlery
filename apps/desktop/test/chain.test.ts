@@ -415,10 +415,13 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(events).toEqual(["start proofer 1", "stop proofer 1", "exit proofer 1", "start crafter 2", "stop crafter 2", "exit crafter 2", "start proofer 3", "stop proofer 3", "exit proofer 3"]);
   });
 
-  it("lists a stage's session with its prompt and no diff, gives the agent the diff after it, launches a round as the proofer and a fix pass as the crafter in the worktree, and counts on the stage the calls the role's rule refused", async () => {
+  it("lists a stage's session with its prompt and no diff, gives the agent the diff of what the branch changed since it left its base, launches a round as the proofer and a fix pass as the crafter in the worktree, and counts on the stage the calls the role's rule refused", async () => {
     const { adapter, started } = noted(roles({}, { asks: (_prompt, role) => (role?.role === "proofer" ? [{ tool: "Write", action: "write", path: "notes.md", text: "notes.md" }] : []) }));
-    const { c, workItems } = await standing(cleanups, ["Listed"], { roleAdapter: adapter });
+    const { c, made, workItems } = await standing(cleanups, ["Listed"], { roleAdapter: adapter });
     const a = workItems[0]!;
+    // The base gains a commit after the branch was cut, which is no part of what the branch changed.
+    write(made.repo, "on-main.txt", "on main\n");
+    commitAll(made.repo, "feat: on main");
     expect(await c.getSeal(a.id, 1)).toBe("done");
     const chain = await c.chain(a.id, "reviewed");
     expect(started.map(({ cwd, role }) => [cwd, role])).toEqual([[a.worktree, { role: "proofer", stage: "round" }], [a.worktree, { role: "crafter", stage: "fix-pass" }], [a.worktree, { role: "proofer", stage: "round" }]]);
@@ -428,6 +431,9 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(started[0]?.prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
     expect(started[0]?.prompt).toContain("+A greeting\n");
     expect(sessions[0]?.prompt).not.toContain("diff --git");
+    expect(started[0]?.prompt).not.toContain("on-main.txt");
+    // No record of decisions stands, so no prompt of a round names one.
+    expect(started[0]?.prompt).not.toContain("decisions.md");
     expect(started[0]?.prompt.startsWith(`${sessions[0]?.prompt ?? "none"}\nTheir diff:`)).toBe(true);
     expect(sessions[0]?.prompt).toContain("- The work item's directory: `seal/threads/1795388700-listed`\n");
     expect(sessions[0]?.prompt).toContain("The reviewed commits changed these paths:\n- `feature.txt`\n- `seal/threads/1795388700-listed/routing.md`\n");
@@ -470,6 +476,58 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(status(a.worktree)).toEqual([]);
     expect(chain.says).toBe("The fix pass of round 1 failed: decision 1 still stands reversed after it.");
     expect(chain.stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "failed"]]);
+    // The record of decisions stood when round 1 started, so the round's prompt names it.
+    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.role?.role === "proofer" ? [m.headless.prompt] : []))[0]).toContain(`- The decisions and the answers to hold to: \`${directory}/decisions.md\`\n`);
+  });
+
+  it("starts no stage where the worktree left the work item's branch between two stages, and none where a second directory came to name the branch", async () => {
+    const { adapter, started } = noted(roles());
+    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const a = stood.workItems[0]!;
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+    commitAll(a.worktree, "chore: declare the routing by hand");
+    // Round 1's session has ended, and the chain is held at the commit of its record while the worktree's HEAD is detached.
+    const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
+    expect(await stood.c.getSeal(a.id, 1)).toBe("done");
+    await stood.c.until(() => (held.waiting() ? true : undefined));
+    git(a.worktree, "checkout", "--quiet", "--detach");
+    held.release();
+    expect((await stood.c.chain(a.id, "stopped")).says).toBe(`The chain stopped: the worktree is not on the branch ${a.branch}.`);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer"]);
+
+    // A crafter that commits a second directory naming the branch leaves the work item's own untold.
+    const second = await standing(cleanups, ["Sealed work"], {
+      roleAdapter: roles({
+        crafter: (cwd, prompt) => {
+          fixes(cwd, prompt);
+          write(cwd, "seal/threads/2-second/routing.md", routingText("2-second", git(cwd, "symbolic-ref", "--short", "HEAD").trim(), TODAY));
+          git(cwd, "add", "seal/threads/2-second");
+          git(cwd, "commit", "--quiet", "-m", "chore: declare the routing twice");
+        },
+      }),
+    });
+    const b = second.workItems[0]!;
+    expect(await second.c.getSeal(b.id, 1)).toBe("done");
+    const chain = await second.c.chain(b.id, "stopped");
+    expect(chain.says).toBe(`The chain stopped: two directories of the worktree's records name the branch ${b.branch}.`);
+    expect(chain.stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"]]);
+  });
+
+  it("reads round 1 against the commit the branch was cut at where the work item's base branch is gone", async () => {
+    const { adapter, started } = noted(roles());
+    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const a = stood.workItems[0]!;
+    // The run folder as it stands for a work item cut from a branch that was deleted since, read by a second daemon.
+    await stood.d.close();
+    writeFileSync(join(stood.runDir, "work-items.json"), JSON.stringify([{ ...a, baseBranch: "gone-branch" }]));
+    rmSync(join(stood.runDir, "repositories.json"), { force: true });
+    const { url } = await stood.start();
+    const c = await client(url, cleanups);
+    await c.message("ready");
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "reviewed");
+    expect(givenRound(started[0]?.prompt ?? "").target).toMatch(/^[0-9a-f]{40} against gone-branch$/u);
+    expect(started[0]?.prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
   });
 
   it("starts only once a commit of a person's word that is under way in the worktree has ended, so round 1's target holds a renamed branch's routing", async () => {
@@ -682,7 +740,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at seal\/threads\/9-other\/notes\.md\./u, stands(a.worktree), 4);
       rmSync(join(a.worktree, "seal/threads/9-other"), { recursive: true });
       // Inside the work item's directory a file no commit holds refuses nothing.
-      write(a.worktree, "seal/threads/1795388700-changed/routing.md", routingText("1795388700-changed", a.branch, "2026-11-23"));
+      write(a.worktree, "seal/threads/1795388700-changed/routing.md", routingText("1795388700-changed", a.branch, TODAY));
       commitAll(a.worktree, "chore: declare the routing by hand");
       write(a.worktree, "seal/threads/1795388700-changed/notes.md", "notes\n");
       expect(await stood.c.getSeal(a.id, 5)).toBe("done");
@@ -696,8 +754,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       const stood = await standing(cleanups, ["Twice named"]);
       const b = stood.workItems[0]!;
-      write(b.worktree, "seal/threads/1-one/routing.md", routingText("1-one", b.branch, "2026-11-23"));
-      write(b.worktree, "seal/threads/2-two/routing.md", routingText("2-two", b.branch, "2026-11-23"));
+      write(b.worktree, "seal/threads/1-one/routing.md", routingText("1-one", b.branch, TODAY));
+      write(b.worktree, "seal/threads/2-two/routing.md", routingText("2-two", b.branch, TODAY));
       commitAll(b.worktree, "chore: declare the routing twice");
       await refusedWith(stood, b.id, `Two directories of the worktree's records name the branch ${b.branch}: seal/threads/1-one and seal/threads/2-two. Owlery cannot tell which is the work item's.`, stands(b.worktree), 2);
     });
@@ -725,7 +783,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const stood = await standing(cleanups, ["Parked"], { roleAdapter: roles() });
       const b = stood.workItems[0]!;
       const directory = "seal/threads/1795388700-parked";
-      write(b.worktree, `${directory}/routing.md`, routingText("1795388700-parked", b.branch, "2026-11-23"));
+      write(b.worktree, `${directory}/routing.md`, routingText("1795388700-parked", b.branch, TODAY));
       commitAll(b.worktree, "chore: declare the routing by hand");
       stood.d.park(b.id, { by: "crafter", questions: [{ asks: "May the pass change the protocol?", grounds: "The frame names no such change." }] });
       await refusedWith(stood, b.id, "The work item waits for the answers to its open questions. Answer them first.", stands(b.worktree), 2);
@@ -743,7 +801,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const withRoundOne = async (options: Parameters<typeof standing>[2], close: boolean) => {
       const stood = await standing(cleanups, ["Sealed work"], options);
       const a = stood.workItems[0]!;
-      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, "2026-11-23"));
+      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
       const target = commitAll(a.worktree, "chore: declare the work item's routing");
       const record = `${DIRECTORY}/trail/rounds/round-1.md`;
       write(a.worktree, record, roundRecord(HEADING(1), `${target} against main`, [1]));
@@ -789,26 +847,35 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(-2)).toEqual(["chore: record the fix pass of round 1", "chore: record review round 2"]);
     });
 
-    it("rests reviewed with no stage where the records hold a round that left nothing open and no commit after it changed a path outside the directory, and stops where a round record the head holds does not read", async () => {
+    it("rests reviewed with no stage where the records hold a round that left nothing open and no commit after it changed a path outside the directory, reads the rounds in the order of their numbers, and stops where a round record the head holds does not read or names a target the repository does not hold", async () => {
       const { adapter, started } = noted(roles());
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
       const a = stood.workItems[0]!;
-      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, "2026-11-23"));
+      const record = (number: number): string => `${DIRECTORY}/trail/rounds/round-${String(number)}.md`;
+      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
       const target = commitAll(a.worktree, "chore: declare the work item's routing");
-      write(a.worktree, `${DIRECTORY}/trail/rounds/round-1.md`, roundRecord(HEADING(1), `${target} against main`));
+      write(a.worktree, record(1), roundRecord(HEADING(1), `${target} against main`));
       const at = commitAll(a.worktree, "chore: record review round 1");
       expect(await stood.c.getSeal(a.id, 1)).toBe("done");
       expect(await stood.c.chain(a.id, "reviewed")).toEqual({ state: "reviewed", says: `The review rounds settled at ${at.slice(0, 7)}, after round 1.`, reviewedAt: at, stages: [] });
-      write(a.worktree, `${DIRECTORY}/trail/rounds/round-2.md`, `${HEADING(2)}\n\nA record with no block.\n`);
-      commitAll(a.worktree, "chore: record review round 2");
+      // Round 10 is the last record, though git lists `round-10.md` before `round-2.md`.
+      write(a.worktree, record(2), roundRecord(HEADING(2), `${at}, fixes ${target}..${at}`));
+      write(a.worktree, record(10), roundRecord(HEADING(10), `${at}, fixes ${target}..${at}`));
+      const later = commitAll(a.worktree, "chore: record two more rounds");
       expect(await stood.c.getSeal(a.id, 2)).toBe("done");
-      expect((await stood.c.chain(a.id, "stopped")).says).toMatch(new RegExp(`^The chain stopped: the reader refuses ${DIRECTORY}/trail/rounds/round-2\\.md: no round block: `, "u"));
-      // A record whose target names a commit the repository does not hold stops the chain with the record and the target.
-      write(a.worktree, `${DIRECTORY}/trail/rounds/round-2.md`, roundRecord(HEADING(2), `${A}, fixes ${target}..${A}`));
-      commitAll(a.worktree, "chore: record review round 2 again");
+      await stood.c.until(() => (stood.c.workItem(a.id)?.chain?.reviewedAt === later ? true : undefined));
+      expect(stood.c.workItem(a.id)?.chain?.says).toBe(`The review rounds settled at ${later.slice(0, 7)}, after round 10.`);
+      write(a.worktree, record(2), `${HEADING(2)}\n\nA record with no block.\n`);
+      commitAll(a.worktree, "chore: break round 2's record");
       expect(await stood.c.getSeal(a.id, 3)).toBe("done");
+      expect((await stood.c.chain(a.id, "stopped")).says).toMatch(new RegExp(`^The chain stopped: the reader refuses ${DIRECTORY}/trail/rounds/round-2\\.md: no round block: `, "u"));
+      // A last record whose target names a commit the repository does not hold stops the chain with the record and the target.
+      write(a.worktree, record(2), roundRecord(HEADING(2), `${at}, fixes ${target}..${at}`));
+      write(a.worktree, record(10), roundRecord(HEADING(10), `${A}, fixes ${target}..${A}`));
+      commitAll(a.worktree, "chore: name a target no commit bears");
+      expect(await stood.c.getSeal(a.id, 4)).toBe("done");
       await stood.c.until(() => (stood.c.workItem(a.id)?.chain?.says.includes("names the target") ? true : undefined));
-      expect(stood.c.workItem(a.id)?.chain?.says).toBe(`The chain stopped: ${DIRECTORY}/trail/rounds/round-2.md names the target ${A}, and the repository holds no such commit.`);
+      expect(stood.c.workItem(a.id)?.chain?.says).toBe(`The chain stopped: ${DIRECTORY}/trail/rounds/round-10.md names the target ${A}, and the repository holds no such commit.`);
       expect(started).toEqual([]);
     });
   });
@@ -935,7 +1002,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const { adapter, started } = noted(roles());
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
       const a = stood.workItems[0]!;
-      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, "2026-11-23"));
+      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
       const decided = withDecision(`# Decisions and questions: ${NAME}\n\n`, { kind: "default", decided: "Start from main.", grounds: "The default base.", by: "orchestrator" });
       write(a.worktree, `${DIRECTORY}/decisions.md`, withReversal(decided, 1, "Start from the release branch."));
       const target = commitAll(a.worktree, "chore: declare the work item's routing");
@@ -952,7 +1019,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   it("parks a running chain where the record holds an open question at its next step: no stage starts, and the chain says that it waits for the answers", async () => {
     const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { delayMs: 80 }) });
     const a = stood.workItems[0]!;
-    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, "2026-11-23"));
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
     commitAll(a.worktree, "chore: declare the work item's routing");
     expect(await stood.c.getSeal(a.id, 1)).toBe("done");
     await stood.c.until(() => (stood.c.workItem(a.id)?.chain?.stages[0]?.state === "working" ? true : undefined));
