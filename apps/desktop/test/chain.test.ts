@@ -1629,7 +1629,10 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       let clock = NOW;
       let passes = 0;
       const crafter = (cwd: string, prompt: string): void => {
-        if ((passes += 1) > 1) fixes(cwd, prompt);
+        if ((passes += 1) === 1) return;
+        fixes(cwd, prompt);
+        // The second pass takes ten minutes, so the chain rests later than it started.
+        clock = NOW + 110 * 60_000;
       };
       let said = 0;
       const stood = await standing(cleanups, ["Sealed work"], {
@@ -1653,7 +1656,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await stood.c.getSeal(a.id, 3)).toBe("done");
       const reviewed = await stood.c.chain(a.id, "reviewed");
       expect(stagesOf(reviewed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"]]);
-      expect(reviewed.since).toBe(NOW + 100 * 60_000);
+      expect(reviewed.since).toBe(NOW + 110 * 60_000);
     });
 
     it("asks for the judgment of convergence at a person's start where round 2's chain stopped after the ruling on its proofer's question: a ruling the chain's last stage holds is no answered judgment of convergence", async () => {
