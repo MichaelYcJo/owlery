@@ -12,8 +12,11 @@
 // with; for the third an answered question and a refused block alone. The
 // fourth records the commit its branch was cut at, so the daemon reads its
 // branch, and its branch holds the records of a seal, committed with git
-// before the app starts as a chain commits them. The last case commits once
-// more in its worktree, which breaks the seal. The login shell is a script
+// before the app starts as a chain commits them. The daemon's first read of
+// that seal, the `git show` of its guarantee in the fourth's worktree, waits
+// until the first case releases it, so `ready` goes out without the fourth's
+// seal and the seal joins the summary at the lists that follow. The last case
+// commits once more in its worktree, which breaks the seal. The login shell is a script
 // that names no CLI, and the case opens no pane. The last case archives the
 // second work item as a second client of the daemon. The page's `Notification`
 // is replaced by one that does nothing, so the broken seal's notification
@@ -25,7 +28,7 @@ import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withA
 import { MARKER } from "../src/daemon/records-place";
 import type { ClientMessage, ServerMessage } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { commitSeal } from "./chain-run";
+import { type Cleanups, commitSeal, heldGit } from "./chain-run";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
 const DECISION = { kind: "default", decided: "Start the branch from main.", grounds: "frame/questions.md Q1 states main as its default.", by: "orchestrator" } as const;
@@ -50,6 +53,9 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   let made: ReturnType<typeof temporaryRepository>;
   /** The commit the fourth work item's seal binds, once the case has committed its records. */
   let sealedAt = "";
+  const cleanups: Cleanups = [];
+  /** The hold on the daemon's first read of the fourth work item's seal. */
+  let heldSeal: ReturnType<typeof heldGit>;
 
   /** The directory of the work item whose worktree and branch are named `name`. */
   const directoryOf = (name: string): string => join(made.root, name, "seal", "threads", `1-${name}`);
@@ -120,6 +126,8 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
         seen(fourth, { seal: null }),
       ],
     };
+    // The app's daemon runs git from the path the app inherits, and reads a seal first with a `git show` of the guarantee in the work item's worktree (`seal-state.ts#sealAt`). No other git command runs as `show` in the fourth's worktree before the release.
+    heldSeal = heldGit(cleanups, made.base, `[ "$(pwd -P)" = '${fourth.worktree}' ] && [ "$1" = show ]`);
     app = await BuiltApp.start(
       { SHELL: shell, OWLERY_WORKTREES: made.root },
       {
@@ -140,15 +148,28 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   }, 120_000);
 
   afterAll(async () => {
+    for (const cleanup of cleanups) await cleanup();
     await app?.stop();
     made?.remove();
   }, 30_000);
 
-  it("opens on the summary with the seal given since the look counted first and its line first, the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, draws no section for a question the look holds as answered, and commits each word as a commit of the record alone", async () => {
-    // The look holds two of the first work item's three decisions, no question of the second and no seal of the fourth, so one decision is new, the parked work item changed and the fourth's seal was given. Where the daemon's `ready` went out before it read the fourth's branch, the seal joins the summary at the lists that follow.
+  it("opens on the summary with the lists that changed since the look while the daemon's read of a seal waits, joins that seal given since the look when the read ends, counted first and its line first, the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, draws no section for a question the look holds as answered, and commits each word as a commit of the record alone", async () => {
+    // The look holds two of the first work item's three decisions, no question of the second and no seal of the fourth, so one decision is new, the parked work item changed and the fourth's seal was given. The daemon's read of the fourth's seal waits, so its `ready` went out without that seal: the summary opens on the two others, and the fourth has no line and no strong title in the sidebar.
     await app.until(`document.getElementById("summary-screen").hidden === false`, "the summary");
+    for (let waits = 0; waits < 100 && !heldSeal.waiting(); waits++) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(heldSeal.waiting()).toBe(true);
+    const deltaStrong = (): Promise<boolean> => app.evaluate(`document.querySelector('.side-item[data-work-item="4"] .title').classList.contains("changed")`);
+    expect(await text("#summary-sentence")).toBe("1 needs you. 1 decision made without asking.");
+    expect(await texts("#summary-lines button .title")).toEqual(["Beta", "Alpha"]);
+    expect(await text("#nav-summary-count")).toBe("2 new");
+    expect(await deltaStrong()).toBe(false);
+    // The read goes on, and the lists that carry the seal join the fourth to the summary in front: its line first, its title strong and the sidebar's count one more.
+    heldSeal.release();
     await app.until(`document.getElementById("summary-sentence").textContent === "1 sealed, 1 needs you. 1 decision made without asking."`, "the summary's sentence with the seal given");
+    expect(await app.evaluate(`document.getElementById("summary-screen").hidden`)).toBe(false);
     expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Beta", "Alpha"]);
+    expect(await text("#nav-summary-count")).toBe("3 new");
+    expect(await deltaStrong()).toBe(true);
     await app.click("#nav-inbox");
     await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 4`, "the four lines of the inbox");
     // The parked work item waits for the person, so its line stands first, under the group's head, and says its first question. The sealed one has finished.
@@ -256,7 +277,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   it("says the present of each line of the summary: the seal given since the look, then broken by a commit while the summary is in front, which draws its sentence, its line and the line's seal again and leaves the keyboard on the line it was on, and no line of a work item archived since, which the sidebar's count leaves out", async () => {
     const delta = `#summary-lines button[data-work-item="4"]`;
     const at = sealedAt.slice(0, 7);
-    // The summary is one step away from the inbox the last case left in front, and the work items it lists are the load's: the sealed one first, then the two whose lists changed. The second one's questions are answered since, so it no longer needs the person: its line says its state alone and stands after the first's, in the daemon's order, and the sentence no longer counts it.
+    // The summary is one step away from the inbox the last case left in front, and the work items it lists are the load's and the one that joined after it: the sealed one first, then the two whose lists changed. The second one's questions are answered since, so it no longer needs the person: its line says its state alone and stands after the first's, in the daemon's order, and the sentence no longer counts it.
     await app.click("#nav-summary");
     await app.until(`document.getElementById("summary-screen").hidden === false`, "the summary");
     expect(await text("#summary-sentence")).toBe("1 sealed. 1 decision made without asking.");
