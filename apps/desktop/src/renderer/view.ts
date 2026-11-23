@@ -415,14 +415,15 @@ function counted(count: number, one: string, many: string): string {
  * A failed stage's failure as the window says it under the places. The
  * daemon writes it as a clause with no capital and no full stop, which its
  * own sentence of the chain wraps, and a CLI's own error can be any text.
- * The first word gains a capital where it is letters alone, so a path, a
- * file's name and a number stand as written, and the text gains a full stop
- * where it ends with none.
+ * The first word gains a capital where it is letters alone, with or without
+ * marks that end it before a space or the text's end, so a path, a file's
+ * name, an address and a number stand as written, and the text gains a full
+ * stop where it ends with none.
  */
 function asSentence(failure: string): string {
   const text = failure.trim();
   if (text === "") return text;
-  const opened = /^\p{Ll}\p{L}*(?=\s|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  const opened = /^\p{Ll}\p{L}*[,:;.!?]*(?=\s|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
   return /[.?!]$/u.test(opened) ? opened : `${opened}.`;
 }
 

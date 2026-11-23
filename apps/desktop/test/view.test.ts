@@ -1412,6 +1412,13 @@ describe("the approval line", () => {
     expect(says("seal/threads/one/trail/rounds/round-2.md was written and not committed")).toEqual(["Proofer: seal/threads/one/trail/rounds/round-2.md was written and not committed."]);
     expect(says("round-2.md holds no target line")).toEqual(["Proofer: round-2.md holds no target line."]);
     expect(says("2 blocks open with a verdict")).toEqual(["Proofer: 2 blocks open with a verdict."]);
+    // A first word that a mark ends, before a space or the text's end, is a word of letters alone.
+    expect(says("error: unknown option '--no-such-option'")).toEqual(["Proofer: Error: unknown option '--no-such-option'."]);
+    expect(says("failed.")).toEqual(["Proofer: Failed."]);
+    for (const mark of [",", ":", ";", ".", "!", "?", "?!"]) expect(says(`stopped${mark} at a request`)).toEqual([`Proofer: Stopped${mark} at a request.`]);
+    // A mark inside the first word ends no word: an address and a name with a colon stand as written.
+    expect(says("http://localhost:4000 refused the connection")).toEqual(["Proofer: http://localhost:4000 refused the connection."]);
+    expect(says("node:fs could not be loaded")).toEqual(["Proofer: node:fs could not be loaded."]);
     // The space around the text is no part of the sentence, and a line break inside it is kept.
     expect(says("  the session failed\nexit 1\n")).toEqual(["Proofer: The session failed\nexit 1."]);
     expect(says("")).toEqual(["Proofer: "]);
