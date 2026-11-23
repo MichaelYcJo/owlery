@@ -7,6 +7,9 @@
 | Which hook events a real interactive Claude Code sends when its agent calls `AskUserQuestion`, in which order, and whether its own dialog numbers the choices in the payload's order (`frame/questions.md` Q1). The cases feed the shape the frame read, and no `claude` ran | the owner's hand run at the built app with `OWLERY_DEBUG_HOOKS=1`, as Q1 states it |
 | The built-app files that load the bundle built from `src/renderer` and import no module phase 1 changed, such as `test/ask-section.test.ts` and `test/decisions-and-questions.test.ts`, run after phase 1's change to the card | the orchestrator's broad gate |
 | The full suite and the repository-wide typecheck at phase 1's commit. The typecheck ran over the changed files and what they import, with a config of the crafter's scratch that extends `apps/desktop/tsconfig.json` | the orchestrator's broad gate |
+| The built-app files that load the bundle built from `src` and import no module phase 2 changed, run after phase 2's change to the count behind the base. Among them `test/decisions-and-questions.test.ts` writes a look without `behindBase` into the app's run folder | the orchestrator's broad gate |
+| `test/role-session.test.ts`, which imports `src/daemon/daemon.ts` and was not run at phase 2's boundary: its cases skip unless an environment variable starts the person's own `claude`, which the owner's rules for this run forbid | the orchestrator's broad gate, where the cases skip; a run of `pnpm run role:run` by the owner for the cases themselves |
+| The full suite and the repository-wide typecheck at phase 2's commits. The typecheck ran over the five modules and the four test files phase 2 changed, and what they import, with a config of the crafter's scratch that extends `apps/desktop/tsconfig.json` | the orchestrator's broad gate |
 
 ## Not done
 
