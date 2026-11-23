@@ -38,6 +38,9 @@ import {
   fileLines,
   filterChoices,
   gainedSince,
+  GATE_HEAD,
+  GATE_OUTPUT_SHOWS,
+  gateLine,
   headlessKey,
   headlessLines,
   hiddenRepositories,
@@ -136,7 +139,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -1262,11 +1265,11 @@ describe("the approval line", () => {
   const ASKS: Question = { id: 1, asks: "Does a stopped round count as a round?", grounds: "No document says.", by: "proofer", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
 
   /** A stage of a chain: round 2, at work for 4 minutes, but for the fields given. */
-  const stage = (fields: Partial<ChainStage>): ChainStage => ({ kind: "round", round: 2, state: "working", failure: null, startedAt: NOW - 4 * MINUTE, endedAt: null, headlessId: 3, refusals: 0, ...fields });
+  const stage = (fields: Partial<ChainStage>): ChainStage => ({ kind: "round", round: 2, state: "working", failure: null, startedAt: NOW - 4 * MINUTE, endedAt: null, headlessId: 3, refusals: 0, gate: null, ...fields });
   /** Round 1, which finished. */
   const ROUND_ONE = stage({ round: 1, state: "finished", startedAt: NOW - 30 * MINUTE, endedAt: NOW - 20 * MINUTE });
   /** The work item of the records with a chain in that state, which holds those stages, the oldest first. */
-  const chained = (state: Chain["state"], ...stages: ChainStage[]): WorkItem => ({ ...RECORDED, chain: { state, says: "", reviewedAt: null, stages, since: NOW - 4 * MINUTE } });
+  const chained = (state: Chain["state"], ...stages: ChainStage[]): WorkItem => ({ ...RECORDED, chain: { state, says: "", stages, since: NOW - 4 * MINUTE } });
   /** A chain that runs round 2 after round 1. */
   const RUNS_ROUND = chained("running", ROUND_ONE, stage({}));
 
@@ -1366,9 +1369,9 @@ describe("the approval line", () => {
     for (const kind of ["judgment", "ruling"] as const) expect(read(chained("running", ROUND_ONE, stage({ kind })))).toEqual(read(RECORDED));
     // Between two stages the newest one has ended, and an older stage marks no place whatever it says. A round that finished leaves the proofer's place to the records.
     expect(read(chained("running", stage({}), stage({ kind: "judgment", state: "finished", endedAt: NOW - MINUTE })))).toEqual(read(RECORDED));
-    for (const state of ["running", "reviewed"] as const) expect(read(chained(state, ROUND_ONE))).toEqual(read(RECORDED));
+    for (const state of ["running", "sealed"] as const) expect(read(chained(state, ROUND_ONE))).toEqual(read(RECORDED));
     // A chain a restarted daemon reads as stopped keeps a newest stage that still says working, and no place works.
-    for (const state of ["stopped", "parked", "reviewed"] as const) expect(read(chained(state, ROUND_ONE, stage({})))).toEqual(read(RECORDED));
+    for (const state of ["stopped", "parked", "sealed"] as const) expect(read(chained(state, ROUND_ONE, stage({})))).toEqual(read(RECORDED));
     // An open question of the role stands over the stage that runs.
     expect(read({ ...RUNS_ROUND, questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
   });
@@ -1396,6 +1399,47 @@ describe("the approval line", () => {
     // An open question of the role stands over the failure, with the question under the line.
     expect(read({ ...round, questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
     expect(under({ ...round, questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
+  });
+
+  it("marks the sealer's place working while the chain runs the broad gate, with the note Broad gate, and while it runs the seal, with the note Judging, each with the stage's age in the mark's words, and leaves the place to the records once either has finished", () => {
+    const gate = (fields: Partial<ChainStage>): ChainStage => stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false }, ...fields });
+    const runsGate = chained("running", ROUND_ONE, gate({}));
+    expect(read(runsGate)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(runsGate)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(runsGate)).toEqual([]);
+    const runsSeal = chained("running", ROUND_ONE, stage({ kind: "seal" }));
+    expect(read(runsSeal)?.[3]).toEqual(["sealer", "working", "Judging", "Sealer: Judging, 4 min"]);
+    expect(read(runsSeal)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(runsSeal)).toEqual([]);
+    // A gate that passed and a seal whose verdict was written have finished: the records say the place, a gate's run or the verdict.
+    const passed = gate({ state: "finished", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 0, output: true } });
+    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...SEALED, verdict: null } })?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
+    const withheld: Recorded = { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Round 2 closed a finding the tree still holds." } };
+    const stopped: WorkItem = { ...chained("stopped", ROUND_ONE, passed, stage({ kind: "seal", state: "finished", endedAt: NOW - MINUTE })), recorded: withheld };
+    expect(read(stopped)?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
+    expect(under(stopped)).toEqual(["Sealer: Round 2 closed a finding the tree still holds."]);
+    // An open question of the sealer's stands over the stage that runs.
+    expect(read({ ...runsSeal, questions: [{ ...ASKS, by: "sealer" }] })?.[3]).toEqual(["sealer", "waiting", "Needs you", "Sealer: Needs you, 12 min"]);
+  });
+
+  it("marks the sealer's place waiting where the chain's newest stage is a broad gate that failed, with the note Gate failed, and failed where it is a sealer's session that failed, each over what the records say and with the stage's failure under the line", () => {
+    const failedGate = stage({ kind: "gate", headlessId: null, state: "failed", failure: "the command exited with code 3", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 3, output: true } });
+    const gated = chained("stopped", ROUND_ONE, failedGate);
+    expect(read(gated)?.[3]).toEqual(["sealer", "waiting", "Gate failed", "Sealer: Gate failed"]);
+    expect(read(gated)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(gated)).toEqual(["Sealer: The command exited with code 3."]);
+    // The records of this work item hold a verdict that seals an earlier commit, and the failed gate stands over it.
+    expect(read(RECORDED)?.[3]).toEqual(["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"]);
+    const judged = chained("stopped", ROUND_ONE, stage({ kind: "seal", state: "failed", failure: "the session reached its time limit and was stopped", endedAt: NOW - MINUTE }));
+    expect(read(judged)?.[3]).toEqual(["sealer", "failed", "Failed", "Sealer: Judging failed"]);
+    expect(read(judged)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(judged)).toEqual(["Sealer: The session reached its time limit and was stopped."]);
+    // A gate that runs again after its failure is at work, and the failure leaves the line.
+    const again = chained("running", ROUND_ONE, failedGate, stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }));
+    expect(read(again)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(under(again)).toEqual([]);
+    // A failed gate marks no other role's place, and a failed round after it leaves the sealer's place to the records.
+    expect(read(chained("stopped", failedGate, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE })))?.[3]).toEqual(read(RECORDED)?.[3]);
   });
 
   it("says a failed stage's failure under the places as a sentence: a capital on a first word of letters alone and a full stop where the text ends with none, and no other change", () => {
@@ -1435,7 +1479,7 @@ describe("a work item's chain", () => {
   const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", stages: [], since: NOW - 4 * MINUTE, ...fields });
   const RUNNING: WorkItem = { ...LOGIN, chain: chain("running", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) };
   const STOPPED: WorkItem = { ...LOGIN, chain: chain("stopped", { stages: [ROUND, FIX] }) };
-  const REVIEWED: WorkItem = { ...LOGIN, chain: chain("sealed", { says: "The sealer sealed 1a2b3c4, after round 1.", stages: [ROUND] }) };
+  const RESTS_SEALED: WorkItem = { ...LOGIN, chain: chain("sealed", { says: "The sealer sealed 1a2b3c4, after round 1.", stages: [ROUND] }) };
   const PARKED: WorkItem = { ...LOGIN, chain: chain("parked", { says: "The work item waits for the answers to its questions.", stages: [ROUND] }) };
   const QUESTION: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "crafter", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
   const BASH: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: NOW - 2 * MINUTE };
@@ -1461,8 +1505,8 @@ describe("a work item's chain", () => {
     expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Working", [2]]]);
   });
 
-  it("leaves the line's state to the work item's panes where its chain rests reviewed, where it is parked and every question is answered, and where no chain ran", () => {
-    for (const workItem of [REVIEWED, PARKED, LOGIN]) {
+  it("leaves the line's state to the work item's panes where its chain rests sealed, where it is parked and every question is answered, and where no chain ran", () => {
+    for (const workItem of [RESTS_SEALED, PARKED, LOGIN]) {
       for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(workItem, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
     }
     // A parked chain's line waits by the open question of the work item's record.
@@ -1485,13 +1529,16 @@ describe("a work item's chain", () => {
     expect(lineText(runs({ kind: "fix-pass" }), finished, false)).toEqual({ says: "stage", text: "Crafter, fix pass" });
     expect(lineText(runs({ kind: "judgment", round: 2 }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, judgment" });
     expect(lineText(runs({ kind: "ruling" }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, ruling" });
+    // The broad gate is no role's session, so its words name no role, and the seal is the sealer's.
+    expect(lineText(runs({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }), finished, false)).toEqual({ says: "stage", text: "Broad gate" });
+    expect(lineText(runs({ kind: "seal" }), finished, false)).toEqual({ says: "stage", text: "Sealer, verdict" });
     // A line that waits keeps saying what it waits on while the stage runs.
     expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
     expect(lineText({ ...RUNNING, permissions: [BASH] }, finished, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
     expect(lineText(RUNNING, waiting, false)).toEqual({ says: "state", text: "May I run the tests?" });
     expect(lineText(RUNNING, finished, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
     // Between two stages the newest one has ended, and a chain that rests runs none.
-    for (const workItem of [{ ...LOGIN, chain: chain("running", { stages: [ROUND] }) }, { ...LOGIN, chain: chain("running") }, REVIEWED, PARKED]) {
+    for (const workItem of [{ ...LOGIN, chain: chain("running", { stages: [ROUND] }) }, { ...LOGIN, chain: chain("running") }, RESTS_SEALED, PARKED]) {
       expect(lineText(workItem, finished, false)).toEqual({ says: "state", text: "The form is done." });
       expect(lineText(workItem, undefined, false)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
     }
@@ -1527,7 +1574,7 @@ describe("a work item's chain", () => {
     expect(lineSince(between, undefined)).toBeNull();
     expect(lineSince(between, working)).toBe(NOW - 40 * MINUTE);
     expect(lineSince(between, waiting)).toBe(NOW - 3 * MINUTE);
-    for (const workItem of [REVIEWED, PARKED]) expect(lineSince(workItem, finished)).toBe(NOW - 50 * MINUTE);
+    for (const workItem of [RESTS_SEALED, PARKED]) expect(lineSince(workItem, finished)).toBe(NOW - 50 * MINUTE);
   });
 
   it("notifies of a chain that stopped since the window's lists were held, titled with the work item's title, with the words a waiting pane's notification has, and of none of a muted work item, of the work item whose view is in front, or of a chain the window already held as stopped", () => {
@@ -1543,7 +1590,7 @@ describe("a work item's chain", () => {
     expect(chainNotifications([RUNNING], [STOPPED], 1)).toEqual([]);
     expect(chainNotifications([STOPPED], [STOPPED], undefined)).toEqual([]);
     // A chain in another state tells nothing, whatever the window held of it.
-    for (const rests of [RUNNING, REVIEWED, PARKED, LOGIN]) {
+    for (const rests of [RUNNING, RESTS_SEALED, PARKED, LOGIN]) {
       expect(chainNotifications([STOPPED], [rests], undefined)).toEqual([]);
       expect(chainNotifications([LOGIN], [rests], undefined)).toEqual([]);
     }
@@ -1553,7 +1600,7 @@ describe("a work item's chain", () => {
     const start = "Start the review rounds on Fix the login bug";
     expect(sealButton(LOGIN, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: "" });
     expect(sealButton(STOPPED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
-    expect(sealButton(REVIEWED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
+    expect(sealButton(RESTS_SEALED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
     expect(sealButton(PARKED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
     expect(sealButton(RUNNING, false, null)).toEqual({ offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
     expect(sealButton(STOPPED, true, null)).toEqual({ offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
@@ -1571,7 +1618,7 @@ describe("a work item's chain", () => {
     expect(atParked).toEqual({ says: waits, state: "parked", since: NOW - 4 * MINUTE });
     expect(sealButton(PARKED, false, atParked).refusal).toBe(waits);
     // The person answered, the chain ran by itself and rests: no question is open any more.
-    for (const rests of [STOPPED, REVIEWED]) expect(sealButton(rests, false, atParked).refusal).toBe("");
+    for (const rests of [STOPPED, RESTS_SEALED]) expect(sealButton(rests, false, atParked).refusal).toBe("");
     // A chain another window started stopped again: the same state, since a later time.
     const loose = "The worktree holds a change no commit holds, at notes.txt. A round reads a committed tree: commit the change or remove it first.";
     const atStopped = refusedSeal(STOPPED, loose);
@@ -2488,6 +2535,84 @@ describe("headlessLines", () => {
     expect(headlessLines(sessions, LOGIN).map((line) => line.id)).toEqual([3, 1]);
     expect(headlessLines(sessions, SEARCH).map((line) => line.id)).toEqual([2]);
     expect(headlessLines(sessions, { ...LOGIN, id: 3 })).toEqual([]);
+  });
+});
+
+describe("the broad gate's line under Ask", () => {
+  const RUN: GateRun = { command: "pnpm -r run check", exitCode: null, output: false };
+  const ROUND: ChainStage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1000, endedAt: 2000, headlessId: 3, refusals: 0, gate: null };
+  /** A broad gate's stage: at work since 5000, but for the fields given. */
+  const gate = (fields: Partial<ChainStage> = {}): ChainStage => ({ kind: "gate", round: 1, state: "working", failure: null, startedAt: 5000, endedAt: null, headlessId: null, refusals: 0, gate: RUN, ...fields });
+  const PASSED = gate({ state: "finished", endedAt: 6000, gate: { ...RUN, exitCode: 0, output: true } });
+  const FAILED = gate({ state: "failed", failure: "the command exited with code 3", endedAt: 6000, gate: { ...RUN, exitCode: 3, output: true } });
+  /** The work item with a chain in that state, which holds those stages, the oldest first. */
+  const chained = (state: Chain["state"], ...stages: ChainStage[]): WorkItem => ({ ...LOGIN, chain: { state, says: "", stages, since: 7000 } });
+
+  it("gives no line for a work item no chain ran for, for one a daemon of an earlier build sent with no chain, and for a chain that holds no broad gate", () => {
+    const { chain: _chain, ...earlier } = LOGIN;
+    expect(LOGIN.chain).toBeNull();
+    expect(gateLine(LOGIN, null)).toBeNull();
+    expect(gateLine(earlier as WorkItem, null)).toBeNull();
+    expect(gateLine(chained("running", ROUND), null)).toBeNull();
+    expect(gateLine(chained("stopped"), null)).toBeNull();
+    // A stage of another kind holds no run, and a stage a build before the gate stored holds none either.
+    expect(gateLine(chained("running", { ...ROUND, kind: "seal" }), null)).toBeNull();
+    expect(gateLine(chained("stopped", gate({ gate: null })), null)).toBeNull();
+  });
+
+  it("says the words Broad gate, the command and the state's word of a gate that runs, with Stop and with no button for its output", () => {
+    expect(GATE_HEAD).toBe("Broad gate");
+    expect(gateLine(chained("running", ROUND, gate()), null)).toEqual({ startedAt: 5000, command: "pnpm -r run check", state: "working", words: "working", text: "", stop: true, output: false, printed: null });
+  });
+
+  it("offers the output of a gate that ended where its output is kept, says finished for one that passed, and failed with the stage's failure as a sentence for one that did not", () => {
+    expect(GATE_OUTPUT_SHOWS).toBe("Show output");
+    expect(gateLine(chained("running", ROUND, PASSED), null)).toEqual({ startedAt: 5000, command: "pnpm -r run check", state: "finished", words: "finished", text: "", stop: false, output: true, printed: null });
+    expect(gateLine(chained("stopped", ROUND, FAILED), null)).toEqual({ startedAt: 5000, command: "pnpm -r run check", state: "failed", words: "failed", text: "The command exited with code 3.", stop: false, output: true, printed: null });
+    // A command that printed nothing leaves nothing to show, and a failure the daemon gave no text has none.
+    expect(gateLine(chained("stopped", gate({ state: "failed", failure: null, endedAt: 6000, gate: { ...RUN, exitCode: 1, output: false } })), null)).toMatchObject({ state: "failed", text: "", output: false });
+  });
+
+  it("is the line of the chain's newest gate, wherever it stands among the stages", () => {
+    const again = gate({ startedAt: 9000, gate: { ...RUN, command: "pnpm test" } });
+    expect(gateLine(chained("running", ROUND, FAILED, again), null)).toMatchObject({ startedAt: 9000, command: "pnpm test", state: "working", stop: true });
+    // A seal and a ruling follow the gate that passed, and the line stays the gate's.
+    expect(gateLine(chained("running", FAILED, PASSED, { ...ROUND, kind: "seal", state: "working", endedAt: null }), null)).toMatchObject({ startedAt: 5000, state: "finished", output: true });
+    expect(gateLine(chained("stopped", gate({ startedAt: 4000, state: "finished", endedAt: 4500 }), FAILED, ROUND), null)).toMatchObject({ state: "failed", text: "The command exited with code 3." });
+  });
+
+  it("draws a gate whose stage says it works in a chain that does not run it as failed, with no Stop: no command of it runs", () => {
+    for (const state of ["stopped", "parked", "sealed"] as const) expect(gateLine(chained(state, ROUND, gate()), null)).toMatchObject({ state: "failed", words: "failed", text: "", stop: false, output: false });
+    // A running chain whose newest stage is another runs no gate either.
+    expect(gateLine(chained("running", gate(), { ...ROUND, state: "working", endedAt: null }), null)).toMatchObject({ state: "failed", stop: false });
+  });
+
+  it("draws what a read of the output answered under the line of the run it was read of, with a note where the daemon kept the end alone, and under no other run's and no other work item's line", () => {
+    const read = { workItemId: 1, startedAt: 5000, text: "FAIL test/view.test.ts\n1 failed\n", cut: false };
+    const failed = chained("stopped", ROUND, FAILED);
+    expect(gateLine(failed, read)?.printed).toEqual({ text: "FAIL test/view.test.ts\n1 failed\n", note: "" });
+    expect(gateLine(failed, { ...read, cut: true })?.printed).toEqual({ text: "FAIL test/view.test.ts\n1 failed\n", note: "Owlery kept the end of the output alone." });
+    // The gate ran again since the read, and the output of the earlier run is not the new line's.
+    expect(gateLine(chained("running", ROUND, FAILED, gate({ startedAt: 9000 })), read)?.printed).toBeNull();
+    expect(gateLine(failed, { ...read, startedAt: 4000 })?.printed).toBeNull();
+    expect(gateLine({ ...failed, id: 2 }, read)?.printed).toBeNull();
+    // The rest of the line is as without the read.
+    expect({ ...gateLine(failed, read), printed: null }).toEqual(gateLine(failed, null));
+  });
+
+  it("tells one drawing of the Ask section from the next by the gate's line too: its state, its buttons and the output under it", () => {
+    const failed = chained("stopped", ROUND, FAILED);
+    const read = { workItemId: 1, startedAt: 5000, text: "1 failed\n", cut: false };
+    const keys = [
+      headlessKey(1, [], null),
+      headlessKey(1, [], gateLine(chained("running", ROUND, gate()), null)),
+      headlessKey(1, [], gateLine(failed, null)),
+      headlessKey(1, [], gateLine(failed, read)),
+      headlessKey(1, [], gateLine(failed, { ...read, text: "2 failed\n" })),
+      headlessKey(1, [], gateLine(failed, { ...read, cut: true })),
+    ];
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(headlessKey(1, [], gateLine(failed, read))).toBe(headlessKey(1, [], gateLine(chained("stopped", ROUND, FAILED), { ...read })));
   });
 });
 

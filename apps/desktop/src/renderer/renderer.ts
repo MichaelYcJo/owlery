@@ -83,7 +83,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeHeadless, takeSeal, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeGateOutput, takeHeadless, takeSeal, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -1541,6 +1541,10 @@ function onMessage(message: ServerMessage): void {
       return;
     case "headless":
       takeHeadlessSession(message.headless);
+      return;
+    case "gateOutput":
+      // What a broad gate's command printed, for the line whose "Show output" asked.
+      takeGateOutput(message.requestId, { text: message.text, cut: message.cut });
       return;
     case "headlessDropped":
       // The daemon drops only a session that ended, so no dialog that names the running sessions changes.
