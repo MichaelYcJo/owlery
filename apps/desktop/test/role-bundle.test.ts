@@ -116,6 +116,12 @@ describe("the role bundle", () => {
     }
   });
 
+  it("describes the check's body arm and the pull request's body as Owlery holds them, with no composer of a body that pr-check/ no longer holds", () => {
+    for (const file of ["skills/core/SKILL.md", "skills/implement/SKILL.md", "docs/forms/the-round-record.md"]) expect(read(file), file).not.toContain("seal pr-body");
+    expect(read("skills/core/SKILL.md")).toContain("its body arm: a ready pull request fails where its body's seal section, which Owlery's daemon writes, holds a verdict block other than the newest of the work item's `guarantee.md` at HEAD");
+    expect(read("skills/implement/SKILL.md")).toContain("| `pr.md` | no template | nobody: Owlery's daemon writes no `pr.md`");
+  });
+
   it("shapes a run's section as the daemon takes one: the template opens with the run's heading, its one seal block holds target: and Verdict: alone, and the daemon's reader takes the template filled in", () => {
     const template = read("templates/records/sdd-guarantee.md");
     expect(template.split("\n")[0]).toBe("## Run <N>");
