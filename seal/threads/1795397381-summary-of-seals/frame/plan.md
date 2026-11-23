@@ -61,7 +61,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1. The seal reading and the look | `frame/design.md` *Scope* items 1 and 2 | Scenarios 1 and 2 | `fb131bf` |
-| 2. What changed, and the summary's words | *Scope* items 3 to 5 and 7 to 9, 11, and the pure functions of items 12 and 13 | Scenarios 3 to 11 | |
+| 2. What changed, and the summary's words | *Scope* items 3 to 5 and 7 to 9, 11, and the pure functions of items 12 and 13 | Scenarios 3 to 11 | `c2e64d7` |
 | 3. The window, the screenshots and the changelog | *Scope* items 6, 10 and 12 to 17 | Scenarios 12 to 14 | |
 
 ## Overlap with the release
