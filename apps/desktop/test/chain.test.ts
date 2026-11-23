@@ -2976,10 +2976,10 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     await failing({}, ({ gh }) => gh.answer("list", { out: "Showing 0 of 0 pull requests\n" }), /^The pull request stage failed: gh pr list printed no list Owlery reads\.$/u);
     await failing({}, ({ gh }) => gh.answer("create", { out: "Creating pull request\n" }), /^The pull request stage failed: gh pr create printed no address of a pull request\.$/u);
     await failing({}, ({ gh }) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "QUEUED", headRefOid: "a".repeat(40) }) }), /^The pull request stage failed: gh pr view printed no pull request Owlery reads\.$/u);
-    // The stand-in sleeps 30 seconds, so a stage that ends sooner ended it: by the signal, and by the kill 2 seconds after it where the signal is ignored.
+    // The stand-in sleeps 30 seconds, so a stage that ends sooner ended it: by the signal, and by the kill 2 seconds after it where the signal is ignored. The limit leaves a busy machine the time to start the stand-in's shell.
     for (const answer of [{ hangs: true }, { stubborn: true }]) {
       const began = Date.now();
-      const hangs = await failing({ githubLimitMs: 500 }, ({ gh }) => gh.answer("list", answer), /^The pull request stage failed: gh pr list did not end within 0\.5 seconds and was stopped\.$/u);
+      const hangs = await failing({ githubLimitMs: 2000 }, ({ gh }) => gh.answer("list", answer), /^The pull request stage failed: gh pr list did not end within 2 seconds and was stopped\.$/u);
       expect(Date.now() - began, JSON.stringify(answer)).toBeLessThan(25_000);
       expect(hangs.gh.calls().map((call) => call[1])).toEqual(["list"]);
     }

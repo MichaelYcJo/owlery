@@ -2636,11 +2636,15 @@ export class Daemon {
    * stage commits nothing and writes no file in the worktree, since a commit
    * after the sealed one that is no closing record would break the seal.
    *
-   * Where `gh` is missing, a call or the push fails or passes its time limit,
-   * `gh` lists more than one open pull request, or the body it lists holds
-   * its markers otherwise than once each, the stage fails and throws a
-   * `StageStopped` with the chain's sentence, and the stored pull request is
-   * as it was. A daemon that closed meanwhile stores nothing.
+   * The stage fails where no `gh` is found, where the worktree's head moved
+   * after the records were read, where no remote can be told
+   * (`github.ts#pushTarget`), where `guarantee.md` holds no verdict block at
+   * the head, where the push or a call of `gh` fails or passes its time
+   * limit, where an answer of `gh` does not read, where `gh` lists more than
+   * one open pull request of the branch, and where the body it lists holds
+   * its markers otherwise than once each. It then throws a `StageStopped`
+   * with the chain's sentence, and the stored pull request is as it was. A
+   * daemon that closed meanwhile stores nothing.
    */
   private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "sealed" }>): Promise<string | null> {
     const { item } = held;
@@ -2648,7 +2652,7 @@ export class Daemon {
     const routing = await fileAt(worktree, standing.head, relative(worktree, join(directory, ROUTING_FILE)));
     const destination = routingAnswer(routing ?? "", "Destination");
     if (!pullRequestOwed(destination, item.pullRequest, standing.head)) {
-      // An open pull request that carries the head already: the chain says so again, as the stage that pushed it did.
+      // An open pull request that already carries the head: the chain says that it is open.
       return destination === OPEN_PULL_REQUEST && item.pullRequest?.state === "open" ? pullRequestOpenSays(item.pullRequest.number) : null;
     }
     const env = this.options.gateEnv ?? gateEnvironment(process.env, await (this.gatePath ??= loginPath(process.env)));
