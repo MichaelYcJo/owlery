@@ -70,6 +70,12 @@ The case it owes, in `apps/desktop/test/worktrees.test.ts` beside the case at li
 
 The snippets leave these statements of the same fact, and the fix pass owes each. The calls of the two cases at `worktrees.test.ts:1058-1094` take the list in place of `from`. The docstring of `Daemon#runSeal` (`daemon.ts:2446-2451`) says "so none that a merge brought from another branch". The bullet of `changelog.md:13` says the sentence quoted above, and it gains the fast-forward and the rebase. The memo of `gaps.md:65` is rewritten in place to say what still stands. `frame/design.md:133` and `:291` say "the commits `git log --first-parent` walks" between the two names, and they belong to the fold.
 
+```seal
+verdict: fixed 15c4513
+location: `apps/desktop/test/chain.test.ts`
+answer: The finding holds. The precondition was read first. The trailers are read in the work item's worktree, and `Daemon#runSeal` resolves its `base` there before the stage starts: the work item's base branch where `commitNamed` gives its name a commit in that worktree, and the base commit otherwise. So that base is readable where the read runs. The base of the verdict's `target:` line is `Standing.base`, which `chain.ts#roundBase` takes from the name's spelling alone, so it may name a branch that is gone. The read therefore takes the `base` the sealer's diff is read against, as the snippet does. `trailerValues` takes the list as the snippet has it, and its docstring is in the pass's own words and says what is still read. The case is the snippet's with a rebase added. The fix also went to a path the finding does not name: a case of `test/chain.test.ts` holds the daemon's call, on a branch rebased onto a base that holds another work item's fix-pass commit. Each case was shown red by `seal mutate` after the commit. With the base branch left out of the read, which is the old read, the first failed at its fast-forward's assertion with `s-other` before `s-this`. With `[baseCommit]` alone in the call, the chain's case failed with `built-by: the session, s-other, fake-2`. The rebase's assertion of the first case was not shown red apart from the fast-forward's, which fails before it. The bullet of `changelog.md` on the seal record, the memo of `gaps.md` on `built-by:`, `frame/design.md` *Scope* item 16 and its *Data & interfaces* line say the new range. Of the two fixes the record weighs, the pass took the exclusion, which the orchestrator's handoff names, and not the read of `Seal-Routing:`. Two branches stay uncovered and stand in `gaps.md` `## Not done`: a commit taken from a name the base branch does not hold where the read runs, and a base branch that holds the work item's own commits.
+```
+
 ### 2. `gaps.md` says that this work is no cause of the bullet "Nothing in the app writes or shows a decision or a question yet", and this work's sealer writes both
 
 ```seal
@@ -96,6 +102,11 @@ This work rewrote five bullets of earlier changelog fragments of the release tha
 ```
 
 The snippets leave one statement of the same fact. `frame/design.md:164`, *Scope* item 29 as `b7621c1` folded it, names four fragments, and the fold owes it the fifth, `seal/threads/1795338001-records-place-and-pr-check/changelog.md`, on nothing in the app writing a decision or a question.
+
+```seal
+verdict: fixed ec508ee
+answer: The finding holds. The bullet is rewritten in place, in the pass's own words. The snippet's last sentence kept "come with issue #119" for the inbox line, the reversal and the answer, which reads as work still to come, and #119 is merged in this release. The bullet now says that #119 builds those three on the daemon's code and that the stages of "Get a seal" write the decisions and the questions. The memo of `gaps.md` is rewritten in place, in the pass's own words as well: it names the five bullets, what this pass made true beside them under finding 3, and the three statements that stand as they were. `frame/design.md` *Scope* item 29 names the fifth fragment.
+```
 
 ### 3. Two sentences the fix pass wrote into earlier fragments leave out the orchestrator's judgments that "Get a seal" runs
 
@@ -124,6 +135,12 @@ The stages of "Get a seal" launch the role sessions: a proofer at each review ro
 ```
 
 The snippet for `changelog.md:7` stops at that sentence. The sentence before it, "It refuses each command of a proofer and of a sealer that asks for permission", names no orchestrator either, whose grant runs nothing. That omission dates from #41, which added the role, and *Not judged* holds it.
+
+```seal
+verdict: fixed ec508ee
+location: `seal/threads/1795329620-role-bundle/changelog.md`, `seal/threads/1795393338-broad-gate-and-sealer/gaps.md`
+answer: The finding holds. The sentence on the route takes the replacement, with "is listed as" for "is listed with the kind". The last sentence of the role tools' bullet takes the replacement as given. On the orchestrator's word, the same commit also makes true what the bullets under rewrite said of the roles, which *Not judged* names and this work is no cause of. The role tools' bullet names the orchestrator among the roles whose commands that ask are refused (`role-grants.ts#GRANTS`). The two bullets of `seal/threads/1795329620-role-bundle/changelog.md` that said three roles say four, name the orchestrator and what it judges, and say that its definition came with #41. That fragment is a path the finding does not name, and so is the memo of `gaps.md`, which names these rewrites. Two statements of the same kind stand in bullets the pass did not rewrite, and `gaps.md` names each: the role bundle's bullet for a client of the daemon, which lists three pairs an `ask` takes, and the role tools' bullet on a role's tools, which names no orchestrator.
+```
 
 ## Confirmations
 
