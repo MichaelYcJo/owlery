@@ -1,0 +1,314 @@
+# Design: 1795395059-pull-request-and-seal-check
+
+Issue #43: a sealed branch opens no pull request, and GitHub shows no seal check.
+
+This frame keeps the words of the two frames it builds on in the sense they give them: the **chain**, a **stage** and the **step owed** of `seal/threads/1795388700-review-rounds/frame/design.md`, and the **gate's commit**, the **closing records** and a **seal** of `seal/threads/1795393338-broad-gate-and-sealer/frame/design.md`. It adds five, each used in one sense. The **pull request stage** is the stage in which the daemon pushes the branch and opens or updates the pull request. The **seal section** is the part of a pull request's body between the two marker lines *Data & interfaces* gives. The **job** is the job `seal` of the workflow a connected repository runs. The **seal check** is the check named `Owlery seal` that the job posts on the pull request's head commit. The **watch** is the daemon's repeated read of an open pull request from GitHub.
+
+## Grounding
+
+The tree as read at `bdf2d8c`. Each row is labelled `read` where a file was opened and `executed` where a command gave the fact. The frames of the release's other work items are read on their branches: #41's at `4313c78`, #42's at `0cff3e9`, #46's at `9be0035` and #45's at `9655c77`. None of them has merged into `release/v0.0.2`.
+
+| Policy clause | What it fixes for this work |
+|---|---|
+| `docs/product.md` *What we promise* (read) | The pull request opens only when an independent party gave its verdict. Under `agentic` no question holds the run: only what the code and the policy cannot answer and the session cannot give itself parks a work item |
+| `docs/product.md` *The seal*, item 2, and *The seal belongs to the product and looks the same everywhere* (read) | The seal on the pull request is one of the three places the seal is shown. The pull request's body and GitHub's check result are displays, and every display reads the same record |
+| `docs/product.md` *Foundation*, the paragraph on a work item's line, with the issue's comment of 2026-11-22 (read; the comment executed with `gh issue view 43 --json title,body,comments`) | An archive takes a work item's decisions off the inbox and the summary. The comment has the merge of the work item's pull request do the same, and this work builds it |
+| `docs/product.md` *What we deliberately don't do* (read) | Owlery builds no review bot, and nothing removes a branch on a remote |
+| `docs/architecture.md` *Conclusions*, "Owlery provides no login", and *Overall layout*, the daemon's `git, gh` (read) | The daemon reaches GitHub through the person's `gh` and the person's git, and stores no token |
+| `docs/architecture.md` *What we take from AgenticSeal*, the rows of the invariants and of the scripts (read) | No pull request without a seal, held by the daemon's code and by the pull request check. The daemon runs no Python. `pr-check/` is Owlery's own copy, and the issue that builds each command's work decides how the daemon does it |
+| `docs/architecture.md` *What changes because Owlery is not a plugin*, the row "Waiting for CI results" and the sentence "The PR check stays" (read) | The daemon waits, reports through the UI and a notification when CI finishes, and keeps no agent running. A person without the app gets the same verdict on the pull request |
+| `docs/architecture.md` *State lives in three places* and *Records are committed to the repository* (read) | Progress is the daemon's state. The workflow of a connected repository fetches `pr-check/` and runs `chain_check.py`. A pull request that declares no work item is passed unjudged |
+| `docs/architecture.md` *Code runs the order, the orchestrator judges*, the first row of its table (read) | The order ends `seal → seal pr-body → PR → seal pr-wait`, and the daemon's code runs it |
+| `docs/architecture.md` *Screen framework: Electron* (read) | A link opens in the system browser only where its address is an `http` or `https` one, and an app started with `OWLERY_BACKGROUND=1` opens nothing there |
+| `docs/roadmap.md` *Milestones* row 2 and *Open decisions*, the rows "Creating a PR without a seal" and "PRs from outside contributors" (read) | The seal is posted as a GitHub check and never as an approving review, the repository's administrator turns on the required check, and the person merges. An outside contributor's pull request is not sealed in v0.1 |
+| `docs/design.md` *Components and their states*, *The voice of the window's words* and *A pull request that changes the window carries its screenshots* (read) | A fact of a view is a row of a list of records. A state is two words at most. A change of the window owes its screenshots |
+
+The unsettled designs' `## Rule changes` name none of the paragraphs this work changes. Executed: an `awk` over every `seal/threads/*/frame/design.md` at `bdf2d8c` printed each operation's `file:` and `section:` line. One names *A pull request that changes the window carries its screenshots* (`seal/threads/1795343000-background-window-unseen/frame/design.md`), one names *Foundation* (`seal/threads/1795339001-worktree-setup/frame/design.md`), and none names *Code runs the order, the orchestrator judges* or *Records are committed to the repository*. #41's and #42's frames each add a paragraph to those two sections (read on their branches), and this work adds one more to each. `docs/README.md` does not stand (executed: `ls docs/README.md`), so each `file:` below is a document of `docs/` read at this commit, and each has a `.ko.md` edition that carries the same operation. `seal/follow-up.md` does not stand (executed: `ls seal/follow-up.md`). No release holds a process change. Executed: `gh release view --json tagName,body` gave `v0.0.1` with no `Process changes` heading, and `grep -l 'Process changes' seal/threads/*/changelog.md` named no file.
+
+What earlier work items decided, which this frame does not argue again:
+
+| Record | What it fixes for this work |
+|---|---|
+| `seal/threads/1795388700-review-rounds/frame/design.md` *Scope* items 1, 3, 4, 13, 14, 15, 25 and 27 (read at `4313c78`) | `getSeal` starts the chain. The step owed is a function of the records and git. A stage that fails stops its one chain, and a later `getSeal` runs the step owed. A running chain holds the daemon and the Mac. The chain is stored with its work item. A stopped chain makes the line wait and raises a notification |
+| `seal/threads/1795393338-broad-gate-and-sealer/frame/design.md` *Scope* items 1, 2, 15 and 19, and *Out of scope*, the first item (read at `0cff3e9`) | The chain rests `sealed` where the newest verdict block is a seal whose `target:` names the gate's commit. A path that is no closing record and that differs between the gate's commit and the branch's head owes the gate again. So whatever this work committed after the seal would break it. The closing records are `trail/gate.md`, `guarantee.md` and `trail/refusals.md` |
+| `seal/threads/1795393338-broad-gate-and-sealer/frame/plan.md` *Overlap with the release*, the row of #43 (read at `0cff3e9`) | #43 shares `chain.ts`, the check's body arm and the closing-record rule with #42, and merges after it |
+| `seal/threads/1795338001-records-place-and-pr-check/frame/design.md` *Scope* items 1, 25 and 27 (read) | `pr-check/` holds the files `chain_check.py` loads, `pr_body.py` among them. Each issue that builds a stage rewrites what the check prints for it. The check's name for the required check and the README's sentence on it are this work's, read from `Repository.records.check` |
+| `seal/threads/1795342001-progress-through-roles/frame/design.md` *Scope* items 3 and 9, and *Out of scope*, the item on the orchestrator's judgment (read at `9be0035`) | The window's table gives each kind of stage a place or none. A kind that belongs to none of the four roles marks no place, and the line of the inbox names it while it runs |
+| `seal/threads/1795341001-cost-per-stage/frame/design.md` *Scope* item 7 (read at `9655c77`) | `LedgerStage` names a pair of `ROLE_STAGES`, the gate, or null. It has no value for a stage of this work |
+
+What the tree holds, at `bdf2d8c`:
+
+- **Nothing reaches GitHub.** Executed: `git grep -n -e '"push"' -e "'push'" -e 'gh pr' -e '"gh"' bdf2d8c -- apps/desktop/src` printed nothing, exit 1. The daemon runs git for a fetch of a base (`worktrees.ts#fetchBase`) and pushes nothing.
+- **No work item knows a pull request.** Read: `apps/desktop/src/shared/protocol.ts#WorkItem` has no field for one.
+- **The check's body arm compares the whole body, and refuses a work item with no `pr.md`.** Read: `pr-check/skills/code-review/scripts/chain_check.py:1815` `body` hands the payload's body to `pr_body.py#compared`, which composes the body from `pr.md` and the records and refuses each differing line. `pr_body.py:448` `read_own` refuses where `pr.md` is not there. So at `bdf2d8c` a ready pull request of a "Get a seal" work item, which holds no `pr.md`, fails the check whatever its body says, and any line a person adds to a body fails it too.
+- **The composer the body arm stands on is Python, and the daemon runs none.** Read: `pr_body.py` copies the changelog, the plan's phases, the round records' blocks, the gate's blocks, the closing memo and the questions, folds them to GitHub's limit of 65,536 characters, and adds the seal mark, a picture whose address comes from AgenticSeal's plugin manifest (`pr_body.py:325`), which `pr-check/` does not hold.
+- **The workflow's job is the only check a pull request gets.** Read: `apps/desktop/src/daemon/records-place.ts#workflowText` writes a workflow named `seal` with one job `seal`, `permissions: contents: read`, and one step that runs `chain_check.py --baseline origin/<base>`. The job ends by the script's exit code. A job ends as success or failure and cannot end as neutral.
+- **The check judges a draft and a ready pull request apart.** Read: `chain_check.py:2219`, where a draft prints the same lines and exits 0.
+- **`routing.md` names where the work goes.** Read: `pr-check/lib/routing.py:67` gives the `Destination` row two answers, `open the pull request` and `stop before the pull request`. The `routing.md` the daemon writes at the first start reads `open the pull request` (#41's *Data & interfaces*).
+- **The daemon reads each work item's branch on a timer while a client is connected.** Read: `daemon.ts:1727` `scheduleCommitRead` and `daemon.ts:1761` `readCommits`, every `commitPollMs`, 3 seconds when absent. `daemon.ts:1838` `checkIdle` asks to exit once the daemon holds no client, no live pane and no working session.
+- **A decision is counted on a line, in the summary and in the filter from `WorkItem.decisions`.** Read: `apps/desktop/src/renderer/view.ts:1025` `lineBadge`, `view.ts:837` `changesSince` and `view.ts:773` `matchWorkItems`. An archived work item is in none of the three because it is not in `workItems`.
+- **A repository's dialog says what its records place holds.** Read: `view.ts:1591` `recordsDialog` gives the lines "Records", "Check" and "Broad gate" for a repository that holds every part.
+- **This repository's own pull requests are checked by AgenticSeal's check.** Read: `.github/workflows/hygiene.yml` clones the plugin at `v0.38.4`. A change to `pr-check/` changes nothing of the check on this work's own pull request.
+
+What the commands gave (executed, 2026-11-23):
+
+- **The person's `gh` here is 2.92.0, and it answers with no terminal.** `gh --version`. `gh pr list --head feat/43-a-sealed-branch-opens-no-pull-request --state all --json number,url,state`, run with no terminal from the worktree, printed `[]` and exited 0. `gh pr create --help` lists `--head`, `--base`, `--title` and `--body-file`. `gh pr edit --help` lists `--body-file`. `gh pr list --help` lists `--head`, `--state` and `--json`.
+- **One read gives a pull request's state, its head and its checks.** `gh pr view 159 --json number,url,state,isDraft,headRefOid,baseRefName,mergedAt,statusCheckRollup` printed `state` as `MERGED`, `headRefOid` as a whole commit id, `mergedAt` as a time, and `statusCheckRollup` as a list whose entries hold `__typename` `CheckRun`, `name`, `status` `COMPLETED`, `conclusion` `SUCCESS`, `detailsUrl` and `workflowName`.
+- **The check's block reader reads a verdict block out of a body, where it is handed the section's lines alone.** `python3 -B test_tmp_body_block.py`, a probe under the framer's scratch directory that loads `pr-check/lib/fields.py` of a `git clone --no-local` of this worktree at `bdf2d8c`. Handed a whole body, `fields.read` returned the block between two marker lines with its `target:` and `Verdict:` values, and refused each marker line: "the line begins with `<!--`, and a record carries no HTML comment". A block whose verdict line was edited read with the edited value, and a block with a line outside the grammar was refused at that line. So the arm of *Scope* item 22 hands the reader the lines between the markers and neither marker.
+
+- **The reader the check uses parses this design's `## Rule changes`.** `python3 -B test_tmp_rule_changes_2.py`, which loads `pr-check/skills/settle/scripts/rule_changes.py` of the same clone and calls `parse` on this file with the policy root `docs`. It returned every operation of the section, no error and nothing unread. A first probe file called `parse` without its policy root and ended in a `TypeError`, and read nothing. Each `section:` stands once as a heading of the file its operation names (executed: a `grep -c` of each heading over `docs/`).
+
+What GitHub's documents say (read with a fetch of each page on 2026-11-23, and run by nobody):
+
+- "Write permission for the REST API to interact with checks is only available to GitHub Apps. OAuth apps and authenticated users can view check runs and check suites, but they are not able to create them." A check run's `conclusion` may be `neutral`, and its required parameters are `name` and `head_sha` (REST API, *Check runs*). So the person's `gh` cannot post a check, and a check that can end neutral is a posted check run.
+- "`checks: write` permits an action to create a check run", and where a pull request from a fork starts the workflow, "the permissions are adjusted to change any write permissions to read only" (*Workflow syntax for GitHub Actions*, `permissions`).
+- "Required status checks must have a `successful`, `skipped`, or `neutral` status" (*About protected branches*).
+
+Whether a run's token posts the check on a real pull request is `frame/questions.md` Q2.
+
+The searches this frame's cells state, each run at `bdf2d8c` (executed):
+
+- `git grep -n -e 'pr_body' -e 'close_issues_on_release' bdf2d8c -- pr-check apps/desktop/test ':!pr-check/skills/code-review/scripts/pr_body.py' ':!pr-check/.github/scripts/close_issues_on_release.py'` printed `apps/desktop/test/pr-check.test.ts` lines 193 and 197, `pr-check/lib/fields.py` line 46, `pr-check/lib/lines.py` lines 41 and 514, and `chain_check.py` lines 82, 1775, 1776, 1777, 1798, 1801, 1803, 1804, 1806, 1809, 1812, 1819, 1832 and 1841. *Scope* items 22 and 23 rewrite or remove each.
+- `git grep -n -e 'gaps\.py' bdf2d8c -- pr-check apps/desktop/test ':!pr-check/lib/gaps.py' ':!pr-check/skills/code-review/scripts/pr_body.py'` printed `pr-check/lib/fields.py` lines 45 and 240, `pr-check/lib/items.py` line 10, `pr-check/lib/lines.py` lines 10 and 513, and `pr-check/skills/settle/scripts/rule_changes.py` line 6, each a comment. *Scope* item 23 rewrites each.
+- `git grep -n -e 'sibling.load("lib/gaps.py")' -e 'from gaps' -e 'import gaps' bdf2d8c -- pr-check` printed `pr_body.py` line 180 alone, so nothing but `pr_body.py` loads `lib/gaps.py`. `git grep -n -e 'close_issues_on_release' bdf2d8c -- pr-check` printed lines of that file itself, the comment at `lib/lines.py` line 41, and lines of `pr_body.py`, whose line 183 is the one load.
+- `git grep -n -e 'pr review' -e 'pr merge' -e 'pulls/.*/reviews' -e 'pulls/.*/merge' bdf2d8c -- apps/desktop/src pr-check` printed nothing, exit 1. The search can fail: a build that has `gh` review or merge prints that line.
+
+The ticket as handed over. The issue was read whole with `gh issue view 43 --json title,body,comments` on 2026-11-23 (executed). Its body is not folded. Its one comment is the owner's, of 2026-11-22: a decision made without asking leaves its work item's inbox line and the summary when the work item's pull request merges, and this issue builds that exit. *Scope* item 17 takes it in. Issue #64 was read the same way: it has the seal check end as neutral on a hotfix branch with no seal, and says that no document has checked whether GitHub lets a required check with that result through. Issue #44 was read the same way, and its scope is left to its frame.
+
+Not shown by anything in this frame: a push to GitHub, a pull request on GitHub, and a posted check. The owner's rules of this run let no probe reach a real remote and none create anything on GitHub. `frame/questions.md` Q2 names what the first real chain measures.
+
+## Scope
+
+### The pull request stage
+
+1. **After a seal the chain owes the pull request, where the work item's routing sends it to one.** When the order's function says that the chain is `sealed` (`seal/threads/1795393338-broad-gate-and-sealer/frame/design.md` *Scope* item 1), the chain's run reads two more things before it rests. The first is the `Destination` row of the work item's `routing.md` at the branch's head. The second is the pull request the daemon stores for the work item (item 12). The pull request stage is owed where the row reads `open the pull request` and one of these holds: no pull request is stored, the stored one is `closed`, or the stored one is `open` and the commit it was last pushed at is not the branch's head. Where the row reads `stop before the pull request`, or the stored pull request is `merged`, no stage is owed and the chain rests. The order's function is not changed: it stays a function of the records and git, and what GitHub holds is read by the chain's run.
+2. **A chain that is not `sealed` reaches no code of the stage.** The stage has one caller, the branch of the chain's run that item 1 names. No message of a client pushes a branch or opens a pull request.
+3. **The stage commits nothing and writes no file in the worktree.** A commit after the gate's commit that is no closing record owes the gate again, so the stage would break the seal it carries. The body's file is written in the daemon's run folder, and in the system's temporary folder for a daemon given no run folder, and removed when the stage ends.
+4. **The branch is pushed to one remote, with the person's git.** The remote is the first of these that names one: the remote of the work item's `baseBranch`, where that names a remote's branch; the clone's one remote, where it has one; `origin`, where the clone has it. Where none names one, the stage fails with a sentence that says the clone names several remotes and no base on one of them. The daemon runs `git push --set-upstream <remote> <branch>` in the worktree, with no `--force` and with `GIT_TERMINAL_PROMPT=0`, so a push that would ask for a credential fails. The repository's own push hooks run. A push the remote refuses fails the stage with git's first line.
+5. **Every call to GitHub goes through the person's `gh`, and Owlery reads and stores no token.** The daemon starts `gh` with no shell and no terminal, in the worktree, as the leader of a process group of its own. Its environment is a pane's (`pty.ts#terminalEnv`) with the `PATH` the person's interactive login shell prints, `GH_PROMPT_DISABLED=1` and `NO_COLOR=1`. Where no `gh` stands on that `PATH`, the stage fails with a sentence that says so and names `https://cli.github.com`. One module, `github.ts`, holds every call, and the calls are of four kinds: `gh pr list`, `gh pr create`, `gh pr edit` and `gh pr view`. Each call and the push end at `GITHUB_LIMIT_MS`, and the process group is ended as a role session's is.
+6. **An open pull request of the branch is updated, and a second one is never opened.** The stage first runs `gh pr list --head <branch> --state open --json number,url,headRefOid,body`. Where it lists one pull request, the stage replaces the seal section of that body (item 10) and sends the body with `gh pr edit <url> --body-file <file>`. Where it lists none, the stage runs `gh pr create --head <branch> --title <title> --body-file <file>`, with `--base <branch>` where item 8 gives one, and reads the address `gh` prints. Where it lists more than one, the stage fails with a sentence that names their numbers. The pull request is opened ready and never as a draft.
+7. **The title is the work item's own.** It is the work item's `title`, and where that is empty, the subject of the oldest commit the branch holds after `baseCommit`. A title is cut at 256 characters. An edit of an open pull request leaves its title as it is.
+8. **The base is the work item's base branch, named as GitHub names it.** Where `baseBranch` names a remote's branch, the base is that name without the remote. Where it names a local branch, the base is that branch's name. Where it is null, the daemon names no base, and `gh` takes the repository's default branch.
+9. **The body is composed from the records the head commit holds, and opens with the seal section.** The seal section holds the newest verdict block of `guarantee.md`, copied line for line, under a heading and one fixed sentence that names the record's path. *Data & interfaces* gives the section whole. Below it the daemon writes, each under its own heading and each only where its record stands: `changelog.md` whole; for each round record its path and one line for each finding, with the finding's heading and its close's verdict; the newest run block of `trail/gate.md`; and each decision of `decisions.md` with what was decided and its grounds. Every record is read with `fileAt` at the branch's head and through the daemon's own readers. Where the body would pass 65,536 UTF-16 code units, the parts below the seal section are replaced, the last first, by one line that names the part's record, until the body fits. The seal section is never cut.
+10. **Only the seal section is Owlery's in an open pull request's body.** At an edit the daemon reads the body `gh pr list` gave, replaces the lines from the opening marker to the closing marker with the new section, and changes no other line. Where the body holds no marker line, the section is put before the body's first line. Where it holds more than one opening marker or more than one closing marker, the stage fails with a sentence that says so, and changes nothing.
+11. **A stage that fails stops its one chain, and nothing parks.** The chain is `stopped` with a sentence that names the stage and says why, as #41's *Scope* item 14 has it: no `gh`, a `gh` that is not logged in, a push the remote refused, a pull request `gh` could not create or edit, a call that reached its limit. The seal stands, since nothing was committed. A later `getSeal` reads the records, finds the chain `sealed`, and runs the stage again by item 1. A question's block would be a commit after the seal, so no failure of the stage is written as a question (`frame/plan.md` *Alternatives considered*).
+
+### The watch
+
+12. **A work item carries its pull request, as GitHub last answered.** `WorkItem` gains `pullRequest`, a `PullRequest` or null. *Data & interfaces* gives the type. The daemon stores it with the work item, in `StoredWorkItem`, as it stores `setup` and `chain`. The stage writes it from a `gh pr view` of the address `gh pr create` printed or `gh pr list` gave. No record of the repository holds it.
+13. **The daemon reads an open pull request again on a timer, with one call and no agent.** The read is `gh pr view <url> --json number,url,state,isDraft,headRefOid,mergedAt,statusCheckRollup`. It runs for each work item that is not archived and whose stored pull request is `open`: once at each client's hello, then every `PR_POLL_MS` while the pull request's checks are `pending` or its `head` is not the commit the stage pushed, and every `PR_REST_POLL_MS` otherwise. The timer runs only while a client is connected, as the read of the branches does. The watch holds neither the daemon nor the Mac: it keeps no process between two reads, and `checkIdle` and `wantsAwake` do not read it.
+14. **The checks are read into three states, and the pull request into four.** A check of the kind `CheckRun` is `pending` until its `status` is `COMPLETED`, then `passed` for the conclusions `SUCCESS`, `NEUTRAL` and `SKIPPED`, and `failed` for every other. A check of the kind `StatusContext` is `pending` for the state `PENDING` or `EXPECTED`, `passed` for `SUCCESS`, and `failed` for every other. The pull request's `checks` is `none` where GitHub lists no check, `failed` where one check failed, `pending` where none failed and one is pending, and `passed` otherwise. An entry the daemon cannot read is kept as a check named by its position with the state `failed`, and decides nothing more.
+15. **The work item's line shows the result.** Where no pane and no chain says more, a pull request whose checks are `pending` makes the line's state `working`, one whose checks `failed` makes it `waiting`, and one whose checks `passed` makes it `finished`. The line's second row says the result in the words of *Data & interfaces*, and names the first failed check. The window raises the notification of a work item that begins to wait or finishes when the line's state changes so, as it does for a session.
+16. **A read that fails changes nothing but its own sentence.** Where `gh` fails or its answer does not read, the stored pull request keeps what the last read gave, and its `failure` holds one sentence with `gh`'s first line. The next read runs at `PR_REST_POLL_MS`. A read that succeeds clears the sentence.
+17. **A work item whose pull request merged shows no decision on its line, in the summary or under the filter.** Where the stored pull request is `merged`, the line's mark of decisions is empty, `changesSince` counts no decision of the work item, and the filter of the decisions does not list it. The work item's view and its preview go on listing every decision with its grounds, and the record keeps them. The watch reads a `merged` or a `closed` pull request no more.
+18. **An archive, a delete and a removal change nothing on GitHub.** The watch reads no archived work item. A delete removes the stored pull request with its work item, and names no ref of a remote to git, as today.
+
+### The seal check
+
+19. **The check posts its verdict as a check named `Owlery seal` on the pull request's head commit.** `chain_check.py` gains the option `--post`. With it, after the arms have run, the script sends one request, `POST <GITHUB_API_URL>/repos/<GITHUB_REPOSITORY>/check-runs`, with the token of `GITHUB_TOKEN`, through Python's standard library. The request names the check, the commit `pull_request.head.sha` of the event payload, the status `completed`, the conclusion, a title and a summary. *Data & interfaces* gives the conclusion and the title for each outcome. The summary holds the newest verdict block of each judged work item and each line the check refused. One function gives the outcome from what the arms returned, and both the printing and the posting read it, so #64 adds its outcome in one place.
+20. **The job's own result stays the script's exit code, and a request GitHub refuses changes none.** Where the request fails, the script prints one notice with GitHub's status and exits as it would without `--post`. So a pull request from a fork, whose run holds a token that cannot write a check, gets the job's result and no posted check. Without `--post`, without `GITHUB_TOKEN`, and under `--worktree`, nothing is sent.
+21. **The workflow lets the job post.** `records-place.ts#workflowText` gains `checks: write` beside `contents: read`, hands the step `GITHUB_TOKEN` from `${{ github.token }}`, and passes `--post`. The workflow's name, its job's name and its events stay. No release has shipped a build that writes the earlier text.
+22. **The body arm reads the seal section alone.** `chain_check.py#body` is rewritten. Where the payload's body holds one opening marker line and one closing marker line after it, the arm hands the lines between them to `lib/fields.py` with the grammar of a guarantee. It refuses, on the work item's directory and naming the body's line: a line the reader refuses; a section with no verdict block or more than one; and a block whose keys and values are not those of the newest verdict block of one judged work item's `guarantee.md` at HEAD. A body with no marker line, a payload with no body and `--worktree` are named as not read, and nothing is refused for them. A body with more than one opening or closing marker is named as not read. No other line of the body is read. The branch of `--sealing` that turns the arm's refusals into notices goes, since no body stands before the seal in Owlery's order.
+23. **The composer and what only it loaded leave `pr-check/`.** `skills/code-review/scripts/pr_body.py`, `.github/scripts/close_issues_on_release.py` and `lib/gaps.py` are removed. Each comment that names one of them, in `lib/fields.py`, `lib/lines.py`, `lib/items.py` and `skills/settle/scripts/rule_changes.py`, and the docstring of `chain_check.py`, is rewritten in place. `pr-check/README.md` says what the folder holds without the count of files it gives today, and says that the check posts `Owlery seal`. The case of `test/pr-check.test.ts` that lists the folder's scripts loses the removed ones.
+24. **The body arm's sentences say what Owlery does.** Each sentence the rewritten arm prints names the seal section, the daemon that writes it and `guarantee.md`, and none names `seal pr-body`, `pr.md` or the orchestrator.
+
+### The protocol and the window
+
+25. **The protocol carries the stage and the pull request.** `CHAIN_STAGE_KINDS` gains `pull-request`. `WorkItem.pullRequest` is item 12's. No message is added: `getSeal` starts the stage, and the `inbox` carries the result. No field names a vendor: the checks are named by the neutral states of item 14.
+26. **The work item's view lists the pull request among its facts.** Under the seal's place the view shows the pull request's number, its state, the result of its checks, and one row for each check with its name and its state. The number opens the pull request's address in the system browser, and a check's row opens the check's address, each through the main process's rule for a link: an `http` or `https` address alone, and nothing in an app started with `OWLERY_BACKGROUND=1`. A `failure` of the watch stands under the rows. The stage is not listed under "Ask": the chain's sentence by the "Get a seal" button says what the stage did.
+27. **The window's table of the kinds of stage gives `pull-request` no place.** In the table of `view.ts` that #46 adds, the kind marks none of the four roles' places, as a judgment marks none. While the stage runs, the line of the inbox names it in short.
+28. **The repository's dialog tells an administrator how to make the seal check required.** For a repository whose `records.check` is Owlery's workflow, `recordsDialog` gains one more line, in the state that shows what the repository holds and in the state that shows a plan. It names the check `Owlery seal`, says that an administrator of the repository requires it on GitHub in the repository's rules for the base branch, under the rule that requires status checks, and says that Owlery changes no setting of the repository. For a repository that keeps AgenticSeal's `hygiene.yml`, the line says that this workflow posts no `Owlery seal` check.
+29. **The README says the same, in both editions.** `README.md` and `README.ko.md` each gain one section on the seal check: what posts it, on which commit, what its results mean, how an administrator makes it required, and that Owlery writes no review and merges nothing. The two editions gain the same headings, so the counts the broad gate compares stay equal.
+30. **The pull request carries the screenshots of the changed view, and the scene holds a pull request.** The finished work item of the screenshot run carries a pull request whose checks passed, so its line and its view show the facts of item 26. The crafter runs `pnpm run screenshots` in `apps/desktop` and commits the files under this work item's `screenshots/`.
+31. **The changelog says what ships, and the earlier bullets are made true.** This work writes its `changelog.md`. Where the fragment of `seal/threads/1795393338-broad-gate-and-sealer/` says that the chain ends at the seal, or the fragment of `seal/threads/1795338001-records-place-and-pr-check/` says what the check's workflow runs, the crafter rewrites that bullet in this pull request.
+
+### Out of scope
+
+- **Whether a seal still holds at the branch's head, a broken seal, and "Get a new seal".** #44 frames them. After a later commit the order of #41 and #42 already owes a round, a gate and a seal, item 1 then owes the stage again, and the check on GitHub already refuses a head the guarantee does not name.
+- **A pull request a person opens by hand, the hotfix exception and the neutral result for it.** #64 builds them. This work leaves the room the issue's last line asks for: the seal check is a posted check, whose conclusion may be neutral, and one function decides the conclusion (item 19).
+- **A merge button.** #67. Owlery merges nothing here.
+- **A failed check or a reviewer's comment returning to the work item as an event that starts a stage.** Milestone 5 (`docs/roadmap.md` *Milestones* row 5). This work shows the result and starts nothing on it.
+- **A pull request across two repositories.** The branch is pushed to one remote, and `gh` opens the pull request in the repository it resolves in the worktree. Where the two are not the same repository, `gh` refuses, and the stage fails with its words.
+- **A first part of the body written by an agent or a person, and a line that closes an issue.** No work item holds an issue before milestone 3, and #56 brings the stages that could write one. The body outside the seal section is free, so that work needs no change of the check.
+- **A ledger entry for the stage.** `LedgerStage` has no value for it, and the stage is no agent's turn.
+- **A repository that keeps AgenticSeal's `hygiene.yml`, and moving this repository's own check to Owlery's workflow.** That check holds the whole body to AgenticSeal's composer. `docs/roadmap.md` *Milestones* row 2 ends with one pull request of Owlery's own sealed by Owlery, which #48 walks through.
+- **A workflow on `pull_request_target`.** It would give a fork's pull request a posted check, and it hands a token that can write to a run that reads the pull request's files. `frame/questions.md` Q1 names it as an option.
+- **A real push, a real pull request and a real posted check.** No case and no probe of this work reaches GitHub. `frame/questions.md` Q2 holds what the first real chain measures, the run of the issue's fourth *Done when* line among it.
+- **A signature on the seal section.** `docs/product.md` *Open decisions*, the row "Signing the seal record".
+
+### Where each line of the issue's *Done when* lands
+
+| The issue's line | Scope items |
+|---|---|
+| After the sealer's verdict the daemon composes the pull request body from the committed records, pushes the branch and opens the pull request through the user's `gh`, with no login of Owlery's own | 1, 3, 4, 5, 6, 7, 8 and 9 |
+| The pull request shows the seal with the commit it is bound to, and the seal check passes on that head commit | 9, 19 and 22, and scenarios 1 and 11 |
+| The verdict is a check. Owlery posts no approving review and merges nothing | 5 and 19, and scenario 9 |
+| A person without the app opens the pull request and reads the same verdict there, written down from a run | 9, 19 and 22 for what they read. The run is `frame/questions.md` Q2 |
+| The app tells the repository's administrator how to make the seal check required, and the README says the same | 28 and 29 |
+| The daemon waits for the pull request's checks without keeping an agent running, and the work item's line shows their result | 13, 14, 15 and 16 |
+| A chain that ends without a seal opens no pull request | 1 and 2, and scenario 4 |
+| Where the pull request's head has no seal, the check's result and text leave room for the hotfix exception that #64 adds later | 19 and 20, and the table of outcomes in *Data & interfaces* |
+| The issue's comment: a decision leaves the line and the summary when the pull request merges | 17 |
+
+## User scenarios & acceptance *(mandatory)*
+
+Every case of the daemon runs through the fake adapter, on a temporary repository whose remote is a bare repository in a temporary folder, with a stand-in for `gh` that the case writes: a script that notes each call's arguments and the body file's text, and answers from a file the case fills. No case reaches GitHub, and none starts a real `claude`. The cases of the check run `python3` as `test/pr-check.test.ts` does today, and the posted request goes to a server the case starts on the loopback address. `test/pull-request.test.ts` is a new file of `apps/desktop/test/`. `chain.test.ts` and `get-a-seal.test.ts` are #41's. The crafter shows each new case red before it is planted (contract rule 15).
+
+| Scenario | Given / When / Then | Verifiable how |
+|---|---|---|
+| 1. A sealed chain opens its pull request | Given a work item whose chain ends `sealed`, a `routing.md` that reads `open the pull request`, and a stand-in that lists no pull request. When the chain runs on. Then the bare remote holds the branch at the worktree's head, the stand-in was called with `pr list`, then `pr create` with the branch, the base, the title and a body file, then `pr view`. The body opens with the seal section, whose block is the newest verdict block of `guarantee.md` line for line. The work item's `pullRequest` holds the number, the address, `open` and the head. The branch's head is the commit it was before the stage, and `git status` in the worktree lists nothing. The chain rests `sealed` | A case of `test/chain.test.ts` |
+| 2. The body the daemon writes passes the check | Given the repository and the body scenario 1 leaves. When `chain_check.py --baseline main` runs under a payload that says ready and holds that body. Then it exits 0 and names no line of the body | A case of `test/pr-check.test.ts` |
+| 3. An open pull request is updated, and no second one opens | Given scenario 1's work item, a later commit, and a chain that ends `sealed` again at the new head. When the chain runs on. Then the stand-in was called with `pr edit` and not with `pr create`, the body's lines outside the markers are the ones the stand-in's pull request held, a line a person added among them, and the seal section names the new commit. Given a stored pull request pushed at the branch's head. When a client sends `getSeal`. Then no stage starts and `gh` is not called | Two cases of `test/chain.test.ts` |
+| 4. No seal, no pull request | Given a chain that stops at a failed gate, one whose sealer answers `withheld`, and one that is parked. Then the stand-in was never called and the bare remote holds no branch. Given a `routing.md` that reads `stop before the pull request` and a chain that ends `sealed`. Then the same | Cases of `test/chain.test.ts` |
+| 5. The stage fails and the seal stands | Given a daemon with no `gh` on its path; a stand-in that exits 1 and prints a line on its error stream at `pr list`, and one that does so at `pr create`; a remote that refuses the push; a clone with two remotes and a base branch that is local; a stand-in that never exits. Then the chain is `stopped`, its sentence names the stage and holds the first printed line or says what is missing, no commit was made, and the work item's `pullRequest` is as it was. When the stand-in is made to answer and a client sends `getSeal`. Then the stage runs, and no round, no gate and no seal runs | Cases of `test/chain.test.ts` |
+| 6. The remote, the base and the title | Given a `baseBranch` of `origin/main`; a local `main` in a clone with one remote; a null `baseBranch`; a work item with an empty title. Then the remote, the `--base` argument or its absence, and the title are as *Scope* items 4, 7 and 8 give them | Cases of `test/pull-request.test.ts` |
+| 7. The body's parts and its limit | Given a directory with a changelog, two round records, a gate record and a record of decisions. Then the body holds the parts in the order of *Scope* item 9. Given records whose parts pass the limit. Then the parts below the seal section are replaced from the last, the seal section is whole, and the body is within 65,536 UTF-16 code units. Given a body with no marker, one with two opening markers, and one with a person's lines around the section. Then the edit is as *Scope* item 10 gives it | Cases of `test/pull-request.test.ts` |
+| 8. The watch reads the checks without an agent | Given a stored open pull request and a stand-in whose `pr view` answers pending, then passed. When a client says hello and the daemon's clock passes `prPollMs`. Then the work item's `pullRequest.checks` goes from `pending` to `passed`, no headless session was started, and the daemon's `keepAwake` is not held for it. Given a stand-in that answers a failed check. Then `checks` is `failed` and the failed check is listed with its address. Given a stand-in that answers `MERGED`. Then the state is `merged`, and no later read runs. Given a stand-in that exits 1. Then the stored pull request is as it was but for its `failure`. Given no client. Then `gh` is not called | Cases of `test/daemon.test.ts` |
+| 9. Owlery writes no review and merges nothing | Given every case of scenarios 1, 3, 5 and 8. Then each call the stand-in noted is one of `pr list`, `pr create`, `pr edit` and `pr view` | The stand-in's note, asserted in a helper those cases share. `git grep -n -e 'pr review' -e 'pr merge' -e 'pulls/.*/reviews' -e 'pulls/.*/merge' -- apps/desktop/src pr-check` prints nothing. The pathspec names those two folders alone, so the search reads no file of this work item's directory |
+| 10. The rollup's states | Given entries of the kinds `CheckRun` and `StatusContext` in each status, conclusion and state of *Scope* item 14, an empty list, and an entry that is no object. Then each check's state and the pull request's `checks` are as that item gives them | Cases of `test/pull-request.test.ts` |
+| 11. The check posts its verdict | Given a ready pull request whose head carries a seal, and a payload whose `pull_request.head.sha` names a commit. When `chain_check.py --baseline main --post` runs with `GITHUB_API_URL` naming the case's server. Then the server received one request for `/repos/<repository>/check-runs`, with the name `Owlery seal`, that commit, the conclusion `success`, and a title that names the sealed commit, and the script exited 0. Given a head with no guarantee. Then the conclusion is `failure`, the title says that the head commit has no seal, the summary holds the refused lines, and the script exited 1. Given a draft with no guarantee. Then the conclusion is `neutral` and the exit is 0. Given a pull request that declares no work item. Then the conclusion is `success`, the title says that nothing was judged, and the exit is 0 | Cases of `test/pr-check.test.ts` |
+| 12. A refused post changes no result | Given a server that answers 403. Then the script prints one notice with the status and exits with the code it has without `--post`, for a sealed head and for an unsealed one. Given no `--post`, and `--post` with no `GITHUB_TOKEN`. Then the server received nothing | Cases of `test/pr-check.test.ts` |
+| 13. The body arm reads the seal section alone | Given the body of scenario 2 with a line added above the section and one below. Then the check exits 0. Given a section whose `target:` names another commit, one whose `Verdict:` reads `withheld reason: x`, one with a line the reader refuses, one with two blocks and one with none. Then the check exits 1 and names the body's line. Given a body with no marker, a body with two opening markers, and a payload with no body. Then the check exits 0 and prints the body as not read | Cases of `test/pr-check.test.ts` |
+| 14. The workflow lets the job post | Given the text `workflowText` gives. Then it holds `checks: write`, hands the step `GITHUB_TOKEN`, and passes `--post` | A case of `test/records-place.test.ts` |
+| 15. The folder holds what the check loads | Given `pr-check/`. Then each script the rewritten list names stands, and `pr_body.py`, `close_issues_on_release.py` and `lib/gaps.py` do not | The case of `test/pr-check.test.ts` that lists the folder's scripts. `git grep -n -e 'pr_body' -e 'close_issues_on_release' -e 'gaps\.py' -- pr-check apps/desktop/test` prints nothing. *Grounding* lists what the search prints at `bdf2d8c` outside the three removed files, each a line *Scope* items 22 and 23 rewrite or remove, in files those items name. The pathspec names those two folders alone |
+| 16. The line and the view | Given a work item with an open pull request whose checks are pending, one whose checks passed, one whose check `build` failed, one that merged and one whose last read failed. Then the line's state and its second row are as *Data & interfaces* gives them, and the view's facts hold the number, the state, each check and the failure's sentence | Cases of `test/view.test.ts` |
+| 17. A merged pull request takes the decisions off | Given a work item with two decisions the look does not hold, one of them `reversed`, and a `merged` pull request. Then its line carries no mark of decisions, `changesSince` counts none for it, the filter of the decisions does not list it, and `decisionLines` still gives both. Given the same work item with an `open` pull request. Then the three count them | Cases of `test/view.test.ts` |
+| 18. The dialog names the required check | Given a repository whose check is Owlery's workflow, in the state that holds every part and in the state of a plan. Then the dialog's words hold the line that names `Owlery seal`. Given a repository whose check is `hygiene.yml`. Then the line says that this workflow posts no such check | Cases of `test/view.test.ts`, and of `test/records-dialog.test.ts` for the drawn dialog |
+| 19. The pull request in the window | Given the built app, started once through `BuiltApp.start` in the background, a stand-in for the CLI that answers the round with no finding and the sealer with `sealed`, a gate command that exits 0, and a stand-in for `gh`. When the case presses "Get a seal". Then the view lists the pull request's number and its checks, and the work item's line has the state and the second row of a pull request whose checks passed | One case of `test/get-a-seal.test.ts`, in the start that file makes |
+| 20. The README | Given `README.md` and `README.ko.md`. Then each holds the section on the seal check, and the two hold the same count of headings and of table rows | `read`, by the proofer against *Scope* item 29. The comparison of the two editions is the broad gate's, which the orchestrator runs |
+| 21. The screenshots | Given the change of the view. Then the committed screenshots show the pull request's facts in the view of the finished work item, in each theme and appearance the run makes | `pnpm run screenshots`, and the review reads the files against `docs/design.md` |
+
+## Data & interfaces
+
+**The seal section of a pull request's body.** The two marker lines are `<!-- owlery:seal -->` and `<!-- /owlery:seal -->`, each alone on its line. `<path>` is the path of `guarantee.md` from the repository's top. The block is the record's text from its opening fence to its closing fence.
+
+````
+<!-- owlery:seal -->
+## Owlery seal
+
+The newest verdict of `<path>`, as this pull request's head commit holds it:
+
+```seal
+target: 3f2a9c1e5b7d9f01a2c4e6f8091b3d5f7a9c1e3b against main
+Verdict: sealed
+built-by: the session, s-1
+judged-by: s-2
+model: fake
+rules: owlery 0.0.2
+```
+<!-- /owlery:seal -->
+````
+
+**The parts of the body below the seal section**, in this order, each with the line that replaces it at the limit:
+
+| Heading | Holds | Replaced by |
+|---|---|---|
+| `## What changed` | `changelog.md`, whole | "`<path>` holds this part." |
+| `## Review rounds` | For each round record: its path as a `###` heading, then one list item for each finding with its heading's text and its close's verdict | The same line, once for the folder `trail/rounds/` |
+| `## Broad gate` | The newest run block of `trail/gate.md`, as its lines stand | The same line |
+| `## Decided without asking` | For each decision of `decisions.md`: what was decided, its grounds and its state | The same line |
+
+**The outcomes of the check, and what `--post` sends for each.** The first row that holds decides. The exit code is the one `chain_check.py` has today.
+
+| Outcome | Exit | Conclusion | Title |
+|---|---|---|---|
+| The check could not run | 2 | `failure` | "The seal check could not run" |
+| The pull request declares no work item | 0 | `success` | "Not judged: no work item is declared" |
+| Ready, and nothing is refused | 0 | `success` | "Sealed at `<the first 7 characters of the sealed commit>`" |
+| Ready, and the guarantee arm refused | 1 | `failure` | "No seal at the head commit" |
+| Ready, and only other arms refused | 1 | `failure` | "The records are refused" |
+| A draft, with a line a ready pull request would be refused for | 0 | `neutral` | "Draft: judged when it is ready" |
+| A draft with none | 0 | `success` | "Sealed at `<the first 7 characters of the sealed commit>`" |
+
+The request's body: `name` `Owlery seal`; `head_sha`; `status` `completed`; `conclusion`; `output.title`; `output.summary`, cut at 60,000 characters. The script sends the headers `Authorization: Bearer <token>` and `Accept: application/vnd.github+json`, and waits 30 seconds at most.
+
+**`apps/desktop/src/shared/protocol.ts`.** No field names a vendor.
+
+- `CHAIN_STAGE_KINDS` gains `"pull-request"`, after the kinds #42 adds. A `ChainStage` of the kind holds the last round recorded as its `round` and null as its `headlessId`.
+- `PullRequestCheck`: `name: string`; `state: "pending" | "passed" | "failed"`; `link: string | null`.
+- `PullRequest`: `number: number`; `url: string`; `state: "open" | "merged" | "closed"`; `head: string`, the commit GitHub held as the head at the last read; `pushed: string`, the commit the stage last pushed; `checks: "none" | "pending" | "passed" | "failed"`; `list: PullRequestCheck[]`, 50 at most, with `listCount: number` for how many there are in all; `readAt: number`, the daemon's clock at the last read that succeeded; `failure: string | null`.
+- `WorkItem.pullRequest: PullRequest | null`. A daemon of an earlier build sends no such field, and a client reads its absence as null.
+
+**`apps/desktop/src/daemon/`.**
+
+- `github.ts`, new: the choice of the remote, the push, the calls of `gh`, the reading of their answers, the composing of the body and the replacing of its seal section, and the reading of the rollup. It holds the constants `GITHUB_LIMIT_MS` of 60 seconds, `PR_POLL_MS` of 30 seconds, `PR_REST_POLL_MS` of 5 minutes and `BODY_LIMIT` of 65,536. It reads no stored state and writes none.
+- `chain.ts`: the kind's name in a sentence, and the sentences of the stage.
+- `daemon.ts`: the branch of the chain's run that *Scope* item 1 names, the watch's timer beside `scheduleCommitRead`, and `workItemOf`, which sends the stored pull request.
+- `repositories.ts`: `StoredWorkItem.pullRequest`, read as null from a file an earlier build wrote.
+- `DaemonOptions` gains `gh`, the command and the first arguments `gh` is started with, found on the login shell's `PATH` when absent; `githubLimitMs`; `prPollMs`; and `prRestPollMs`.
+- `records-place.ts#workflowText`: *Scope* item 21.
+- `last-look.ts`: `pullRequest` joins the fields a look written by an earlier build does not hold.
+
+**`pr-check/`.** `skills/code-review/scripts/chain_check.py`: the option `--post`, the function of the outcome, the request, and the rewritten `body`. The removed files of *Scope* item 23.
+
+**The words of the window.** A state is two words at most, by `docs/design.md` *The voice of the window's words*. The build words each sentence in that voice, and `frame/questions.md` Q3 leaves the wording to it.
+
+| Where | The line's state | Words |
+|---|---|---|
+| The second row of a line while the stage runs | `working` | "Pull request" |
+| A pull request whose checks are pending | `working` | "Checks running" |
+| A pull request whose checks passed, or that has none | `finished` | "Checks passed", or "Pull request open" where it has none |
+| A pull request with a failed check | `waiting` | "Check failed: `<name>`" |
+| A merged pull request | `finished` | "Merged" |
+| A closed pull request | `finished` | "Closed" |
+| The view's fact | | "Pull request #12", its state, and each check's name with its state's word |
+| The chain's sentence after the stage | | "Pull request #12 is open." and, after an edit, "Pull request #12 carries the seal at `3f2a9c1`." |
+
+## Rule changes
+
+- add
+  file: docs/architecture.md
+  section: Code runs the order, the orchestrator judges
+  to: **After a seal the daemon pushes the branch and opens the pull request through the person's `gh`, and a chain that ends without a seal opens none.** The stage runs where the work item's `routing.md` sends the work to a pull request. The daemon pushes with the person's git, to one remote and never by force, and calls `gh` to list, create, edit and read a pull request and for nothing else: it writes no review and merges nothing. It reads and stores no token. The stage commits nothing, since a commit after the sealed commit that is no closing record would break the seal. A branch that already has an open pull request gets its seal section replaced, and no second pull request. A stage that fails stops its one chain with the reason on the work item's line, and the seal stands. The daemon then reads the open pull request again on a timer with one call of `gh`, while a client is connected, and keeps no agent, no process and no hold on the Mac for it. The work item's line shows whether the checks run, passed or failed, and names the first that failed. Which pull request a work item has is the daemon's state, read again from GitHub, and no record of the repository holds it.
+    check: apps/desktop/test/chain.test.ts apps/desktop/test/pull-request.test.ts apps/desktop/test/daemon.test.ts
+- add
+  file: docs/architecture.ko.md
+  section: 순서는 코드가, 판단은 orchestrator가
+  to: **인장이 찍히면 데몬은 사람의 `gh`로 브랜치를 올리고 PR을 열며, 인장 없이 끝난 체인은 PR을 열지 않습니다.** 이 단계는 작업의 `routing.md`가 작업을 PR로 보낼 때만 돕니다. 데몬은 사람의 git으로 리모트 하나에만 올리고 강제로 올리지 않습니다. `gh`는 PR을 찾고, 만들고, 고치고, 읽는 데에만 부르며, 리뷰를 쓰지 않고 머지하지 않습니다. 토큰은 읽지도 보관하지도 않습니다. 이 단계는 아무것도 커밋하지 않습니다. 인장이 찍힌 커밋 뒤에 마감 기록이 아닌 커밋이 오면 인장이 깨지기 때문입니다. 이미 열린 PR이 있는 브랜치는 인장 구역만 바뀌고, 두 번째 PR은 열리지 않습니다. 실패한 단계는 그 작업의 체인 하나만 멈추고 작업의 줄이 이유를 말하며, 인장은 그대로 섭니다. 그 뒤로 데몬은 클라이언트가 붙어 있는 동안 타이머에 맞춰 `gh` 호출 한 번으로 열린 PR을 다시 읽고, 그 일로 에이전트도 프로세스도 Mac을 깨워 두는 잠금도 두지 않습니다. 작업의 줄은 검사가 도는지, 통과했는지, 실패했는지를 보이고 처음 실패한 검사의 이름을 말합니다. 작업의 PR이 무엇인지는 데몬의 상태이고 GitHub에서 다시 읽으며, 저장소의 어떤 기록에도 없습니다.
+    check: apps/desktop/test/chain.test.ts apps/desktop/test/pull-request.test.ts apps/desktop/test/daemon.test.ts
+- add
+  file: docs/architecture.md
+  section: Records are committed to the repository
+  to: **The check posts its verdict as a GitHub check named `Owlery seal` on the pull request's head commit, and a pull request's body shows the seal as its record holds it.** The job runs `chain_check.py` with `--post`, and the workflow gives the job the right to write a check. A ready pull request with a seal at its head gets a passed check whose title names the sealed commit. One with no seal there gets a failed check that says so, and a draft that would be refused gets a neutral one. An administrator of the repository makes `Owlery seal` a required check in the repository's rules on GitHub, and Owlery changes no setting there. A posted check may end as neutral, which a job cannot, and one function of the check decides the result. A pull request from a fork gets the job's result and no posted check, since GitHub gives its run a token that cannot write one. The body's seal section, between its two marker lines, is a copy of the newest verdict block of `guarantee.md` at the head commit, written by the daemon. The check refuses a section that differs from that block, and reads no other line of the body, which is the person's to edit.
+    check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts apps/desktop/test/pull-request.test.ts
+- add
+  file: docs/architecture.ko.md
+  section: 기록은 저장소에 커밋합니다
+  to: **검사는 판정을 PR의 head 커밋에 `Owlery seal`이라는 이름의 GitHub 검사로 올리고, PR의 본문은 기록에 있는 그대로 인장을 보입니다.** 잡은 `chain_check.py`를 `--post`와 함께 돌리고, 워크플로는 잡에 검사를 쓸 권한을 줍니다. head에 인장이 있는 ready 상태의 PR은 통과한 검사를 받고, 그 제목이 인장이 찍힌 커밋을 말합니다. head에 인장이 없는 PR은 그렇다고 말하는 실패한 검사를 받고, 거절될 draft는 중립인 검사를 받습니다. 저장소의 관리자가 GitHub의 저장소 규칙에서 `Owlery seal`을 필수 검사로 정하고, Owlery는 거기의 설정을 바꾸지 않습니다. 올린 검사는 잡과 달리 중립으로 끝날 수 있고, 결과는 검사의 함수 하나가 정합니다. 포크에서 온 PR은 잡의 결과만 받고 올린 검사는 받지 않습니다. GitHub가 그 실행에 검사를 쓸 수 없는 토큰을 주기 때문입니다. 본문의 인장 구역은 두 표시 줄 사이에 있고, head 커밋에 있는 `guarantee.md`의 가장 새 판정 블록을 데몬이 그대로 옮겨 쓴 것입니다. 검사는 그 블록과 다른 구역을 거절하고, 본문의 다른 줄은 읽지 않습니다. 그 줄들은 사람이 고칠 수 있습니다.
+    check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts apps/desktop/test/pull-request.test.ts
+- add
+  file: docs/product.md
+  section: Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call
+  to: **A work item whose pull request merged shows no decision on its line or in the summary.** The merge takes the work item's decisions off the inbox, the summary and the filter of the decisions, as an archive does. The work item's view goes on listing each decision with its grounds, and the work item's record keeps them.
+    check: apps/desktop/test/view.test.ts
+- add
+  file: docs/product.ko.md
+  section: 바탕: 작업함, AgenticSeal 프로세스, 인장의 뒷면, 그리고 불러 쓰는 터미널
+  to: **PR이 머지된 작업은 줄에도 요약에도 결정을 보이지 않습니다.** 머지는 보관과 마찬가지로 그 작업의 결정을 작업함, 요약, 결정 필터에서 내립니다. 작업 화면은 결정 하나하나를 근거와 함께 계속 보이고, 작업의 기록은 그것들을 그대로 둡니다.
+    check: apps/desktop/test/view.test.ts
+- add
+  file: docs/design.md
+  section: A pull request that changes the window carries its screenshots
+  to: **The finished work item of the screenshot run carries a pull request whose checks passed.** Its line says so in its second row, and its view lists the pull request's number, its state and each check among its facts.
+    check: apps/desktop/test/screenshots.test.ts
+- add
+  file: docs/design.ko.md
+  section: 창을 바꾸는 PR은 스크린샷을 싣습니다
+  to: **스크린샷 실행에서 끝난 작업은 검사가 통과한 PR을 가집니다.** 그 작업의 줄은 둘째 행에서 그렇게 말하고, 작업 화면은 PR의 번호, 상태, 검사 하나하나를 사실 목록에 올립니다.
+    check: apps/desktop/test/screenshots.test.ts
+
+## Removes
+
+This work adds mechanisms: one stage of the chain, the watch, one posted check and the option that posts it. In return it takes out the comparison of a pull request's whole body, with the composer that comparison stood on and the two rules the composer brought: that a work item holds a `pr.md`, and that a key of the config turns a picture on. The catch record of what goes: in Owlery the body is written by the daemon's code and by no agent, so the comparison has no miscopied sentence to catch, and at `bdf2d8c` it refuses every pull request of a "Get a seal" work item, which holds no `pr.md` (*Grounding*). What the comparison protected, that the body does not say another verdict than the record, stays with the seal section's arm.
+
+| Removes | Coordinate | Where it lands, or why it can go |
+|---|---|---|
+| The comparison of the pull request's whole body with a composed one, and its refusals for more than one work item holding `pr.md` | `pr-check/skills/code-review/scripts/chain_check.py#body`, `#pr_body_reader`, `#PR_BODY`, `#PR_FILE`, `#BODY_SPLIT`, `#BODY_NONE_HOLDS` and `#BODY_SEALING_SAYS`, and the `body` paragraph of the module's docstring | `chain_check.py#body`, rewritten to read the seal section alone (*Scope* item 22). The lines of a body outside the section are the person's |
+| The composer of a body, with its fold to GitHub's limit, its seal mark and its reading of the key `Pull request seal mark` | `pr-check/skills/code-review/scripts/pr_body.py` | The daemon composes the body in `apps/desktop/src/daemon/github.ts` (*Scope* item 9), and no check compares its parts below the seal section. The picture's address came from AgenticSeal's plugin manifest, which `pr-check/` does not hold |
+| The reader of a closing keyword | `pr-check/.github/scripts/close_issues_on_release.py` | Only the composer loaded it (*Grounding*, the third search). No line of a body is refused for a closing keyword |
+| The reader of a closing memo | `pr-check/lib/gaps.py` | Only the composer loaded it (*Grounding*, the third search). `lib/items.py`, which it imported, stays for `rule_changes.py` |
+| The comments that name the three removed files | `pr-check/lib/fields.py` lines 45, 46 and 240, `pr-check/lib/lines.py` lines 10, 41, 513 and 514, `pr-check/lib/items.py` line 10, and `pr-check/skills/settle/scripts/rule_changes.py` line 6 | Each is rewritten in place to name what reads the code now |
+| The three removed files in the list of the folder's scripts, and the count of files in the folder's notice | `apps/desktop/test/pr-check.test.ts`, the case "holds every script chain_check.py loads", and `pr-check/README.md` *Where the files come from* | The list names the files that stand, and the notice names no count (*Scope* item 23) |
+| The branch that reads a body before the guarantee exists | `chain_check.py`, where `--sealing` turns the body arm's refusals into notices (lines 2321 and 2322) | No body stands before the seal in Owlery's order. What `--sealing` does for the gate's and the guarantee's arms is #42's to keep or remove |
+
+Framed 2026-11-23 by framer, before the build.
