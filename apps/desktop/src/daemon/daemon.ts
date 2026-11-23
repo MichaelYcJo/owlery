@@ -1407,9 +1407,9 @@ export class Daemon {
 
   /**
    * Sends every client one headless session whole, after it changed. A
-   * session that has just ended no longer waits for its limit, gets its entry
-   * in the ledger, and where more sessions have ended than the daemon keeps, the one that ended first
-   * leaves the list and every client is told. A session that is no longer
+   * session that has just ended no longer waits for its limit and gets its
+   * entry in the ledger, and where more sessions have ended than the daemon
+   * keeps, the one that ended first leaves the list and every client is told. A session that is no longer
    * working waits for no answer, so the requests it held end unanswered, and
    * every client is sent the lists without them.
    */
