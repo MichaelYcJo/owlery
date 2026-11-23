@@ -2446,8 +2446,9 @@ export class Daemon {
    * The sessions that built the work are `the session` where the
    * `Implementation` row of the `routing.md` the head holds reads so, then
    * the id of each fix pass's session, read from the trailer
-   * `Seal-Built-By:` of the commits between the work item's base commit and
-   * the gate's commit.
+   * `Seal-Built-By:` of the commits on the branch's own line between the
+   * work item's base commit and the gate's commit, so none that a merge
+   * brought from another branch.
    *
    * The verdict decides what follows. `sealed`: nothing here, and the order
    * then reads the chain as sealed. `withheld`: it gives the reason, which

@@ -1053,14 +1053,17 @@ describe("committing files of a worktree", () => {
 });
 
 describe("the values of a trailer between two commits", () => {
+  /** Commits one new file in the repository, each further word a paragraph of the message, and gives the commit. */
+  const committer = (repo: string) => (file: string, ...message: string[]): string => {
+    writeFileSync(join(repo, file), `${file}\n`);
+    git(repo, "add", file);
+    git(repo, "commit", "--quiet", ...message.flatMap((paragraph) => ["-m", paragraph]));
+    return git(repo, "rev-parse", "HEAD").trim();
+  };
+
   it("gives each value of the trailer the commits after the first and up to the second carry, the oldest first and each once, and none of a commit outside them, of another key or of a message's first paragraph", async () => {
     const { repo } = repository();
-    const commit = (file: string, ...message: string[]): string => {
-      writeFileSync(join(repo, file), `${file}\n`);
-      git(repo, "add", file);
-      git(repo, "commit", "--quiet", ...message.flatMap((paragraph) => ["-m", paragraph]));
-      return git(repo, "rev-parse", "HEAD").trim();
-    };
+    const commit = committer(repo);
     const before = commit("a.txt", "chore: record a pass before the base", "Seal-Routing: 1-x\nSeal-Built-By: s-0");
     commit("b.txt", "fix: end the greeting");
     commit("c.txt", "chore: record the fix pass of round 1", "Seal-Routing: 1-x\nSeal-Built-By: s-1");
@@ -1074,6 +1077,19 @@ describe("the values of a trailer between two commits", () => {
     expect(await trailerValues(repo, before, gate, "Seal-Routing")).toEqual(["1-x"]);
     expect(await trailerValues(repo, gate, gate, "Seal-Built-By")).toEqual([]);
     await expect(trailerValues(repo, "a".repeat(40), gate, "Seal-Built-By")).rejects.toThrow();
+  });
+
+  it("reads no trailer of a commit that a merge brought onto the branch from another line", async () => {
+    const { repo } = repository();
+    const commit = committer(repo);
+    const base = commit("a.txt", "chore: the base");
+    git(repo, "checkout", "--quiet", "-b", "other");
+    commit("o.txt", "chore: record the fix pass of round 1", "Seal-Routing: 1-other\nSeal-Built-By: s-other");
+    git(repo, "checkout", "--quiet", "-");
+    commit("b.txt", "chore: record the fix pass of round 1", "Seal-Routing: 2-this\nSeal-Built-By: s-this");
+    git(repo, "merge", "--quiet", "--no-ff", "-m", "merge the other line", "other");
+    commit("c.txt", "chore: record the fix pass of round 2", "Seal-Routing: 2-this\nSeal-Built-By: s-later");
+    expect(await trailerValues(repo, base, git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-this", "s-later"]);
   });
 });
 

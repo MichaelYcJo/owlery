@@ -971,14 +971,17 @@ export async function pathsOfCommits(worktree: string, from: string, to: string)
 }
 
 /**
- * The values of one trailer in the commits that `to` holds and `from` does
- * not, the oldest commit's first and each value once: what git reads as a
- * trailer of that key in a commit's message, so a line of a message's first
- * paragraph and a sentence that names the key are none. It throws git's
- * words where either names no commit.
+ * The values of one trailer in the commits of `to`'s own line after `from`:
+ * the commits `git log --first-parent` walks from `to` back to `from`, the
+ * oldest commit's first and each value once. A commit that a merge brought
+ * onto the line from another branch is none of them, so a merge of the base
+ * into a work item's branch adds no other work item's trailer. What git
+ * reads as a trailer of that key in a commit's message counts, so a line of
+ * a message's first paragraph and a sentence that names the key are none.
+ * It throws git's words where either names no commit.
  */
 export async function trailerValues(worktree: string, from: string, to: string, key: string): Promise<string[]> {
-  const printed = await git(worktree, ["log", "--reverse", `--format=%(trailers:key=${key},valueonly)`, `${from}..${to}`], BRANCH_OUTPUT_BYTES);
+  const printed = await git(worktree, ["log", "--first-parent", "--reverse",`--format=%(trailers:key=${key},valueonly)`, `${from}..${to}`], BRANCH_OUTPUT_BYTES);
   return [...new Set(printed.split("\n").map((line) => line.trim()).filter((line) => line !== ""))];
 }
 
