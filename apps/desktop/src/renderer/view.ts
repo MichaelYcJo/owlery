@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -320,6 +320,101 @@ export function decisionLines(workItem: WorkItem, now: number): DecisionLine[] {
  */
 export function unreadLines(workItem: WorkItem): string[] {
   return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
+}
+
+/** The heading of the approval line's section in the preview and in a view's right column. */
+export const APPROVAL_HEAD = "Approval line";
+
+/** The four roles of the approval line, in its order. */
+const ROLES = ["framer", "crafter", "proofer", "sealer"] as const;
+export type Role = (typeof ROLES)[number];
+
+/** Each role as a person reads its name: with one capital. */
+const ROLE_NAME: Record<Role, string> = { framer: "Framer", crafter: "Crafter", proofer: "Proofer", sealer: "Sealer" };
+
+/** One place of the approval line: a role, how far it came, and its words. */
+export interface ApprovalPlace {
+  role: Role;
+  /** The role's name, with one capital. */
+  name: string;
+  /** The class of the marks that gives the place its shape and its colour: `no-agent` for a place not started. */
+  state: "waiting" | "working" | "finished" | "failed" | "no-agent";
+  /** Two words at most, under the name. */
+  note: string;
+  /** What the mark says after the role's name and a colon, before an age. */
+  label: string;
+  /** The time the mark's age counts from, or null where its words carry no age. */
+  since: number | null;
+  /** The line of text this place puts under the places, the role's name, a colon and the text, or null where it has none. Plain text, never markup. */
+  under: string | null;
+}
+
+/** A commit as a place's words show it: its first seven characters. */
+function shortCommit(commit: string): string {
+  return commit.slice(0, 7);
+}
+
+/** A count with its noun, one or many. */
+function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** A place's state and words, before its name and its line of text are added. */
+type Reached = Pick<ApprovalPlace, "state" | "note" | "label" | "since"> & { text: string | null };
+
+const NOT_STARTED: Reached = { state: "no-agent", note: "Not started", label: "Not started", since: null, text: null };
+
+/** How far a role came by what the work item's records say, and for the crafter by the branch's commits. */
+function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached {
+  switch (role) {
+    case "framer":
+      return recorded.framed ? { state: "finished", note: "Framed", label: "Framed", since: null, text: null } : NOT_STARTED;
+    case "crafter": {
+      const commits = workItem.newCommits ?? 0;
+      if (commits < 1) return NOT_STARTED;
+      const note = counted(commits, "commit", "commits");
+      return { state: "finished", note, label: note, since: null, text: null };
+    }
+    case "proofer": {
+      if (recorded.rounds < 1) return NOT_STARTED;
+      const note = counted(recorded.rounds, "round", "rounds");
+      return { state: "finished", note, label: note, since: null, text: null };
+    }
+    case "sealer": {
+      const verdict = recorded.verdict;
+      if (verdict === null) return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
+      const { state, note } = ({ sealed: { state: "finished", note: "Sealed" }, withheld: { state: "failed", note: "Withheld" }, undecided: { state: "waiting", note: "Undecided" } } as const)[verdict.is];
+      return { state, note, label: `${note} at ${shortCommit(verdict.commit)}`, since: null, text: verdict.says };
+    }
+  }
+}
+
+/**
+ * The four places of a work item's approval line, framer, crafter, proofer
+ * and sealer in that order, or null for a work item that carries no
+ * `recorded`: one a daemon of an earlier build sent, or one of the look. A
+ * place waits where an open question of the work item names its role,
+ * exactly, as the asker, with that question's text under the line;
+ * otherwise the records say how far it came. It reads the work item alone,
+ * so no pane's state, no hook and no session changes it.
+ */
+export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
+  const recorded = workItem.recorded;
+  if (recorded === undefined) return null;
+  const open = parkedWith(workItem) ?? [];
+  return ROLES.map((role) => {
+    const asked = open.find(({ by }) => by === role);
+    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : byRecords(role, workItem, recorded);
+    const name = ROLE_NAME[role];
+    const { text, ...shown } = reached;
+    return { role, name, ...shown, under: text === null ? null : `${name}: ${text}` };
+  });
+}
+
+/** What a place's mark says to a pointer and to a screen reader: the role's name, a colon, and its words, with the age where it has one, as in "Proofer: Needs you, 12 min". */
+export function placeWords(place: ApprovalPlace, now: number): string {
+  const age = ageOf(place.since, now);
+  return `${place.name}: ${place.label}${age ? `, ${age}` : ""}`;
 }
 
 export interface QuestionLine {

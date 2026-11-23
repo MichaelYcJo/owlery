@@ -49,7 +49,7 @@ The window has three themes: Night watch, Register and Desk. A first run opens i
 | Selected | A tinted tile. | A 2px rule of the strong ink at the left edge, over a faint ground. | A tinted tile. |
 | Texture | None, in both appearances. | None in the dark appearance. The ruled paper in the light one's right column. | None in the dark appearance. The ruled paper in the light one's right column. |
 | A state's marks | The owl's eye. An open eye with its pupil needs the person. A ring that turns is at work. A closed eye is finished. A crescent is asleep. A filled triangle is a failure, and in the light appearance a line of the darkened yellow stands around it, because the bright fill alone does not stand apart from the ground. | A form's boxes. A filled box needs the person. A half-filled box is at work. A ticked box is finished. An empty box is asleep. The triangle with its stroke is a failure. | A filled disc needs the person. A ring that turns is at work. A ticked circle is finished. A crescent is asleep. The triangle with its stroke is a failure. |
-| The approval line | The four roles' names in a row, each after its mark, joined by rules. | A ruled block of four boxes, one for each of framer, crafter, proofer and sealer. The sealer's box holds the seal. | The four roles' names in a row, each after its mark, joined by short rules. |
+| The approval line | The four roles' names in a row, each after its mark and with its note under it, joined by rules. | A ruled block of four boxes, one for each of framer, crafter, proofer and sealer, each holding the mark, the role's name and the note under the name. The sealer's box holds the seal. | The four roles' names in a row, each after its mark and with its note under it, joined by short rules. |
 | What it costs | Yellow is the colour most tools use for a warning, so a work item that needs the person may read as a fault. | It reads colder than Desk. The serif of what an agent says is what keeps it from reading as a spreadsheet. | It is the nearest of the three to its neighbours: a warm dark ground with cream ink, and in the light appearance a serif title. |
 
 ## Tokens
@@ -72,6 +72,7 @@ What the names say.
 - `--seal-*`: the tones of the seal's blank place and the light on a seal. No other token holds a red.
 - `--radius-*`: the corners of a card, a control, a line, a chip, what an agent says and a search's mark.
 - `--card-edge`, `--said-*`, `--backdrop`, `--dialog-shadow`, `--field-edge`, `--tab-edge`, `--dot-edge`: the edges the page draws as a shadow, the ground and edges of what an agent says, and what stands behind and under a dialog.
+- `--approval-*`: the approval line's rule that joins a role's name to the next place, the edge of its block and the edge between two of its places.
 - `--shape-*`: a state's mark, as paths on a square of 16 units. For each state `--shape-<state>` is drawn as a line of 1.5px and `--shape-<state>-fill` is filled. `--shape-working-track` is the faint line under the part that turns, and `--shape-working-turn` is the part that turns. `none` draws nothing.
 
 ### The layout's measures
@@ -213,6 +214,9 @@ No theme changes these. They stand in the page's `:root`.
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
+| `--approval-rule` | `linear-gradient(var(--rule), var(--rule))` | `linear-gradient(var(--rule), var(--rule))` |
+| `--approval-edge` | `none` | `none` |
+| `--approval-box-edge` | `none` | `none` |
 | `--shape-waiting` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` |
 | `--shape-waiting-fill` | `path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z")` | `path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z")` |
 | `--shape-working` | `none` | `none` |
@@ -308,6 +312,9 @@ No theme changes these. They stand in the page's `:root`.
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `0` | `0` |
+| `--approval-rule` | `none` | `none` |
+| `--approval-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
+| `--approval-box-edge` | `inset 1px 0 0 var(--rule)` | `inset 1px 0 0 var(--rule)` |
 | `--shape-waiting` | `none` | `none` |
 | `--shape-waiting-fill` | `path("M3 3h10v10H3z")` | `path("M3 3h10v10H3z")` |
 | `--shape-working` | `path("M3 3h10v10H3z")` | `path("M3 3h10v10H3z")` |
@@ -403,6 +410,9 @@ No theme changes these. They stand in the page's `:root`.
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
+| `--approval-rule` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` |
+| `--approval-edge` | `none` | `none` |
+| `--approval-box-edge` | `none` | `none` |
 | `--shape-waiting` | `none` | `none` |
 | `--shape-waiting-fill` | `path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z")` | `path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z")` |
 | `--shape-working` | `none` | `none` |
@@ -438,9 +448,10 @@ Each part's form is the same in every theme, drawn with the theme's tokens. A gr
 | What an agent says, and the questions a work item is parked with | `--said-ground` with `--said-edge` and `--radius-said`, the words in `--font-said` and `--ink-strong`. Where the work item needs the person the edge is `--said-edge-waiting`. A question's grounds and what an option implies are in `--ink-muted`. | — | — | — | — | — |
 | A call a headless session asks the person to allow | The card of what an agent says, with `--said-edge-waiting`. Its head names the tool, as in "Asks to use Bash", and under it the call's text, a path, a command or the call's input, stands whole and wrapped in the fixed-width face and `--ink-strong`, and the person can select it. "Allow" and "Refuse" stand at the card's right foot as two buttons, and neither is the main button, since either answer is the person's. | — | — | — | Each button takes the ring. | — |
 | The seal's place | Before a seal: on a line a disc of `--seal-blank-ground` with `--seal-blank-edge`, and in the preview and at a view's foot the seal's drawing pressed into the ground in the blank tones under `--seal-blank-light`. Sealed: the seal as it is drawn, under `--seal-light`. | — | — | — | — | — |
-| The approval line | The four roles in the order framer, crafter, proofer, sealer, each with the mark of how far it came, in the form *The themes* gives for the theme. The sealer's place holds the seal. | — | — | — | — | — |
+| The approval line | A section headed "Approval line", after what the agent says and before the decisions, in the preview and in a view's right column. The four roles in the order framer, crafter, proofer, sealer, in the form *The themes* gives for the theme, four places of one width. Each place holds the mark of how far its role came, the role's name with one capital in `--ink`, and under the name a note of two words at most in `--ink-muted`: "Not started" for a place not started, "Needs you" for one that waits on the person's answer, and how it ended, such as "Framed", "1 commit", "3 rounds", "Sealed", "Withheld" or "Undecided". A sealer's place not started where the gate's run is recorded says "Gate passed". A place not started takes the mark of a work item asleep, and one whose role failed the mark of a failure. The mark says the role's name and the place's whole words to a pointer and to a screen reader, with the commit a verdict names and the age of a wait. The sealer's place holds the seal's place, drawn as on a line. Under the places stands one line of text for each place that has something to say, the role's name, a colon and the text: the question it waits on, or the verdict's reason or question. The line is in `--ink-muted`, and in `--state-failed` for a place that failed. | — | — | — | — | — |
 
-The app draws no approval line and no lit seal yet, because no work item can be sealed. The milestone that builds the seal draws both in the forms above. The drawing of a broken seal is that milestone's.
+The app draws the approval line for every work item whose daemon sends what its records say, and draws no lit seal yet, because no work item can be sealed in the app. The milestone that builds the seal draws it in the form above. The drawing of a broken seal is that milestone's.
+check: apps/desktop/test/view.test.ts apps/desktop/test/approval-line.test.ts
 
 ## The voice of the window's words
 

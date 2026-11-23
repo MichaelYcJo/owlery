@@ -49,7 +49,7 @@ check: apps/desktop/test/themes.test.ts
 | 선택한 것 | 옅게 물든 타일입니다. | 왼쪽 가장자리에 진한 잉크의 2px 괘선, 그 아래 옅은 바탕입니다. | 옅게 물든 타일입니다. |
 | 질감 | 두 모양 모두 없습니다. | 어두운 모양에는 없습니다. 밝은 모양의 오른쪽 단은 괘선이 있는 종이입니다. | 어두운 모양에는 없습니다. 밝은 모양의 오른쪽 단은 괘선이 있는 종이입니다. |
 | 상태 표시 | 올빼미의 눈입니다. 눈동자가 있는 뜬 눈은 사람이 필요하다는 뜻입니다. 도는 고리는 일하는 중입니다. 감은 눈은 끝났다는 뜻입니다. 초승달은 잠든 것입니다. 채운 세모는 실패입니다. 밝은 모양에서는 세모 둘레에 어둡게 한 노란색의 선이 있습니다. 밝은 노란색으로 채우기만 하면 바탕에서 도드라지지 않기 때문입니다. | 서식의 네모 칸입니다. 채운 칸은 사람이 필요하다는 뜻입니다. 반만 채운 칸은 일하는 중입니다. 체크한 칸은 끝났다는 뜻입니다. 빈 칸은 잠든 것입니다. 세로 획이 든 세모는 실패입니다. | 채운 원판은 사람이 필요하다는 뜻입니다. 도는 고리는 일하는 중입니다. 체크한 원은 끝났다는 뜻입니다. 초승달은 잠든 것입니다. 세로 획이 든 세모는 실패입니다. |
-| 승인 줄 | 네 역할의 이름을 한 줄에 두고, 이름마다 앞에 표시를 두며, 괘선으로 잇습니다. | 괘선을 친 네 칸의 블록이고, framer, crafter, proofer, sealer에 한 칸씩입니다. sealer의 칸에 인장이 들어갑니다. | 네 역할의 이름을 한 줄에 두고, 이름마다 앞에 표시를 두며, 짧은 괘선으로 잇습니다. |
+| 승인 줄 | 네 역할의 이름을 한 줄에 두고, 이름마다 앞에 표시를, 아래에 메모를 두며, 괘선으로 잇습니다. | 괘선을 친 네 칸의 블록이고, framer, crafter, proofer, sealer에 한 칸씩입니다. 칸마다 표시와 역할 이름, 이름 아래의 메모가 들어갑니다. sealer의 칸에 인장이 들어갑니다. | 네 역할의 이름을 한 줄에 두고, 이름마다 앞에 표시를, 아래에 메모를 두며, 짧은 괘선으로 잇습니다. |
 | 치르는 값 | 노란색은 대부분의 도구가 경고에 쓰는 색입니다. 그래서 사람이 필요한 작업이 고장으로 읽힐 수 있습니다. | Desk보다 차갑게 읽힙니다. 에이전트가 한 말의 세리프가 스프레드시트로 읽히지 않게 막아 줍니다. | 셋 가운데 이웃 제품과 가장 가깝습니다. 따뜻한 어두운 바탕에 크림색 잉크이고, 밝은 모양에서는 제목이 세리프입니다. |
 
 ## 토큰
@@ -72,6 +72,7 @@ check: apps/desktop/test/themes.test.ts
 - `--seal-*`: 인장의 빈 자리의 색조와 인장에 드는 빛입니다. 다른 토큰은 붉은색을 갖지 않습니다.
 - `--radius-*`: 카드, 조작 단추, 줄, 칩, 에이전트가 한 말, 검색에 맞은 글자의 모서리입니다.
 - `--card-edge`, `--said-*`, `--backdrop`, `--dialog-shadow`, `--field-edge`, `--tab-edge`, `--dot-edge`: 페이지가 그림자로 그리는 가장자리, 에이전트가 한 말의 바탕과 가장자리, 대화 상자의 뒤와 아래에 놓이는 것입니다.
+- `--approval-*`: 승인 줄에서 역할 이름과 다음 자리를 잇는 괘선, 블록의 가장자리, 두 자리 사이의 가장자리입니다.
 - `--shape-*`: 상태 표시이고, 16단위 정사각형 위의 경로입니다. 상태마다 `--shape-<state>`는 1.5px 선으로 그리고 `--shape-<state>-fill`은 채웁니다. `--shape-working-track`은 도는 부분 아래의 옅은 선이고, `--shape-working-turn`은 도는 부분입니다. `none`은 아무것도 그리지 않습니다.
 
 ### 배치의 치수
@@ -213,6 +214,9 @@ check: apps/desktop/test/themes.test.ts
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
+| `--approval-rule` | `linear-gradient(var(--rule), var(--rule))` | `linear-gradient(var(--rule), var(--rule))` |
+| `--approval-edge` | `none` | `none` |
+| `--approval-box-edge` | `none` | `none` |
 | `--shape-waiting` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` |
 | `--shape-waiting-fill` | `path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z")` | `path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z")` |
 | `--shape-working` | `none` | `none` |
@@ -308,6 +312,9 @@ check: apps/desktop/test/themes.test.ts
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `0` | `0` |
+| `--approval-rule` | `none` | `none` |
+| `--approval-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
+| `--approval-box-edge` | `inset 1px 0 0 var(--rule)` | `inset 1px 0 0 var(--rule)` |
 | `--shape-waiting` | `none` | `none` |
 | `--shape-waiting-fill` | `path("M3 3h10v10H3z")` | `path("M3 3h10v10H3z")` |
 | `--shape-working` | `path("M3 3h10v10H3z")` | `path("M3 3h10v10H3z")` |
@@ -403,6 +410,9 @@ check: apps/desktop/test/themes.test.ts
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
+| `--approval-rule` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` |
+| `--approval-edge` | `none` | `none` |
+| `--approval-box-edge` | `none` | `none` |
 | `--shape-waiting` | `none` | `none` |
 | `--shape-waiting-fill` | `path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z")` | `path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z")` |
 | `--shape-working` | `none` | `none` |
@@ -438,9 +448,10 @@ check: apps/desktop/test/themes.test.ts
 | 에이전트가 한 말, 그리고 작업을 멈춰 둔 질문 | `--said-ground`에 `--said-edge`와 `--radius-said`이고, 글자는 `--font-said`와 `--ink-strong`입니다. 작업에 사람이 필요하면 가장자리가 `--said-edge-waiting`입니다. 질문의 근거와 선택지가 뜻하는 바는 `--ink-muted`입니다. | — | — | — | — | — |
 | headless 세션이 사람에게 허락을 구하는 호출 | 에이전트가 한 말의 카드이고 가장자리가 `--said-edge-waiting`입니다. 머리에는 "Asks to use Bash"처럼 도구의 이름이 나옵니다. 그 아래에는 호출의 글, 곧 경로나 명령이나 호출의 입력이 고정폭 글꼴과 `--ink-strong`으로 잘리지 않고 줄을 바꿔 가며 놓이고, 사람이 그 글을 선택할 수 있습니다. "Allow"와 "Refuse"는 카드의 오른쪽 아래에 단추 두 개로 놓입니다. 어느 답이든 사람이 고르는 것이므로, 둘 다 주 단추가 아닙니다. | — | — | — | 단추마다 고리가 생깁니다. | — |
 | 인장의 자리 | 인장이 찍히기 전: 줄에서는 `--seal-blank-ground`의 원판에 `--seal-blank-edge`이고, 미리 보는 칸과 작업 화면의 아래쪽에서는 인장의 그림이 빈 자리의 색조로 `--seal-blank-light` 아래 바탕에 눌려 있습니다. 인장이 찍힌 뒤: 그려진 그대로의 인장이 `--seal-light` 아래에 있습니다. | — | — | — | — | — |
-| 승인 줄 | 네 역할을 framer, crafter, proofer, sealer 순서로 두고, 역할마다 어디까지 왔는지의 표시를 두며, 형태는 「테마」가 그 테마에 정한 것입니다. sealer의 자리에 인장이 들어갑니다. | — | — | — | — | — |
+| 승인 줄 | 미리보기와 작업 화면의 오른쪽 단에서 에이전트가 한 말 다음, 결정 앞에 오는 "Approval line"이라는 머리의 구역입니다. 네 역할을 framer, crafter, proofer, sealer 순서로 같은 너비의 네 자리에 두고, 형태는 「테마」가 그 테마에 정한 것입니다. 자리마다 그 역할이 어디까지 왔는지의 표시, 첫 글자만 대문자인 역할 이름(`--ink`), 이름 아래의 두 낱말 이하의 메모(`--ink-muted`)가 있습니다. 메모는 시작하지 않은 자리에 "Not started", 사람의 답을 기다리는 자리에 "Needs you"이고, 끝난 자리에는 "Framed", "1 commit", "3 rounds", "Sealed", "Withheld", "Undecided"처럼 어떻게 끝났는지입니다. 전체 검사의 실행이 기록됐고 판정이 없는 sealer의 자리는 시작하지 않은 자리이고, 메모는 "Gate passed"입니다. 시작하지 않은 자리는 잠든 작업의 표시를, 역할이 실패한 자리는 실패의 표시를 씁니다. 표시는 포인터와 화면 읽기 프로그램에 역할 이름과 자리의 말 전부를 말하고, 판정이 가리키는 커밋과 기다린 시간도 함께 말합니다. sealer의 자리에는 줄에서처럼 그린 인장의 자리가 들어갑니다. 자리들 아래에는 말할 것이 있는 자리마다 한 줄씩, 역할 이름과 쌍점과 그 글이 옵니다. 그 글은 기다리는 질문, 또는 판정의 이유나 질문입니다. 이 줄은 `--ink-muted`이고, 실패한 자리의 줄은 `--state-failed`입니다. | — | — | — | — | — |
 
-앱은 아직 승인 줄과 빛이 든 인장을 그리지 않습니다. 인장을 찍을 수 있는 작업이 아직 없기 때문입니다. 인장을 만드는 마일스톤이 둘을 위의 형태로 그립니다. 깨진 인장의 그림은 그 마일스톤의 일입니다.
+앱은 데몬이 기록에 적힌 것을 보내 주는 작업마다 승인 줄을 그리고, 빛이 든 인장은 아직 그리지 않습니다. 앱에서 인장을 찍을 수 있는 작업이 아직 없기 때문입니다. 인장을 만드는 마일스톤이 인장을 위의 형태로 그립니다. 깨진 인장의 그림은 그 마일스톤의 일입니다.
+check: apps/desktop/test/view.test.ts apps/desktop/test/approval-line.test.ts
 
 ## 창의 문구가 가진 말투
 

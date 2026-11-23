@@ -7,6 +7,7 @@ import {
   archivedHead,
   archivedIn,
   answersFor,
+  approvalPlaces,
   askButton,
   askedSection,
   asksFetch,
@@ -68,6 +69,7 @@ import {
   noticeWithout,
   notificationFor,
   notificationOpens,
+  placeWords,
   paneChoices,
   paneInFront,
   paneKey,
@@ -130,7 +132,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -1231,6 +1233,107 @@ describe("a work item whose headless session waits for the person to allow a cal
     expect(permissionNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
     expect(permissionNotifications([EARLIER], [ASKS], undefined)).toHaveLength(1);
     expect(headlessLines([headless(3)], EARLIER)).toEqual(headlessLines([headless(3)], LOGIN));
+  });
+});
+
+describe("the approval line", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  const GATE = "3333333cccccccccccccccccccccccccccccccc";
+  const TARGET = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  /** What the daemon sends for a work item with no directory of its own. */
+  const NOTHING: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
+  /** A work item's records with the frame, three round records, a gate's run and a last verdict that seals. */
+  const SEALED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "sealed", commit: TARGET, says: null } };
+  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: SEALED };
+  const EMPTY: WorkItem = { ...LOGIN, newCommits: 0, recorded: NOTHING };
+  const NONE_STARTED = [
+    ["framer", "no-agent", "Not started", "Framer: Not started"],
+    ["crafter", "no-agent", "Not started", "Crafter: Not started"],
+    ["proofer", "no-agent", "Not started", "Proofer: Not started"],
+    ["sealer", "no-agent", "Not started", "Sealer: Not started"],
+  ];
+  const ASKS: Question = { id: 1, asks: "Does a stopped round count as a round?", grounds: "No document says.", by: "proofer", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
+
+  /** Each place as a person reads it: its role, its state's class, its note and its mark's words. */
+  const read = (workItem: WorkItem): string[][] | null => approvalPlaces(workItem)?.map((place) => [place.role, place.state, place.note, placeWords(place, NOW)]) ?? null;
+  /** The lines of text under the places. */
+  const under = (workItem: WorkItem): string[] | null => approvalPlaces(workItem)?.flatMap((place) => (place.under === null ? [] : [place.under])) ?? null;
+
+  it("fills the four places in the order framer, crafter, proofer, sealer from what the records say and the branch's commits, and leaves each not started where they say nothing", () => {
+    expect(read(RECORDED)).toEqual([
+      ["framer", "finished", "Framed", "Framer: Framed"],
+      ["crafter", "finished", "1 commit", "Crafter: 1 commit"],
+      ["proofer", "finished", "3 rounds", "Proofer: 3 rounds"],
+      ["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"],
+    ]);
+    expect(under(RECORDED)).toEqual([]);
+    expect(approvalPlaces(RECORDED)?.map(({ name }) => name)).toEqual(["Framer", "Crafter", "Proofer", "Sealer"]);
+    expect(read({ ...RECORDED, newCommits: 3, recorded: { ...SEALED, rounds: 1 } })?.slice(1, 3)).toEqual([
+      ["crafter", "finished", "3 commits", "Crafter: 3 commits"],
+      ["proofer", "finished", "1 round", "Proofer: 1 round"],
+    ]);
+    expect(read(EMPTY)).toEqual(NONE_STARTED);
+    expect(under(EMPTY)).toEqual([]);
+    // A count of commits the daemon has not read leaves the crafter's place not started.
+    expect(read({ ...EMPTY, newCommits: null })).toEqual(NONE_STARTED);
+  });
+
+  it("marks the sealer's place failed at a withheld verdict and waiting at an undecided one, each with the verdict's commit and its reason or question under the line, and says a gate's run where no verdict stands", () => {
+    const withheld: WorkItem = { ...EMPTY, recorded: { ...NOTHING, verdict: { is: "withheld", commit: TARGET, says: "The broad gate did not run at the head." } } };
+    expect(read(withheld)?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
+    expect(under(withheld)).toEqual(["Sealer: The broad gate did not run at the head."]);
+    const undecided: WorkItem = { ...EMPTY, recorded: { ...NOTHING, verdict: { is: "undecided", commit: TARGET, says: "Which base does the hotfix merge into?" } } };
+    expect(read(undecided)?.[3]).toEqual(["sealer", "waiting", "Undecided", "Sealer: Undecided at 2222222"]);
+    expect(under(undecided)).toEqual(["Sealer: Which base does the hotfix merge into?"]);
+    const gated: WorkItem = { ...EMPTY, recorded: { ...NOTHING, gate: GATE } };
+    expect(read(gated)?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
+    expect(under(gated)).toEqual([]);
+    // A verdict stands over the gate's run, and a verdict whose record gives no text puts no line under the places.
+    expect(read({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
+    expect(under({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })).toEqual([]);
+    // The other three places are as the records give them.
+    expect(read(withheld)?.slice(0, 3)).toEqual(NONE_STARTED.slice(0, 3));
+  });
+
+  it("marks a role's place waiting where an open question names that role exactly as its asker, with the question's age in the mark's words and its text under the line, and marks no place for another asker or once the question is answered", () => {
+    const asked: WorkItem = { ...RECORDED, questions: [ASKS] };
+    expect(read(asked)?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+    expect(under(asked)).toEqual(["Proofer: Does a stopped round count as a round?"]);
+    expect(read(asked)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    // A question the daemon gave no time keeps the words without an age.
+    expect(read({ ...RECORDED, questions: [{ ...ASKS, since: null }] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you"]);
+    // Of two open questions of the role, the first stands under the line.
+    expect(under({ ...RECORDED, questions: [ASKS, { ...ASKS, id: 2, asks: "And a failed one?" }] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
+    // An open question marks the place over what the records say: the sealer waits on a question while its verdict seals.
+    expect(read({ ...RECORDED, questions: [{ ...ASKS, by: "sealer" }] })?.[3]).toEqual(["sealer", "waiting", "Needs you", "Sealer: Needs you, 12 min"]);
+    for (const by of ["orchestrator", "Proofer", " proofer", null]) {
+      expect(read({ ...RECORDED, questions: [{ ...ASKS, by }] })).toEqual(read(RECORDED));
+      expect(under({ ...RECORDED, questions: [{ ...ASKS, by }] })).toEqual([]);
+    }
+    expect(read({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual(read(RECORDED));
+    expect(under({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual([]);
+  });
+
+  it("is composed from the work item alone, so no pane's state and no headless session without a role changes it", () => {
+    expect(approvalPlaces.length).toBe(1);
+    const quiet = workItemEntries([RECORDED], [session(2, { state: "finished" })], KINDS);
+    const busy = workItemEntries([RECORDED], [session(3, { state: "waiting", stateSince: NOW - MINUTE, stateText: "Allow the edit?" })], KINDS);
+    // The two lists give the line of the inbox two states, and the places one.
+    expect(quiet[0]?.line.state).toBe("finished");
+    expect(busy[0]?.line.state).toBe("waiting");
+    // The function takes no session, a headless one with no role among them, so the places are the work item's alone: a pane that waits marks no place.
+    expect(approvalPlaces(busy[0]!.workItem)).toEqual(approvalPlaces(quiet[0]!.workItem));
+    expect(read(busy[0]!.workItem)).toEqual(read(RECORDED));
+    expect(read(busy[0]!.workItem)?.map(([, state]) => state)).not.toContain("waiting");
+  });
+
+  it("gives no places for a work item a daemon of an earlier build sends without what its records say, and the places of the records and the questions for one that carries no chain", () => {
+    const { recorded: _recorded, ...earlier } = RECORDED;
+    expect(approvalPlaces(earlier as WorkItem)).toBeNull();
+    expect(approvalPlaces({ ...earlier, questions: [ASKS] } as WorkItem)).toBeNull();
+    expect("chain" in RECORDED).toBe(false);
+    expect(read(RECORDED)).not.toBeNull();
   });
 });
 
