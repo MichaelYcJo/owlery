@@ -46,6 +46,11 @@ The fix appends one entry at a time, and each leaves `held` once its own append 
 
 The case belongs in `test/ledger.test.ts`. It mocks `node:fs`'s `appendFileSync` so that the first call throws, the second writes its first line and throws, and the third writes through. It asserts that `read` gives each entry once and the file holds each whole line once. The case is seen red against the code at `75fc841`.
 
+```seal
+verdict: fixed 98fa06b
+answer: The finding holds, and `add` now takes the paste-ready code: one append for each held entry, which leaves `held` once its own append returns. The case is written in this pass's own words. The mock the record describes, a second call that writes its first line and throws, would write the whole of a one-line append and then throw under the fix, which is the failed close the fix does not cover. So the case gives the disk a room in characters instead: an append writes what fits and throws where the rest does not fit, as a write to a full disk does. The case "writes each entry once where an append fails part way, as on a full disk, and leaves the line it cut" fails the first append with no room, gives the second room for the first entry's line and 10 characters of the second's, and lets the third through. It was seen red against the code at `472a98a` at its file assertion (`apps/desktop/test/ledger.test.ts:226`), where the first entry's line stood twice (executed). `seal mutate src/daemon/ledger.ts` with 3 mutants over `test/ledger.test.ts` went 3 red: `held` emptied after the first line, the entry taken from `held` before its append, and the line break after a cut line dropped (executed). The narrow set `test/ledger.test.ts test/daemon.test.ts test/role-session.test.ts` passed at `98fa06b`, 314 passed and 2 skipped, exit 0 (executed). `dce89e5` then names a failed append beside a crash in the docstring of `endsInsideALine` and in `changelog.md`, and adds two rows to `gaps.md`: the files that import `test/built-app.ts`, which this pass did not run, and the fix's precondition that an append throws only where its line is not whole.
+```
+
 ### 2. The pull request body says the sealer has no stage yet, while a sealer session gets its entry today
 
 ```seal
@@ -62,6 +67,11 @@ The fix replaces the cell's first and last sentences. The middle sentence stays.
 
 ```md
 | The daemon writes one ledger entry per stage of a work item, with the cost, the tokens per model and the stage's duration | Each headless session that ends, by its result, an error result, an exit with no result, a stop at its limit or at a request, or the daemon's own stop, appends one entry to `ledger.jsonl` in the daemon's run folder. A session whose agent never started gets none. The entry names the work item, its repository and branch, the role and stage, the start and end, how it ended, and the cost with each model's input, output and cache tokens. A round, a fix pass and the sealer are role sessions, so each gets its entry with no call of its own once #41 and #42 launch them. The gate is no session: #42 writes its entry, and the entry's shape already holds it |
+```
+
+```seal
+verdict: fixed 472a98a
+answer: The orchestrator's `472a98a` replaces the cell at `pr.md:7` with the record's paste-ready text, word for word (read: `git show 472a98a`). It holds at HEAD: `ROLE_STAGES` still lists the sealer's pair (`apps/desktop/src/shared/protocol.ts:345`), and a start the adapter rejected still sets `entered` before it fails the session (`apps/desktop/src/daemon/daemon.ts:1402`), so such a session gets no entry (read). This pass changed nothing of `pr.md`.
 ```
 
 ### 3. The rule text the settle writes says a failed entry is held until the next append, while it is held until an append writes it
@@ -83,6 +93,11 @@ The grounds. The English `to` says "except an entry whose append failed, which i
 
 The fix changes only the clause after "which" in line 177 and the sentence that opens with "다만" in line 182. Every other word of the two lines stays.
 
+```seal
+verdict: fixed 472a98a
+answer: The orchestrator's `472a98a` takes both lines of the paste-ready text, and changes no other word of lines 177 and 182 (read: `git show 472a98a`). The English clause "which it holds until an append writes it" still holds once `98fa06b` stands: an entry leaves `held` when its own append returns, and an append that cuts its line keeps it held (read: `apps/desktop/src/daemon/ledger.ts#add`). The Korean "덧붙이기가 성공할 때까지" can now be read two ways. Read as the entry's own append, it holds. Read as any append, it does not: where the append of a first held entry succeeds and the second one's fails, the second is still held after an append succeeded. Before `98fa06b` one append wrote every held entry, so the two readings agreed. The same class stands in `trail/phases/phase-2.md:5`, "until the next append writes it". The hand-back names both lines for the orchestrator. This pass changed nothing of the frame or of the phase records.
+```
+
 ### 4. Two coordinates of the frame point at the daemon's stop where they mean the guard that drops events after an end
 
 ```seal
@@ -100,6 +115,11 @@ The fix names the function, so the coordinate survives the next edit of the file
 ```md
 questions.md:21: ... The daemon takes nothing after a stop today (`apps/desktop/src/daemon/daemon.ts#startHeadless`, whose listener drops every event once the session is no longer working), and what the CLI prints then was not run: ...
 plan.md:28: ... Chosen. The daemon ignores every event after a stop (`startHeadless` in `daemon.ts`), and whether ...
+```
+
+```seal
+verdict: fixed 472a98a
+answer: The orchestrator's `472a98a` takes the paste-ready text at `frame/questions.md:21` and `frame/plan.md:28`, and changes nothing else of either line (read: `git show 472a98a`). At HEAD, `startHeadless` is at `apps/desktop/src/daemon/daemon.ts:1341`, and its listener's guard `if (info.state !== "working") return;` stands at `:1359` (read). One limit of the new words, which the finding did not raise: an `exit` event is handled before that guard, so after a stop the listener still copies the exit's error output and tells the clients again (`daemon.ts:1349-1356`). It takes no usage and no result, which is what Q2 and the plan row are about. The hand-back names it for the orchestrator. This pass changed nothing of the frame.
 ```
 
 ## Confirmations
