@@ -5,7 +5,7 @@ import { basename, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
+import { type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type Repository, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -14,6 +14,7 @@ import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withD
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
+import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
@@ -116,7 +117,7 @@ export interface DaemonOptions {
   setupCommandFor?: (command: string, id: number) => PaneCommand;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, and the times the daemon first read each block of a work item's record at, in `record-times.json`; without it all four are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, and the times the daemon first read each block of a work item's record at, in `record-times.json`, and the cost ledger, in `ledger.jsonl`; without it all five are in memory alone. */
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
@@ -173,6 +174,11 @@ interface HeadlessSession {
   limit: NodeJS.Timeout | undefined;
   /** The requests the session waits for the person to answer, by the ids its adapter gave them. They live in memory alone, as the session does, and end with it. */
   asks: Map<string, PermissionAsk>;
+  /** The top-level folder of the repository's main checkout and the work item's branch, as the store held them when the session was asked, which the session's entry of the ledger names. */
+  repo: string;
+  branch: string;
+  /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, so that nothing ran. A session gets one entry at most. */
+  entered: boolean;
 }
 
 /** The features an adapter declares to launch a role: without the first a role session would hold every tool, and without the second no call of it would be answered by its role's rule. */
@@ -205,6 +211,8 @@ export class Daemon {
   private readonly keepAwake: KeepAwakeStore;
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
   private readonly times: RecordTimes;
+  // The cost ledger: one entry for each headless session that ended. It holds no entry in memory between two reads.
+  private readonly ledger: Ledger;
   // What was last read of each work item's record of decisions and questions, by the work item's id, as a client is sent it. The record is the store: this is what the last read found, and nothing is written from it.
   private readonly recordsRead = new Map<number, RecordRead>();
   // The hold that stands now, where one does. The daemon holds one at most.
@@ -247,6 +255,7 @@ export class Daemon {
     this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
     this.keepAwake = new KeepAwakeStore(options.runDir);
     this.times = new RecordTimes(options.runDir);
+    this.ledger = new Ledger(options.runDir);
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
     for (const held of this.store.workItems()) if (held.item.archivedAt !== null) this.readRecord(held);
     this.flushTimes();
@@ -467,6 +476,8 @@ export class Daemon {
     const stops: Promise<void>[] = [];
     for (const session of this.headless.values()) {
       clearTimeout(session.limit);
+      // The close changes no session's state, and a session still working is entered as the daemon's stop, before its run's end can say anything else.
+      if (session.info.state === "working") this.enter(session, "failed", "daemon");
       if (session.run) stops.push(session.run.stop());
     }
     this.fetches.close();
@@ -1066,12 +1077,16 @@ export class Daemon {
           return;
         }
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
-        if (worktree === undefined) return;
+        const held = this.store.workItem(message.workItemId);
+        if (worktree === undefined || held === undefined) return;
         const session: HeadlessSession = {
           info: { id: this.nextHeadlessId++, workItemId: message.workItemId, prompt: message.prompt, state: "working", answer: "", error: null, usage: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role },
           run: undefined,
           limit: undefined,
           asks: new Map(),
+          repo: held.repository.folder,
+          branch: held.item.branch,
+          entered: false,
         };
         session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
         this.headless.set(session.info.id, session);
@@ -1090,6 +1105,17 @@ export class Daemon {
         // The answer first, so the client that asked knows its request was carried out when every client is told of the session.
         this.send(socket, { type: "done", requestId: message.requestId });
         if (session.info.state === "working") void this.stopHeadless(session, "the session was stopped at a request before it finished", "request");
+        return;
+      }
+      case "readLedger": {
+        const held = this.store.workItem(message.workItemId);
+        if (!held) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: `no work item ${String(message.workItemId)}` });
+          return;
+        }
+        // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost, are not read as its own.
+        const { entries, unread } = this.ledger.read(held.item.id, held.item.createdAt);
+        this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
         return;
       }
       case "answerPermission": {
@@ -1198,7 +1224,7 @@ export class Daemon {
     return `An archive of work item ${String(id)} is ending its sessions. Try again.`;
   }
 
-  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch and of each record, and the times of each record's blocks, which leave `record-times.json` with them. A delete and a repository's removal call it. The record itself goes with the worktree. What the times hold under an id that is given to a new work item is dropped where the id is given, in the `createWorkItem` case. The store of the repositories is not touched. */
+  /** Takes off the daemon's lists what it holds of the work items given: their panes, the exited among them, their headless sessions, what was read of each branch and of each record, and the times of each record's blocks, which leave `record-times.json` with them. A delete and a repository's removal call it. The record itself goes with the worktree. The ledger keeps their entries: it is published after its work items are merged and deleted (docs/roadmap.md, "Done criteria"). What the times hold under an id that is given to a new work item is dropped where the id is given, in the `createWorkItem` case. The store of the repositories is not touched. */
   private dropWorkItems(ids: ReadonlySet<number>): void {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
@@ -1372,6 +1398,8 @@ export class Daemon {
         // list no longer holds ended first: the bound drops only ended sessions, and a delete or a removal stops its
         // working ones before it drops them.
         if (info.state !== "working") return;
+        // Nothing ran, so the session gets no entry in the ledger.
+        session.entered = true;
         failed(error instanceof Error ? error.message : String(error));
       },
     );
@@ -1379,8 +1407,8 @@ export class Daemon {
 
   /**
    * Sends every client one headless session whole, after it changed. A
-   * session that has just ended no longer waits for its limit, and where more
-   * sessions have ended than the daemon keeps, the one that ended first
+   * session that has just ended no longer waits for its limit, gets its entry
+   * in the ledger, and where more sessions have ended than the daemon keeps, the one that ended first
    * leaves the list and every client is told. A session that is no longer
    * working waits for no answer, so the requests it held end unanswered, and
    * every client is sent the lists without them.
@@ -1393,6 +1421,7 @@ export class Daemon {
     }
     if (session.info.state !== "working" && !this.endedHeadless.has(session.info.id)) {
       clearTimeout(session.limit);
+      this.enter(session, session.info.state, session.info.stopped);
       this.endedHeadless.add(session.info.id);
       const kept = this.options.keptHeadless ?? HEADLESS_KEPT;
       for (const id of this.endedHeadless) {
@@ -1404,6 +1433,18 @@ export class Daemon {
     }
     this.settleHold();
     this.checkIdle();
+  }
+
+  /**
+   * Adds a session's entry to the ledger, once: how it ended, what stopped it,
+   * the daemon's clock now, and the usage its result reported, which is null
+   * for a session that ended with no result.
+   */
+  private enter(session: HeadlessSession, state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void {
+    if (session.entered) return;
+    session.entered = true;
+    const { info } = session;
+    this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage });
   }
 
   /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. `commandOf` gives the command of a pane that runs another than its kind's, as a setup pane does. */

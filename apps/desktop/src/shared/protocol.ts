@@ -378,6 +378,26 @@ export interface Usage {
   models: ModelUsage[];
 }
 
+/** The stage an entry of the ledger is for: a pair of `ROLE_STAGES`, the broad gate, or null for a headless session with no role. */
+export type LedgerStage = RoleStage | { role: null; stage: "gate" } | null;
+
+/** One entry of the cost ledger: one stage of a work item that ended. */
+export interface LedgerEntry {
+  workItemId: number;
+  /** The top-level folder of the repository's main checkout, and the work item's branch, as they stood when the stage started. */
+  repo: string;
+  branch: string;
+  stage: LedgerStage;
+  /** The daemon's clock at the stage's start and at its end. */
+  startedAt: number;
+  endedAt: number;
+  state: "finished" | "failed";
+  /** What stopped the stage before it ended by itself: its limit, a request, or the daemon's own stop. Null where it ended by itself. */
+  stopped: "limit" | "request" | "daemon" | null;
+  /** What the adapter reported the stage used, or null where it reported none before the stage ended. */
+  usage: Usage | null;
+}
+
 /** What a headless session is doing: `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error. */
 export type HeadlessState = "working" | "finished" | "failed";
 
@@ -496,6 +516,8 @@ export type ClientMessage =
   | { type: "stopHeadless"; requestId: number; id: number }
   // Answers one permission request of the work item's `permissions`, by its `id`: with `allow` true the call runs, and that one call alone, and with `allow` false the agent is told the person refused it. The daemon answers with `done`, before the `inbox` that carries the work item without the request, and with an `error` for a request that does not wait in that work item, which changes nothing.
   | { type: "answerPermission"; requestId: number; workItemId: number; id: number; allow: boolean }
+  // Asks for the cost ledger of one work item, archived or not: the entries of the stages that ended in it since its `createdAt`. The daemon answers with a `ledger`, and with an `error` for an id it lists no work item under, as a deleted work item's.
+  | { type: "readLedger"; requestId: number; workItemId: number }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
@@ -519,6 +541,8 @@ export type ServerMessage =
   | { type: "renamePlan"; requestId: number; branch: string | null; blocked: string | null }
   // Answers a `readLoss` with what a delete of the work item `id` would remove.
   | { type: "workItemLoss"; requestId: number; id: number; loss: WorkItemLoss }
+  // Answers a `readLedger`: the work item's entries in the order their stages ended, and how many lines of the ledger's file the daemon could not read as an entry, of any work item. A daemon of an earlier build answers a `readLedger` with nothing.
+  | { type: "ledger"; requestId: number; workItemId: number; entries: LedgerEntry[]; unread: number }
   // Answers a `planRecords` with what a setup of the repository `id` would do.
   | { type: "recordsPlan"; requestId: number; id: number; plan: RecordsPlan }
   // Answers an `ask` with the headless session it started.
