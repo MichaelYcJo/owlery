@@ -120,6 +120,8 @@ describe("the role bundle", () => {
     for (const file of ["skills/core/SKILL.md", "skills/implement/SKILL.md", "docs/forms/the-round-record.md"]) expect(read(file), file).not.toContain("seal pr-body");
     expect(read("skills/core/SKILL.md")).toContain("its body arm: a ready pull request fails where its body's seal section, which Owlery's daemon writes, holds a verdict block other than the newest of the work item's `guarantee.md` at HEAD");
     expect(read("skills/implement/SKILL.md")).toContain("| `pr.md` | no template | nobody: Owlery's daemon writes no `pr.md`");
+    // A round reads a pr.md where one stands, and reads no file nobody writes.
+    expect(read("agents/proofer.md").replace(/\s+/gu, " ")).toContain("`changelog.md`, and, where one stands, `pr.md` and `pr.<lang>.md`, each whole at the target");
   });
 
   it("shapes a run's section as the daemon takes one: the template opens with the run's heading, its one seal block holds target: and Verdict: alone, and the daemon's reader takes the template filled in", () => {
