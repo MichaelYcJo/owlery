@@ -38,3 +38,31 @@ The repair is the orchestrator's, on `pr.md:13` alone: the sentence says that th
 target: 00ff2e80e218fd3898710ba47513c26daf71922a against 9e4a95fc8d8dd071b30a38f273fcddd5225c311f
 Verdict: withheld reason: pr.md:13, the orchestrator's part of the pull request body, says "The whole suite at the branch's head has not run yet", and trail/gate.md:4 records the broad gate's passed run at 890632b against 9e4a95f, which only trail/gate.md follows; the body carries both, at its lines 13 and 284
 ```
+
+## The audit at `0b8f4c6`
+
+Audited `0b8f4c6` against `9e4a95f`, the commit `release/v0.0.2@{upstream}` and `origin/release/v0.0.2` still resolve to (executed). Since the block above named `00ff2e8`, two commits follow: `16980c6`, which adds this file, and `0b8f4c6`, which changes `pr.md` alone. So this audit re-runs only what `0b8f4c6` touched, and reads the parties again. The claims the block above re-ran stand on code that no commit since `890632b` changed (executed: `git diff --stat 890632b HEAD`, which names `guarantee.md`, `pr.md` and `trail/gate.md` of this work item alone).
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run stands at HEAD | `trail/gate.md:4`, `run: 890632b against 9e4a95f` | `git merge-base --is-ancestor 890632b HEAD`; `git log --no-merges --name-only 890632b..HEAD ^9e4a95f` | Holds (executed): an ancestor of HEAD, followed by `00ff2e8`, `16980c6` and `0b8f4c6`, which touch `trail/gate.md`, `guarantee.md` and `pr.md` of this work item alone |
+| The body is `pr.md` above the line and the records' text below it | the body file the spawn names | `seal pr-body seal/threads/1795388700-review-rounds --body <the body file> --check` | Holds (executed): exit 0, "matches" |
+| `0b8f4c6` replaces the one sentence the verdict above named and touches nothing else | the coordinator's account of `0b8f4c6` | `git show 0b8f4c6`; `git grep -n -i "not run yet\|has not run"` over `pr.md` and `changelog.md` | Holds (executed): one line of `pr.md` changes. In it, "The whole suite at the branch's head has not run yet, and the broad run after the review rounds runs it" becomes "The whole suite passed at the branch's head after the review rounds, in the broad gate's run the records below hold", and the rest of the row is unchanged. No other sentence of either file says the suite has not run |
+| The new sentence holds: the whole suite passed at the head, after the review rounds, in the run the body's records hold | `pr.md:13` | the gate's output and `trail/gate.md`; `grep -n` of the body file | Holds: the gate's output reads `BROAD GATE PASSED … @ 890632b`, `suite exit 0` (read). `890632b` closes round 3, and only records follow it (executed, above). The body holds the sentence at its line 13 and `run: 890632b against 9e4a95f` at its line 284, below `## From the records` at line 25 (executed) |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| The design | As the audit above reads it, unchanged since | The issue's *Done when*, the build, the claims re-run above | None |
+| The build | As the audit above reads it. No code changed since `890632b` | The design, the claims re-run above | None |
+| The last round | Round 3, unchanged | The tree at HEAD | None |
+| The changelog | Unchanged since the audit above | The tree | None |
+| The orchestrator's part of the pull request body, `pr.md` | Rows 1 to 6 as before. Row 7 says the case of two rounds and one fix pass passed in phases 2, 3 and 4, and that the whole suite passed at the head in the broad gate's run below | `trail/gate.md:4`, the gate's output, the body's copy of the records, the tree | None |
+
+```seal
+target: 0b8f4c6e06c994021a032497d4d89c6feeef78c8 against 9e4a95fc8d8dd071b30a38f273fcddd5225c311f
+Verdict: sealed
+```
