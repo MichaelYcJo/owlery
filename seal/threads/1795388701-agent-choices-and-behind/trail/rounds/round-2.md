@@ -28,6 +28,11 @@ The unit is the orchestrator's raise. It is neither a fix pass's commit nor a bu
 - **Review, through the review chain, raised from straight to the PR on 2026-11-23** (`frame/plan.md` *Judgments of the run*). The first answer stood on two grounds: the change adds two read values and their display, so a defect would show at once in the cases or on screen, and the sealer's reading of the diff against the issue would be the independent reading. Round 1 found a sentence the card draws that no case read (`trail/rounds/round-1.md` finding 1), so the first ground did not hold, and the review chain reads the diff.
 ```
 
+```seal
+verdict: fixed 802ea33
+answer: The orchestrator's commit `802ea33` replaces the bullet at `routing.md:20` with the round's text, word for word. It now names the raised answer, states the first answer's two grounds in the past, and says which of them round 1 showed did not hold. The census the finding ran, outside `trail/rounds/`, found no other sentence stating the first grounds as standing. The commit touches `routing.md` alone, a record of the work item, and this finding is located there alone. Read.
+```
+
 ## Confirmations
 
 ```seal
