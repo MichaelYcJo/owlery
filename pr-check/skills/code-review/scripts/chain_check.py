@@ -2297,8 +2297,9 @@ def retired(reader, root, fork, records):
 # judged work item as `newest_verdict` gives it, and the sentence that says
 # why nothing was judged or why the check stopped. A seal is broken where
 # the newest verdict block reads `sealed` and the rounds arm, the gate arm
-# or the guarantee arm found its record behind HEAD or off it: a fact the
-# arms' comparisons answered, and no sentence read back.
+# or the guarantee arm found its record behind HEAD, off it, or naming a
+# commit the repository cannot resolve: a fact the arms' comparisons
+# answered, and no sentence read back.
 Judged = collections.namedtuple(
     "Judged", "ran judged problems strict unsealed broken verdicts why"
 )
