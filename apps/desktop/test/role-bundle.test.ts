@@ -10,6 +10,7 @@ import WebSocket from "ws";
 import { claudeArgs, versionNotice } from "../src/daemon/adapters/claude";
 import { PLUGIN_NAME, roleDocuments, rulesText } from "../src/daemon/adapters/claude-roles";
 import { RULING_BLOCK } from "../src/daemon/record-blocks";
+import { sectionOf } from "../src/daemon/seal-records";
 import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
 import { alive, buildApp, BuiltApp, untilGone } from "./built-app";
 import { temporaryRepository } from "./repositories";
@@ -104,6 +105,50 @@ describe("the role bundle", () => {
 
   it("has the sealer queue and draw no stamp", () => {
     expect(read("agents/sealer.md")).not.toMatch(/stamp/i);
+  });
+
+  it("names no command and no script in the sealer's definition, the guarantee's form and its template, and no check line of a test this repository does not hold", () => {
+    for (const file of ["agents/sealer.md", "docs/forms/the-guarantee.md", "templates/records/sdd-guarantee.md"]) {
+      const text = read(file);
+      // A command is a span of code that opens with a program's name: AgenticSeal's CLI, git, GitHub's CLI or an interpreter.
+      expect(text.match(/`(?:seal|git|gh|python3?|uv|pnpm|node) [^`]*`/gu), file).toBeNull();
+      for (const named of ["seal gate", "seal pr-body", "broad_gate", "chain_check", "Claims re-run", "lib/fields.py", ".py", "scripts/", "check: tests/", "original:"]) expect(text, `${file} names ${named}`).not.toContain(named);
+    }
+  });
+
+  it("shapes a run's section as the daemon takes one: the template opens with the run's heading, its one seal block holds target: and Verdict: alone, and the daemon's reader takes the template filled in", () => {
+    const template = read("templates/records/sdd-guarantee.md");
+    expect(template.split("\n")[0]).toBe("## Run <N>");
+    const blocks = [...template.matchAll(/^```seal\n([\s\S]*?)^```$/gmu)].map(([, lines = ""]) => lines.trim().split("\n").map((line) => line.slice(0, line.indexOf(":") + 1)));
+    expect(blocks).toEqual([["target:", "Verdict:"]]);
+    expect([...template.matchAll(/^### .*$/gmu)].map(([heading]) => heading)).toEqual(["### Claims checked by reading", "### The parties"]);
+    const target = `${"a".repeat(40)} against main`;
+    const filled = template.replace("<N>", "3").replace(/^target: .*$/mu, `target: ${target}`).replace(/^Verdict: .*$/mu, "Verdict: withheld reason: the changelog names `gone.ts`, which the tree does not hold");
+    expect(sectionOf(`I read the branch.\n\n${filled}`, { run: 3, target })).toBe(filled);
+  });
+
+  it("tells the sealer what the daemon's chain does: it works on the commit the gate passed on, runs no command and writes no file, answers with its run's section, checks each kind of claim by reading, leaves the gate to the daemon, and asks the person through an undecided verdict", () => {
+    const definition = read("agents/sealer.md");
+    for (const named of [
+      "You write no file and run no command that asks for permission: your answer\nis your run's section of `guarantee.md`",
+      "the commit you audit is the one your prompt's target line\nnames: the commit the broad gate passed on",
+      "The work item names no issue",
+      "You check each claim by reading",
+      "Each finding a round's record closes `fixed <commit>`",
+      "Each decision of `decisions.md` that stands `decided` or `applied`",
+      "each `## Removes` row of `frame/design.md`",
+      "Each phase record: what it says the phase built stands in the tree",
+      "**The parties against each other.**",
+      "Its first line is the heading your\n   prompt gives, `## Run <N>`",
+      "It holds no\n   other line: the daemon adds who built the work, who judged it, the\n   judging model and its own version",
+      "**A question for the person is the verdict `undecided`, with the\nquestion.**",
+      "**The daemon holds that the gate passed on the audited commit.**",
+      "**The session that judges built none of the work.**",
+    ]) expect(definition, named).toContain(named);
+    const form = read("docs/forms/the-guarantee.md");
+    for (const named of ["`### Claims checked by reading` or `### The parties`", "The daemon writes four lines more into the block, before its closing fence: `built-by:`", "starts \"Get a seal\" again", "the closing records follow", "The closing records are `trail/gate.md`, `guarantee.md` and `trail/refusals.md`"]) expect(form, named).toContain(named);
+    for (const gone of ["pull request body", "seal mark", "the orchestrator's broad run"]) expect(form, gone).not.toContain(gone);
+    expect(read("README.md")).toContain("a sealer reads the commit the daemon's broad gate passed on and answers with its run's section of the guarantee, which the daemon completes with who built the work and who judged it, writes and commits");
   });
 
   it("holds no script, no library and no drawing: every file under the four taken folders is a document", () => {
