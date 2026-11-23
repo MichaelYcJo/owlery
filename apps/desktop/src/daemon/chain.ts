@@ -529,13 +529,19 @@ export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
  * carries, the paths of the routing, of every round record and of the
  * gate's record, the paths of the record of decisions, of the frame, of the
  * phase records and of the changelog fragment where each stands, that the
- * work item names no issue, the paths the branch changed since it left its
- * base, and their diff, cut at `PROMPT_DIFF_CHARS` characters with a line
- * that says so. Every path is from the worktree's top, which is the
- * session's folder.
+ * work item names no issue, the paths the branch changed, and their diff,
+ * cut at `PROMPT_DIFF_CHARS` characters with a line that says so. Every
+ * path is from the worktree's top, which is the session's folder.
+ *
+ * `earlier` is the seal a later commit broke, where the run follows one: its
+ * run and its sealed commit, which the prompt names. The paths and the diff
+ * are then what changed since that commit, and otherwise since the branch
+ * left its base. The target line is the caller's either way, so the verdict
+ * still names the gate's commit against the base.
  */
-export function sealPrompt(given: { run: number; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; paths: readonly string[]; diff: string }): StagePrompt {
+export function sealPrompt(given: { run: number; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; earlier: { run: number; commit: string } | null; paths: readonly string[]; diff: string }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
+  const since = given.earlier === null ? "since it left its base" : `since the commit run ${String(given.earlier.run)} sealed`;
   const shown = [
     `Run ${String(given.run)} of the sealer on the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
     "",
@@ -550,10 +556,11 @@ export function sealPrompt(given: { run: number; directory: string; target: stri
     ...(given.phases ? [`- The phase records: \`${given.directory}/trail/phases/\``] : []),
     ...(given.changelog ? [`- The changelog fragment: \`${given.directory}/changelog.md\``] : []),
     "- The issue: the work item names none, so no issue's text is among what you read",
+    ...(given.earlier === null ? [] : [`- The seal this run follows: run ${String(given.earlier.run)} of \`${given.directory}/${GUARANTEE_FILE}\` sealed \`${given.earlier.commit}\`, and a commit after it broke that seal`]),
     "",
     `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of this folder.`,
     "",
-    given.paths.length === 0 ? "The branch changed no path since it left its base." : "The branch changed these paths since it left its base:",
+    given.paths.length === 0 ? `The branch changed no path ${since}.` : `The branch changed these paths ${since}:`,
     ...given.paths.map((path) => `- \`${path}\``),
     "",
   ].join("\n");

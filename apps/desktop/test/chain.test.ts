@@ -633,7 +633,7 @@ describe("a judgment's prompt", () => {
 });
 
 describe("the seal's prompt", () => {
-  const given = { run: 2, directory: DIRECTORY, target: `${A} against main`, rounds: [1, 2], decisions: true, frame: true, phases: true, changelog: true, paths: ["feature.txt", `${DIRECTORY}/routing.md`], diff: "diff --git a/feature.txt b/feature.txt\n" };
+  const given = { run: 2, directory: DIRECTORY, target: `${A} against main`, rounds: [1, 2], decisions: true, frame: true, phases: true, changelog: true, earlier: null, paths: ["feature.txt", `${DIRECTORY}/routing.md`], diff: "diff --git a/feature.txt b/feature.txt\n" };
 
   it("gives a sealer its run, the directory, the heading and the target line its verdict carries, the routing, every round record, the gate's record, the decisions, the frame, the phase records and the changelog where each stands, that no issue is named, the paths the branch changed and their diff", () => {
     const prompt = sealPrompt(given);
@@ -671,6 +671,28 @@ describe("the seal's prompt", () => {
     expect(bare.diff).toBe("");
     const long = sealPrompt({ ...given, diff: "x".repeat(PROMPT_DIFF_CHARS + 5) });
     expect(long.diff).toBe(`Their diff, its first ${String(PROMPT_DIFF_CHARS)} characters of ${String(PROMPT_DIFF_CHARS + 5)}. Read the files for the rest.\n\n${"x".repeat(PROMPT_DIFF_CHARS)}`);
+  });
+
+  it("names the seal a later commit broke, by its run and its sealed commit, and says that the paths and the diff are what changed since that commit, while the target line stays the gate's commit against the base", () => {
+    const after = sealPrompt({ ...given, run: 3, earlier: { run: 2, commit: B }, paths: ["later.txt"], diff: "diff --git a/later.txt b/later.txt\n" });
+    expect(after.shown.split("\n").slice(4, 16)).toEqual([
+      `- Your verdict's target line: \`target: ${A} against main\``,
+      `- The routing: \`${DIRECTORY}/routing.md\``,
+      `- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\``,
+      `- The broad gate's record: \`${DIRECTORY}/trail/gate.md\``,
+      `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
+      `- The frame: \`${DIRECTORY}/frame/\``,
+      `- The phase records: \`${DIRECTORY}/trail/phases/\``,
+      `- The changelog fragment: \`${DIRECTORY}/changelog.md\``,
+      "- The issue: the work item names none, so no issue's text is among what you read",
+      `- The seal this run follows: run 2 of \`${DIRECTORY}/guarantee.md\` sealed \`${B}\`, and a commit after it broke that seal`,
+      "",
+      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file and run no command: read the files of this folder.`,
+    ]);
+    expect(after.shown.split("\n").slice(-4)).toEqual(["", "The branch changed these paths since the commit run 2 sealed:", "- `later.txt`", ""]);
+    expect(after.diff).toBe("Their diff:\n\ndiff --git a/later.txt b/later.txt\n");
+    expect(sealPrompt({ ...given, earlier: { run: 1, commit: B }, paths: [], diff: "" }).shown).toContain("\nThe branch changed no path since the commit run 1 sealed.\n");
+    expect(sealPrompt(given).shown).not.toContain("The seal this run follows");
   });
 
   it("gives the ruling on a sealer's question who asks and in which stage, and the question with the run it stands in and no option", () => {
@@ -2788,5 +2810,68 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the broad gate's run", "chore: record the sealer's verdict"]);
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(await c.until(() => c.workItem(a.id)?.seal ?? undefined)).toEqual({ state: "sealed", commit: gate, why: null });
+  });
+
+  /** The chain once it rests sealed with as many stages as given, read from the newest lists, so a list sent before the start is passed over. */
+  const sealedWith = (c: Client, id: number, stages: number): Promise<Chain> =>
+    c.until(() => {
+      const chain = c.workItem(id)?.chain;
+      return chain?.state === "sealed" && chain.stages.length === stages ? chain : undefined;
+    });
+
+  it("hands the sealer that follows a broken seal the part that changed since the sealed commit: a commit after the seal owes a verifying round on the commits after round 1's target, the gate and the seal, whose prompt names run 1 and its sealed commit and holds the paths that differ since that commit and no other path of the source, and the second verdict names the new gate's commit against the base, where the seal holds again", async () => {
+    const { adapter, started } = noted(roles({ proofer: clean }));
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, commitPollMs: 100 });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await sealedWith(c, a.id, 3);
+    const sealed = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    // A commit of a source file the branch did not change before the seal breaks it.
+    write(a.worktree, "later.txt", "Said later\n");
+    const broke = commitAll(a.worktree, "feat: say more");
+    expect(await c.until(() => (c.workItem(a.id)?.seal?.state === "broken" ? c.workItem(a.id)?.seal : undefined))).toMatchObject({ commit: sealed });
+
+    expect(await c.getSeal(a.id, 2)).toBe("done");
+    const chain = await sealedWith(c, a.id, 6);
+    expect(stagesOf(chain).slice(3)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"]]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "proofer", "sealer"]);
+    // Round 1 read the commit of the routing, the one before the sealed commit, and round 2 reads the commits after it.
+    const routed = git(a.worktree, "rev-parse", `${sealed}~1`).trim();
+    expect(givenRound(started[2]?.prompt ?? "")).toMatchObject({ round: 2, target: `${broke}, fixes ${routed}..${broke}` });
+    const base = a.baseBranch ?? a.baseCommit ?? "";
+    const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    const prompt = started[3]?.prompt ?? "";
+    expect(givenSeal(prompt)).toEqual({ run: 2, heading: "## Run 2", target: `${gate} against ${base}` });
+    expect(prompt).toContain(`\n- The seal this run follows: run 1 of \`${DIRECTORY}/guarantee.md\` sealed \`${sealed}\`, and a commit after it broke that seal\n`);
+    expect(prompt).toContain(`\nThe branch changed these paths since the commit run 1 sealed:\n- \`later.txt\`\n- \`${DIRECTORY}/guarantee.md\`\n- \`${DIRECTORY}/trail/gate.md\`\n- \`${DIRECTORY}/trail/rounds/round-2.md\`\n\nTheir diff:\n\ndiff --git a/later.txt b/later.txt\n`);
+    // The branch changed `feature.txt` before the seal, and nothing of it since.
+    expect(prompt).not.toContain("- `feature.txt`");
+    expect(prompt).not.toContain("diff --git a/feature.txt");
+    expect(guaranteeAt(a.worktree)).toContain(`\n## Run 2\n`);
+    expect(guaranteeAt(a.worktree)).toContain(`\ntarget: ${gate} against ${base}\nVerdict: sealed\n`);
+    expect(await c.until(() => (c.workItem(a.id)?.seal?.commit === gate ? c.workItem(a.id)?.seal : undefined))).toEqual({ state: "sealed", commit: gate, why: null });
+  });
+
+  it("hands the sealer the whole branch since its base where the commit the newest seal names is no ancestor of the gate's commit: a rebase onto a base that gained a commit leaves the sealed commit off the branch", async () => {
+    const { adapter, started } = noted(roles({ proofer: clean }));
+    const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await sealedWith(c, a.id, 3);
+    const sealed = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    write(made.repo, "on-main.txt", "on main\n");
+    commitAll(made.repo, "feat: on main");
+    git(a.worktree, "rebase", "--quiet", "main");
+    expect(git(a.worktree, "cat-file", "-t", sealed).trim()).toBe("commit");
+
+    expect(await c.getSeal(a.id, 2)).toBe("done");
+    await sealedWith(c, a.id, 6);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "proofer", "sealer"]);
+    const prompt = started[3]?.prompt ?? "";
+    expect(givenSeal(prompt).run).toBe(2);
+    expect(prompt).not.toContain("The seal this run follows");
+    expect(prompt).toContain("\nThe branch changed these paths since it left its base:\n- `feature.txt`\n");
+    expect(prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+    expect(prompt).not.toContain("on-main.txt");
   });
 });

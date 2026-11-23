@@ -87,7 +87,7 @@ import { GATE_FILE, GUARANTEE_FILE, gateText, guaranteeText, readGuarantee, sect
 import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, trailerValues, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, holdsCommit, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, trailerValues, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
@@ -2429,8 +2429,11 @@ export class Daemon {
    * Runs the seal: a fresh sealer session that resumes no conversation, in
    * the work item's worktree, whose prompt names its run, the `target:`
    * line its verdict carries, `<gate's commit> against <base>`, the records
-   * to read, and the paths the branch changed since it left its base with
-   * their diff (`chain.ts#sealPrompt`). Its answer is its run's section of
+   * to read, and the paths the branch changed with their diff
+   * (`chain.ts#sealPrompt`): since the commit the newest verdict block
+   * seals, where it is a seal and an ancestor of the gate's commit, which a
+   * later commit broke, and otherwise since the branch left its base. Its
+   * answer is its run's section of
    * the guarantee. The daemon takes the section from the answer
    * (`seal-records.ts#sectionOf`), puts its own lines into the section's
    * verdict block, appends the section to `guarantee.md` as the head holds
@@ -2453,8 +2456,8 @@ export class Daemon {
    * `Implementation` row of the `routing.md` the head holds reads so, then
    * the id of each fix pass's session, read from the trailer
    * `Seal-Built-By:` of the commits on the gate's commit's own line that
-   * neither the work item's base commit nor the base the sealer's diff is
-   * read against holds, so of none of the base's commits, whether a merge,
+   * neither the work item's base commit nor the base the branch left holds,
+   * so of none of the base's commits, whether a merge,
    * a fast-forward or a rebase put it on the branch.
    *
    * The verdict decides what follows. `sealed`: nothing here, and the order
@@ -2473,9 +2476,12 @@ export class Daemon {
     const target = `${step.commit} against ${standing.base}`;
     // The branch is read from where it left its base, as round 1 reads it.
     const base = (baseBranch !== null && (await commitNamed(worktree, baseBranch)) !== null ? baseBranch : baseCommit) ?? standing.head;
-    const { paths, text: diff } = await diffBetween(worktree, base, step.commit, true);
+    // A seal a later commit broke, which the newest verdict block names, hands the sealer the part that changed since its commit: the newest block's run is the one before this.
+    const sealed = standing.sealCommit;
+    const earlier = sealed !== null && (await holdsCommit(worktree, step.commit, sealed)) ? { run: step.run - 1, commit: sealed } : null;
+    const { paths, text: diff } = earlier === null ? await diffBetween(worktree, base, step.commit, true) : await diffBetween(worktree, earlier.commit, step.commit, false);
     const stands = (...path: string[]): boolean => existsSync(join(directory, ...path));
-    const prompt = sealPrompt({ run: step.run, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), paths, diff });
+    const prompt = sealPrompt({ run: step.run, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
     // Whether this run's `undecided` verdict is one the orchestrator rules on, or one past the ceiling.
     const ruled = standing.verdicts.filter((verdict) => verdict.is === "undecided").length < (this.options.undecidedCeiling ?? UNDECIDED_CEILING);
     const verdict = await this.runStage(item.id, "seal", step.round, SEALER, worktree, prompt, async (answer, refused, named) => {
