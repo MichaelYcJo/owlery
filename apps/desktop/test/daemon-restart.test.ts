@@ -227,7 +227,12 @@ describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
     // The first is sealed by its chain, whose routing sends the work to a pull request, so the chain the store keeps rests with the pull request's sentence.
     expect(await stood.c.getSeal(a.id, 1)).toBe("done");
-    expect((await stood.c.chain(a.id, "rested")).says).toBe("Pull request #1 is open.");
+    // The wait reads no state of the chain, so the read of the run folder below is what tells a state the store keeps.
+    const rests = await stood.c.until(() => {
+      const chain = stood.c.workItem(a.id)?.chain;
+      return chain !== null && chain !== undefined && chain.state !== "running" && chain.stages.length === 4 ? chain : undefined;
+    });
+    expect(rests.says).toBe("Pull request #1 is open.");
     const sealedAt = git(a.worktree, "rev-parse", "HEAD~2").trim();
     const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-second-work", branch: b.branch, base: b.baseCommit });
     writeFileSync(join(b.worktree, "feature.txt"), "A greeting, changed after the seal\n");
