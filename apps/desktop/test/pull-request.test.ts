@@ -119,6 +119,11 @@ describe("where the branch goes", () => {
     expect(git(bare, "rev-parse", "refs/heads/feat").trim()).toBe(read);
     expect(git(made.repo, "rev-parse", "HEAD").trim()).toBe(later);
     expect([git(made.repo, "config", "branch.feat.remote").trim(), git(made.repo, "config", "branch.feat.merge").trim()]).toEqual(["origin", "refs/heads/feat"]);
+    // A config git cannot write fails the push's step, though the commit reached the remote.
+    git(made.repo, "branch", "--quiet", "feat-2", later);
+    writeFileSync(join(made.repo, ".git", "config.lock"), "");
+    expect(await refusal(pushBranch({ gh: ["gh"], env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, cwd: made.repo, limitMs: 20_000 }, "origin", "feat-2", later))).toMatch(/^git config branch\.feat-2\.remote exited with code \d+: /u);
+    expect(git(bare, "rev-parse", "refs/heads/feat-2").trim()).toBe(later);
   });
 
   it("titles the pull request with the work item's title, cut at 256 characters, and with the subject of the oldest commit after the base where the title is empty", async () => {
@@ -242,6 +247,9 @@ describe("the body of a pull request", () => {
     expect(body).toBe(`${[SECTION, held("## What changed", "changelog.md"), ROUNDS, GATE_PART, DECIDED].join("\n\n")}\n`);
     const lines = body.split("\n").map((line) => line.trim());
     expect([lines.filter((line) => line === SECTION_OPEN).length, lines.filter((line) => line === SECTION_CLOSE).length]).toEqual([1, 1]);
+    // A closing marker alone, with white space at its ends, is a marker line too.
+    const closing = records(made, { changelog: `- The section ends at:\n\n\t${SECTION_CLOSE} \n` });
+    expect(pullRequestBody(await bodyRecords(made.repo, closing, DIRECTORY), 1_000_000)).toBe(`${[SECTION, held("## What changed", "changelog.md"), ROUNDS, GATE_PART, DECIDED].join("\n\n")}\n`);
   });
 
   it("replaces the parts below the seal section, the last first, by a line that names each part's record, until the body is within the limit, and never cuts the seal section", async () => {
