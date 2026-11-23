@@ -28,8 +28,9 @@ const HEADING = (round: number): string => `# Review round ${String(round)}: ${N
  * A repository whose `main` holds the records root, checked out on a branch
  * that adds a source file and then the records of a chain that sealed it
  * (`chain-run.ts#commitSeal`), with the options that helper takes.
+ * `before` commits what the branch holds before the records.
  */
-function sealedBranch(options: { seal?: boolean; verdict?: string; target?: string } = {}) {
+function sealedBranch(options: { seal?: boolean; verdict?: string; target?: string; before?: (repo: string) => void } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const repo = made.repo;
@@ -40,6 +41,7 @@ function sealedBranch(options: { seal?: boolean; verdict?: string; target?: stri
   git(repo, "checkout", "--quiet", "-b", BRANCH);
   write(repo, "feature.txt", "A greeting\n");
   commitAll(repo, "feat: greet");
+  options.before?.(repo);
   const gate = commitSeal(repo, { workItem: NAME, branch: BRANCH, base, ...options });
   const item = { worktree: repo, branch: BRANCH, baseBranch: "main", baseCommit: base };
   return { repo, base, gate, item, seal: () => workItemSeal(item, head(repo)) };
@@ -122,6 +124,17 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
     commitSource(repo, "A greeting\n");
     expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/guarantee.md`, `${DIRECTORY}/trail/gate.md`]);
     expect(await seal()).toEqual({ state: "broken", commit: gate, why: `Review round 2 is owed after the sealed commit \`${gate.slice(0, 7)}\`.` });
+  });
+
+  it("is broken where the head holds an open question that the sealed commit held too, as records written by hand can, and says that the work item waits for its answers", async () => {
+    const { repo, gate, seal } = sealedBranch({
+      before: (folder) => {
+        write(folder, `${DIRECTORY}/decisions.md`, withQuestion(`# Decisions and questions: ${NAME}\n\n`, { asks: "May the pass change the protocol?", grounds: "The frame names no such change.", by: "proofer", options: [], default: null }));
+        commitAll(folder, "chore: record a question");
+      },
+    });
+    expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/guarantee.md`, `${DIRECTORY}/trail/gate.md`]);
+    expect(await seal()).toEqual({ state: "broken", commit: gate, why: `The work item waits for the answers to its open questions after the sealed commit \`${gate.slice(0, 7)}\`.` });
   });
 
   it("is broken where a record of the head does not read, and says what the reader refuses", async () => {
