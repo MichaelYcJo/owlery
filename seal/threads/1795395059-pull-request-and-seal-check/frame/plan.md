@@ -71,7 +71,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 |---|---|---|---|
 | 1. The seal check | `frame/design.md` *Scope* items 19 to 24 | Scenarios 11 to 15, and of scenario 2 a body the case writes by hand in the form of *Data & interfaces* | `e770399` |
 | 2. The pull request stage | *Scope* items 1 to 11, of item 12 the type and the store, and of item 25 the kind `pull-request` | Scenarios 1 to 7 and 9, and scenario 2 with the body the stage wrote | `fdc4c5b` |
-| 3. The watch | *Scope* items 13 to 18; phase 2 delivered items 12 and 25 whole, `WorkItem.pullRequest` and the look's field among them (`trail/phases/phase-2.md`) | Scenarios 8 and 10, and of scenario 9 the watch's calls | |
+| 3. The watch | *Scope* items 13 to 18; phase 2 delivered items 12 and 25 whole, `WorkItem.pullRequest` and the look's field among them (`trail/phases/phase-2.md`) | Scenarios 8 and 10, and of scenario 9 the watch's calls | `5d559e6` |
 | 4. The window and the words | *Scope* items 26 to 31 | Scenarios 16 to 21 | |
 
 The new test file that `frame/design.md` *Rule changes* names in its `check:` lines, `test/pull-request.test.ts`, is made in phase 2 under that name. The check at the pull request refuses a `check:` line that names no file.
