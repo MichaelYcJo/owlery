@@ -47,7 +47,7 @@ export function showSummary(): void {
       const button = document.createElement("button");
       button.dataset.workItem = String(workItem.id);
       // The age is of the state the sentence opens with, as the pane carried it at this load, or of the park for a work item parked with questions.
-      button.append(stateIcon(line.state), part("title", line.title), part("change", sentence), part("age", ageOf(lineSince(workItem, session), Date.now())), sealPlace("line"));
+      button.append(stateIcon(line.state), part("title", line.title), part("change", sentence), part("age", ageOf(lineSince(workItem, session), Date.now())), sealPlace("line", workItem.seal));
       button.addEventListener("click", () => actions.openView(workItem.id));
       const item = document.createElement("li");
       item.append(button);

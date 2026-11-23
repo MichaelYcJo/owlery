@@ -103,6 +103,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   /* The corners of a card, a control, a line, a chip and what an agent says. */
   --radius-card: 8px;
@@ -223,6 +224,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
   --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 8px;
   --radius-control: 6px;
@@ -337,6 +339,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   --radius-card: 2px;
   --radius-control: 2px;
@@ -451,6 +454,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
   --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 2px;
   --radius-control: 2px;
@@ -565,6 +569,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   --radius-card: 8px;
   --radius-control: 6px;
@@ -679,6 +684,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
   --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 4px;
   --radius-control: 5px;
