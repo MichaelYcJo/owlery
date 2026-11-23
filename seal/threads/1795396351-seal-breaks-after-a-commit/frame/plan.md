@@ -73,7 +73,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 | 2. A new seal | *Scope* items 13 and 14 | Scenarios 17 and 18 | `7e79398` |
 | 3. The seal's place | *Scope* items 12, 15, 16, 19 and 20, and of item 17 all but the paragraph on the screenshot run | Scenarios 13, 15 and 16 | `6e31bcd` |
 | 4. The check and the resting state | *Scope* items 6 to 11, and the two cases of phase 2 that the pull request stage left waiting (below) | Scenarios 5 and 9 to 12, of scenario 6 the run folder that names neither state, and of scenario 17 the two cases of the group *the seal of a work item's chain*, which pass again  `7355a2e` |
-| 5. The line, the view's foot and the screenshots | *Scope* items 18 and 21 to 23, and of item 17 the paragraph on the screenshot run | Scenarios 14, 19 and 20 | |
+| 5. The line, the view's foot and the screenshots | *Scope* items 18 and 21 to 23, and of item 17 the paragraph on the screenshot run | Scenarios 14, 19 and 20 | `9c304c1` |
 
 **Which phases build on #43's code.** Phases 1 to 3 were built on the tree at `fbebc4f` and on no line of #43, beside #43's build. #43 merged into `release/v0.0.2` at `70504e2` and this branch merged the release branch at `a53b22b`, so phases 4 and 5 start from `a53b22b`, phase 4 first.
 
