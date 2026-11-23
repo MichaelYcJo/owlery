@@ -20,8 +20,10 @@
 // work items stand, so the one at work shows its setup running, the one in
 // the view has a setup that succeeded, with the paths it copied, and the
 // form names the setup's command; no setup's command runs, and the run
-// types the code a setup pane ends with. Each view's shot opens at the top
-// of its side column, where the parked view's questions stand. With
+// types the code a setup pane ends with. The inbox's shot previews the work
+// item that needs the person, with its agent's question. Each view's shot
+// opens at the top of its side column, where the parked view's questions
+// stand. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -267,8 +269,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   /** Brings a view to the front, as a person does, and waits until it is drawn. */
   const show: Record<View, () => Promise<void>> = {
     inbox: async () => {
+      // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
+      await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length}`, "the inbox with its lines");
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)}`, `the inbox with its lines and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
