@@ -118,6 +118,7 @@ describe("Ledger", () => {
       { ...good, branch: 1 },
       { ...good, stage: { role: "proofer", stage: "seal" } },
       { ...good, stage: { role: null, stage: "round" } },
+      { ...good, stage: { role: "proofer", stage: "gate" } },
       { ...good, stage: "gate" },
       { ...good, startedAt: "1000" },
       { ...good, endedAt: null },
