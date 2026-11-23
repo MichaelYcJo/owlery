@@ -10,7 +10,8 @@ import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { planRecords, setUpRecords } from "../src/daemon/records-place";
-import { type Cleanups, proofs, roles, standing } from "./chain-run";
+import { workItemSeal } from "../src/daemon/seal-state";
+import { type Cleanups, commitSeal, guaranteeWith, proofs, roles, roundRecord, standing } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
@@ -194,7 +195,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 
     verifies = true;
     expect(await c.getSeal(a.id, 2)).toBe("done");
-    await c.chain(a.id, "sealed");
+    await c.chain(a.id, "rested");
     // The daemon's own records, read by the check's Python: the rounds, the run block and the verdict block with the daemon's lines.
     const sealed = check(worktree, "ready", false, false);
     expect(sealed.exit, sealed.output).toBe(0);
@@ -252,7 +253,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     "<!-- owlery:seal -->",
     "## Owlery seal",
     "",
-    "The newest verdict of `seal/threads/1-x/guarantee.md`, as this pull request's head commit holds it:",
+    "The newest verdict of `seal/threads/1-x/guarantee.md`. A seal binds the commit it names, and the check `Owlery seal` says whether it holds at this pull request's head commit:",
     "",
     "```seal",
     ...block,
@@ -336,7 +337,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
     const a = workItems[0]!;
     expect(await c.getSeal(a.id, 1)).toBe("done");
-    await c.chain(a.id, "sealed");
+    await c.chain(a.id, "rested");
     const created = gh.calls().findIndex((call) => call[1] === "create");
     const body = gh.bodies()[created] ?? "";
     expect(body).toContain("\n<!-- /owlery:seal -->\n\n## Review rounds\n");
@@ -475,6 +476,81 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(quiet.sent).toEqual([]);
   }, 60_000);
 
+  it("posts a ready pull request whose seal a later commit broke as a failure titled with the broken seal and its sealed commit, also where the commit after the seal was taken back and the guarantee arm refuses nothing, posts the same head as a draft as neutral, keeps the title of no seal for a head with no guarantee and for one whose newest verdict is withheld, which no later commit breaks, and titles as broken a seal whose commit HEAD does not descend from or the repository cannot resolve", async () => {
+    const { url, sent } = await server();
+    const env = posting(url);
+    const last = (): Sent["body"] | undefined => sent.at(-1)?.body;
+    const BROKEN = (gate: string): string => `Seal broken: a commit landed after ${gate.slice(0, 7)}`;
+
+    const changed = sealedBranch();
+    write(changed.repo, "x", "x, changed\n");
+    commitAll(changed.repo, "fix: x", "1-x");
+    const broken = await run(changed, { body: null, args: ["--post"], env });
+    expect(broken.exit, broken.output).toBe(1);
+    expect(last()).toMatchObject({ head_sha: git(changed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: BROKEN(changed.gate) } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: \`x\` changed after the sealed commit \`${changed.gate.slice(0, 7)}\``);
+    expect(broken.output).toContain(`chain-check: posted \`Owlery seal\`, failure: ${BROKEN(changed.gate)}\n`);
+
+    // The tree at the head is the sealed tree, and the rounds arm and the gate arm read the two commits after the seal.
+    const back = sealedBranch();
+    write(back.repo, "x", "x, changed\n");
+    commitAll(back.repo, "fix: x", "1-x");
+    write(back.repo, "x", "x\n");
+    commitAll(back.repo, "revert: x", "1-x");
+    const taken = await run(back, { body: null, args: ["--post"], env });
+    expect(taken.exit, taken.output).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN(back.gate) } });
+    expect(last()?.output.summary).not.toContain("guarantee.md:");
+    expect(last()?.output.summary).toContain("- seal/threads/1-x/trail/rounds/round-1.md:0  the last round's `target:` is behind HEAD");
+
+    const draft = await run(changed, { draft: true, body: null, args: ["--post"], env });
+    expect(draft.exit).toBe(0);
+    expect(last()).toMatchObject({ conclusion: "neutral", output: { title: "Draft: judged when it is ready" } });
+
+    const unsealed = reviewed();
+    gated(unsealed);
+    expect((await run(unsealed, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
+    // A withheld verdict is no seal, so a commit after it breaks none.
+    const withheld = reviewed();
+    gated(withheld);
+    guaranteed(withheld, section(1, withheld.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: x"));
+    write(withheld.repo, "x", "x, changed\n");
+    commitAll(withheld.repo, "fix: x", "1-x");
+    expect((await run(withheld, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD: \`x\` changed after the commit it names, \`${withheld.gate.slice(0, 7)}\`, outside the closing records\n`);
+    expect(last()?.output.summary).not.toContain("the seal is broken");
+    // A withheld verdict and a merge of the base after it whose commits leave the tree as it was: no seal broke, and the arm names the path the base's commit touched.
+    const withheldMerged = reviewed();
+    gated(withheldMerged);
+    guaranteed(withheldMerged, section(1, withheldMerged.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: x"));
+    mergeAsSealed(withheldMerged.repo, "revert");
+    expect((await run(withheldMerged, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD: a commit of the base that a merge brought after the commit it names, \`${withheldMerged.gate.slice(0, 7)}\`, touches \`other.txt\`, outside the work item's records\n`);
+
+    // A seal whose commit HEAD does not descend from, and one whose commit the repository does not hold, are broken, as the daemon reads them.
+    const off = reviewed();
+    gated(off);
+    git(off.repo, "checkout", "--quiet", "-b", "aside", "main");
+    write(off.repo, "aside.txt", "Aside\n");
+    commitAll(off.repo, "feat: aside");
+    const aside = git(off.repo, "rev-parse", "HEAD").trim();
+    git(off.repo, "checkout", "--quiet", "feature");
+    guaranteed(off, section(1, aside, ...DAEMONS_LINES));
+    expect((await run(off, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN(aside) } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: HEAD does not descend from the sealed commit \`${aside.slice(0, 7)}\`; a new seal is owed at HEAD`);
+    const nowhere = reviewed();
+    gated(nowhere);
+    guaranteed(nowhere, section(1, "d".repeat(40), ...DAEMONS_LINES));
+    expect((await run(nowhere, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN("d".repeat(40)) } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: this repository cannot resolve the sealed commit \`${"d".repeat(40)}\`; a new seal is owed at HEAD`);
+    expect(sent).toHaveLength(8);
+  }, 60_000);
+
   it("passes the gate's record and the seal as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {
     const made = reviewed();
     gated(made);
@@ -484,14 +560,197 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(sealed.exit, sealed.output).toBe(0);
     expect(sealed.output).not.toContain("guarantee.md:");
 
-    // Only the closing records follow the sealed commit: a decision committed after it leaves the guarantee behind the head.
+    // Only the closing records follow the sealed commit: a decision committed after it breaks the seal.
     write(made.repo, "seal/threads/1-x/decisions.md", DECISIONS);
     commitAll(made.repo, "chore: record a decision and a question", "1-x");
     const behind = check(made, "ready", false, false);
-    expect(behind.output).toContain("seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD:");
-    expect(behind.output).toContain("touches `seal/threads/1-x/decisions.md`, outside the closing records; the sealer runs again");
+    expect(behind.output).toContain(`seal/threads/1-x/guarantee.md:0  the seal is broken: \`seal/threads/1-x/decisions.md\` changed after the sealed commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new seal is owed at HEAD\n`);
     expect(behind.exit).toBe(1);
   });
+
+  /**
+   * The branch `sealedBranch` makes, after which `main` gains a commit and
+   * the branch merges it: a commit of `other.txt`, or with `edit` an empty
+   * commit, whose merge commit itself changes `x`.
+   */
+  const mergedAfterSeal = (edit: boolean): ReturnType<typeof sealedBranch> => {
+    const made = sealedBranch();
+    git(made.repo, "checkout", "--quiet", "main");
+    if (edit) git(made.repo, "commit", "--quiet", "--allow-empty", "-m", "chore: nothing changed");
+    else {
+      write(made.repo, "other.txt", "Another file\n");
+      commitAll(made.repo, "feat: another file");
+    }
+    git(made.repo, "checkout", "--quiet", "feature");
+    git(made.repo, "merge", "--quiet", "--no-ff", "--no-commit", "main");
+    if (edit) {
+      write(made.repo, "x", "x, edited in the merge\n");
+      git(made.repo, "add", "x");
+    }
+    git(made.repo, "commit", "--quiet", "--no-edit");
+    expect(git(made.repo, "rev-list", "--parents", "-n", "1", "HEAD").trim().split(" ")).toHaveLength(3);
+    return made;
+  };
+
+  /**
+   * Has `main` gain what leaves the sealed tree as it was once the branch
+   * `feature` merges it, and merges it: `x` as the branch committed it before
+   * the seal, or a commit of `other.txt` and its revert. Each is a merge of
+   * the base after the seal whose commits the daemon's rounds read.
+   */
+  const mergeAsSealed = (repo: string, how: "same file" | "revert"): void => {
+    git(repo, "checkout", "--quiet", "main");
+    if (how === "same file") {
+      write(repo, "x", "x\n");
+      commitAll(repo, "feat: x on the base");
+    } else {
+      write(repo, "other.txt", "Another file\n");
+      commitAll(repo, "feat: another file");
+      git(repo, "rm", "--quiet", "other.txt");
+      git(repo, "commit", "--quiet", "-m", "revert: another file");
+    }
+    git(repo, "checkout", "--quiet", "feature");
+    git(repo, "merge", "--quiet", "--no-ff", "--no-edit", "main");
+  };
+
+  /** The guarantee arm's line for a commit of the base, touching `path`, that a merge brought after the seal of `gate`. */
+  const BROUGHT = (path: string, gate: string): string => `seal/threads/1-x/guarantee.md:0  the seal is broken: a commit of the base that a merge brought after the sealed commit \`${gate.slice(0, 7)}\` touches \`${path}\`, outside the work item's records; a new seal is owed at HEAD\n`;
+
+  it("fails a merge of the base after the seal, though the merge commit and the base's commit are read by no walk of the branch's commits: the guarantee arm compares the sealed commit's tree with HEAD's, says that the seal is broken, and names the path that changed and the sealed commit", () => {
+    const made = mergedAfterSeal(false);
+    const merged = check(made, "ready", false, false);
+    expect(merged.output).toContain(`seal/threads/1-x/guarantee.md:0  the seal is broken: \`other.txt\` changed after the sealed commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new seal is owed at HEAD\n`);
+    // The rounds arm and the gate arm walk the branch's own commits, and a merge brings none.
+    expect(merged.output).not.toContain("round-1.md:0");
+    expect(merged.output).not.toContain("gate.md:0");
+    expect(merged.exit).toBe(1);
+  });
+
+  it("fails a merge commit after the seal that itself changes a source file, where the base's commit it merges changes nothing", () => {
+    const made = mergedAfterSeal(true);
+    expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n")).toEqual(["seal/threads/1-x/guarantee.md", "seal/threads/1-x/trail/gate.md", "x"]);
+    const edited = check(made, "ready", false, false);
+    expect(edited.output).toContain(`seal/threads/1-x/guarantee.md:0  the seal is broken: \`x\` changed after the sealed commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new seal is owed at HEAD\n`);
+    expect(edited.exit).toBe(1);
+  });
+
+  it("fails a merge of the base after the seal whose change the sealed tree already holds, a file the branch committed before the seal or a commit and its revert: the two trees hold the same, so the guarantee arm names the path a commit of the base touched, under the title of a broken seal", async () => {
+    const { url, sent } = await server();
+    for (const [how, path] of [["same file", "x"], ["revert", "other.txt"]] as const) {
+      const made = sealedBranch();
+      mergeAsSealed(made.repo, how);
+      expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n"), how).toEqual(["seal/threads/1-x/guarantee.md", "seal/threads/1-x/trail/gate.md"]);
+      const merged = await run(made, { body: null, args: ["--post"], env: posting(url) });
+      expect(merged.output, how).toContain(BROUGHT(path, made.gate));
+      // The rounds arm and the gate arm walk the branch's own commits, and a merge brings none.
+      expect(merged.output, how).not.toContain("round-1.md:0");
+      expect(merged.output, how).not.toContain("gate.md:0");
+      expect(merged.exit, how).toBe(1);
+      expect(sent.at(-1)?.body, how).toMatchObject({ conclusion: "failure", output: { title: `Seal broken: a commit landed after ${made.gate.slice(0, 7)}` } });
+    }
+  }, 60_000);
+
+  it("gives the daemon's answer for each history of a work item's head: it passes where the daemon reads the seal as sealed, and fails where the daemon reads it as broken or reads none", async () => {
+    /** A branch `feature` of a repository whose `main` holds the records root: one commit of `x`, then the records of a chain that sealed it, as the daemon writes and commits them. */
+    const history = (given: { seal?: boolean; verdict?: string; target?: string } = {}) => {
+      const made = repository();
+      commitRoot(made.repo);
+      const base = git(made.repo, "rev-parse", "HEAD").trim();
+      git(made.repo, "checkout", "--quiet", "-b", "feature");
+      write(made.repo, "x", "x\n");
+      commitAll(made.repo, "feat: x");
+      const gate = commitSeal(made.repo, { workItem: "1-x", branch: "feature", base, ...given });
+      return { ...made, gate, item: { worktree: made.repo, branch: "feature", baseBranch: "main", baseCommit: base } };
+    };
+    const GUARANTEE_AT = "seal/threads/1-x/guarantee.md";
+    const merge = (repo: string, edit: boolean): void => {
+      git(repo, "checkout", "--quiet", "main");
+      if (edit) git(repo, "commit", "--quiet", "--allow-empty", "-m", "chore: nothing changed");
+      else {
+        write(repo, "other.txt", "Another file\n");
+        commitAll(repo, "feat: another file");
+      }
+      git(repo, "checkout", "--quiet", "feature");
+      git(repo, "merge", "--quiet", "--no-ff", "--no-commit", "main");
+      if (edit) write(repo, "x", "x, edited in the merge\n");
+      commitAll(repo, "Merge branch 'main' into feature");
+    };
+    const histories: [string, (made: ReturnType<typeof history>) => void, "sealed" | "broken" | null, { seal?: boolean; verdict?: string; target?: string }?, ((made: ReturnType<typeof history>) => string)?][] = [
+      ["the sealed head", () => undefined, "sealed"],
+      ["a commit that changes the guarantee below its block", ({ repo }) => {
+        write(repo, GUARANTEE_AT, `${git(repo, "show", `HEAD:${GUARANTEE_AT}`)}\nThe sealer's notes end here.\n`);
+        commitAll(repo, "docs: note below the verdict");
+      }, "sealed"],
+      ["a commit of the refused calls", ({ repo }) => {
+        write(repo, "seal/threads/1-x/trail/refusals.md", REFUSED_CALLS);
+        commitAll(repo, "chore: record the refusals");
+      }, "sealed"],
+      ["a commit that changes a source file", ({ repo }) => {
+        write(repo, "x", "x, changed\n");
+        commitAll(repo, "fix: x");
+      }, "broken"],
+      ["a commit that changes decisions.md", ({ repo }) => {
+        write(repo, "seal/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
+        commitAll(repo, "chore: record a decision");
+      }, "broken"],
+      ["a commit that adds a round record", ({ repo }) => {
+        const at = git(repo, "rev-parse", "HEAD").trim();
+        write(repo, "seal/threads/1-x/trail/rounds/round-2.md", roundRecord("# Review round 2: 1-x", `${at}, fixes ${at}..${at}`));
+        commitAll(repo, "chore: record review round 2");
+      }, "broken"],
+      ["a merge of a base that gained a commit", ({ repo }) => merge(repo, false), "broken"],
+      ["a merge commit that itself changes a source file", ({ repo }) => merge(repo, true), "broken"],
+      ["a merge of a base that committed the file the branch committed before the seal", ({ repo }) => mergeAsSealed(repo, "same file"), "broken", undefined, ({ gate }) => BROUGHT("x", gate)],
+      ["a merge of a base that gained a commit and its revert", ({ repo }) => mergeAsSealed(repo, "revert"), "broken", undefined, ({ gate }) => BROUGHT("other.txt", gate)],
+      ["a merge of a base whose commits add and take back a file of the work item's directory alone", ({ repo }) => {
+        git(repo, "checkout", "--quiet", "main");
+        write(repo, "seal/threads/1-x/notes.md", "notes\n");
+        commitAll(repo, "docs: notes");
+        git(repo, "rm", "--quiet", "seal/threads/1-x/notes.md");
+        git(repo, "commit", "--quiet", "-m", "revert: notes");
+        git(repo, "checkout", "--quiet", "feature");
+        git(repo, "merge", "--quiet", "--no-ff", "--no-edit", "main");
+      }, "sealed"],
+      ["two commits of which the second takes the first back", ({ repo }) => {
+        write(repo, "x", "x, changed\n");
+        commitAll(repo, "fix: x");
+        write(repo, "x", "x\n");
+        commitAll(repo, "revert: x");
+      }, "broken"],
+      ["a head with no guarantee", () => undefined, null, { seal: false }],
+      ["a newest verdict block that reads withheld", () => undefined, null, { verdict: "withheld reason: x" }],
+      ["a newest verdict block that reads undecided", () => undefined, null, { verdict: "undecided question: May it?" }],
+      ["a seal followed by a withheld verdict", ({ repo, gate }) => {
+        write(repo, GUARANTEE_AT, guaranteeWith(git(repo, "show", `HEAD:${GUARANTEE_AT}`), "1-x", 2, `${gate} against main`, "withheld reason: x"));
+        commitAll(repo, "chore: record the sealer's verdict");
+      }, null],
+      ["a guarantee with a line the reader refuses", ({ repo }) => {
+        write(repo, GUARANTEE_AT, git(repo, "show", `HEAD:${GUARANTEE_AT}`).replace("Verdict: sealed\n", "Verdict: sealed\ngate: passed\n"));
+        commitAll(repo, "chore: write a line the reader refuses");
+      }, null],
+      ["a branch reset to the commit before the guarantee", ({ repo }) => git(repo, "reset", "--quiet", "--hard", "HEAD~1"), null],
+      ["a seal of a commit the head does not hold", ({ repo }) => {
+        git(repo, "checkout", "--quiet", "-b", "aside", "main");
+        write(repo, "aside.txt", "Aside\n");
+        commitAll(repo, "feat: aside");
+        const aside = git(repo, "rev-parse", "HEAD").trim();
+        git(repo, "checkout", "--quiet", "feature");
+        write(repo, GUARANTEE_AT, guaranteeWith(null, "1-x", 1, `${aside} against main`));
+        commitAll(repo, "chore: record the sealer's verdict");
+      }, "broken", { seal: false }],
+      ["a seal of no commit of the repository", () => undefined, "broken", { target: "d".repeat(40) }],
+    ];
+    const answers = [];
+    for (const [name, make, state, given, says] of histories) {
+      const made = history(given);
+      make(made);
+      const seal = await workItemSeal(made.item, git(made.repo, "rev-parse", "HEAD").trim());
+      const checked = check(made, "ready", false, false);
+      answers.push([name, seal?.state ?? null, checked.exit]);
+      if (says) expect(checked.output, name).toContain(says(made));
+    }
+    expect(answers).toEqual(histories.map(([name, , state]) => [name, state, state === "sealed" ? 0 : 1]));
+  }, 120_000);
 
   it("refuses a verdict block whose judge is one of its builders, at the judged-by line, and reads the newest block alone: a judge that built none of the work passes, and so does a block that names no builder", () => {
     const made = reviewed();

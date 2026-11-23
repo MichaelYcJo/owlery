@@ -10,8 +10,10 @@
 // column and the inbox's preview draw the line. In the second one's
 // worktree a case commits a file and asks for a seal, so the chain runs
 // round 1, which the stand-in holds, and a later case stops that round's
-// session. The page's `Notification` is replaced by a recorder, so nothing
-// reaches the system's notifications.
+// session. A third work item, made by a later case, has the records of a
+// seal committed on its branch as a chain commits them, and then one more
+// commit, which breaks that seal. The page's `Notification` is replaced by a
+// recorder, so nothing reaches the system's notifications.
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -19,6 +21,7 @@ import { MARKER } from "../src/daemon/records-place";
 import { APPEARANCES, THEMES } from "../src/shared/appearance";
 import type { ClientMessage, ServerMessage, WorkItem } from "../src/shared/protocol";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
+import { commitSeal } from "./chain-run";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
 /** What a place of the line shows, as a person and a screen reader read it. */
@@ -253,5 +256,81 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
         return [getComputedStyle(under).color === failed, failed !== getComputedStyle(document.querySelector("#view-detail section.approval .note")).color];
       })()`),
     ).toEqual([true, true]);
+  });
+
+  /** The seal's place where the window shows the work item's seal, each as its form and its words, or null where it is not drawn: the line of the inbox, the preview and the words beside it, the view's foot with the words at its head and its button, and the sealer's place of the view's approval line with its note. */
+  const sealsOf = (id: number): Promise<Record<string, unknown>> =>
+    app.evaluate(`(() => {
+      const shown = (place) => (place ? [place.dataset.seal, place.getAttribute("aria-label")] : null);
+      const sealer = document.querySelector('#view-detail section.approval .place[data-role="sealer"]');
+      return {
+        line: shown(document.querySelector('#inbox-lines button[data-work-item="${String(id)}"] .seal')),
+        preview: shown(document.querySelector("#inbox-screen .seal-slot .seal")),
+        previewWords: document.getElementById("inbox-preview-seal-words").textContent,
+        view: shown(document.querySelector("#view-seal .seal")),
+        viewHead: document.getElementById("view-seal-head").textContent,
+        button: document.getElementById("get-seal").textContent,
+        sealer: sealer ? [shown(sealer.querySelector(".seal")), sealer.querySelector(".note").textContent, [...sealer.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
+      };
+    })()`);
+
+  /** Shows a work item in the inbox's preview, by the keyboard's place on its line. */
+  const preview = async ({ id, title }: WorkItem): Promise<void> => {
+    await app.click("#nav-inbox");
+    await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('#inbox-lines button[data-work-item="${String(id)}"]')`, `the line of ${title}`);
+    await app.evaluate(`document.querySelector('#inbox-lines button[data-work-item="${String(id)}"]').focus()`);
+    await app.until(`document.querySelector('#inbox-screen [data-part="preview-title"]')?.textContent === ${JSON.stringify(title)}`, `the preview of ${title}`);
+  };
+
+  /** The third work item, whose branch the next case seals and the one after it breaks, and the commit its seal names. */
+  let gamma: WorkItem;
+  let sealedAt: string;
+
+  it("lights the seal where the seal holds at the branch's head, on the work item's line, in the preview and at the view's foot, each with the words Sealed at and the sealed commit, and marks the sealer's place finished", async () => {
+    second.send({ type: "createWorkItem", requestId: 5, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
+    for (const deadline = Date.now() + 15_000; !second.item("Gamma") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
+    gamma = second.item("Gamma")!;
+    sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: gamma.branch, base: gamma.baseCommit! });
+    for (const deadline = Date.now() + 20_000; second.item("Gamma")?.seal?.state !== "sealed" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(second.item("Gamma")?.seal).toEqual({ state: "sealed", commit: sealedAt, why: null });
+    const words = `Sealed at ${sealedAt.slice(0, 7)}`;
+    await preview(gamma);
+    await app.until(`document.getElementById("inbox-preview-seal-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the seal");
+    await openView(gamma);
+    await app.until(`document.getElementById("view-seal-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the seal");
+    expect(await sealsOf(gamma.id)).toEqual({
+      line: ["sealed", words],
+      preview: ["sealed", words],
+      previewWords: words,
+      view: ["sealed", words],
+      viewHead: words,
+      button: "Get a seal",
+      sealer: [["sealed", words], "Sealed", ["finished"]],
+    });
+  });
+
+  it("parts the seal in two once a commit lands after it, on the line, in the preview and at the view's foot, with the words Seal broken and the sealed commit, turns the button to Get a new seal, and marks the sealer's place waiting with the seal's sentence under the line", async () => {
+    // The view is in front, so the inbox the daemon sends after its read draws it again.
+    await openView(gamma);
+    commitFile(gamma.worktree, "after-the-seal.ts");
+    const words = `Seal broken, sealed at ${sealedAt.slice(0, 7)}`;
+    await app.until(`document.getElementById("view-seal-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the broken seal", 20_000);
+    const why = second.item("Gamma")?.seal?.why;
+    expect(why).toBe(`\`after-the-seal.ts\` changed after the sealed commit \`${sealedAt.slice(0, 7)}\`.`);
+    const inView = await sealsOf(gamma.id);
+    expect([inView.view, inView.viewHead, inView.button, inView.sealer]).toEqual([["broken", words], words, "Get a new seal", [["broken", words], "Seal broken", ["waiting"]]]);
+    expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under", `Sealer: ${why}`]]);
+    // The drawing is the seal's, parted by the page's two clips, under the theme's light that takes the red out.
+    expect(
+      await app.evaluate(`(() => {
+        const place = document.querySelector("#view-seal .seal");
+        const halves = ["::before", "::after"].map((half) => getComputedStyle(place, half));
+        return [getComputedStyle(place).filter.includes("grayscale"), halves.map((half) => half.clipPath.startsWith("polygon(") && half.backgroundImage.includes("owl.svg")), halves[0].clipPath !== halves[1].clipPath];
+      })()`),
+    ).toEqual([true, [true, true], true]);
+    await preview(gamma);
+    await app.until(`document.getElementById("inbox-preview-seal-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the broken seal");
+    const inInbox = await sealsOf(gamma.id);
+    expect([inInbox.line, inInbox.preview, inInbox.previewWords]).toEqual([["broken", words], ["broken", words], words]);
   });
 });

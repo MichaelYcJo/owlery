@@ -17,7 +17,7 @@
 // whether the gate holds at the branch's head. Where it holds the chain owes
 // the seal, a sealer's session on the gate's commit (`Daemon#runSeal`), until
 // the newest verdict block of the work item's guarantee seals that commit.
-// A sealed chain then owes the pull request stage where the work item's
+// The step `sealed` then owes the pull request stage where the work item's
 // routing sends it to a pull request and the pull request the daemon stores
 // does not carry the branch's head (`pullRequestOwed`): no step of the order,
 // since what GitHub holds is no record. `Daemon#runPullRequest` runs it, and
@@ -122,17 +122,17 @@ export const READING_SAYS = "Owlery is reading the work item's records.";
 /** The sentence of a chain that waits for the person's answers. */
 export const PARKED_SAYS = "The chain waits for the answers to the work item's open questions.";
 
-/** The sentence of a chain that rests sealed: the commit the sealer sealed, which the broad gate passed on, and the last round. */
+/** The sentence of a chain that rests at the step `sealed` with no pull request stage owed: the commit the sealer sealed, which the broad gate passed on, and the last round. It says what that run ended with, and stays after a later commit breaks the seal. */
 export function sealedSays(round: number, commit: string): string {
   return `The sealer sealed ${commit.slice(0, 7)}, after round ${String(round)}.`;
 }
 
-/** The sentence of a chain that rests sealed after the pull request stage opened its pull request. */
+/** The sentence of a chain that rests after the pull request stage opened its pull request. */
 export function pullRequestOpenSays(number: number): string {
   return `Pull request #${String(number)} is open.`;
 }
 
-/** The sentence of a chain that rests sealed after the pull request stage gave an open pull request the seal of the commit given. */
+/** The sentence of a chain that rests after the pull request stage gave an open pull request the seal of the commit given. */
 export function pullRequestCarriesSays(number: number, commit: string): string {
   return `Pull request #${String(number)} carries the seal at ${commit.slice(0, 7)}.`;
 }
@@ -141,7 +141,7 @@ export function pullRequestCarriesSays(number: number, commit: string): string {
 export const OPEN_PULL_REQUEST = "open the pull request";
 
 /**
- * Whether a sealed chain owes the pull request stage: the work item's
+ * Whether the step `sealed` owes the pull request stage: the work item's
  * `routing.md` at the branch's head answers `Destination` with
  * `OPEN_PULL_REQUEST`, and the pull request the daemon stores for the work
  * item is none, is `closed`, or is `open` and was last pushed at a commit
@@ -295,7 +295,7 @@ export function gateHolds(standing: Pick<Standing, "gateCommit" | "sinceGate" | 
  * - The newest verdict block of the guarantee is no seal of the gate's
  *   commit: none stands, it reads `withheld` or `undecided`, or it names
  *   another commit. The seal, on the gate's commit.
- * - Otherwise the chain is sealed at the gate's commit.
+ * - Otherwise the step is `sealed`, at the gate's commit.
  *
  * So no seal is asked for a commit other than the one the gate passed on,
  * and none while a decision stands `reversed` or a commit is unread.
@@ -378,20 +378,23 @@ function firstRefusal(record: Pick<RoundRecord, "refusals">, what: string): stri
 /**
  * What the order reads of a work item, in its worktree: each round record of
  * the directory as the commit `head` holds it, the record of decisions and
- * questions as the worktree holds it, committed or not, the paths the
- * commits after the last record's target changed, the gate's commit
- * with the paths that differ between it and the head, from the gate's record
- * as the commit `head` holds it, and the verdicts of the guarantee as that
- * commit holds it. A round record that only
- * the worktree holds is not read: a round reads a committed tree, and the
- * next round reads what a commit holds. It throws a `ChainStop` where a
+ * questions where `decisionsAt` says, the paths the commits after the last
+ * record's target changed, the gate's commit with the paths that differ
+ * between it and the head, from the gate's record as the commit `head`
+ * holds it, and the verdicts of the guarantee as that commit holds it. A
+ * round record that only the worktree holds is not read: a round reads a
+ * committed tree, and the next round reads what a commit holds. The record
+ * of decisions is read as the worktree holds it, committed or not, where
+ * `decisionsAt` is `worktree`, which is how a chain's run reads it, and as
+ * the commit `head` holds it where it is `head`, which is how the seal at
+ * the head is read (`seal-state.ts`). It throws a `ChainStop` where a
  * round record the head holds does not read whole or names no target,
  * where its target names no commit, and where the reader refuses a line of
  * the gate's record or of the guarantee, with the file and the line, and what
  * `repository-file.ts#repositoryFileText` throws where the record of
- * decisions stands and cannot be read.
+ * decisions stands in the worktree and cannot be read.
  */
-export async function standingOf(worktree: string, directory: string, head: string, base: string): Promise<Standing> {
+export async function standingOf(worktree: string, directory: string, head: string, base: string, decisionsAt: "worktree" | "head"): Promise<Standing> {
   const from = (path: string): string => relative(worktree, path);
   const folder = join(from(directory), ROUNDS_FOLDER);
   const numbered = (await filesAt(worktree, head, folder)).flatMap((path) => {
@@ -407,7 +410,7 @@ export async function standingOf(worktree: string, directory: string, head: stri
     if (record.target === null) throw new ChainStop(`${path} holds no round block`);
     rounds.push({ round, target: record.target, findings: record.findings });
   }
-  const text = repositoryFileText(join(directory, RECORD_FILE));
+  const text = decisionsAt === "head" ? await fileAt(worktree, head, join(from(directory), RECORD_FILE)) : repositoryFileText(join(directory, RECORD_FILE));
   const decisions = text === null ? null : readDecisionRecord(text);
   const last = rounds.at(-1);
   let changed: string[] = [];
@@ -560,13 +563,19 @@ export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
  * carries, the paths of the routing, of every round record and of the
  * gate's record, the paths of the record of decisions, of the frame, of the
  * phase records and of the changelog fragment where each stands, that the
- * work item names no issue, the paths the branch changed since it left its
- * base, and their diff, cut at `PROMPT_DIFF_CHARS` characters with a line
- * that says so. Every path is from the worktree's top, which is the
- * session's folder.
+ * work item names no issue, the paths the branch changed, and their diff,
+ * cut at `PROMPT_DIFF_CHARS` characters with a line that says so. Every
+ * path is from the worktree's top, which is the session's folder.
+ *
+ * `earlier` is the seal a later commit broke, where the run follows one: its
+ * run and its sealed commit, which the prompt names. The paths and the diff
+ * are then what changed since that commit, and otherwise since the branch
+ * left its base. The target line is the caller's either way, so the verdict
+ * still names the gate's commit against the base.
  */
-export function sealPrompt(given: { run: number; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; paths: readonly string[]; diff: string }): StagePrompt {
+export function sealPrompt(given: { run: number; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; earlier: { run: number; commit: string } | null; paths: readonly string[]; diff: string }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
+  const since = given.earlier === null ? "since it left its base" : `since the commit run ${String(given.earlier.run)} sealed`;
   const shown = [
     `Run ${String(given.run)} of the sealer on the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
     "",
@@ -581,10 +590,11 @@ export function sealPrompt(given: { run: number; directory: string; target: stri
     ...(given.phases ? [`- The phase records: \`${given.directory}/trail/phases/\``] : []),
     ...(given.changelog ? [`- The changelog fragment: \`${given.directory}/changelog.md\``] : []),
     "- The issue: the work item names none, so no issue's text is among what you read",
+    ...(given.earlier === null ? [] : [`- The seal this run follows: run ${String(given.earlier.run)} of \`${given.directory}/${GUARANTEE_FILE}\` sealed \`${given.earlier.commit}\`, and a commit after it broke that seal`]),
     "",
     `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of this folder.`,
     "",
-    given.paths.length === 0 ? "The branch changed no path since it left its base." : "The branch changed these paths since it left its base:",
+    given.paths.length === 0 ? `The branch changed no path ${since}.` : `The branch changed these paths ${since}:`,
     ...given.paths.map((path) => `- \`${path}\``),
     "",
   ].join("\n");
@@ -990,12 +1000,13 @@ function isChainStage(value: unknown): value is WrittenStage {
  * its state has no `since`, and its stages are as a file holds them. A build
  * before the seal rested a chain `reviewed` once its broad gate held, with
  * the head it rested at as `reviewedAt`, and wrote that field, null, on
- * every other chain.
+ * every other chain. An earlier build of this release rested a chain
+ * `sealed` where it now rests `rested`.
  */
-export type WrittenChain = Omit<Chain, "since" | "stages" | "state"> & { state: Chain["state"] | "reviewed"; reviewedAt?: string | null; since?: number; stages: WrittenStage[] };
+export type WrittenChain = Omit<Chain, "since" | "stages" | "state"> & { state: Chain["state"] | "sealed" | "reviewed"; reviewedAt?: string | null; since?: number; stages: WrittenStage[] };
 
-/** The states a chain's file may hold: this build's, and `reviewed`, which a build before the seal wrote. */
-const WRITTEN_STATES: readonly string[] = ["running", "parked", "stopped", "sealed", "reviewed"];
+/** The states a chain's file may hold: this build's, and `sealed` and `reviewed`, which earlier builds wrote. */
+const WRITTEN_STATES: readonly string[] = ["running", "parked", "stopped", "rested", "sealed", "reviewed"];
 
 /**
  * Whether a value is a chain as the store writes one, or as an earlier
@@ -1020,12 +1031,14 @@ export function isChain(value: unknown): value is WrittenChain {
  * gate where it was written with none. A chain written with no `since`
  * takes the end of its newest stage, the start of that stage where it did
  * not end, and 0 where it holds no stage. A chain an earlier build stored
- * `reviewed` is no chain of this build, and is read as none: the state said
- * that nothing was owed, and a seal now is, which the next `getSeal` reads
- * from the records.
+ * `reviewed` or `sealed` is no chain of this build, and is read as none.
+ * `reviewed` said that nothing was owed, and a seal now is. `sealed` said
+ * that the branch was sealed, and stayed so after a later commit broke the
+ * seal, which `WorkItem.seal` now says from the branch's head. The next
+ * `getSeal` reads the step owed from the records.
  */
 export function chainOf(chain: WrittenChain): Chain | null {
-  if (chain.state === "reviewed") return null;
+  if (chain.state === "reviewed" || chain.state === "sealed") return null;
   const newest = chain.stages.at(-1);
   return {
     state: chain.state,
@@ -1042,7 +1055,7 @@ export const DAEMON_ENDED = "the daemon ended while the stage ran";
  * A chain as the store reads it at the daemon's start: only the fields of a
  * chain, each stage naming no headless session, since the next daemon gives
  * that session's id to another. A chain an earlier build stored `reviewed`
- * is read as none (`chainOf`). A chain stored `running` is read as
+ * or `sealed` is read as none (`chainOf`). A chain stored `running` is read as
  * `stopped`: its stage's session ended with the daemon that started it, and
  * nothing starts a stage but a `getSeal`. Its sentence says that the daemon
  * ended while the stage ran, the stage that was working is `failed`, and

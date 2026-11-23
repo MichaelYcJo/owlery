@@ -1,7 +1,8 @@
 // What the cases of a work item's chain share: a daemon on a temporary
 // repository with the records root, a client, the round records a fake
 // proofer answers with, the fix a fake crafter makes, the blocks a fake
-// orchestrator answers with and the section a fake sealer answers with. No case starts an agent: every stage runs on
+// orchestrator answers with and the section a fake sealer answers with, and
+// the records of a sealed chain a case commits itself. No case starts an agent: every stage runs on
 // the fake adapter. The repository's broad gate is a stand-in command the
 // case names, `true` where it names none, and it runs with the suite's own
 // `PATH`, so no case runs a repository's check or asks a login shell. The
@@ -12,9 +13,11 @@ import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
 import { type FakeAdapterOptions, fakeAdapter } from "../src/daemon/adapters/fake";
+import { routingText } from "../src/daemon/chain";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { MARKER } from "../src/daemon/records-place";
+import { gateText, guaranteeText } from "../src/daemon/seal-records";
 import { createWorktree } from "../src/daemon/worktrees";
 import type { Chain, ClientMessage, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
@@ -404,6 +407,36 @@ export function sealedBy(section: string, builtBy: string, judgedBy: string, mod
 /** A guarantee as the daemon writes one: the heading, then each section given, each below one blank line. */
 export function guaranteeRecord(workItem: string, sections: readonly string[]): string {
   return [`# Guarantee: ${workItem}\n`, ...sections].join("\n");
+}
+
+/** The guarantee's text with one run more, as the daemon writes it (`seal-records.ts#guaranteeText`): the section a sealer answers with, its verdict `sealed` where none is given, and the daemon's lines in its block. */
+export function guaranteeWith(before: string | null, workItem: string, run: number, target: string, verdict = "sealed"): string {
+  return guaranteeText(before, workItem, sealSection({ heading: `## Run ${String(run)}`, target }, verdict), { builtBy: ["the session"], judgedBy: "s-2", model: "fake", version: VERSION });
+}
+
+/**
+ * Commits in a folder checked out on the work item's branch, under a records
+ * root that stands, the records of a chain that sealed it, each in a commit
+ * of its own as a chain commits them: the routing that names the branch,
+ * round 1 with no finding on the commit of that routing, the broad gate's
+ * run on the commit of round 1's record against `base`, and a seal of that
+ * commit. Gives the sealed commit. `seal: false` leaves the guarantee out,
+ * `verdict` is the verdict's word, and `target` the commit the verdict
+ * names, the sealed commit where none is given.
+ */
+export function commitSeal(folder: string, given: { workItem: string; branch: string; base: string; seal?: boolean; verdict?: string; target?: string }): string {
+  const directory = `seal/threads/${given.workItem}`;
+  write(folder, `${directory}/routing.md`, routingText(given.workItem, given.branch, TODAY));
+  const routed = commitAll(folder, "chore: declare the work item's routing");
+  write(folder, `${directory}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${given.workItem}`, `${routed} against main`));
+  const gate = commitAll(folder, "chore: record review round 1");
+  write(folder, `${directory}/trail/gate.md`, gateText(null, given.workItem, { head: gate, base: given.base }));
+  commitAll(folder, "chore: record the broad gate's run");
+  if (given.seal !== false) {
+    write(folder, `${directory}/guarantee.md`, guaranteeWith(null, given.workItem, 1, `${given.target ?? gate} against main`, given.verdict));
+    commitAll(folder, "chore: record the sealer's verdict");
+  }
+  return gate;
 }
 
 /** A close block as a fix pass appends one. */
