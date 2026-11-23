@@ -75,6 +75,7 @@ import {
   notificationFor,
   notificationOpens,
   placeWords,
+  pullRequestFacts,
   pullRequestNotifications,
   paneChoices,
   paneInFront,
@@ -3817,6 +3818,21 @@ describe("the dialog of the records place", () => {
     expect([refused.blocked, refused.files, refused.submit.enabled]).toEqual(["no repository 1", [], false]);
   });
 
+  it("tells an administrator how to make the seal check required, where the workflow is Owlery's, in a plan and in a repository that holds every part, and says that AgenticSeal's hygiene.yml posts no such check", () => {
+    const REQUIRED = "The workflow posts its verdict as the check `Owlery seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `Owlery seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `Owlery seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
+    const HYGIENE = "AgenticSeal's `hygiene.yml` posts no `Owlery seal` check, so GitHub offers none to require. Owlery changes no setting of the repository on GitHub.";
+    expect(recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test").required).toBe(REQUIRED);
+    const owlery = recordsDialog({ ...PROJECT, records: { root: "seal", check: ".github/workflows/owlery-seal.yml", broadGate: "make check" } }, kept(PLAN, "seal/README.md", "seal/config.json", ".github/workflows/owlery-seal.yml"), "", "");
+    expect([owlery.holds.length, owlery.required]).toEqual([3, REQUIRED]);
+    const files = [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }];
+    const hygiene = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, { ...PLAN, files }, "", "");
+    expect([hygiene.holds.length, hygiene.required]).toEqual([3, HYGIENE]);
+    // A plan that writes AgenticSeal's root beside a kept hygiene.yml says the same of that workflow.
+    expect(recordsDialog(PROJECT, { ...PLAN, files: [{ path: "seal/README.md", text: "# x\n" }, { path: "seal/config.json", text: "{}\n" }, { path: ".github/workflows/hygiene.yml", text: null }] }, "pnpm test", "pnpm test").required).toBe(HYGIENE);
+    // Until the daemon answers, and where it refused the plan, no workflow is named and nothing is said of a check.
+    expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required]).toEqual(["", ""]);
+  });
+
   it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
     const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
     expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
@@ -3892,6 +3908,27 @@ describe("a work item's pull request", () => {
     expect(lineText(FAILED, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
     // A work item without a pull request says what it said before.
     expect(lineText({ ...LOGIN, chain: SEALED }, undefined, false)).toEqual({ says: "branch", text: LOGIN.branch });
+  });
+
+  it("lists in the view the pull request's number with its address, its state, the result of its checks, each check with its mark, its state's word and its address, how many more checks there are, and why the last read failed", () => {
+    const passed = { name: "Owlery seal", mark: "finished", words: "Passed", link: SEAL_PASSED.link };
+    expect(pullRequestFacts(PASSED)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks passed", rows: [passed], foot: "", failure: "" });
+    expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "Owlery seal", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
+    // The checks in the order the daemon keeps them, the failed ones first.
+    expect(pullRequestFacts(FAILED)).toMatchObject({ checks: "2 checks failed", rows: [{ name: "build", mark: "failed", words: "Failed", link: BUILD_FAILED.link }, { name: "lint", mark: "failed", words: "Failed", link: null }, passed] });
+    expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, SEAL_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");
+    expect(pullRequestFacts(OPEN)).toMatchObject({ checks: "No checks", rows: [] });
+    expect([MERGED, CLOSED].map((workItem) => pullRequestFacts(workItem)?.state)).toEqual(["Merged", "Closed"]);
+    // GitHub listed more checks than the daemon keeps.
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 4 }))?.foot).toBe("3 more checks");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 2 }))?.foot).toBe("1 more check");
+    // A read that failed keeps the facts of the read before it, and the view says so under the rows.
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1, failure: "gh pr view exited with code 1: HTTP 502" }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view exited with code 1: HTTP 502.");
+    expect(pullRequestFacts(with_({ failure: "gh pr view printed no pull request Owlery reads." }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view printed no pull request Owlery reads.");
+    // A work item without a pull request, and one of a daemon of an earlier build, which sends no such field, list none.
+    expect(pullRequestFacts(LOGIN)).toBeNull();
+    const { pullRequest: _, ...earlier } = LOGIN;
+    expect(pullRequestFacts(earlier as WorkItem)).toBeNull();
   });
 
   it("leaves the line to a pane that works or waits, to a running or stopped chain, to a park and to a call that waits for the person", () => {

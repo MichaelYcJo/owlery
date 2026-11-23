@@ -426,6 +426,19 @@
       #view-seal .refusal { color: var(--state-failed); }
       #view-seal .says:empty, #view-seal .refusal:empty { display: none; }
       #get-seal { align-self: flex-start; margin-top: var(--space-3); }
+      /* The work item's pull request, under the seal's place, as GitHub last answered: rows of a list of records. The first row is its number and its state, and opens it; then the result of its checks, then one row for each check with its mark, its name and its state's word, which opens the check where GitHub gave it an address. How many more checks GitHub listed, and why the last read failed, stand under the rows. A long list scrolls inside the section. */
+      #view-pull-request { flex: none; display: flex; flex-direction: column; box-sizing: border-box; max-height: 30%; overflow: auto; padding: var(--space-3) var(--space-6) var(--space-5); border-top: 1px solid var(--rule); font-size: var(--size-second); }
+      #view-pull-request .row { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; width: 100%; min-height: var(--detail-line); padding: var(--space-1) var(--space-2); border-radius: var(--radius-line); box-shadow: var(--line-edge); text-align: left; }
+      #view-pull-request button.row:hover { background: var(--hover); transition: background-color var(--motion); }
+      #view-pull-request button.row:active { background: var(--pressed); }
+      #pull-request-number { font-weight: 600; color: var(--ink-strong); }
+      #pull-request-state { margin-left: auto; color: var(--ink-muted); }
+      #pull-request-checks { color: var(--ink-muted); }
+      #pull-request-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+      #pull-request-list .words { flex: none; font-size: var(--size-caption); }
+      #pull-request-more { padding: var(--space-2) var(--space-2) 0; }
+      #pull-request-failure { padding: var(--space-3) var(--space-2) 0; color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
+      #pull-request-more:empty, #pull-request-failure:empty { display: none; }
 
       #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #ask-form { flex: none; display: flex; gap: var(--space-3); }
@@ -691,6 +704,13 @@
             <span id="seal-refusal" class="refusal" role="alert"></span>
           </span>
         </section>
+        <section id="view-pull-request" aria-label="Pull request" hidden>
+          <button type="button" id="pull-request-open" class="row"><span id="pull-request-number"></span><span id="pull-request-state"></span></button>
+          <p id="pull-request-checks" class="row"></p>
+          <ul id="pull-request-list"></ul>
+          <p id="pull-request-more" class="hint"></p>
+          <p id="pull-request-failure" role="alert"></p>
+        </section>
       </aside>
     </main>
     <dialog id="work-item-dialog">
@@ -899,6 +919,7 @@
           <span class="row"><input id="records-gate" spellcheck="false" autocomplete="off" /></span>
         </label>
         <p id="records-gate-says" class="says" aria-live="polite" hidden></p>
+        <p id="records-required" class="says" hidden></p>
         <p id="records-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="records-cancel" class="quiet">Not now</button>

@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -1437,6 +1437,50 @@ export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now:
   ];
 }
 
+/** What a work item's view shows of its pull request, under the seal's place. */
+export interface PullRequestFacts {
+  /** The pull request's number, as in "Pull request #12", which opens `url`. */
+  head: string;
+  url: string;
+  /** Its state: "Open", "Merged" or "Closed". */
+  state: string;
+  /** The result of its checks: "Checks running", "Checks passed", "1 check failed" or "No checks". */
+  checks: string;
+  /** Each check the daemon kept, in its order, the failed ones first: its name, the mark of its state, the state's word, and the address its row opens, or null. */
+  rows: { name: string; mark: HeadlessState; words: string; link: string | null }[];
+  /** How many more checks GitHub listed than the daemon kept, or nothing. */
+  foot: string;
+  /** Why the last read failed, where it did, or nothing. */
+  failure: string;
+}
+
+const PULL_REQUEST_STATE: Record<PullRequest["state"], string> = { open: "Open", merged: "Merged", closed: "Closed" };
+const CHECK_SAYS: Record<PullRequestCheck["state"], { mark: HeadlessState; words: string }> = { pending: { mark: "working", words: "Running" }, passed: { mark: "finished", words: "Passed" }, failed: { mark: "failed", words: "Failed" } };
+
+/**
+ * The facts of a work item's pull request as its view lists them, as GitHub
+ * last answered the daemon: the number with its address, the state, the
+ * result of the checks and each check's row. A read that failed keeps the
+ * facts of the read before it, and its sentence stands under the rows. Null
+ * for a work item without a pull request.
+ */
+export function pullRequestFacts(workItem: WorkItem): PullRequestFacts | null {
+  const pullRequest = pullRequestOf(workItem);
+  if (pullRequest === null) return null;
+  const failed = pullRequest.list.filter((check) => check.state === "failed").length;
+  const checks = { none: "No checks", pending: "Checks running", passed: "Checks passed", failed: `${counted(failed, "check", "checks")} failed` }[pullRequest.checks];
+  const failure = pullRequest.failure === null ? "" : `The last read failed, so the facts above are from the read before it: ${pullRequest.failure}`;
+  return {
+    head: `Pull request #${String(pullRequest.number)}`,
+    url: pullRequest.url,
+    state: PULL_REQUEST_STATE[pullRequest.state],
+    checks,
+    rows: pullRequest.list.map((check) => ({ name: check.name, ...CHECK_SAYS[check.state], link: check.link })),
+    foot: listFoot(pullRequest.list.length, pullRequest.listCount, "check", "checks", ""),
+    failure: failure === "" || /[.?!]$/u.test(failure) ? failure : `${failure}.`,
+  };
+}
+
 /** The keys a list says under its preview: the two that move through it, the one that opens the selected line's menu, and the one that opens the "New work item" form, with the Control key where the keyboard has no Command key. */
 export function keyHints(screen: "inbox" | "history" | "archived", mac: boolean): string[] {
   return [`J K move through the ${screen === "archived" ? "archived work items" : screen}`, "M opens the menu", `${mac ? "\u2318N" : "Ctrl N"} opens a new work item`];
@@ -1899,8 +1943,18 @@ export interface RecordsWords {
   holds: string[];
   /** The field of the broad gate command: off where `config.json` stands, with the key's value. */
   gate: { shown: boolean; enabled: boolean; label: string; value: string; says: string };
+  /** Of the workflow the plan names: how an administrator makes the seal check required, where it is Owlery's, or that AgenticSeal's posts no such check. Empty until a plan names one. */
+  required: string;
   submit: { shown: boolean; enabled: boolean; label: string };
   cancel: string;
+}
+
+/** What the dialog of the records place says of the seal check a workflow posts, by the workflow's path: Owlery's posts `Owlery seal`, which an administrator makes required on GitHub, and AgenticSeal's `hygiene.yml` posts none. Nothing for no workflow. */
+function requiredCheck(workflow: string | null): string {
+  const unchanged = "Owlery changes no setting of the repository on GitHub.";
+  if (workflow?.endsWith("/hygiene.yml")) return `AgenticSeal's \`hygiene.yml\` posts no \`Owlery seal\` check, so GitHub offers none to require. ${unchanged}`;
+  if (workflow === null) return "";
+  return `The workflow posts its verdict as the check \`Owlery seal\` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires \`Owlery seal\` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no \`Owlery seal\` check, so a required one holds it until an administrator lets it through. ${unchanged}`;
 }
 
 /**
@@ -1917,17 +1971,21 @@ export interface RecordsWords {
  * repository has no folder for a root, git ignores where a work item's
  * records go below its root, something other than a folder stands there,
  * or its checkout does not hold a file of the place as its commit does.
+ * Whichever the plan, the dialog says of the workflow it names, written or
+ * kept, how an administrator makes the seal check required on GitHub, or
+ * that AgenticSeal's `hygiene.yml` posts no such check.
  */
 export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
   const head = `Records and check: ${repository.name}`;
   const scope = "Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.";
   const label = "Broad gate command";
   const off = { shown: true, enabled: false, label: "Set up and commit" };
-  const unplanned = { head, scope, commit: "", files: [], holds: [], gate: { shown: false, enabled: false, label, value: "", says: "" }, cancel: "Not now" };
+  const unplanned = { head, scope, commit: "", files: [], holds: [], gate: { shown: false, enabled: false, label, value: "", says: "" }, required: "", cancel: "Not now" };
   if (plan === null) return { ...unplanned, blocked: "", submit: off };
   if ("error" in plan) return { ...unplanned, blocked: plan.error, submit: off };
   const held = recordsOf(repository);
   const config = plan.files.find((file) => file.path.endsWith("/config.json"));
+  const required = requiredCheck(plan.files.find((file) => file.path.startsWith(".github/workflows/"))?.path ?? null);
   // The key's place and its value, as the daemon last read them.
   const kept = config === undefined ? "" : held?.broadGate == null ? `No \`Broad gate\` key in \`${config.path}\`.` : `Kept in \`${config.path}\`, under \`Broad gate\`.`;
   if (plan.blocked === null && plan.files.every((file) => file.text === null)) {
@@ -1936,6 +1994,7 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
     return {
       ...unplanned,
       blocked: "",
+      required,
       holds: [`Records: \`${readme?.path.replace(/README\.md$/, "") ?? ""}\``, `Check: \`${workflow?.path ?? ""}\``, gate],
       submit: { ...off, shown: false },
       cancel: "Close",
@@ -1957,6 +2016,7 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
       value: writesConfig ? command : (held?.broadGate ?? ""),
       says: writesConfig ? `Kept in \`${config.path}\`, under \`Broad gate\`.${proposed ? " Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another." : ""}` : kept,
     },
+    required,
     submit: { ...off, enabled: plan.blocked === null && plannedFor === command && (!writesConfig || command.trim() !== "") },
     cancel: "Not now",
   };

@@ -953,7 +953,8 @@ function deleteNamed(): void {
  * Draws the dialog of the records place, from the daemon's lists as they are
  * now and from the plan the daemon answered with, in the words of ./view's
  * `recordsDialog`: what is out of scope, the commit, each file with its
- * text, the field of the broad gate command, and the buttons. It closes the
+ * text, the field of the broad gate command, how an administrator makes the
+ * seal check required, and the buttons. It closes the
  * dialog where the window's lists no longer hold the repository.
  */
 function showRecords(): void {
@@ -999,6 +1000,7 @@ function showRecords(): void {
   // The field keeps what the person types, and shows the key's own value where the file stands.
   if (recordsGate.value !== words.gate.value) recordsGate.value = words.gate.value;
   say("records-gate-says", words.gate.shown ? words.gate.says : "");
+  say("records-required", words.required);
   RECORDS.button.hidden = !words.submit.shown;
   RECORDS.button.textContent = words.submit.label;
   RECORDS.button.disabled = !words.submit.enabled || waiting(RECORDS);
