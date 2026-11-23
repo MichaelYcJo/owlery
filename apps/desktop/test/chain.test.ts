@@ -2936,7 +2936,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     }
   });
 
-  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next getSeal: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections, and gh that never ends", async () => {
+  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next getSeal: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections, answers of gh that do not read, and gh that never ends", async () => {
     /** A sealed chain whose stage failed as `make` arranges, with the chain, the head and the calls gh had before the stage. */
     const failing = async (options: Partial<DaemonOptions> & { gate?: string }, make: (stood: Awaited<ReturnType<typeof standing>>) => void, says: RegExp): Promise<Awaited<ReturnType<typeof standing>>> => {
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), ...options });
@@ -2973,6 +2973,9 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(several.gh.calls().map((call) => call[1])).toEqual(["list"]);
     const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- owlery:seal -->\n<!-- /owlery:seal -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:seal -->` lines, and Owlery replaces one seal section\.$/u);
     expect(twice.gh.calls().map((call) => call[1])).toEqual(["list"]);
+    await failing({}, ({ gh }) => gh.answer("list", { out: "Showing 0 of 0 pull requests\n" }), /^The pull request stage failed: gh pr list printed no list Owlery reads\.$/u);
+    await failing({}, ({ gh }) => gh.answer("create", { out: "Creating pull request\n" }), /^The pull request stage failed: gh pr create printed no address of a pull request\.$/u);
+    await failing({}, ({ gh }) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "QUEUED", headRefOid: "a".repeat(40) }) }), /^The pull request stage failed: gh pr view printed no pull request Owlery reads\.$/u);
     const hangs = await failing({ githubLimitMs: 500 }, ({ gh }) => gh.answer("list", { hangs: true }), /^The pull request stage failed: gh pr list did not end within 0\.5 seconds and was stopped\.$/u);
     expect(hangs.gh.calls().map((call) => call[1])).toEqual(["list"]);
 
