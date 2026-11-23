@@ -2126,6 +2126,10 @@ describe("the changed set of a load", () => {
     expect(changedSetAfter(before, read, sealed)).toEqual({ ids: [], unread: [] });
     // A look written before the look kept the seal has no reading to measure against.
     expect(changedSetAfter(look([LOGIN, SEARCH]), set, sealed)).toEqual({ ids: [], unread: [] });
+    // A work item new since the look is in the set already, and is named in it once.
+    const fresh = changedSet(look([]), [LOGIN], [], KINDS);
+    expect(fresh).toEqual({ ids: [1], unread: [1] });
+    expect(changedSetAfter(look([]), fresh, [{ ...LOGIN, seal: SEALED }])).toEqual({ ids: [1], unread: [] });
   });
 });
 
