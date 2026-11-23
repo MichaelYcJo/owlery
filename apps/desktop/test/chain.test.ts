@@ -2719,6 +2719,18 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(started.at(-1)?.prompt).toContain(`- The broad gate's record: \`${DIRECTORY}/trail/gate.md\`\n- The frame: \`${DIRECTORY}/frame/\`\n- The phase records: \`${DIRECTORY}/trail/phases/\`\n- The changelog fragment: \`${DIRECTORY}/changelog.md\`\n- The issue: `);
   });
 
+  it("names no session of another work item whose fix pass's commit a rebase onto the base put on the branch's own line", async () => {
+    const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}) });
+    const a = workItems[0]!;
+    write(made.repo, "other.txt", "Another work item\n");
+    git(made.repo, "add", "other.txt");
+    git(made.repo, "commit", "--quiet", "-m", "fix: another work item's fix pass", "-m", "Seal-Routing: 1795388600-other-work\nSeal-Built-By: s-other");
+    git(a.worktree, "rebase", "--quiet", "main");
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "sealed");
+    expect(guaranteeAt(a.worktree)).toContain("\nVerdict: sealed\nbuilt-by: the session, fake-2\njudged-by: ");
+  });
+
   it("stops where the reader refuses a line of the guarantee the head holds, with the file and the line, and leaves the file as it is", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });

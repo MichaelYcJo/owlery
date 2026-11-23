@@ -1073,10 +1073,10 @@ describe("the values of a trailer between two commits", () => {
     commit("f2.txt", "chore: record the fix pass of round 3", "Seal-Routing: 1-x\nSeal-Built-By: s-2");
     const gate = commit("g.txt", "chore: record the fix pass of round 4", "Seal-Routing: 1-x\nSeal-Built-By: s-3");
     commit("h.txt", "chore: record the fix pass of round 5", "Seal-Routing: 1-x\nSeal-Built-By: s-4");
-    expect(await trailerValues(repo, before, gate, "Seal-Built-By")).toEqual(["s-1", "s-2", "s-3"]);
-    expect(await trailerValues(repo, before, gate, "Seal-Routing")).toEqual(["1-x"]);
-    expect(await trailerValues(repo, gate, gate, "Seal-Built-By")).toEqual([]);
-    await expect(trailerValues(repo, "a".repeat(40), gate, "Seal-Built-By")).rejects.toThrow();
+    expect(await trailerValues(repo, [before], gate, "Seal-Built-By")).toEqual(["s-1", "s-2", "s-3"]);
+    expect(await trailerValues(repo, [before], gate, "Seal-Routing")).toEqual(["1-x"]);
+    expect(await trailerValues(repo, [gate], gate, "Seal-Built-By")).toEqual([]);
+    await expect(trailerValues(repo, ["a".repeat(40)], gate, "Seal-Built-By")).rejects.toThrow();
   });
 
   it("reads no trailer of a commit that a merge brought onto the branch from another line", async () => {
@@ -1089,7 +1089,25 @@ describe("the values of a trailer between two commits", () => {
     commit("b.txt", "chore: record the fix pass of round 1", "Seal-Routing: 2-this\nSeal-Built-By: s-this");
     git(repo, "merge", "--quiet", "--no-ff", "-m", "merge the other line", "other");
     commit("c.txt", "chore: record the fix pass of round 2", "Seal-Routing: 2-this\nSeal-Built-By: s-later");
-    expect(await trailerValues(repo, base, git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-this", "s-later"]);
+    expect(await trailerValues(repo, [base], git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-this", "s-later"]);
+  });
+
+  it("reads no trailer of a commit that a branch named as outside holds and a fast-forward or a rebase put on the line", async () => {
+    const { repo } = repository();
+    const commit = committer(repo);
+    const base = commit("a.txt", "chore: the base");
+    git(repo, "branch", "rebased");
+    git(repo, "checkout", "--quiet", "-b", "release");
+    commit("o.txt", "fix: another work item's fix pass", "Seal-Routing: 1-other\nSeal-Built-By: s-other");
+    git(repo, "checkout", "--quiet", "-");
+    git(repo, "merge", "--quiet", "release");
+    commit("b.txt", "chore: record the fix pass of round 1", "Seal-Routing: 2-this\nSeal-Built-By: s-this");
+    expect(await trailerValues(repo, [base, "release"], git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-this"]);
+
+    git(repo, "checkout", "--quiet", "rebased");
+    commit("c.txt", "chore: record the fix pass of round 1", "Seal-Routing: 3-rebased\nSeal-Built-By: s-rebased");
+    git(repo, "rebase", "--quiet", "release");
+    expect(await trailerValues(repo, [base, "release"], git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-rebased"]);
   });
 });
 

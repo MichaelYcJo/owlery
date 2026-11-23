@@ -971,17 +971,21 @@ export async function pathsOfCommits(worktree: string, from: string, to: string)
 }
 
 /**
- * The values of one trailer in the commits of `to`'s own line after `from`:
- * the commits `git log --first-parent` walks from `to` back to `from`, the
- * oldest commit's first and each value once. A commit that a merge brought
- * onto the line from another branch is none of them, so a merge of the base
- * into a work item's branch adds no other work item's trailer. What git
- * reads as a trailer of that key in a commit's message counts, so a line of
- * a message's first paragraph and a sentence that names the key are none.
- * It throws git's words where either names no commit.
+ * The values of one trailer in the commits of `to`'s own line that no name
+ * of `outside` holds: the commits `git log --first-parent` walks from `to`,
+ * less each commit that a name of `outside` names or holds, the oldest
+ * commit's first and each value once. With a work item's base commit and
+ * its base branch as `outside`, a commit of the base is none of them,
+ * whether a merge, a fast-forward or a rebase put it on the branch, so it
+ * adds no other work item's trailer. A commit that only another name holds,
+ * a remote's branch that runs ahead of the base named for one, is read
+ * where it stands on the line. What git reads as a trailer of that key in a
+ * commit's message counts, so a line of a message's first paragraph and a
+ * sentence that names the key are none. It throws git's words where a name
+ * names no commit.
  */
-export async function trailerValues(worktree: string, from: string, to: string, key: string): Promise<string[]> {
-  const printed = await git(worktree, ["log", "--first-parent", "--reverse", `--format=%(trailers:key=${key},valueonly)`, `${from}..${to}`], BRANCH_OUTPUT_BYTES);
+export async function trailerValues(worktree: string, outside: readonly string[], to: string, key: string): Promise<string[]> {
+  const printed = await git(worktree, ["log", "--first-parent", "--reverse", `--format=%(trailers:key=${key},valueonly)`, to, ...outside.map((name) => `^${name}`)], BRANCH_OUTPUT_BYTES);
   return [...new Set(printed.split("\n").map((line) => line.trim()).filter((line) => line !== ""))];
 }
 

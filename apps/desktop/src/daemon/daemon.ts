@@ -2446,9 +2446,10 @@ export class Daemon {
    * The sessions that built the work are `the session` where the
    * `Implementation` row of the `routing.md` the head holds reads so, then
    * the id of each fix pass's session, read from the trailer
-   * `Seal-Built-By:` of the commits on the branch's own line between the
-   * work item's base commit and the gate's commit, so none that a merge
-   * brought from another branch.
+   * `Seal-Built-By:` of the commits on the gate's commit's own line that
+   * neither the work item's base commit nor the base the sealer's diff is
+   * read against holds, so of none of the base's commits, whether a merge,
+   * a fast-forward or a rebase put it on the branch.
    *
    * The verdict decides what follows. `sealed`: nothing here, and the order
    * then reads the chain as sealed. `withheld`: it gives the reason, which
@@ -2481,7 +2482,7 @@ export class Daemon {
       if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the seal, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the broad gate no longer holds at the head the sealer read`);
       await this.noChangeOutside(worktree, directory);
       const routing = await fileAt(worktree, head, relative(worktree, join(directory, ROUTING_FILE)));
-      const passes = baseCommit === null ? [] : (await trailerValues(worktree, baseCommit, step.commit, BUILT_BY_TRAILER)).filter(isSessionId);
+      const passes = baseCommit === null ? [] : (await trailerValues(worktree, [baseCommit, base], step.commit, BUILT_BY_TRAILER)).filter(isSessionId);
       const builtBy = [...(routingAnswer(routing ?? "", "Implementation") === THE_SESSION ? [THE_SESSION] : []), ...passes];
       const stood = await fileAt(worktree, head, relative(worktree, file));
       const written = guaranteeText(stood, basename(directory), section, { builtBy, judgedBy: named.id, model: named.model, version });
