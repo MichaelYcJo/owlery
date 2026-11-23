@@ -48,7 +48,7 @@ What the tree and the release's other frames hold, and what was run to learn it.
 | 1. A work item's view shows the approval line: each stage, which one runs, which ended, and how | *Scope* items 1 to 8 |
 | 2. The inbox line shows the running stage in short, with how long it has run | *Scope* item 9 |
 | 3. A stage that waits for the person is marked on the line as waiting | *Scope* item 4, for a stage that asked a question. No stage waits on a permission request (*Grounding*). A stage that failed or was stopped is marked as failed, and #41 makes its work item's line wait. A failed gate is out of scope, with its reason |
-| 4. The line is drawn from the daemon's progress and the committed records, and from no hook | *Scope* items 1 to 5, and scenario 9 |
+| 4. The line is drawn from the daemon's progress and the committed records, and from no hook | *Scope* items 1 to 5, and scenario 9. The daemon reads the records in the worktree, committed or not (*Scope* item 2), where the issue names the committed records |
 | 5. A person opens a role session's screen from the line, or the issue records why that waits | Out of scope. The issue's comment of 2026-11-22 records it, and the first table above gives the policy it rests on |
 | 6. The layout is checked against the sealed work item's view the owner chose | *Scope* items 6 to 8, and scenarios 10 and 14 |
 
