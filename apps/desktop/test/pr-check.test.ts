@@ -3,8 +3,10 @@
 // on GitHub. Each case runs the check as that workflow does, with `python3`
 // in a temporary repository and a pull request's payload in
 // `GITHUB_EVENT_PATH`.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { planRecords, setUpRecords } from "../src/daemon/records-place";
@@ -101,8 +103,8 @@ describe("the pull request check", { timeout: 30_000 }, () => {
    * other, and `-B` keeps Python from writing its bytecode into `pr-check/`.
    * `sealing` runs it as the broad gate's step does, before the sealer has
    * written: what only the later stages write is then printed and not failed.
-   * With `body` false the payload holds no body, so the check reads none: the
-   * pull request's body is a later stage's.
+   * The payload's body is a line with no seal section, and with `body` false
+   * the payload holds no body: the check reads neither.
    */
   const check = (made: { base: string; repo: string }, state: "ready" | "draft", sealing = false, body = true): { exit: number | null; output: string } => {
     const payload = join(made.base, `${state}.json`);
@@ -196,14 +198,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     // The daemon's own records, read by the check's Python: the rounds, the run block and the verdict block with the daemon's lines.
     const sealed = check(worktree, "ready", false, false);
     expect(sealed.exit, sealed.output).toBe(0);
-    for (const file of ["round-", "gate.md", "guarantee.md"]) expect(sealed.output, file).not.toContain(file);
+    for (const file of ["round-", "gate.md", "guarantee.md:"]) expect(sealed.output, file).not.toContain(file);
     expect(git(a.worktree, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the sealer's verdict", "", "seal/threads/1795388700-sealed-work/guarantee.md", "seal/threads/1795388700-sealed-work/trail/refusals.md"]);
     expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/trail/refusals.md"), "utf8")).toContain("| seal 2 | sealer | Write | writes a file | no-write |\n| seal 2 | sealer | Bash | runs a command | no-command |\n");
     expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/guarantee.md"), "utf8")).toMatch(/\nbuilt-by: the session, fake-\d+\njudged-by: fake-\d+\nmodel: fake\nrules: owlery 0\.0\.2\n```\n/u);
-    // With a body the same records fail on the body alone, which a later stage writes.
+    // A body with no seal section is named as not read, and the same records pass with it.
     const ready = check(worktree, "ready");
-    expect(ready.exit).toBe(1);
-    for (const file of ["round-", "gate.md", "guarantee.md"]) expect(ready.output, file).not.toContain(file);
+    expect(ready.exit, ready.output).toBe(0);
+    expect(ready.output).toContain("not read: the pull request's body, since it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
   });
 
   /**
@@ -237,6 +239,195 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   const REFUSED_CALLS = ["# Refused calls: 1-x", "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| seal 1 | sealer | Write | writes a file | no-write |", ""].join("\n");
   const DAEMONS_LINES = ["built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"];
 
+  /** The branch `reviewed` makes, gated, and sealed by one verdict block with the daemon's lines; `block` is that block's lines between its fences. */
+  const sealedBranch = (): { base: string; repo: string; gate: string; block: string[] } => {
+    const made = reviewed();
+    gated(made);
+    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES));
+    return { ...made, block: [`target: ${made.gate} against main`, "Verdict: sealed", ...DAEMONS_LINES] };
+  };
+
+  /** A seal section written by hand in the form of the pull request work item's `frame/design.md` *Data & interfaces*: its two marker lines around a heading, a sentence and a `seal` block of the lines given. */
+  const sealSection = (...block: string[]): string[] => [
+    "<!-- owlery:seal -->",
+    "## Owlery seal",
+    "",
+    "The newest verdict of `seal/threads/1-x/guarantee.md`, as this pull request's head commit holds it:",
+    "",
+    "```seal",
+    ...block,
+    "```",
+    "<!-- /owlery:seal -->",
+  ];
+
+  /** What the check sent a server: each request's method, path, two of its headers and its JSON body. */
+  type Sent = { method: string; url: string; authorization: string; accept: string; body: { [key: string]: unknown; output: { title: string; summary: string } } };
+
+  /** A server on the loopback address that notes each request and answers it with `status`, closed when the case ends. */
+  const server = async (status = 201): Promise<{ url: string; sent: Sent[] }> => {
+    const sent: Sent[] = [];
+    const listening = createServer((request, response) => {
+      let text = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => {
+        text += chunk;
+      });
+      request.on("end", () => {
+        sent.push({ method: request.method ?? "", url: request.url ?? "", authorization: request.headers.authorization ?? "", accept: request.headers.accept ?? "", body: JSON.parse(text) as Sent["body"] });
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(status < 300 ? '{"id": 1}' : '{"message": "Resource not accessible by integration"}');
+      });
+    });
+    await new Promise<void>((resolve) => listening.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => listening.close(() => resolve())));
+    return { url: `http://127.0.0.1:${String((listening.address() as AddressInfo).port)}`, sent };
+  };
+
+  /** The names a run of the workflow hands the check, with the API at `url`. */
+  const posting = (url: string): Record<string, string> => ({ GITHUB_TOKEN: "t0ken", GITHUB_REPOSITORY: "owner/project", GITHUB_API_URL: url });
+
+  /**
+   * Runs the check as `check` does, without blocking the server a case
+   * started. The payload holds `draft`, the head commit as `head.sha`, and
+   * `body`, a line with no seal section where none is given and no body
+   * where it is null.
+   */
+  const run = (made: { base: string; repo: string }, options: { draft?: boolean; body?: string | null; baseline?: string; args?: string[]; env?: Record<string, string> } = {}): Promise<{ exit: number | null; output: string }> => {
+    const payload = join(made.base, "event.json");
+    const head = git(made.repo, "rev-parse", "HEAD").trim();
+    writeFileSync(payload, JSON.stringify({ pull_request: { draft: options.draft ?? false, head: { sha: head }, ...(options.body === null ? {} : { body: options.body ?? "hello" }) } }));
+    return new Promise((resolve, reject) => {
+      const child = spawn("python3", ["-B", CHAIN_CHECK, "--baseline", options.baseline ?? "main", ...(options.args ?? [])], {
+        cwd: made.repo,
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: made.base, GITHUB_EVENT_PATH: payload, ...options.env },
+      });
+      let output = "";
+      const take = (chunk: string): void => {
+        output += chunk;
+      };
+      child.stdout.setEncoding("utf8").on("data", take);
+      child.stderr.setEncoding("utf8").on("data", take);
+      child.on("error", reject);
+      child.on("close", (exit) => resolve({ exit, output }));
+    });
+  };
+
+  // The sentence every refusal of the body arm ends with.
+  const SECTION_IS = "the seal section, between `<!-- owlery:seal -->` and `<!-- /owlery:seal -->`, is the newest verdict block of the work item's `guarantee.md` at the head commit, which Owlery's daemon copies there line for line";
+
+  it("passes a ready pull request whose body holds the seal section as the daemon writes it, alone and between a person's lines, with the lines ended as a browser ends them too, and names no line of the body", async () => {
+    const made = sealedBranch();
+    for (const lines of [sealSection(...made.block), ["A person's line above.", "", ...sealSection(...made.block), "", "A person's line below, with `<!-- a comment -->` in it."]]) {
+      for (const end of ["\n", "\r\n"]) {
+        const passed = await run(made, { body: lines.join(end) });
+        expect(passed.exit, passed.output).toBe(0);
+        expect(passed.output).not.toContain("the pull request's body");
+      }
+    }
+  });
+
+  it("refuses a seal section that is not the newest verdict block of guarantee.md at the head commit, on the work item's directory and naming the body's line: another target, a verdict that is not sealed, a line the reader refuses, a second block and no block", async () => {
+    const made = sealedBranch();
+    const base = git(made.repo, "rev-parse", "main").trim();
+    const refused = async (lines: string[], said: string): Promise<void> => {
+      const answer = await run(made, { body: ["A person's line.", ...lines].join("\n") });
+      expect(answer.output).toContain(`seal/threads/1-x:0  the pull request's body, ${said}; ${SECTION_IS}\n`);
+      expect(answer.exit).toBe(1);
+    };
+    // The person's line is the body's first, so the section's marker is its second and the block's opener its seventh.
+    await refused(sealSection(`target: ${base} against main`, ...made.block.slice(1)), `line 8: the section's verdict block holds \`target: ${base} against main\` where the newest verdict block of \`seal/threads/1-x/guarantee.md\` at the head commit holds \`target: ${made.gate} against main\``);
+    await refused(sealSection(made.block[0] ?? "", "Verdict: withheld reason: x", ...made.block.slice(2)), "line 9: the section's verdict block holds `Verdict: withheld reason: x` where the newest verdict block of `seal/threads/1-x/guarantee.md` at the head commit holds `Verdict: sealed`");
+    await refused(sealSection(...made.block.slice(0, 2), "colour: blue", ...made.block.slice(2)), "line 10: `colour: blue` is no field of a verdict block, which takes `target:`, `original:`, `Verdict:`, `built-by:`, `judged-by:`, `model:` and `rules:`, each written `<key>: <value>`");
+    // A block whose daemon's lines are gone differs from the record's by their absence.
+    await refused(sealSection(...made.block.slice(0, 2)), "line 7: the section's verdict block holds no `built-by:` line, no `judged-by:` line, no `model:` line and no `rules:` line where the newest verdict block of `seal/threads/1-x/guarantee.md` at the head commit holds `built-by: the session, s-1`, `judged-by: s-2`, `model: owl-large` and `rules: owlery 0.0.2`");
+    const twice = sealSection(...made.block);
+    twice.splice(-1, 0, "", "```seal", ...made.block, "```");
+    await refused(twice, "line 16: the seal section holds a second verdict block");
+    await refused(["<!-- owlery:seal -->", "## Owlery seal", "", "No block.", "<!-- /owlery:seal -->"], "line 2: the seal section holds no verdict block");
+  }, 60_000);
+
+  it("names the body as not read and refuses nothing of it where it holds no seal section, where it holds two, where its closing marker does not follow its opening one, and where the payload holds no body", async () => {
+    const made = sealedBranch();
+    const unread = async (body: string | null, why: string): Promise<void> => {
+      const answer = await run(made, { body });
+      expect(answer.output).toContain(`not read: the pull request's body, since ${why}, so no seal section of it is compared with \`guarantee.md\`, whose newest verdict block Owlery's daemon copies there\n`);
+      expect(answer.exit, answer.output).toBe(0);
+    };
+    await unread("hello", "it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
+    await unread([...sealSection(...made.block), ...sealSection(...made.block)].join("\n"), "it holds 2 `<!-- owlery:seal -->` lines, and a body holds one seal section");
+    await unread([...sealSection(...made.block)].reverse().join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
+    await unread(sealSection(...made.block).slice(0, -1).join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
+    await unread(null, "the event payload holds no `pull_request.body`");
+  });
+
+  it("posts its verdict with --post as the check `Owlery seal` on the payload's head commit, one request a run: success titled with the sealed commit, failure where the head has no seal or other records are refused, neutral for a draft that would be refused, success for a pull request that declares no work item, and failure where the check could not run; the job's exit stays the check's", async () => {
+    const { url, sent } = await server();
+    const env = posting(url);
+    const last = (): Sent["body"] | undefined => sent.at(-1)?.body;
+
+    const made = sealedBranch();
+    const head = git(made.repo, "rev-parse", "HEAD").trim();
+    const sealed = await run(made, { body: null, args: ["--post"], env });
+    expect(sealed.exit, sealed.output).toBe(0);
+    expect(sent.map((request) => [request.method, request.url, request.authorization, request.accept])).toEqual([["POST", "/repos/owner/project/check-runs", "Bearer t0ken", "application/vnd.github+json"]]);
+    expect(last()).toMatchObject({ name: "Owlery seal", head_sha: head, status: "completed", conclusion: "success", output: { title: `Sealed at ${made.gate.slice(0, 7)}` } });
+    expect(last()?.output.summary).toContain(["```seal", ...made.block, "```"].join("\n"));
+    expect(sealed.output).toContain(`chain-check: posted \`Owlery seal\`, success: Sealed at ${made.gate.slice(0, 7)}\n`);
+
+    // The seal stands, and the body's section names another commit: the body arm alone refuses.
+    const base = git(made.repo, "rev-parse", "main").trim();
+    const other = await run(made, { body: sealSection(`target: ${base} against main`, ...made.block.slice(1)).join("\n"), args: ["--post"], env });
+    expect(other.exit).toBe(1);
+    expect(last()).toMatchObject({ head_sha: head, conclusion: "failure", output: { title: "The records are refused" } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x:0  the pull request's body, line 7: the section's verdict block holds \`target: ${base} against main\``);
+
+    const unsealed = reviewed();
+    gated(unsealed);
+    const none = await run(unsealed, { args: ["--post"], env });
+    expect(none.exit).toBe(1);
+    expect(last()).toMatchObject({ head_sha: git(unsealed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: "No seal at the head commit" } });
+    expect(last()?.output.summary).toContain("- seal/threads/1-x/guarantee.md:0  git carries no guarantee file");
+
+    const draft = await run(unsealed, { draft: true, args: ["--post"], env });
+    expect(draft.exit).toBe(0);
+    expect(last()).toMatchObject({ conclusion: "neutral", output: { title: "Draft: judged when it is ready" } });
+    expect(last()?.output.summary).toContain("- seal/threads/1-x/guarantee.md:0  git carries no guarantee file");
+
+    const outside = repository();
+    commitRoot(outside.repo);
+    git(outside.repo, "checkout", "--quiet", "-b", "outside");
+    write(outside.repo, "x", "x\n");
+    commitAll(outside.repo, "an outside contributor's change");
+    const undeclared = await run(outside, { args: ["--post"], env });
+    expect(undeclared.exit).toBe(0);
+    expect(last()).toMatchObject({ conclusion: "success", output: { title: "Not judged: no work item is declared" } });
+
+    const broken = await run(made, { baseline: "no-such-branch", args: ["--post"], env });
+    expect(broken.exit).toBe(2);
+    expect(last()).toMatchObject({ head_sha: head, conclusion: "failure", output: { title: "The seal check could not run" } });
+    expect(sent).toHaveLength(6);
+  }, 60_000);
+
+  it("keeps its exit code where GitHub refuses the post and prints one notice with GitHub's status, and sends nothing without --post or without GITHUB_TOKEN", async () => {
+    const refusing = await server(403);
+    const made = sealedBranch();
+    const unsealed = reviewed();
+    for (const [branch, exit] of [[made, 0], [unsealed, 1]] as const) {
+      const answer = await run(branch, { body: null, args: ["--post"], env: posting(refusing.url) });
+      expect(answer.exit, answer.output).toBe(exit);
+      expect(answer.output.split("`Owlery seal` was not posted: GitHub answered 403")).toHaveLength(2);
+    }
+    expect(refusing.sent).toHaveLength(2);
+
+    const quiet = await server();
+    const { GITHUB_TOKEN: _token, ...tokenless } = posting(quiet.url);
+    expect((await run(made, { body: null, env: posting(quiet.url) })).exit).toBe(0);
+    const noToken = await run(made, { body: null, args: ["--post"], env: tokenless });
+    expect(noToken.exit).toBe(0);
+    expect(noToken.output).toContain("`Owlery seal` was not posted: the environment holds no `GITHUB_TOKEN`");
+    expect(quiet.sent).toEqual([]);
+  }, 60_000);
+
   it("passes the gate's record and the seal as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {
     const made = reviewed();
     gated(made);
@@ -244,7 +435,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     guaranteed(made, section(1, made.gate, ...DAEMONS_LINES));
     const sealed = check(made, "ready", false, false);
     expect(sealed.exit, sealed.output).toBe(0);
-    expect(sealed.output).not.toContain("guarantee.md");
+    expect(sealed.output).not.toContain("guarantee.md:");
 
     // Only the closing records follow the sealed commit: a decision committed after it leaves the guarantee behind the head.
     write(made.repo, "seal/threads/1-x/decisions.md", DECISIONS);
@@ -341,17 +532,17 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 describe("the pr-check folder", () => {
   const read = (path: string): string => readFileSync(join(PR_CHECK, path), "utf8");
 
-  it("holds every script chain_check.py loads, each at the path the check reaches it by", () => {
+  it("holds every script chain_check.py loads, each at the path the check reaches it by, and not the body's composer or the two readers only it loaded", () => {
     const scripts = [
-      ...["sibling", "lines", "blocks", "fields", "gitcmd", "optin", "console", "config", "gate", "routing", "tables", "items", "gaps"].map((name) => `lib/${name}.py`),
+      ...["sibling", "lines", "blocks", "fields", "gitcmd", "optin", "console", "config", "gate", "routing", "tables", "items"].map((name) => `lib/${name}.py`),
       "skills/code-review/scripts/chain_check.py",
-      "skills/code-review/scripts/pr_body.py",
       "skills/settle/scripts/rule_changes.py",
       "skills/settle/scripts/passages.py",
       ".github/scripts/rules.py",
-      ".github/scripts/close_issues_on_release.py",
     ];
     expect(scripts.filter((script) => !existsSync(join(PR_CHECK, script)))).toEqual([]);
+    const gone = ["skills/code-review/scripts/pr_body.py", ".github/scripts/close_issues_on_release.py", "lib/gaps.py"];
+    expect(gone.filter((script) => existsSync(join(PR_CHECK, script)))).toEqual([]);
     // The marker the cases above write is the one the taken check tells a records root by.
     expect(read("lib/optin.py")).toContain(`\nMARKER = ${JSON.stringify(MARKER)}\n`);
   });
