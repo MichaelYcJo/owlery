@@ -34,6 +34,11 @@ Of the statements of this fact, `frame/design.md:121` and the row's last cell ho
 `src/daemon/daemon.ts` at the result of a headless session, `src/daemon/adapters/adapter.ts` and `fake.ts`, and `src/shared/protocol.ts`. Its ledger holds one entry for each headless session that ends, a stage's among them, and the entry's `stage` is the session's pair of `ROLE_STAGES`, not this work's `ChainStage`
 ```
 
+```seal
+verdict: fixed de83f5b
+answer: The orchestrator's `de83f5b` replaces the second cell of `frame/plan.md`'s row for #45 with the record's line, whole; the row's last cell and `frame/design.md` *Out of scope* already said the same. The fix touches the work item's records alone, so it goes to the sealer with no further round.
+```
+
 ## Confirmations
 
 ```seal
