@@ -18,6 +18,10 @@
 | Whether a real sealer, given the bundle's texts as phase 3 rewrote them, reads the records by its tools alone and answers with one section the daemon takes, whose verdict rests on what it read. Every sealer of the cases is the fake adapter's, and its section is written by the case | The first real chain on a branch of Owlery's own (`frame/questions.md` Q3) |
 | Whether a real sealer's command that writes a file is refused, as a real proofer's was. `pnpm run role:refusal:sealer` makes the run, and the suite does not: it spends the owner's usage | The owner, who starts that script once (`frame/questions.md` Q3) |
 | Whether a ceiling of two rulings fits the usage a sealer that keeps asking spends. `UNDECIDED_CEILING` is the default of `frame/questions.md` Q1, which stands open | A person (`frame/questions.md` Q1) |
+| The whole suite at phase 4's commits, and the tree after the merge of `release/v0.0.2` at `7641741` in `98e4414`, which brought #46. Phase 4 ran the project's typecheck, which the merge had left failing, and the phase boundary set its record names | The orchestrator's broad gate, after the review rounds |
+| The test files that start the built app and that phase 4 did not run. Each loads the window's bundle, whose "Ask" section now draws a broad gate's line and whose approval line reads the two new kinds of stage. Phase 4 ran `test/get-a-seal.test.ts`, `test/ask-section.test.ts` and `test/approval-line.test.ts`, with one start of the built app each, and the screenshot run. The imports of three of the others reach a file phase 4 changed: `test/terminal-basics.test.ts` and `test/work-item-menu.test.ts` reach `src/renderer/view.ts`, and `test/role-session.test.ts` reaches `src/daemon/chain-records.ts` and skips its cases without its variable. The rest are `test/daemon-restart.test.ts`, `test/decisions-and-questions.test.ts`, `test/keep-awake.test.ts`, `test/korean-input.test.ts`, `test/memory.test.ts`, `test/notification-click.test.ts`, `test/records-dialog.test.ts`, `test/role-bundle.test.ts`, `test/theme-controls.test.ts` and `test/work-item-form.test.ts` | The orchestrator's broad gate, which runs the `app` project |
+| Whether the committed screenshots hold to `docs/design.md`. Phase 4 opened two of the six, Night watch's dark one and Register's light one, and read the gate's line in each: the mark, the words "Broad gate", the command and "Show output". The four others were written by the same run and not opened | The review, which reads the screenshots against `docs/design.md` (`frame/design.md` scenario 25) |
+| What "Show output" draws for an output the daemon cut. The note "Owlery kept the end of the output alone." is held by a case of `test/view.test.ts`, and no case of the built app prints 262,144 characters | The first real chain on a branch of Owlery's own whose check prints that much |
 
 ## Not done
 
@@ -37,7 +41,7 @@ No case runs a gate whose command reads or leaves a file git ignores. `frame/pla
 
 An archive, a delete and a removal end a running gate's command, and the `running` a client sends with them names panes and headless sessions alone. So the window's dialog for the three does not tell a person that a gate runs. `frame/design.md` *Data & interfaces* gives those messages no field for one.
 
-Three bullets of `seal/threads/1795388700-review-rounds/changelog.md` say that a chain rests once its rounds settle, which phase 2 made untrue. One of them names the state `reviewed` and `reviewedAt`, which phase 3 took out of the protocol. `frame/design.md` *Scope* item 29 gives them to phase 4, with this work's own changelog.
+Two bullets of earlier changelog fragments of the release have been untrue since #41 merged, and this work rewrote neither: the bullet of `seal/threads/1795330500-no-question-holds-the-run/changelog.md` that opens "Nothing in this release makes a decision or holds a work item yet", and the sentence "The window has no control that starts a role yet" of `seal/threads/1795329620-role-bundle/changelog.md`. `docs/roadmap.md` *Releases and the tracker* gives a bullet to the work item that makes it untrue, and that was #41 for both.
 
 A word the person writes into the work item's record of decisions while the sealer works is committed with the verdict, since every stage's commit carries that record. The gate is then owed again, and with it one more sealer's session. A commit of the word alone before the verdict was within reach and not taken: it would be a second way a person's word is committed while a chain runs, and the order's function already reads the result.
 
@@ -45,6 +49,14 @@ A ruling on a sealer's question that fails is not asked again. The next start ru
 
 The seal's prompt names the frame, the phase records, the changelog and the record of decisions where the worktree holds them, and reads no tree of a commit for it. A file of those that stands in the worktree and in no commit is named to a sealer that reads the worktree.
 
-The fixture `REVIEWED` of `test/view.test.ts` keeps its name and holds a chain of the state `sealed`, and two cases of that file still say "reviewed" in their names, at lines 1278 and 1295. #46 edits the same file, so phase 3 changed the three lines the protocol's change needs. Phase 4 merges #46 and can rename them.
+No case of the suite starts the built app on a chain that reaches the seal. The chain of `test/get-a-seal.test.ts` stops at a gate that failed, as scenario 22 has it. The screenshot run's parked work item reaches a seal and a ruling, and that run is no case of the suite: it starts only under `pnpm run screenshots`.
 
-No case starts the built app on a chain that reaches the seal. `test/get-a-seal.test.ts` stops its chain before a gate, and scenario 22, which is phase 4's, stops at a failed gate.
+A sealed chain lights no seal. The sentence above "Get a seal" says that the sealer sealed, and the seal's place reads "No seal yet", in the view, the preview and each line. `frame/design.md` *Out of scope* leaves a lit seal to #44.
+
+"Show output" reads the output again at each press and has no way to put the text away. The text leaves when the work item's gate runs again and when the window loads again. A refusal of the read is said in the status line, as a refusal of any request with no place of its own is.
+
+The window draws the line of a work item's newest gate alone, and in the view alone: the preview of the inbox lists no gate. `frame/design.md` *Scope* item 26 names the view.
+
+The place of the gate's line, before the lines of the sessions, is asserted by the case of `test/get-a-seal.test.ts` and no mutant moved it: `seal mutate` writes one replacement, and the move takes two.
+
+Three statements of `docs/design.md` and of its Korean edition are untrue at this work's head, and no operation of `frame/design.md` *Rule changes* rewrites them. `trail/phases/phase-4.md` names each. A work item whose subject is the code states a rule's change in its frame, which the builder does not write.
