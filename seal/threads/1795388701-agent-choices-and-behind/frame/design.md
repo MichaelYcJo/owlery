@@ -101,17 +101,17 @@ export interface AskedQuestion {
 - `WorkItem.behindBase: number | null`, after `aheadOfBase`.
 - `ClientMessage` and `ServerMessage` gain no message and no field of their own.
 
-`apps/desktop/src/daemon/agent-events.ts`: `agentSaid(hookName, payload)` returns `{ text, tool, questions }`. The tool's name and the names of the payload's fields stand in this file and in no other of `src/`.
+`apps/desktop/src/daemon/agent-events.ts`: `agentSaid(hookName, payload)` returns `{ text, tool, questions }`. The names of the question tool's input fields stand in this file and in no other of `src/`. Two readings of a tool's name stood before this work and stay: `daemon.ts#agentEvent` reads `payload.tool_name` for the `agent` message, and `adapters/claude.ts` reads `request.tool_name` and names `AskUserQuestion` in `--disallowedTools`.
 
 `apps/desktop/src/daemon/agent-state.ts`: the state after an event takes whether the event asks, and gives `waiting` where it does.
 
-`apps/desktop/src/daemon/daemon.ts`: `agentEvent` (line 283) keeps `stateQuestions`; a pane's start (line 1423) and `silentStartOver` (line 1515) hold it `null`; `aheadCounts` (line 219) holds both counts for each work item, set at a creation (line 581), read in `readBranch` (line 1792) and sent with the work item (line 1586).
+`apps/desktop/src/daemon/daemon.ts`: `agentEvent` (line 283) keeps `stateQuestions`; a pane's start (line 1423) holds it `null`, and `silentStartOver` (line 1515) writes nothing of it, since it fires only where no event came after that start; `aheadCounts` (line 219) holds both counts for each work item, set at a creation (line 581), read in `readBranch` (line 1792) and sent with the work item (line 1586).
 
 `apps/desktop/src/daemon/worktrees.ts`: `baseDistance(repo: string, baseBranch: string, head: string): Promise<{ ahead: number; behind: number } | null>`.
 
 `apps/desktop/src/daemon/last-look.ts`: `isSession`, `isWorkItem`, `CameLater` and `lookOf`.
 
-`apps/desktop/src/renderer/view.ts`: `stateSays` gains `questions` in what it returns, an empty list where the session carries none. `lineText` and `ahead` keep their signatures. `apps/desktop/src/renderer/shared.ts#detail` draws the list, and `apps/desktop/src/renderer/index.html` holds its style, drawn with the tokens the card and the parked questions' options use today. No theme gains a token.
+`apps/desktop/src/renderer/view.ts`: `stateSays` gains `questions` in what it returns, an empty list where the session carries none. `choiceNote(question)` gives the sentence the card shows under a question that takes more than one choice, "More than one may be chosen.", and an empty string under one that takes one. `lineText` and `ahead` keep their signatures. `apps/desktop/src/renderer/shared.ts#detail` draws the list, and `apps/desktop/src/renderer/index.html` holds its style, drawn with the tokens the card and the parked questions' options use today. No theme gains a token.
 
 ## Rule changes
 
