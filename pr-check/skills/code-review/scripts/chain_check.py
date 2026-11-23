@@ -1068,16 +1068,28 @@ def follows_reason(found, what):
     )
 
 
-def since_sealed(root, sha, item):
+def since_sealed(root, sha, item, base):
     """None where nothing but the closing records of `item/` differs between
-    the tree of `sha` and HEAD's, and HEAD descends from `sha`; else why not.
+    the tree of `sha` and HEAD's, HEAD descends from `sha`, and no commit of
+    the base that a merge brought after `sha` touches a path outside
+    `item/`; else why not.
 
-    The two trees are compared, and no commit between them is walked, so a
-    merge commit, and a change one brings, is read as any other commit, as
-    Owlery's daemon reads a seal (`seal-state.ts#sealAt`). `("unseen", sha,
-    "")` for a commit this repository cannot resolve, `("off", sha, "")` for
-    one HEAD does not descend from, and `("differs", sha, path)` for the
-    first path, in git's order, that is no closing record and differs."""
+    The two trees are compared, so a merge commit, and a change one brings,
+    is read as any other commit, as Owlery's daemon reads a seal
+    (`seal-state.ts#sealAt`). The base's own commits that a merge brought
+    after `sha` are walked too: those `git merge-base HEAD <base>` holds and
+    `sha` does not, read with the paths `git log --name-only` prints for
+    them, as the daemon reads the commits after a round
+    (`worktrees.ts#pathsOfCommits`). The rounds arm's walk (`follows`)
+    leaves them out, and the two trees hold the same where the sealed tree
+    already held what they changed. `base` is the check's baseline, a ref
+    the checkout resolves; where git names no fork of HEAD and `base`,
+    nothing of the base is walked. `("unseen", sha, "")` for a commit this
+    repository cannot resolve, `("off", sha, "")` for one HEAD does not
+    descend from, `("differs", sha, path)` for the first path, in git's
+    order, that is no closing record and differs, and `("brought", sha,
+    path)` for the first path, newest commit first, that such a commit of
+    the base touched outside `item/`."""
     allowed = {f"{item}/{name}" for name in CLOSING_RECORDS}
     full = git(root, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}")
     if full is None:
@@ -1089,6 +1101,14 @@ def since_sealed(root, sha, item):
     for path in (out or "").split("\0"):
         if path and path not in allowed:
             return ("differs", full, path)
+    fork = git(root, "merge-base", "HEAD", base)
+    if fork is None:
+        return None
+    brought = git(root, "log", "--format=", "--name-only", "-z", fork.strip(), f"^{full}")
+    for path in (brought or "").split("\0"):
+        path = path.lstrip("\n")
+        if path and not path.startswith(f"{item}/"):
+            return ("brought", full, path)
     return None
 
 
@@ -1100,7 +1120,10 @@ BROKEN_SAYS = "the seal is broken: {why}; a new seal is owed at HEAD"
 def since_sealed_reason(found, sealed):
     """The sentence `since_sealed`'s answer is refused with: that the seal is
     broken where the newest verdict block reads `sealed`, and that the
-    guarantee is behind HEAD where it does not."""
+    guarantee is behind HEAD where it does not. Where the two trees hold the
+    same and a commit of the base that a merge brought after the sealed
+    commit touched a path outside the work item's records, it names that
+    path."""
     kind, sha, path = found
     if not sealed:
         if kind == "differs":
@@ -1108,11 +1131,22 @@ def since_sealed_reason(found, sealed):
                 f"the guarantee is behind HEAD: `{path}` changed after the commit "
                 f"it names, `{sha[:7]}`, outside the closing records"
             )
+        if kind == "brought":
+            return (
+                "the guarantee is behind HEAD: a commit of the base that a merge "
+                f"brought after the commit it names, `{sha[:7]}`, touches "
+                f"`{path}`, outside the work item's records"
+            )
         return follows_reason(found, "the guarantee")
     if kind == "unseen":
         why = f"this repository cannot resolve the sealed commit `{sha}`"
     elif kind == "off":
         why = f"HEAD does not descend from the sealed commit `{sha[:7]}`"
+    elif kind == "brought":
+        why = (
+            "a commit of the base that a merge brought after the sealed commit "
+            f"`{sha[:7]}` touches `{path}`, outside the work item's records"
+        )
     else:
         why = (
             f"`{path}` changed after the sealed commit `{sha[:7]}`, outside the "
@@ -1789,16 +1823,17 @@ JUDGE_BUILT = (
 )
 
 
-def guarantee(reader, root, item, notices=None, behind=None):
+def guarantee(reader, root, item, base, notices=None, behind=None):
     """[(path, line, problem)] for the work item's `guarantee.md`: absent, a
     line `lib/fields.py` refuses, a fence nobody closed and a line that
     begins with `<!--` among them, no verdict block, or a newest block, the
-    last, naming a commit HEAD does not hold or whose tree differs from
-    HEAD's in anything but the closing records (`since_sealed`), a verdict
-    other than `sealed`, or as its judge one of the sessions its `built-by:`
-    line names. A fence named as not read goes to NOTICES, and what
-    `since_sealed` answered of a newest block that does not hold to
-    BEHIND."""
+    last, naming a commit HEAD does not hold, whose tree differs from HEAD's
+    in anything but the closing records, or after which a merge brought a
+    commit of BASE, the check's baseline, that touched a path outside the
+    work item's records (`since_sealed`), a verdict other than `sealed`, or
+    as its judge one of the sessions its `built-by:` line names. A fence
+    named as not read goes to NOTICES, and what `since_sealed` answered of
+    a newest block that does not hold to BEHIND."""
     rel = f"{item}/{GUARANTEE_FILE}"
     text = read_record(root, rel)
     if text is None:
@@ -1819,7 +1854,7 @@ def guarantee(reader, root, item, notices=None, behind=None):
     newest = verdicts[-1]
     sha = newest.fields[FIELDS.TARGET].match["commit"]
     sealed = FIELDS.verdict_word(newest) == FIELDS.SEALED
-    found = since_sealed(root, sha, item)
+    found = since_sealed(root, sha, item, base)
     if found is not None:
         problems.append((rel, 0, since_sealed_reason(found, sealed)))
         if behind is not None:
@@ -2475,7 +2510,7 @@ def judge(args):
             direct.append(item)
         notices.extend(unread(reader, routing, root, item, item in chained))
         gate = broad_gate(reader, root, item, args.baseline, notices, closing)
-        sealing = guarantee(reader, root, item, notices, closing)
+        sealing = guarantee(reader, root, item, args.baseline, notices, closing)
         if args.sealing:
             notices.extend(
                 (p, n, f"{SEALING_SAYS}: {m}") for p, n, m in gate + sealing

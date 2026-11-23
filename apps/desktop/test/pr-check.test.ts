@@ -584,6 +584,30 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     return made;
   };
 
+  /**
+   * Has `main` gain what leaves the sealed tree as it was once the branch
+   * `feature` merges it, and merges it: `x` as the branch committed it before
+   * the seal, or a commit of `other.txt` and its revert. Each is a merge of
+   * the base after the seal whose commits the daemon's rounds read.
+   */
+  const mergeAsSealed = (repo: string, how: "same file" | "revert"): void => {
+    git(repo, "checkout", "--quiet", "main");
+    if (how === "same file") {
+      write(repo, "x", "x\n");
+      commitAll(repo, "feat: x on the base");
+    } else {
+      write(repo, "other.txt", "Another file\n");
+      commitAll(repo, "feat: another file");
+      git(repo, "rm", "--quiet", "other.txt");
+      git(repo, "commit", "--quiet", "-m", "revert: another file");
+    }
+    git(repo, "checkout", "--quiet", "feature");
+    git(repo, "merge", "--quiet", "--no-ff", "--no-edit", "main");
+  };
+
+  /** The guarantee arm's line for a commit of the base, touching `path`, that a merge brought after the seal of `gate`. */
+  const BROUGHT = (path: string, gate: string): string => `seal/threads/1-x/guarantee.md:0  the seal is broken: a commit of the base that a merge brought after the sealed commit \`${gate.slice(0, 7)}\` touches \`${path}\`, outside the work item's records; a new seal is owed at HEAD\n`;
+
   it("fails a merge of the base after the seal, though the merge commit and the base's commit are read by no walk of the branch's commits: the guarantee arm compares the sealed commit's tree with HEAD's, says that the seal is broken, and names the path that changed and the sealed commit", () => {
     const made = mergedAfterSeal(false);
     const merged = check(made, "ready", false, false);
@@ -601,6 +625,22 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(edited.output).toContain(`seal/threads/1-x/guarantee.md:0  the seal is broken: \`x\` changed after the sealed commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new seal is owed at HEAD\n`);
     expect(edited.exit).toBe(1);
   });
+
+  it("fails a merge of the base after the seal whose change the sealed tree already holds, a file the branch committed before the seal or a commit and its revert: the two trees hold the same, so the guarantee arm names the path a commit of the base touched, under the title of a broken seal", async () => {
+    const { url, sent } = await server();
+    for (const [how, path] of [["same file", "x"], ["revert", "other.txt"]] as const) {
+      const made = sealedBranch();
+      mergeAsSealed(made.repo, how);
+      expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n"), how).toEqual(["seal/threads/1-x/guarantee.md", "seal/threads/1-x/trail/gate.md"]);
+      const merged = await run(made, { body: null, args: ["--post"], env: posting(url) });
+      expect(merged.output, how).toContain(BROUGHT(path, made.gate));
+      // The rounds arm and the gate arm walk the branch's own commits, and a merge brings none.
+      expect(merged.output, how).not.toContain("round-1.md:0");
+      expect(merged.output, how).not.toContain("gate.md:0");
+      expect(merged.exit, how).toBe(1);
+      expect(sent.at(-1)?.body, how).toMatchObject({ conclusion: "failure", output: { title: `Seal broken: a commit landed after ${made.gate.slice(0, 7)}` } });
+    }
+  }, 60_000);
 
   it("gives the daemon's answer for each history of a work item's head: it passes where the daemon reads the seal as sealed, and fails where the daemon reads it as broken or reads none", async () => {
     /** A branch `feature` of a repository whose `main` holds the records root: one commit of `x`, then the records of a chain that sealed it, as the daemon writes and commits them. */
@@ -627,7 +667,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       if (edit) write(repo, "x", "x, edited in the merge\n");
       commitAll(repo, "Merge branch 'main' into feature");
     };
-    const histories: [string, (made: ReturnType<typeof history>) => void, "sealed" | "broken" | null, { seal?: boolean; verdict?: string; target?: string }?][] = [
+    const histories: [string, (made: ReturnType<typeof history>) => void, "sealed" | "broken" | null, { seal?: boolean; verdict?: string; target?: string }?, ((made: ReturnType<typeof history>) => string)?][] = [
       ["the sealed head", () => undefined, "sealed"],
       ["a commit that changes the guarantee below its block", ({ repo }) => {
         write(repo, GUARANTEE_AT, `${git(repo, "show", `HEAD:${GUARANTEE_AT}`)}\nThe sealer's notes end here.\n`);
@@ -652,6 +692,8 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       }, "broken"],
       ["a merge of a base that gained a commit", ({ repo }) => merge(repo, false), "broken"],
       ["a merge commit that itself changes a source file", ({ repo }) => merge(repo, true), "broken"],
+      ["a merge of a base that committed the file the branch committed before the seal", ({ repo }) => mergeAsSealed(repo, "same file"), "broken", undefined, ({ gate }) => BROUGHT("x", gate)],
+      ["a merge of a base that gained a commit and its revert", ({ repo }) => mergeAsSealed(repo, "revert"), "broken", undefined, ({ gate }) => BROUGHT("other.txt", gate)],
       ["two commits of which the second takes the first back", ({ repo }) => {
         write(repo, "x", "x, changed\n");
         commitAll(repo, "fix: x");
@@ -682,12 +724,13 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       ["a seal of no commit of the repository", () => undefined, "broken", { target: "d".repeat(40) }],
     ];
     const answers = [];
-    for (const [name, make, state, given] of histories) {
+    for (const [name, make, state, given, says] of histories) {
       const made = history(given);
       make(made);
       const seal = await workItemSeal(made.item, git(made.repo, "rev-parse", "HEAD").trim());
       const checked = check(made, "ready", false, false);
       answers.push([name, seal?.state ?? null, checked.exit]);
+      if (says) expect(checked.output, name).toContain(says(made));
     }
     expect(answers).toEqual(histories.map(([name, , state]) => [name, state, state === "sealed" ? 0 : 1]));
   }, 120_000);
