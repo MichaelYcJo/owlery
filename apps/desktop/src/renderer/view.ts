@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -108,7 +108,7 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 export interface InboxLine {
   title: string;
   branch: string;
-  /** `waiting` for a work item parked with questions for the person, and for one whose headless session waits for the person to allow a call, whatever its panes say. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
@@ -122,6 +122,11 @@ function questionsOf(workItem: WorkItem): readonly Question[] {
 /** The calls a work item's headless sessions wait for the person to allow or refuse, the oldest first: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
 function permissionsOf(workItem: WorkItem): readonly PermissionAsk[] {
   return (workItem.permissions as PermissionAsk[] | undefined) ?? [];
+}
+
+/** A work item's chain: the one the daemon sends, null where no chain ran for the work item, and undefined for a daemon of an earlier build, which sends no such field and offers no "Get a seal". */
+function chainOf(workItem: WorkItem): Chain | null | undefined {
+  return workItem.chain as Chain | null | undefined;
 }
 
 /**
@@ -139,35 +144,48 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
  * One line of the inbox: the work item, its state, and its new commits. A
  * work item parked with questions for the person waits, whatever its panes
  * say, and so does one whose headless session waits for the person to allow
- * a call, so each stands with the work items that wait for the person.
- * Otherwise the state is that of its most recent live pane of a kind that
- * reports state. An exited pane keeps its last state and is passed over,
- * because nothing will change that state again.
+ * a call, and one whose chain stopped, so each stands with the work items
+ * that wait for the person. Otherwise the state is that of its most recent
+ * live pane of a kind that reports state. An exited pane keeps its last
+ * state and is passed over, because nothing will change that state again.
+ * A work item whose chain is running is at work whatever that pane says,
+ * but where the pane waits for the person: the pane of the session that
+ * built the branch stays finished while the rounds run.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
   const count = workItem.newCommits ?? 0;
+  const chain = chainOf(workItem)?.state;
+  const pane = reporting ? reporting.state : null;
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 ? "waiting" : reporting ? reporting.state : null,
+    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : pane,
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
 
 /**
  * Since when a line's state has lasted, which its age is counted from: for
- * a work item parked with questions, or whose headless session waits for
- * the person to allow a call, the earliest of the times the daemon first
- * read one of its open questions at and the times its requests arrived at,
- * all of them the daemon's clock, and otherwise the time of the state of
- * the pane the line reads, `session`. Null where none gives one.
+ * a work item parked with questions, one whose headless session waits for
+ * the person to allow a call, and one whose chain stopped, the earliest of
+ * the times the daemon first read one of its open questions at, the times
+ * its requests arrived at and the time the stopped chain's newest stage
+ * ended at, all of them the daemon's clock, and otherwise the time of the
+ * state of the pane the line reads, `session`. Null where none gives one,
+ * and for a work item whose running chain alone says that it works: its
+ * pane's time is that of another state.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
   const parked = parkedWith(workItem) ?? [];
   const asks = permissionsOf(workItem);
-  if (parked.length === 0 && asks.length === 0) return session?.stateSince ?? null;
-  const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...asks.map(({ at }) => at)];
+  const chain = chainOf(workItem);
+  if (parked.length === 0 && asks.length === 0 && chain?.state !== "stopped") {
+    if (chain?.state === "running" && session?.state !== "working" && session?.state !== "waiting") return null;
+    return session?.stateSince ?? null;
+  }
+  const stopped = chain?.state === "stopped" ? (chain.stages.at(-1)?.endedAt ?? null) : null;
+  const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...asks.map(({ at }) => at), ...(stopped === null ? [] : [stopped])];
   return times.length > 0 ? Math.min(...times) : null;
 }
 
@@ -438,6 +456,23 @@ export function permissionNotifications(before: readonly WorkItem[], workItems: 
   return workItems
     .filter((workItem) => !workItem.muted && workItem.id !== inFront)
     .flatMap((workItem) => permissionsOf(workItem).flatMap(({ id }) => (held.has(id) ? [] : [{ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }])));
+}
+
+/**
+ * The notifications for the chains that stopped since the window's lists
+ * were `before`: one for each of `workItems` whose chain is stopped now and
+ * that `before`, the work items and the archived ones the window held, did
+ * not hold with a stopped chain. It is titled with the work item's title
+ * and says what a waiting pane's notification says. None is given for a
+ * work item whose notifications are muted, nor for `inFront`, the work item
+ * whose view is in front of a focused window. An archived work item is not
+ * among `workItems`, so none is given for one.
+ */
+export function chainNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  const held = new Set(before.filter((workItem) => chainOf(workItem)?.state === "stopped").map((workItem) => workItem.id));
+  return workItems
+    .filter((workItem) => chainOf(workItem)?.state === "stopped" && !held.has(workItem.id) && !workItem.muted && workItem.id !== inFront)
+    .map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }));
 }
 
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
@@ -1000,12 +1035,14 @@ export function choiceNote(question: AskedQuestion): string {
 }
 
 /**
- * The text of a line's second row, and which of the five it is: for a work
+ * The text of a line's second row, and which of the six it is: for a work
  * item parked with questions the first question, followed by how many more
  * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
  * session of the work item waits for the person to allow a call, the oldest
  * request as the tool it asks to use and its text, followed by how many
- * more wait, as in " (and 1 more)"; otherwise, where the agent asks the
+ * more wait, as in " (and 1 more)"; otherwise, where the work item's chain
+ * stopped, the chain's sentence, which says the stage and why, as the
+ * daemon wrote it; otherwise, where the agent asks the
  * person a question in its pane, the first question and the labels of its
  * choices, followed by how many more questions it asks, as in "Which
  * library formats the dates? date-fns · dayjs (and 1 more question)";
@@ -1013,12 +1050,14 @@ export function choiceNote(question: AskedQuestion): string {
  * subject, otherwise the branch. While a search is typed it is the branch,
  * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "state" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "state" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const asks = searching ? [] : permissionsOf(workItem);
   const oldest = asks[0];
   if (oldest) return { says: "permission", text: `${asksToUse(oldest.tool)}: ${oldest.text}${asks.length > 1 ? ` (and ${asks.length - 1} more)` : ""}` };
+  const chain = searching ? null : chainOf(workItem);
+  if (chain?.state === "stopped") return { says: "chain", text: chain.says };
   const asked = searching ? [] : askedBy(session);
   const first = asked[0];
   if (first) return { says: "state", text: `${first.asks}${first.options.length > 0 ? ` ${first.options.map(({ label }) => label).join(" · ")}` : ""}${moreQuestions(asked.length - 1)}` };
@@ -2109,6 +2148,31 @@ export function settingsFields(repository: Repository, name: string, base: strin
 export function askButton(prompt: string, workItem: WorkItem): { enabled: boolean; title: string } {
   if (!prompt.trim()) return { enabled: false, title: "Type what to ask." };
   return { enabled: true, title: `Ask in ${workItem.title}` };
+}
+
+/**
+ * The "Get a seal" button of a work item's view, which starts the work
+ * item's chain: whether it is drawn, whether it can be pressed, its title,
+ * the chain's sentence that stands above it, and the refusal under it. It
+ * is drawn where the daemon sent the work item's chain, a chain or none,
+ * and not for a daemon of an earlier build, which sends no such field and
+ * starts no chain. It cannot be pressed while the chain is running, nor
+ * while `asked`, the window's own request to start it, waits for the
+ * daemon's answer. `refused` is the sentence the daemon refused the
+ * window's last request for the work item with, or null; it is said until
+ * the chain runs.
+ */
+export function sealButton(workItem: WorkItem, asked: boolean, refused: string | null): { offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
+  const chain = chainOf(workItem);
+  if (chain === undefined) return { offered: false, enabled: false, title: "", says: "", refusal: "" };
+  const running = chain?.state === "running";
+  return {
+    offered: true,
+    enabled: !running && !asked,
+    title: running ? "The chain is running." : asked ? "The chain is starting." : `Start the review rounds on ${workItem.title}`,
+    says: chain?.says ?? "",
+    refusal: running ? "" : (refused ?? ""),
+  };
 }
 
 /** The headless sessions the window holds, with one the daemon just sent: in place of the one of the same id, or after the others. */

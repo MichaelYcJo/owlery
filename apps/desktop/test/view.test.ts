@@ -16,6 +16,7 @@ import {
   baseSays,
   bellSays,
   cardStaysAt,
+  chainNotifications,
   changesSince,
   choiceNote,
   closeAsks,
@@ -99,6 +100,7 @@ import {
   runningSessions,
   screenMoves,
   screenTurns,
+  sealButton,
   selectedLine,
   settingsBases,
   settingsFields,
@@ -131,7 +133,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -1234,6 +1236,126 @@ describe("a work item whose headless session waits for the person to allow a cal
     expect(permissionNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
     expect(permissionNotifications([EARLIER], [ASKS], undefined)).toHaveLength(1);
     expect(headlessLines([headless(3)], EARLIER)).toEqual(headlessLines([headless(3)], LOGIN));
+  });
+});
+
+describe("a work item's chain", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  const ROUND: ChainStage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: NOW - 30 * MINUTE, endedAt: NOW - 20 * MINUTE, headlessId: 3, refusals: 0 };
+  const FIX: ChainStage = { kind: "fix-pass", round: 1, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: NOW - 19 * MINUTE, endedAt: NOW - 6 * MINUTE, headlessId: 4, refusals: 0 };
+  const STOPPED_SAYS = "The fix pass of round 1 failed: the session reached its time limit and was stopped.";
+  const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", reviewedAt: null, stages: [], ...fields });
+  const RUNNING: WorkItem = { ...LOGIN, chain: chain("running", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) };
+  const STOPPED: WorkItem = { ...LOGIN, chain: chain("stopped", { stages: [ROUND, FIX] }) };
+  const REVIEWED: WorkItem = { ...LOGIN, chain: chain("reviewed", { says: "The review rounds settled at 1a2b3c4.", reviewedAt: "1a2b3c4", stages: [ROUND] }) };
+  const PARKED: WorkItem = { ...LOGIN, chain: chain("parked", { says: "The work item waits for the answers to its questions.", stages: [ROUND] }) };
+  const QUESTION: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "crafter", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
+  const BASH: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: NOW - 2 * MINUTE };
+  const working = session(2, { state: "working", stateSince: NOW - 40 * MINUTE, stateText: "Running the tests" });
+  const finished = session(2, { state: "finished", stateSince: NOW - 50 * MINUTE, stateText: "The form is done." });
+  const waiting = session(2, { state: "waiting", stateSince: NOW - 3 * MINUTE, stateText: "May I run the tests?" });
+  /** A work item as a daemon of a build before the chain sends it. */
+  const { chain: _chain, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("gives the line of a work item whose chain is running the state working where no pane of it waits for the person, so that it is counted and stands among those at work, and the pane's state where its pane waits", () => {
+    for (const sessions of [[], [finished], [working], [session(5, { kind: "shell" })]]) expect(inboxLine(RUNNING, sessions, KINDS)).toEqual({ ...inboxLine(LOGIN, sessions, KINDS), state: "working" });
+    expect(inboxLine(RUNNING, [waiting], KINDS).state).toBe("waiting");
+    const entries = workItemEntries([RUNNING, SEARCH], [finished, session(3, { workItemId: 2, state: "finished" })], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 working, 1 finished");
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Working", [1]], ["Finished", [2]]]);
+  });
+
+  it("gives the line of a work item whose chain stopped the state waiting, whatever its panes say, so that it is counted and stands among those that need the person", () => {
+    for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(STOPPED, sessions, KINDS)).toEqual({ ...inboxLine(LOGIN, sessions, KINDS), state: "waiting" });
+    const entries = workItemEntries([SEARCH, STOPPED], [finished, session(3, { workItemId: 2, state: "working" })], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 needs you, 1 working");
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Working", [2]]]);
+  });
+
+  it("leaves the line's state to the work item's panes where its chain rests reviewed, where it is parked and every question is answered, and where no chain ran", () => {
+    for (const workItem of [REVIEWED, PARKED, LOGIN]) {
+      for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(workItem, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+    }
+    // A parked chain's line waits by the open question of the work item's record.
+    expect(inboxLine({ ...PARKED, questions: [QUESTION] }, [finished], KINDS).state).toBe("waiting");
+  });
+
+  it("says a stopped chain's sentence in the line's second row, after a parked work item's question and a headless session's call and before what its agent says, and the branch while a search is typed", () => {
+    expect(lineText(STOPPED, finished, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText(STOPPED, undefined, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText(STOPPED, waiting, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText({ ...STOPPED, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...STOPPED, permissions: [BASH] }, finished, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(STOPPED, finished, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
+
+  it("says in the second row what the line says without a chain where the chain is running, reviewed or parked", () => {
+    for (const workItem of [RUNNING, REVIEWED, PARKED]) {
+      expect(lineText(workItem, finished, false)).toEqual({ says: "state", text: "The form is done." });
+      expect(lineText(workItem, undefined, false)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+    }
+  });
+
+  it("counts the age of a stopped chain's line from the end of its newest stage, from the earlier of that and its questions' and its requests' times, and gives no age where the newest stage did not end or the chain holds no stage", () => {
+    expect(lineSince(STOPPED, finished)).toBe(NOW - 6 * MINUTE);
+    expect(lineSince(STOPPED, undefined)).toBe(NOW - 6 * MINUTE);
+    expect(stateWithAge(inboxLine(STOPPED, [finished], KINDS).state, lineSince(STOPPED, finished), NOW)).toBe("Needs you, 6 min");
+    expect(lineSince({ ...STOPPED, questions: [QUESTION] }, finished)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince({ ...STOPPED, permissions: [BASH] }, finished)).toBe(NOW - 6 * MINUTE);
+    // The daemon ended while the stage ran, so the stage has no end.
+    expect(lineSince({ ...LOGIN, chain: chain("stopped", { stages: [ROUND, { ...FIX, endedAt: null }] }) }, finished)).toBeNull();
+    expect(lineSince({ ...LOGIN, chain: chain("stopped") }, finished)).toBeNull();
+    expect(lineSince({ ...LOGIN, chain: chain("stopped"), permissions: [BASH] }, finished)).toBe(NOW - 2 * MINUTE);
+  });
+
+  it("gives the line of a running chain no age where the chain alone says that it works, and the pane's where the pane works or waits", () => {
+    expect(lineSince(RUNNING, finished)).toBeNull();
+    expect(lineSince(RUNNING, undefined)).toBeNull();
+    expect(lineSince(RUNNING, working)).toBe(NOW - 40 * MINUTE);
+    expect(lineSince(RUNNING, waiting)).toBe(NOW - 3 * MINUTE);
+    for (const workItem of [REVIEWED, PARKED]) expect(lineSince(workItem, finished)).toBe(NOW - 50 * MINUTE);
+  });
+
+  it("notifies of a chain that stopped since the window's lists were held, titled with the work item's title, with the words a waiting pane's notification has, and of none of a muted work item, of the work item whose view is in front, or of a chain the window already held as stopped", () => {
+    const told = { workItemId: 1, title: "Fix the login bug", body: "Needs you" };
+    expect(told.body).toBe(notificationFor("working", session(3, { state: "waiting" }), false, [LOGIN], KINDS)?.body);
+    expect(chainNotifications([RUNNING, SEARCH], [STOPPED, SEARCH], undefined)).toEqual([told]);
+    expect(chainNotifications([LOGIN], [STOPPED], undefined)).toEqual([told]);
+    expect(chainNotifications([PARKED], [STOPPED], undefined)).toEqual([told]);
+    // A work item the window did not hold at all held no stopped chain.
+    expect(chainNotifications([], [STOPPED], undefined)).toEqual([told]);
+    expect(chainNotifications([RUNNING, SEARCH], [STOPPED, { ...SEARCH, chain: chain("stopped") }], 2)).toEqual([told]);
+    expect(chainNotifications([RUNNING], [{ ...STOPPED, muted: true }], undefined)).toEqual([]);
+    expect(chainNotifications([RUNNING], [STOPPED], 1)).toEqual([]);
+    expect(chainNotifications([STOPPED], [STOPPED], undefined)).toEqual([]);
+    for (const rests of [RUNNING, REVIEWED, PARKED, LOGIN]) expect(chainNotifications([STOPPED], [rests], undefined)).toEqual([]);
+  });
+
+  it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal until the chain runs', () => {
+    const start = "Start the review rounds on Fix the login bug";
+    expect(sealButton(LOGIN, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: "" });
+    expect(sealButton(STOPPED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
+    expect(sealButton(REVIEWED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The review rounds settled at 1a2b3c4.", refusal: "" });
+    expect(sealButton(PARKED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
+    expect(sealButton(RUNNING, false, null)).toEqual({ offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
+    expect(sealButton(STOPPED, true, null)).toEqual({ offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
+    const refused = "The branch holds no commit after its base, so a round has nothing to read.";
+    expect(sealButton(LOGIN, false, refused)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: refused });
+    expect(sealButton(STOPPED, false, refused)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
+    // A chain that runs was started since the refusal.
+    expect(sealButton(RUNNING, false, refused).refusal).toBe("");
+  });
+
+  it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line, and offers no "Get a seal" for it', () => {
+    for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(EARLIER, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+    expect(lineText(EARLIER, finished, false)).toEqual(lineText(LOGIN, finished, false));
+    expect(lineSince(EARLIER, finished)).toBe(NOW - 50 * MINUTE);
+    expect(chainNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
+    expect(chainNotifications([EARLIER], [STOPPED], undefined)).toHaveLength(1);
+    expect(sealButton(EARLIER, false, null)).toEqual({ offered: false, enabled: false, title: "", says: "", refusal: "" });
+    expect(sealButton(EARLIER, false, "refused").offered).toBe(false);
   });
 });
 
