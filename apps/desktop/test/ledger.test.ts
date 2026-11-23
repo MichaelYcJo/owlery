@@ -1,9 +1,26 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Ledger } from "../src/daemon/ledger";
 import type { LedgerEntry } from "../src/shared/protocol";
+
+// No volume the suite runs on fills up, so a case gives the disk the room it has left: an append then writes what fits of its text and
+// throws where the rest does not fit, as a write to a full disk does. Every other case appends as the system does.
+const disk = vi.hoisted(() => ({ room: Number.POSITIVE_INFINITY }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    appendFileSync: (...[file, data, options]: Parameters<typeof actual.appendFileSync>) => {
+      const text = String(data);
+      const fits = text.slice(0, disk.room);
+      if (fits.length > 0) actual.appendFileSync(file, fits, options);
+      disk.room -= fits.length;
+      if (fits.length < text.length) throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+    },
+  };
+});
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -189,6 +206,25 @@ describe("Ledger", () => {
     ledger.add(third);
     expect(lines(runDir)).toEqual([first, second, third].map((written) => JSON.stringify(written)).concat(""));
     expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^an entry of the ledger was not written: /)]);
+  });
+
+  it("writes each entry once where an append fails part way, as on a full disk, and leaves the line it cut", () => {
+    errors();
+    cleanups.push(() => {
+      disk.room = Number.POSITIVE_INFINITY;
+    });
+    const runDir = runFolder();
+    const ledger = new Ledger(runDir);
+    const [first, second, third] = [entry(1000), entry(2000), entry(3000)];
+    disk.room = 0;
+    ledger.add(first);
+    // Room for the first entry's line and the first 10 characters of the second's.
+    disk.room = JSON.stringify(first).length + 1 + 10;
+    ledger.add(second);
+    disk.room = Number.POSITIVE_INFINITY;
+    ledger.add(third);
+    expect(lines(runDir)).toEqual([JSON.stringify(first), JSON.stringify(second).slice(0, 10), JSON.stringify(second), JSON.stringify(third), ""]);
+    expect(ledger.read(7, 0)).toEqual({ entries: [first, second, third], unread: 1 });
   });
 
   it("keeps the entries in memory alone where it is given no run directory", () => {

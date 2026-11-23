@@ -94,10 +94,14 @@ export class Ledger {
     this.held.push(entry);
     if (this.file === undefined) return;
     try {
-      const lines = this.held.map((held) => `${JSON.stringify(held)}\n`).join("");
-      // A line a crash cut stays, and the next entry starts a line of its own after it.
-      appendFileSync(this.file, endsInsideALine(this.file) ? `\n${lines}` : lines, { mode: 0o600 });
-      this.held = [];
+      // One append for each held entry, which leaves the held list once its line is written: an append that fails part way
+      // keeps only the entries whose line is not whole in the file, so no entry is written twice.
+      while (this.held.length > 0) {
+        const line = `${JSON.stringify(this.held[0])}\n`;
+        // A line a crash or a failed append cut stays, and the next entry starts a line of its own after it.
+        appendFileSync(this.file, endsInsideALine(this.file) ? `\n${line}` : line, { mode: 0o600 });
+        this.held.shift();
+      }
     } catch (error) {
       console.error(`an entry of the ledger was not written: ${error instanceof Error ? error.message : String(error)}`);
     }
