@@ -329,10 +329,15 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
       // The stage is not listed under "Ask": the gate's line and the sessions' lines are.
       expect(await app.evaluate(`[...document.querySelectorAll("#headless li")].some((li) => li.textContent.includes("Pull request"))`)).toBe(false);
       // The number opens the pull request's address, and a check's row the check's, through the program that stands for the browser.
+      // The program runs apart from the window, so each click's address is waited for before the next click.
+      const handed = async (count: number): Promise<string[]> => {
+        for (const deadline = Date.now() + 5_000; opened().length < count && Date.now() < deadline; ) await new Promise((r) => setTimeout(r, 50));
+        return opened();
+      };
       await app.click("#pull-request-open");
+      expect(await handed(1)).toEqual(["https://github.com/owner/project/pull/12"]);
       await app.click("#pull-request-list li:nth-child(2) .check");
-      for (const deadline = Date.now() + 5_000; opened().length < 2 && Date.now() < deadline; ) await new Promise((r) => setTimeout(r, 50));
-      expect(opened()).toEqual(["https://github.com/owner/project/pull/12", "https://github.com/owner/project/runs/22"]);
+      expect(await handed(2)).toEqual(["https://github.com/owner/project/pull/12", "https://github.com/owner/project/runs/22"]);
 
       // The work item's line has the state and the second row of a pull request whose checks passed.
       const line = `#inbox-lines button[data-work-item="${workItem.id}"]`;
