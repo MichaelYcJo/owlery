@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { terminalEnv } from "../pty";
 import { writeWholeFile } from "../whole-file";
-import type { RoleStage } from "../../shared/protocol";
+import type { RoleStage, Usage } from "../../shared/protocol";
 import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun } from "./adapter";
 import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
 
@@ -229,15 +229,71 @@ function permissionEvent(id: string, request: Record<string, unknown>, held: rea
 }
 
 /**
- * Maps one line of the output stream to neutral events: the text blocks of an
- * `assistant` message, the `result` line, a request to use a tool, and the
- * withdrawal of one. Every other line is dropped, a control line of another
- * kind among them, and so is a line that is not JSON. `held` is the tools a
- * role launch named, and nothing for a launch that named none: a request
- * for a tool outside them is reported as a call of another kind, with no
- * path.
+ * The values of the `init` line's `apiKeySource` that name a key, the three
+ * the executable of Claude Code 2.1.330 gives one (read 2026-11-23). Only
+ * under one of them is a turn's cost taken as what the account is billed.
  */
-export function eventsForLine(line: string, held?: readonly string[]): RoleEvent[] {
+const KEY_SOURCES: readonly string[] = ["ANTHROPIC_API_KEY", "apiKeyHelper", "/login managed key"];
+
+/**
+ * Reads one line of the output stream for the session's login: true where
+ * it is the `init` line and its `apiKeySource` names a key, false where it is
+ * the `init` line and names none, another value or no string, and nothing
+ * where it is another line.
+ */
+export function keyedLogin(line: string): boolean | undefined {
+  const record = recordOf(line);
+  if (record?.type !== "system" || record.subtype !== "init") return undefined;
+  return typeof record.apiKeySource === "string" && KEY_SOURCES.includes(record.apiKeySource);
+}
+
+/** A value of the stream as a number, and null where it is no number. */
+function numberOf(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+/**
+ * What a turn used, from its `result` line: the cost of `total_cost_usd`,
+ * and one model for each key of `modelUsage`, in the order the line names
+ * them (a name that is a whole number comes first, as JavaScript orders an
+ * object's keys), with its four counts and its cost. Null where the line
+ * holds neither a numeric cost nor a `modelUsage` object. `keyed` is whether
+ * the session's login names a key: the cost is marked as converted unless it
+ * does.
+ */
+function usageOf(record: Record<string, unknown>, keyed: boolean): Usage | null {
+  const reported = record.modelUsage;
+  const models = typeof reported === "object" && reported !== null && !Array.isArray(reported) ? (reported as Record<string, unknown>) : undefined;
+  const costUsd = numberOf(record.total_cost_usd);
+  if (costUsd === null && models === undefined) return null;
+  return {
+    costUsd,
+    converted: !keyed,
+    models: Object.entries(models ?? {}).map(([model, used]) => {
+      const counts = typeof used === "object" && used !== null ? (used as Record<string, unknown>) : {};
+      return {
+        model,
+        inputTokens: numberOf(counts.inputTokens),
+        outputTokens: numberOf(counts.outputTokens),
+        cacheReadTokens: numberOf(counts.cacheReadInputTokens),
+        cacheWriteTokens: numberOf(counts.cacheCreationInputTokens),
+        costUsd: numberOf(counts.costUSD),
+      };
+    }),
+  };
+}
+
+/**
+ * Maps one line of the output stream to neutral events: the text blocks of an
+ * `assistant` message, the `result` line with what the turn used, a request
+ * to use a tool, and the withdrawal of one. Every other line is dropped, a
+ * control line of another kind among them, and so is a line that is not
+ * JSON. `held` is the tools a role launch named, and nothing for a launch
+ * that named none: a request for a tool outside them is reported as a call
+ * of another kind, with no path. `keyed` is whether the session's login
+ * names a key (`keyedLogin`), and false where nothing said so.
+ */
+export function eventsForLine(line: string, held?: readonly string[], keyed = false): RoleEvent[] {
   const record = recordOf(line);
   if (!record) return [];
   if (record.type === "control_request") {
@@ -256,7 +312,7 @@ export function eventsForLine(line: string, held?: readonly string[]): RoleEvent
         type: "result",
         text: typeof record.result === "string" ? record.result : "",
         isError: record.is_error === true,
-        costUsd: typeof record.total_cost_usd === "number" ? record.total_cost_usd : null,
+        usage: usageOf(record, keyed),
       },
     ];
   }
@@ -422,6 +478,9 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       // hears the reason as the run's result, the CLI is stopped, and nothing more of its output is reported.
       let unchecked = launch?.agent;
       let refused = false;
+      // Whether the session's login names a key, as the first `init` line says, and nothing until that line: a result
+      // that comes before any is marked as converted, and a later `init` line changes nothing.
+      let keyed: boolean | undefined;
       const lines = createInterface({ input: child.stdout });
       lines.on("line", (line) => {
         if (refused) return;
@@ -430,16 +489,17 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
           if (seen) unchecked = undefined;
           if (failure !== null) {
             refused = true;
-            listener({ type: "result", text: failure, isError: true, costUsd: null });
+            listener({ type: "result", text: failure, isError: true, usage: null });
             void stop();
             return;
           }
         }
+        keyed ??= keyedLogin(line);
         const control = controlRequestOf(line);
         if (control?.subtype === "can_use_tool") waiting.set(control.id, control.request.input);
         // The CLI waits for an answer to every request it makes, so one the adapter does not take is answered as an error.
         else if (control) respond({ subtype: "error", request_id: control.id, error: `Owlery answers no control request of the subtype ${String(control.subtype)}` });
-        for (const event of eventsForLine(line, launch?.tools)) {
+        for (const event of eventsForLine(line, launch?.tools, keyed === true)) {
           if (event.type === "permission-withdrawn") waiting.delete(event.id);
           // The turn is over, and the end of the input ends the session. An answer given after it is written nowhere: the ended stream takes none.
           if (event.type === "result") child.stdin.end();
