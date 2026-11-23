@@ -44,6 +44,11 @@ if (!changed.some((path) => places.some((place) => underPlace(path, place)))) {
 
 The case "commits nothing where a fixed names a commit that changed no path its finding's location names" (`test/chain.test.ts:1334`) owes one more half: a finding located at `` `notes\greeting.md` ``, closed `fixed` with the commit that changed `notes/greeting.md`, is refused. Against `inFolder` that half is taken, so it is red before the fix.
 
+```seal
+verdict: fixed 304afc1
+answer: `304afc1` adds `chain.ts#underPlace`, which compares a place as the record writes it with its trailing `/` dropped, as the check's `under` does, and `fixedCommitsHeld` calls it in place of `inFolder`. The record's fix was read against `frame/design.md` *Scope* item 7 and `chain_check.py#under` and applied as written. The case at `test/chain.test.ts:1334` gains the half the record names, which failed against `inFolder` and is red under `seal mutate` with the `\` turned to `/` again. `868bfe4` writes the folder of the case's last half as `notes/`, so a case holds the dropped `/` too.
+```
+
 ### 2. The rule change on the view's foot gives the seal's state and the main button `--size-second`, and the page draws them larger
 
 ```seal
@@ -63,6 +68,11 @@ The fix replaces the two `to:` lines, each whole. The `from:` lines stay, since 
   to: | The seal's place | Before a seal: on a line a disc of `--seal-blank-ground` with `--seal-blank-edge`, and in the preview and at a view's foot the seal's drawing pressed into the ground in the blank tones under `--seal-blank-light`. At a view's foot a column of words stands beside the drawing: the state of the seal, its note in `--ink-muted`, where the review chain stands in `--ink`, the main button "Get a seal", and under it why the daemon refused the last press, in `--state-failed`. The note, where the chain stands and the refusal are at `--size-second` and wrapped. Sealed: the seal as it is drawn, under `--seal-light`. | — | — | — | — | — |
 
   to: | 인장의 자리 | 인장이 찍히기 전: 줄에서는 `--seal-blank-ground`의 원판에 `--seal-blank-edge`이고, 미리 보는 칸과 작업 화면의 아래쪽에서는 인장의 그림이 빈 자리의 색조로 `--seal-blank-light` 아래 바탕에 눌려 있습니다. 작업 화면의 아래쪽에서는 그림 옆에 글이 한 줄기로 섭니다. 인장의 상태, `--ink-muted`의 그 메모, `--ink`로 쓴 리뷰 체인이 어디에 서 있는지, 주 버튼 "Get a seal", 그리고 그 아래 `--state-failed`로 쓴 데몬이 마지막 누름을 거절한 까닭입니다. 메모와 체인이 서 있는 자리와 거절한 까닭은 `--size-second`이고 줄을 바꿔 감깁니다. 인장이 찍힌 뒤: 그려진 그대로의 인장이 `--seal-light` 아래에 있습니다. | — | — | — | — | — |
+```
+
+```seal
+verdict: fixed 8a49d29
+answer: The orchestrator's `8a49d29` replaces the two `to:` lines of `frame/design.md` *Rule changes* with the record's two lines, each whole; the `from:` lines stay. The fix touches the work item's records alone.
 ```
 
 ### 3. No record says how a ledger entry joins the chain stage it was for, and the plan says this work gave the entry its stage
@@ -85,6 +95,11 @@ The repair is the orchestrator's, on the records alone. Where it judges that the
 
 <!-- frame/plan.md:75, the last cell of the row for #45 -->
 #45's issue depends on #41, and its entry names a thing this work defines. #45 was sealed first: its entry names its work item, its pair and its times, and this work gives it no field. A stage and its entry share their work item and their `startedAt` (`frame/design.md` *Out of scope*)
+```
+
+```seal
+verdict: fixed 8a49d29
+answer: The orchestrator's `8a49d29` takes the record's second repair: `frame/design.md` *Out of scope*'s item on the ledger and the last cell of `frame/plan.md`'s row for #45 now read as the record shows, so an entry and its stage are joined by their work item and their `startedAt`, and the entry gains no field. The fix touches the work item's records alone.
 ```
 
 ## Confirmations
