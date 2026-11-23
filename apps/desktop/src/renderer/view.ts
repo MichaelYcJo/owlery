@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type Seal, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -417,6 +417,23 @@ function shortCommit(commit: string): string {
   return commit.slice(0, 7);
 }
 
+/** What a broken seal is called, in two words: on the sealer's place, in a notification and at the head of the seal's place. */
+const SEAL_BROKEN = "Seal broken";
+
+/**
+ * The seal's place for a work item's seal, which the daemon read from the
+ * branch's head commit: the state its drawing takes, `none`, `sealed` or
+ * `broken`, and the words it says to a pointer and to a screen reader, which
+ * the preview and the view's foot also show beside it. No seal, a seal the
+ * daemon has not read and a daemon of an earlier build, which sends none,
+ * all say "No seal yet". A sealed commit is shown in short.
+ */
+export function sealShown(seal: Seal | null | undefined): { state: "none" | Seal["state"]; words: string } {
+  if (!seal) return { state: "none", words: "No seal yet" };
+  const commit = shortCommit(seal.commit);
+  return { state: seal.state, words: seal.state === "broken" ? `${SEAL_BROKEN}, sealed at ${commit}` : `Sealed at ${commit}` };
+}
+
 /** A count with its noun, one or many. */
 function counted(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
@@ -460,9 +477,12 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
       return { state: "finished", note, label: note, since: null, text: null };
     }
     case "sealer": {
+      // Whether a seal holds is the seal the branch's head holds, and a verdict that seals in the worktree alone is no verdict.
+      const seal = workItem.seal ?? null;
+      if (seal !== null) return { ...(seal.state === "broken" ? { state: "waiting", note: SEAL_BROKEN } : { state: "finished", note: "Sealed" }), label: sealShown(seal).words, since: null, text: seal.why };
       const verdict = recorded.verdict;
-      if (verdict === null) return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
-      const { state, note } = ({ sealed: { state: "finished", note: "Sealed" }, withheld: { state: "failed", note: "Withheld" }, undecided: { state: "waiting", note: "Undecided" } } as const)[verdict.is];
+      if (verdict === null || verdict.is === "sealed") return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
+      const { state, note } = ({ withheld: { state: "failed", note: "Withheld" }, undecided: { state: "waiting", note: "Undecided" } } as const)[verdict.is];
       return { state, note, label: `${note} at ${shortCommit(verdict.commit)}`, since: null, text: verdict.says };
     }
   }
@@ -653,6 +673,23 @@ export function chainNotifications(before: readonly WorkItem[], workItems: reado
   return workItems
     .filter((workItem) => chainOf(workItem)?.state === "stopped" && !held.has(workItem.id) && !workItem.muted && workItem.id !== inFront)
     .map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }));
+}
+
+/**
+ * The notifications for the seals that broke since the window's lists were
+ * `before`: one for each of `workItems` whose seal is broken now and that
+ * `before`, the work items and the archived ones the window held, held with
+ * a seal that holds. It is titled with the work item's title and says "Seal
+ * broken". A seal the window first holds broken, as at its start, raises
+ * none, since nothing the window held says when it broke. None is given for
+ * a work item whose notifications are muted, nor for `inFront`, the work
+ * item whose view is in front of a focused window.
+ */
+export function sealNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  const held = new Set(before.filter((workItem) => workItem.seal?.state === "sealed").map((workItem) => workItem.id));
+  return workItems
+    .filter((workItem) => workItem.seal?.state === "broken" && held.has(workItem.id) && !workItem.muted && workItem.id !== inFront)
+    .map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: SEAL_BROKEN }));
 }
 
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
@@ -2351,8 +2388,11 @@ export function refusedSeal(workItem: WorkItem | undefined, says: string): SealR
 
 /**
  * The "Get a seal" button of a work item's view, which starts the work
- * item's chain: whether it is drawn, whether it can be pressed, its title,
- * the chain's sentence that stands above it, and the refusal under it. It
+ * item's chain: its words, whether it is drawn, whether it can be pressed,
+ * its title, the chain's sentence that stands above it, and the refusal
+ * under it. Its words are "Get a new seal" where the seal the branch's head
+ * holds is broken, and "Get a seal" otherwise: it sends the same request
+ * either way, and the daemon runs the step the order owes. It
  * is drawn where the daemon sent the work item's chain, a chain or none,
  * and not for a daemon of an earlier build, which sends no such field and
  * starts no chain. It cannot be pressed while the chain is running, nor
@@ -2364,12 +2404,14 @@ export function refusedSeal(workItem: WorkItem | undefined, says: string): SealR
  * since then ran, whoever started it, and what refused the press may no
  * longer hold.
  */
-export function sealButton(workItem: WorkItem, asked: boolean, refused: SealRefusal | null): { offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
+export function sealButton(workItem: WorkItem, asked: boolean, refused: SealRefusal | null): { words: string; offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
   const chain = chainOf(workItem);
-  if (chain === undefined) return { offered: false, enabled: false, title: "", says: "", refusal: "" };
+  const words = workItem.seal?.state === "broken" ? "Get a new seal" : "Get a seal";
+  if (chain === undefined) return { words, offered: false, enabled: false, title: "", says: "", refusal: "" };
   const running = chain?.state === "running";
   const stands = refused !== null && refused.state === (chain?.state ?? null) && refused.since === (chain?.since ?? null);
   return {
+    words,
     offered: true,
     enabled: !running && !asked,
     title: running ? "The chain is running." : asked ? "The chain is starting." : `Start the review rounds on ${workItem.title}`,

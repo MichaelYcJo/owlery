@@ -107,6 +107,8 @@ import {
   screenMoves,
   screenTurns,
   sealButton,
+  sealNotifications,
+  sealShown,
   selectedLine,
   settingsBases,
   settingsFields,
@@ -139,7 +141,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -1254,7 +1256,10 @@ describe("the approval line", () => {
   const NOTHING: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
   /** A work item's records with the frame, three round records, a gate's run and a last verdict that seals. */
   const SEALED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "sealed", commit: TARGET, says: null } };
-  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: SEALED };
+  /** The seal of that verdict, which holds at the branch's head, and the same seal once a later commit broke it. */
+  const HOLDS: Seal = { state: "sealed", commit: TARGET, why: null };
+  const BROKE: Seal = { state: "broken", commit: TARGET, why: "`src/app.ts` changed after the sealed commit `2222222`." };
+  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: SEALED, seal: HOLDS };
   const EMPTY: WorkItem = { ...LOGIN, newCommits: 0, recorded: NOTHING };
   const NONE_STARTED = [
     ["framer", "no-agent", "Not started", "Framer: Not started"],
@@ -1312,6 +1317,24 @@ describe("the approval line", () => {
     expect(under({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })).toEqual([]);
     // The other three places are as the records give them.
     expect(read(withheld)?.slice(0, 3)).toEqual(NONE_STARTED.slice(0, 3));
+  });
+
+  it("marks the sealer's place finished with the sealed commit where the seal holds at the branch's head, waiting with the note Seal broken and the seal's sentence under the line where a later commit broke it, and reads a verdict that seals in the worktree while the head holds no seal as no verdict", () => {
+    expect(read(RECORDED)?.[3]).toEqual(["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"]);
+    expect(under(RECORDED)).toEqual([]);
+    const broken: WorkItem = { ...RECORDED, seal: BROKE };
+    expect(read(broken)?.[3]).toEqual(["sealer", "waiting", "Seal broken", "Sealer: Seal broken, sealed at 2222222"]);
+    expect(under(broken)).toEqual(["Sealer: `src/app.ts` changed after the sealed commit `2222222`."]);
+    expect(read(broken)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    // The worktree's verdict seals and the head holds no seal: the gate's run says the place, or nothing does. A daemon of an earlier build sends no seal.
+    const { seal: _seal, ...unread } = RECORDED;
+    for (const none of [{ ...RECORDED, seal: null }, unread as WorkItem]) {
+      expect(read(none)?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
+      expect(read({ ...none, recorded: { ...SEALED, gate: null } })?.[3]).toEqual(NONE_STARTED[3]);
+      expect(under(none)).toEqual([]);
+    }
+    // A broken seal stands over a verdict the worktree holds and no commit does.
+    expect(read({ ...broken, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Not committed." } } })?.[3]).toEqual(["sealer", "waiting", "Seal broken", "Sealer: Seal broken, sealed at 2222222"]);
   });
 
   it("marks a role's place waiting where an open question names that role exactly as its asker, with the question's age in the mark's words and its text under the line, and marks no place for another asker or once the question is answered", () => {
@@ -1413,9 +1436,9 @@ describe("the approval line", () => {
     expect(under(runsSeal)).toEqual([]);
     // A gate that passed and a seal whose verdict was written have finished: the records say the place, a gate's run or the verdict.
     const passed = gate({ state: "finished", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 0, output: true } });
-    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...SEALED, verdict: null } })?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
+    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...SEALED, verdict: null }, seal: null })?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
     const withheld: Recorded = { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Round 2 closed a finding the tree still holds." } };
-    const stopped: WorkItem = { ...chained("stopped", ROUND_ONE, passed, stage({ kind: "seal", state: "finished", endedAt: NOW - MINUTE })), recorded: withheld };
+    const stopped: WorkItem = { ...chained("stopped", ROUND_ONE, passed, stage({ kind: "seal", state: "finished", endedAt: NOW - MINUTE })), recorded: withheld, seal: null };
     expect(read(stopped)?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
     expect(under(stopped)).toEqual(["Sealer: Round 2 closed a finding the tree still holds."]);
     // An open question of the sealer's stands over the stage that runs.
@@ -1598,18 +1621,27 @@ describe("a work item's chain", () => {
 
   it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal the daemon gave for the chain as it stands, and none while the chain runs', () => {
     const start = "Start the review rounds on Fix the login bug";
-    expect(sealButton(LOGIN, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: "" });
-    expect(sealButton(STOPPED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
-    expect(sealButton(RESTS_SEALED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
-    expect(sealButton(PARKED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
-    expect(sealButton(RUNNING, false, null)).toEqual({ offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
-    expect(sealButton(STOPPED, true, null)).toEqual({ offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
+    expect(sealButton(LOGIN, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "", refusal: "" });
+    expect(sealButton(STOPPED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
+    expect(sealButton(RESTS_SEALED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
+    expect(sealButton(PARKED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
+    expect(sealButton(RUNNING, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
+    expect(sealButton(STOPPED, true, null)).toEqual({ words: "Get a seal", offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
     const refused = "The branch holds no commit after its base, so a round has nothing to read.";
-    expect(sealButton(LOGIN, false, refusedSeal(LOGIN, refused))).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: refused });
-    expect(sealButton(STOPPED, false, refusedSeal(STOPPED, refused))).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
+    expect(sealButton(LOGIN, false, refusedSeal(LOGIN, refused))).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "", refusal: refused });
+    expect(sealButton(STOPPED, false, refusedSeal(STOPPED, refused))).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
     // A chain that runs was started since the refusal, and one that is running says no refusal of a press on it.
     expect(sealButton(RUNNING, false, refusedSeal(STOPPED, refused)).refusal).toBe("");
     expect(sealButton(RUNNING, false, refusedSeal(RUNNING, "The chain of work item 1 is already running.")).refusal).toBe("");
+  });
+
+  it('turns the words of the button to "Get a new seal" where the seal the branch\'s head holds is broken, and leaves every other part of the button as the chain gives it', () => {
+    const commit = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b";
+    const broke: Seal = { state: "broken", commit, why: "`src/app.ts` changed after the sealed commit `1a2b3c4`." };
+    for (const workItem of [LOGIN, STOPPED, RESTS_SEALED, RUNNING]) expect(sealButton({ ...workItem, seal: broke }, false, null)).toEqual({ ...sealButton(workItem, false, null), words: "Get a new seal" });
+    // A seal that holds, none, and a daemon of an earlier build, which sends no seal.
+    for (const seal of [{ state: "sealed", commit, why: null } as const, null]) expect(sealButton({ ...STOPPED, seal }, false, null).words).toBe("Get a seal");
+    expect(sealButton(STOPPED, false, null).words).toBe("Get a seal");
   });
 
   it("says a refusal only while the chain stands as it stood when the daemon refused: not once a chain that no press of this window started has run and rests in another state, or in the same state since a later time", () => {
@@ -1638,8 +1670,43 @@ describe("a work item's chain", () => {
     expect(lineSince(EARLIER, finished)).toBe(NOW - 50 * MINUTE);
     expect(chainNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
     expect(chainNotifications([EARLIER], [STOPPED], undefined)).toHaveLength(1);
-    expect(sealButton(EARLIER, false, null)).toEqual({ offered: false, enabled: false, title: "", says: "", refusal: "" });
+    expect(sealButton(EARLIER, false, null)).toEqual({ words: "Get a seal", offered: false, enabled: false, title: "", says: "", refusal: "" });
     expect(sealButton(EARLIER, false, refusedSeal(EARLIER, "refused")).offered).toBe(false);
+  });
+});
+
+describe("the seal a work item's head holds", () => {
+  const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
+  const HOLDS: Seal = { state: "sealed", commit: COMMIT, why: null };
+  const BROKE: Seal = { state: "broken", commit: COMMIT, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+  const SEALED: WorkItem = { ...LOGIN, seal: HOLDS };
+  const BROKEN: WorkItem = { ...LOGIN, seal: BROKE };
+
+  it("gives the seal's place its state and its words: none and No seal yet where the head holds no seal, where the daemon read none and for a daemon of an earlier build, the sealed commit in short where the seal holds, and the same commit after Seal broken where a later commit broke it", () => {
+    expect(sealShown(null)).toEqual({ state: "none", words: "No seal yet" });
+    expect(sealShown(undefined)).toEqual({ state: "none", words: "No seal yet" });
+    expect(sealShown(HOLDS)).toEqual({ state: "sealed", words: "Sealed at 3f2a9c1" });
+    expect(sealShown(BROKE)).toEqual({ state: "broken", words: "Seal broken, sealed at 3f2a9c1" });
+    // A commit the repository does not hold is shown as the block writes it, cut to seven characters as any other.
+    expect(sealShown({ ...BROKE, commit: "abc" }).words).toBe("Seal broken, sealed at abc");
+  });
+
+  it("notifies of a seal that broke since the window's lists were held, sealed then and broken now, titled with the work item's title and saying Seal broken, and of none that was broken already, had no seal, is muted or whose view is in front", () => {
+    const told = { workItemId: 1, title: "Fix the login bug", body: "Seal broken" };
+    expect(sealNotifications([SEALED, SEARCH], [BROKEN, SEARCH], undefined)).toEqual([told]);
+    expect(sealNotifications([SEALED, { ...SEARCH, seal: HOLDS }], [BROKEN, { ...SEARCH, seal: BROKE }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Seal broken" }]);
+    expect(sealNotifications([SEALED, { ...SEARCH, seal: HOLDS }], [BROKEN, { ...SEARCH, seal: BROKE }], 2)).toEqual([told]);
+    // Broken in both lists, and broken where the window held no seal, as at its start.
+    expect(sealNotifications([BROKEN], [BROKEN], undefined)).toEqual([]);
+    expect(sealNotifications([{ ...LOGIN, seal: null }], [BROKEN], undefined)).toEqual([]);
+    expect(sealNotifications([LOGIN], [BROKEN], undefined)).toEqual([]);
+    expect(sealNotifications([], [BROKEN], undefined)).toEqual([]);
+    expect(sealNotifications([SEALED], [{ ...BROKEN, muted: true }], undefined)).toEqual([]);
+    expect(sealNotifications([SEALED], [BROKEN], 1)).toEqual([]);
+    // A seal that still holds, or that the head no longer holds at all, tells nothing.
+    expect(sealNotifications([SEALED], [SEALED], undefined)).toEqual([]);
+    expect(sealNotifications([SEALED], [{ ...LOGIN, seal: null }], undefined)).toEqual([]);
+    expect(sealNotifications([BROKEN], [SEALED], undefined)).toEqual([]);
   });
 });
 
