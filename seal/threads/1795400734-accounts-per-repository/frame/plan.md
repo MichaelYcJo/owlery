@@ -95,4 +95,4 @@ The spawn names the open work items of release 0.0.2, which is not this work's r
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-23 | A refresh of an idle account's usage, run only when the person presses it, is folded into the frame (`1c8381c`): *Scope* item 13, scenario 15, phase 5 and `frame/questions.md` Q5. Owlery still reads no token, and the values come from Claude Code's own stream. | The owner's words, 2026-11-23: "2 넣어", in answer to the orchestrator's proposal of a pressed refresh after it read how Orca reads an idle account's usage (a stored token sent to an undocumented endpoint as Claude Code). Q2's answer, close the decision, stands: the refresh reads no token. | Anthropic's Legal and compliance page for Claude Code, the sentence on Claude.ai credentials and session tokens; `docs/architecture.md` *Reading usage limits* |
