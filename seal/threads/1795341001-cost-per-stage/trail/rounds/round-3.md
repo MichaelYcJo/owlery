@@ -52,6 +52,11 @@ frame/questions.md:21: ... in the middle of a turn? The daemon takes no usage an
 frame/plan.md:28: ... | Chosen. The daemon takes no usage and no result after a stop at its limit or at a request (`startHeadless` in `daemon.ts`), and its close writes a working session's entry before it stops the run (`close`). Whether the CLI prints a `result` line after the signal is not known and cannot be probed in this run (`frame/questions.md` Q2). A null says the cost is unknown, and #141 measures it |
 ```
 
+```seal
+verdict: fixed c15a253
+answer: The orchestrator's `c15a253` takes the record's four lines as written, each replacing only the sentence or clause the record shows (read: `git show c15a253`). `changelog.md:8`, `trail/phases/phase-2.md:9`, `frame/questions.md:21` and `frame/plan.md:28` now name the two mechanisms apart: the listener's guard for a stop at the limit or at a request, and the close writing a working session's entry before it stops the run. The fix touches the work item's records alone, so it goes to the sealer with no further round.
+```
+
 ## Confirmations
 
 ```seal
