@@ -82,7 +82,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1. The records, and a session's name | `frame/design.md` *Scope* items 17 to 22 | Scenarios 17, 18 and 19, and the cases of `test/seal-records.test.ts` among scenario 11's | |
+| 1. The records, and a session's name | `frame/design.md` *Scope* items 17 to 22 | Scenarios 17, 18 and 19, and the cases of `test/seal-records.test.ts` among scenario 11's | `fa45daf` |
 | 2. The gate | *Scope* items 2 and 4 to 12, of item 1 the gate's row, of item 3 the gate's record, and of item 25 the kind `gate`, `GateRun` and the messages. A chain whose gate holds rests `reviewed` until phase 3 | Scenarios 3 to 7, and of scenarios 8, 16 and 20 the gate's cases | |
 | 3. The seal | *Scope* items 13 to 16, 23 and 24, of item 1 the seal's row and the rest `sealed`, of item 3 the guarantee, and of item 25 the kind `seal` and the states | Scenarios 1, 2, 9 to 15, 21 and 24, and of scenarios 8, 16 and 20 the seal's cases | |
 | 4. The window | *Scope* items 26 to 29 | Scenarios 22, 23 and 25 | |
