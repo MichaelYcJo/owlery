@@ -14,6 +14,12 @@ const F = "```";
 const VERDICT = [`${F}seal`, "target: 0123abc against main", "Verdict: sealed", F, ""].join("\n");
 const RUN = [`${F}seal`, "run: 0123abc against 89abcde", F, ""].join("\n");
 
+/** A block from its lines. */
+const sealed = (...lines: string[]): string => [`${F}seal`, ...lines, F, ""].join("\n");
+
+/** A verdict block that holds the lines given after its target and its verdict: the lines the daemon writes on who built and who judged. */
+const judged = (...lines: string[]): string => sealed("target: 0123abc against main", "Verdict: sealed", ...lines);
+
 /**
  * Each fixture with what both readers return of it: how many blocks, and the
  * lines of the refusals and of the notices. The first ten are the shapes
@@ -48,6 +54,23 @@ const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]
     refusals: [],
     notices: [],
   },
+  {
+    name: "a verdict block with the daemon's lines: two builders, the judge, its model and the rules",
+    text: judged("built-by: the session, 00000000-0000-4000-8000-000000000001", "judged-by: s-2", "model: claude-opus-5-5", "rules: owlery 0.0.2"),
+    blocks: 1,
+    refusals: [],
+    notices: [],
+  },
+  { name: "a block that opens with one of the daemon's lines, which opens no kind", text: sealed("rules: owlery 0.0.2", "target: 0123abc against main", "model: owl large", "judged-by: s-2", "built-by: s-1", "Verdict: sealed"), blocks: 0, refusals: [2], notices: [] },
+  { name: "the daemon's lines in another order above the verdict, a builder that is an id alone, and a model of two words", text: sealed("target: 0123abc against main", "rules: owlery 0.0.2", "model: owl large", "judged-by: s-2", "built-by: s-1", "Verdict: sealed"), blocks: 1, refusals: [], notices: [] },
+  { name: "a second judge", text: judged("built-by: the session", "judged-by: s-2", "judged-by: s-3"), blocks: 0, refusals: [6], notices: [] },
+  { name: "a second line of builders, of a model and of the rules", text: `${judged("built-by: s-1", "built-by: s-2")}\n${judged("model: owl", "model: owl")}\n${judged("rules: owlery 1", "rules: owlery 2")}`, blocks: 0, refusals: [5, 12, 19], notices: [] },
+  { name: "builders joined by a comma alone", text: judged("built-by: the session,s-1"), blocks: 0, refusals: [4], notices: [] },
+  { name: "a builder of two words that is not the session", text: judged("built-by: a session"), blocks: 0, refusals: [4], notices: [] },
+  { name: "a builder's id that holds a no-break space, and a line of builders that names none", text: `${judged("built-by: s\u00a01")}\n${judged("built-by:")}\n${judged("built-by: s-1, ")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
+  { name: "a judge named as the session, two judges on one line, and a judge with no id", text: `${judged("judged-by: the session")}\n${judged("judged-by: s-1, s-2")}\n${judged("judged-by:")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
+  { name: "a model with no name, and one that ends with a no-break space", text: `${judged("model:")}\n${judged("model: owl\u00a0")}`, blocks: 0, refusals: [4, 10], notices: [] },
+  { name: "rules of another product, rules with no version, and a version of two words", text: `${judged("rules: seal 0.0.2")}\n${judged("rules: owlery")}\n${judged("rules: owlery 0.0.2 beta")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
   { name: "a fence of tildes named seal", text: `~~~seal\nrun: 0123abc against 89abcde\n~~~\n`, blocks: 0, refusals: [], notices: [1] },
   { name: "the opener in capitals", text: `${F}SEAL\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
   { name: "the opener with a long s", text: `${F}ſeal\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
@@ -69,9 +92,6 @@ const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]
   { name: "a fence run after a comment left open and closed on the next line", text: `prose <!-- open\nclosed --> here\n${F}a\`b\n`, blocks: 0, refusals: [], notices: [] },
   { name: "a fence run after a tag left open and a comment's closer", text: `prose <span\nmore -->\n${F}a\`b\n`, blocks: 0, refusals: [3], notices: [] },
 ];
-
-/** A block of a round record's kinds, from its lines. */
-const sealed = (...lines: string[]): string => [`${F}seal`, ...lines, F, ""].join("\n");
 
 /**
  * Each fixture of a round record's four kinds with what both readers return

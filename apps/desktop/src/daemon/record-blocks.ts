@@ -388,7 +388,21 @@ export const CONFIRMATION_BLOCK = kind("confirmation", [["confirms:", spec("none
 /** The kinds a round record holds, as `pr-check/lib/fields.py#ROUND_RECORD` lists them. */
 export const ROUND_RECORD: readonly Kind[] = [ROUND_BLOCK, FINDING_BLOCK, CLOSE_BLOCK, CONFIRMATION_BLOCK];
 
-/** The sealer's verdict, as `pr-check/lib/fields.py#VERDICT_BLOCK` spells it. */
+/** A session's id as a verdict block names it: one word that holds no comma. */
+const SESSION = `[^${SPACE},]+`;
+/** The name a verdict block gives a building session that a person drove, whose id the daemon does not keep. */
+export const THE_SESSION = "the session";
+/** What joins the names of a verdict block's `built-by:` line. */
+export const BUILDERS_JOIN = ", ";
+const BUILDER = `(?:${THE_SESSION}|${SESSION})`;
+
+/**
+ * The sealer's verdict, as `pr-check/lib/fields.py#VERDICT_BLOCK` spells it.
+ * The four keys after `Verdict:` are the lines the daemon writes into the
+ * sealer's block: who built the work, who judged it, the judging model and
+ * the version of the rules. A block written before the daemon wrote them
+ * holds none.
+ */
 export const VERDICT_BLOCK = kind("verdict", [
   ["target:", spec(`(?<commit>${COMMIT}) against (?<base>${NOT_SPACE}+)`, "one", "it names the audited commit as `<sha> against <base>`, each one word")],
   ["original:", ORIGINAL_SPEC],
@@ -400,7 +414,17 @@ export const VERDICT_BLOCK = kind("verdict", [
       "the verdict reads `Verdict: sealed`, `Verdict: withheld reason: <reason>` or `Verdict: undecided question: <question>`, written exactly so",
     ),
   ],
+  ["built-by:", spec(`${BUILDER}(?:${BUILDERS_JOIN}${BUILDER})*`, "at most one", `it names each session that built the work, \`${THE_SESSION}\` or a session's id that holds no white space and no comma, joined by \`, \``)],
+  ["judged-by:", spec(SESSION, "at most one", "it is the judging session's id, one word that holds no comma")],
+  ["model:", spec(`${NOT_SPACE}(?:.*${NOT_SPACE})?`, "at most one", "it is the judging model's name, which opens and ends with a character that is no white space")],
+  ["rules:", spec(`owlery ${NOT_SPACE}+`, "at most one", "it reads `owlery <version>`, the version one word")],
 ]);
+
+/** The names of a verdict block's `built-by:` line, in its order, and none for a block that holds no such line. */
+export function builders(block: Block): string[] {
+  const said = field(block, "built-by:");
+  return said === undefined ? [] : said.value.split(BUILDERS_JOIN);
+}
 
 /** The broad gate's run, as `pr-check/lib/fields.py#RUN_BLOCK` spells it. */
 export const RUN_BLOCK = kind("run", [["run:", spec(`(?<commit>${COMMIT}) against (?<base>${COMMIT})`, "one", "a run is `<tree> against <base commit>`, each a commit's SHA")]]);
