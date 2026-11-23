@@ -69,4 +69,3 @@ A press of "Get a seal" whose answer never comes holds the button off until the 
 
 The screenshots show the button at rest, in Night watch's two appearances. No fixture of the screenshot run holds a chain, so no committed file shows a chain's sentence, a refusal or a line whose second row holds a stopped chain's sentence. `docs/design.md` *A pull request that changes the window carries its screenshots* names the run's five views, and a view with a chain is not among them.
 
-`docs/design.md` *Components and their states* gains no row for the chain's sentence and the refusal at the view's foot. `frame/design.md` *Rule changes* names no operation on that document, and the settle writes the policy root from that section.

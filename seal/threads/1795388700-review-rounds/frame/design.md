@@ -272,6 +272,19 @@ Every case runs through the fake adapter, on a temporary repository. `chain.test
   from: 데몬이 띄우는 역할 세션(framer, crafter, proofer, sealer)
   to: 데몬이 띄우는 역할 세션(framer, crafter, proofer, sealer, 그리고 데몬이 판단을 물을 때의 orchestrator)
 
+- change
+  file: docs/design.md
+  section: Components and their states
+  from: | The seal's place | Before a seal: on a line a disc of `--seal-blank-ground` with `--seal-blank-edge`, and in the preview and at a view's foot the seal's drawing pressed into the ground in the blank tones under `--seal-blank-light`. Sealed: the seal as it is drawn, under `--seal-light`. | — | — | — | — | — |
+  to: | The seal's place | Before a seal: on a line a disc of `--seal-blank-ground` with `--seal-blank-edge`, and in the preview and at a view's foot the seal's drawing pressed into the ground in the blank tones under `--seal-blank-light`. At a view's foot a column of words stands beside the drawing: the state of the seal, its note in `--ink-muted`, where the review chain stands in `--ink`, the main button "Get a seal", and under it why the daemon refused the last press, in `--state-failed`, each at `--size-second` and wrapped. Sealed: the seal as it is drawn, under `--seal-light`. | — | — | — | — | — |
+    check: apps/desktop/test/get-a-seal.test.ts apps/desktop/test/view.test.ts
+- change
+  file: docs/design.ko.md
+  section: 부분과 그 상태
+  from: | 인장의 자리 | 인장이 찍히기 전: 줄에서는 `--seal-blank-ground`의 원판에 `--seal-blank-edge`이고, 미리 보는 칸과 작업 화면의 아래쪽에서는 인장의 그림이 빈 자리의 색조로 `--seal-blank-light` 아래 바탕에 눌려 있습니다. 인장이 찍힌 뒤: 그려진 그대로의 인장이 `--seal-light` 아래에 있습니다. | — | — | — | — | — |
+  to: | 인장의 자리 | 인장이 찍히기 전: 줄에서는 `--seal-blank-ground`의 원판에 `--seal-blank-edge`이고, 미리 보는 칸과 작업 화면의 아래쪽에서는 인장의 그림이 빈 자리의 색조로 `--seal-blank-light` 아래 바탕에 눌려 있습니다. 작업 화면의 아래쪽에서는 그림 옆에 글이 한 줄기로 섭니다. 인장의 상태, `--ink-muted`의 그 메모, `--ink`로 쓴 리뷰 체인이 어디에 서 있는지, 주 버튼 "Get a seal", 그리고 그 아래 `--state-failed`로 쓴 데몬이 마지막 누름을 거절한 까닭이며, 모두 `--size-second`이고 줄을 바꿔 감깁니다. 인장이 찍힌 뒤: 그려진 그대로의 인장이 `--seal-light` 아래에 있습니다. | — | — | — | — | — |
+    check: apps/desktop/test/get-a-seal.test.ts apps/desktop/test/view.test.ts
+
 ## Removes
 
 This work adds a mechanism, the chain, to a daemon that ran none. It replaces no mechanism of the tree, so what it takes out is the text and the one unit that stood on the earlier facts. The rows are those.
