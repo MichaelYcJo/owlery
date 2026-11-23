@@ -45,6 +45,11 @@ Where git names no fork of HEAD and the baseline, the check stops before the arm
 
 The snippet reaches both statements of the fact in the frame. The docstring of `since_sealed` (`chain_check.py:1086-1087`) states the function alone, and it is true as it stands.
 
+```seal
+verdict: fixed e8769e0
+answer: The framer folded the finding in e8769e0: `frame/plan.md:47`'s failure scenario and `frame/design.md:125` now say that where git names no fork of HEAD and the baseline the check stops before any arm, since `chain_check.py#changed` cannot diff the baseline against HEAD, and fails as "The seal check could not run". Read against `chain_check.py` at 77cfbaa: `since_sealed`'s answer for a missing fork and its docstring stand unchanged, as the finding says. No code changed for it.
+```
+
 ### 2. Two branches of the new walk are held by no case: the work item's own directory, which keeps the check with the daemon, and the line for a newest block that is no seal
 
 ```seal
@@ -91,6 +96,11 @@ And, after the withheld history at `pr-check.test.ts:515-523`, in the same case.
 ```
 
 Each is shown red before it is planted: the row with `chain_check.py:1110` reading `if path:`, and the withheld history with the branch at `:1134-1139` removed.
+
+```seal
+verdict: fixed 77cfbaa
+answer: Both cases planted as the paste-ready fix reads them, after reading them against frame/design.md Scope items 8 and 9: scenario 9's table gains the merge of a base whose commits add and take back `seal/threads/1-x/notes.md` alone, `sealed` and exit 0 in the daemon and the check, and the case of the outcome posts a withheld verdict followed by `mergeAsSealed(…, "revert")` and reads "No seal at the head commit" and the guarantee arm's line "the guarantee is behind HEAD: a commit of the base that a merge brought after the commit it names, …, touches `other.txt`, outside the work item's records". That case counts the requests it sent, so its count went from 7 to 8 in the same commit. Each shown red by `seal mutate` of chain_check.py after 77cfbaa: the walk's test reading `if path:` failed the table at `pr-check.test.ts:752`, on the new row; the branch for a newest block that is no seal renamed to a kind no answer has failed at `pr-check.test.ts:531`, the new line. The narrow set (`test/pr-check.test.ts` and the five unit files that read `pr-check/`) passed, 6 files and 166 cases, and the typecheck exited 0.
+```
 
 ## Confirmations
 
