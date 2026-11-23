@@ -1,0 +1,33 @@
+# Guarantee: 1795398267-cases-that-fail-under-load
+
+Audited at `beb907bb167ec7277ac634c9d150d3b039b1d187` on 2026-11-23, against the base `release/v0.0.2`, which resolves through `release/v0.0.2@{upstream}` to `41e8aa446aa4ddabfae7d2e75e3563a227651e4f`. The work item has no frame, no phase record and no round record: `routing.md` gives Planning and Implementation to the session and Review `straight to the PR`, so none is owed. No `seal/parity.json` stands, so no comparison with an original is owed. The re-runs went in a clone of the branch in the sealer's scratch directory, at the audited commit, with the worktree's installed modules linked in. Each test command ran through the session's Electron lock. No real `claude` ran, no whole suite ran, and no process of these runs was left behind (`ps`, executed).
+
+## Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run stands at HEAD | `trail/gate.md`, its last block `run: 8a7e59f against 41e8aa4` | `git merge-base --is-ancestor 8a7e59f HEAD`; `git log --no-merges --name-only 8a7e59f..HEAD ^41e8aa4` | Holds. Executed: an ancestor, followed only by `beb907b`, which touches `gaps.md` and `trail/gate.md` of this work item alone. The gate's kept suite output reads `Tests 1475 passed \| 4 skipped (1479)` and exit 0, `tsc --noEmit` among it. Read |
+| The body is `pr.md` above the line and the records' text below it | the body file the orchestrator wrote | `seal pr-body seal/threads/1795398267-cases-that-fail-under-load --body <file> --check` | Holds. Executed: exit 0, `matches` |
+| The records agree with HEAD | `skills/code-review/scripts/chain_check.py` | `python3 -I …/chain_check.py --baseline 41e8aa4… --root <worktree> --sealing` | Holds. Executed: exit 0. It named only the guarantee this file supplies |
+| Both changed files pass alone at HEAD, 100 cases | the orchestrator's account in the spawn prompt | at HEAD, in `apps/desktop`: `node scripts/test-in-electron.mjs test/settle.test.ts test/claude-adapter.test.ts --reporter=verbose` | Holds. Executed: `Tests 100 passed (100)`, with the load average at 4.65, 6.50 and 6.75. The settle case took 3994 ms and the adapter case 1536 ms |
+| The adapter case's bound tells an adapter that waits for the child's 30 seconds from one that does not (issue #161, *Done when* item 2) | `claude-adapter.test.ts:373-382`; `pr.md` row 2; `changelog.md` bullet 2 | HEAD's code with `claude.ts:382`, the grace timer that reports the exit without waiting for `close`, alone removed: `node scripts/test-in-electron.mjs test/claude-adapter.test.ts -t "reports the exit of a CLI whose child still holds its streams"` | Holds. Executed: red after 10794 ms at `claude-adapter.test.ts:375`, `expected [] to deeply equal [ { type: 'exit', exitCode: 4, …(1) } ]`. An adapter that waits for the streams fails at the 10-second deadline, before the case's 20 seconds and the child's 30. With the timer in place, the same case passed in 1536 ms (row above). The 10-second deadline of the wait at line 373 starts after the child's pid is read, and the bound at line 377 counts from before the start. So an exit arriving later than about 10 seconds fails one of the two lines. Read |
+| The settle case runs the settle seven times and failed at vitest's 5-second default under load | issue #161; `changelog.md` bullet 1 | read `settle.test.ts:454-488` | Holds as read. Four runs in the loop, then the killed run, the unstarted run and the kept run make seven calls of `run`. Each starts the `seal` stand-in. The failure under load is the issue's measurement (5.4 to 5.5 seconds). It was not reproduced here, since a load cannot be set on purpose. Unverified as a re-run: the gate's output above answers it at the new limit |
+| The removed bound stands nowhere | `changelog.md` bullet 2, "The earlier 1.5 seconds" | `git grep -n -e 1500 -e 1_500 HEAD -- apps/desktop/test/claude-adapter.test.ts` | Holds. Executed: nothing found |
+| The other cases that start several processes have 20 seconds | `pr.md` row 1; `changelog.md` bullet 1 | `grep -n 20_000 test/claude-adapter.test.ts` | Holds. Executed: lines 441, 459 and 473 at the base's own cases, and 382 for this one. Read: each of the three starts several processes, a stand-in CLI or a login shell |
+| A heavier load than the one measured keeps both cases inside their bounds | `gaps.md` *Not verified* | none | Unverified. The broad gate of each later work item of release 0.0.2 answers it, as the row names |
+
+## The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | none stands: Planning is the session's (`routing.md`), and issue #161 fixes the two coordinates | the issue body | none |
+| the build (the diff `41e8aa4...HEAD`, commit `33464f2`) | Two test files change: the settle case gets `20_000`. The adapter case's wait goes from 5000 to 10 000 ms, its bound goes from 1500 to 10 000 ms, it gets one comment, and it gets `20_000`. No source changes | the issue's three *Done when* items, and the re-runs above (executed) | none |
+| the orchestrator's routing grounds (`routing.md` *Why this way*) | Review is `straight to the PR` because the change is "three lines of two test files, and no source" at the issue's two coordinates | the diff in kind: two test files at the two coordinates, and no source | The count is not the diff's. `33464f2` changes four lines and adds a comment line, 5 insertions and 4 deletions. Read. The ground the route rests on, no source change, holds, so the miscount changes no route |
+| the last round | none stands: Review is `straight to the PR` | — | none |
+| the changelog (`changelog.md`) | The settle case has 20 seconds. The adapter case allows 10 seconds, which still shows the adapter did not wait for the child's 30. The old 1.5 seconds counted the shell's start | the diff, the issue's figures (5.4 seconds, 2.1 seconds) and the mutant re-run above | none |
+| the orchestrator's part of the pull request body (`pr.md`) | `Closes #161`, and one row for each *Done when* item: 20 seconds, as the adapter's cases that start several processes have. The exit has to arrive within 10 seconds, the case has 20, and an adapter that waited for the 30 seconds fails. The broad gate's run at the head | the diff; the mutant re-run (executed); `trail/gate.md` and the gate's suite output (read). The gate ran from 10:50 to 10:54 with the load average at 7.31 over the five minutes to 10:55 (`uptime`, executed), so "under the same load" stands | none |
+
+```seal
+target: beb907bb167ec7277ac634c9d150d3b039b1d187 against 41e8aa446aa4ddabfae7d2e75e3563a227651e4f
+Verdict: sealed
+```
