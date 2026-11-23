@@ -17,6 +17,7 @@
 | How the line reads with a real stage: the words of a real session's failure under the places, and a real round's age. Every stage of the cases and of the screenshot run is a stand-in that holds its prompt or is stopped | the first real chain on a branch of Owlery's own, as #41's closing memo has it |
 | Whether the stand-in for the CLI, `test/fixtures/sample-cli.sh`, still holds a round where its new arm is removed. No mutant of it was run, since each would start the built app once more. Read: without the arm the prompt falls to the arm that exits with 1, the round fails, and the run's wait for "Round 1" times out | the proofer |
 | The owner's reading of the line's form and words, `frame/questions.md` Q1, on the committed screenshots | the owner, on the pull request |
+| The whole suite and the package's typecheck after the fix pass on round 1. The pass ran `test/view.test.ts`, `test/approval-line.test.ts` and `test/themes.test.ts` in one command at `99d3ca9`, and typechecked the four files it changed with the modules they import. It did not run `test/terminal-basics.test.ts` and `test/work-item-menu.test.ts`, which import `src/renderer/view.ts` for names the pass did not change and start the built app, nor the other files that start the built app and load the page | the orchestrator, at the broad gate |
 
 ## Not done
 

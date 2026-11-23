@@ -461,8 +461,8 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
  * where that stage says nothing of the role: it is of another role's kind
  * or of the orchestrator's, it finished, or no chain ran. The role's place
  * failed where the stage failed, with the stage's failure as a sentence for
- * its text, and works where the chain runs the stage, with the stage's start as the time
- * its age counts from.
+ * its text, and works where the chain runs the stage, with the stage's
+ * start as the time its age counts from.
  */
 function byChain(role: Role, workItem: WorkItem): Reached | null {
   const newest = chainOf(workItem)?.stages.at(-1);
