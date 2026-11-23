@@ -36,6 +36,11 @@ expect(says("failed.")).toEqual(["Proofer: Failed."]);
 
 The pattern was checked on its own against fourteen texts with `node -e`. The expectations above and those of the case at line 1401 held: `seal/threads/x.md was`, `round-2.md holds`, `file.md holds`, `e.g. this` and `2 blocks` keep their first character, and the others take a capital.
 
+```seal
+verdict: fixed 69b1198
+answer: The finding holds. `69b1198` changes the pattern of `view.ts#asSentence` to `/^\p{Ll}\p{L}*[,:;.!?]*(?=\s|$)/u`, so a first word of letters alone takes its capital where marks end it before a space or the text's end: "Proofer: Error: unknown option '--no-such-option'." and "Proofer: Stopped, at a request.". The fix is the pass's own and not the record's lookahead, which lets a colon end the word whatever follows it and so reads "http://localhost:4000 refused the connection" as "Http://...". Run as a mutant, the record's pattern went red on that expectation. The commit adds the record's first and third case lines, one line for each of seven endings of "stopped", and two lines for a mark inside the first word, an address and `node:fs`, all in the case at `view.test.ts:1401`, and it rewrites the function's comment. The case was seen red against the pattern before the fix, on the line of "error:". Eleven mutants of the pattern went red under `seal mutate`: the marks removed, each of the six marks removed alone, one mark in place of any number, the lookahead removed, and each of its two arms removed. `frame/design.md:157` stays true as written and names no address among what keeps its first character, which the hand-back names for the orchestrator.
+```
+
 ## Confirmations
 
 ```seal
