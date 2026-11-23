@@ -82,4 +82,4 @@ Each work item of the release writes its own `changelog.md`, so no fragment is c
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-23 | The pull request's title takes `feat`; Q1 and Q2 stand at their defaults and go on as issues #140 and #141, not asked before the merge | The diff adds a ledger the daemon writes and a message a client asks it with, which `feat` names; each question is a measurement that needs a real `claude` turn or the owner's API key login, which no agent's run may take under the owner's rule for this run, and each has its issue | the plugin's `skills/commit-pr-convention/SKILL.md`; `docs/product.md` *What we promise*, under which no question holds a run under `agentic` |
