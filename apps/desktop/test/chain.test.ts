@@ -1375,6 +1375,9 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const chain = await c.chain(a.id, "reviewed");
       expect(stagesOf(chain).slice(3)).toEqual([["judgment", 2, "failed"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["judgment", 3, "finished"], ["fix-pass", 3, "finished"], ["round", 4, "finished"]]);
       expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "orchestrator", "crafter", "proofer"]);
+      // The judgment after round 3 is given the record of decisions, which the judgment after round 2 wrote, and the first judgment met none.
+      expect(started[7]?.prompt).toContain(`- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
+      expect(started[3]?.prompt).not.toContain("decisions.md");
       expect(recorded(a.worktree).decisions.map(({ id, kind, decided }) => [id, kind, decided])).toEqual([
         [1, "route", "The review rounds are converging after round 2, so the fix pass on its record runs."],
         [2, "route", "The review rounds are converging after round 3, so the fix pass on its record runs."],
