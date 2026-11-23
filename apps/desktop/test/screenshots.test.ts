@@ -5,8 +5,10 @@
 // work item's view, the view of the parked work item, a work item's menu and
 // the "New work item" form) in each appearance of the theme a first run
 // opens in. No agent runs: a pane's process is a fixture, a state is what
-// the daemon's hook socket is fed, and the view's work item is asked two
-// prompts, which a stand-in for the CLI answers. It fails the first at once,
+// the daemon's hook socket is fed, the agent of the work item that needs the
+// person waits on a question with two choices, fed as its question tool's
+// call, and the view's work item is asked two prompts, which a stand-in for
+// the CLI answers. It fails the first at once,
 // and holds the second, whose session asks the person to allow a command and
 // gets no answer, so the work item's line says the request and the view's
 // "Ask" section shows its card. The run waits until the section shows that
@@ -60,7 +62,31 @@ const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<stri
   { title: "Rename the settings file", kind: "shell", events: [], setup: null },
   { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }], setup: null },
   { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
-  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }], setup: "succeeded" },
+  {
+    title: "Fix the login redirect",
+    kind: "claude",
+    events: [
+      { hook_event_name: "UserPromptSubmit" },
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              question: "Should the redirect keep the query string of the page the person came from?",
+              header: "Redirect",
+              multiSelect: false,
+              options: [
+                { label: "Keep it", description: "The person lands on the page they left, with its filters." },
+                { label: "Drop it", description: "The person lands on the page's plain address." },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    setup: "succeeded",
+  },
 ];
 /**
  * The ignored files of the repository's main checkout, each with what it
