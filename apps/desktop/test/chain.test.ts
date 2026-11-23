@@ -1350,7 +1350,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(backslashed.says).toMatch(/^The fix pass of round 1 failed: finding 1 is closed `fixed [0-9a-f]{40}`, and that commit changed no path its `location:` lines name: a fix that went elsewhere names its path on a `location:` line of the close block\.$/u);
       expect(backslashed.after).toEqual(["docs: note the greeting"]);
 
-      const located =await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}\nlocation: \`notes\``) }) });
+      // The folder is written with its trailing `/`, which the comparison drops as the check's does.
+      const located = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}\nlocation: \`notes/\``) }) });
       expect(await located.c.getSeal(1, 1)).toBe("done");
       expect((await located.c.chain(1, "reviewed")).stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"], ["round", "finished"]]);
     });
