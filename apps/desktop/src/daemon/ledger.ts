@@ -8,7 +8,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isCount = (value: unknown): value is number | null => value === null || typeof value === "number";
 
 /** What one model used, where a value is one with every field in its type: the protocol's fields alone. */
-function modelUsageOf(value: unknown): ModelUsage | undefined {
+function modelOf(value: unknown): ModelUsage | undefined {
   if (!isRecord(value) || typeof value.model !== "string") return undefined;
   const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd } = value;
   if (!isCount(inputTokens) || !isCount(outputTokens) || !isCount(cacheReadTokens) || !isCount(cacheWriteTokens) || !isCount(costUsd)) return undefined;
@@ -21,7 +21,7 @@ function usageOf(value: unknown): Usage | null | undefined {
   if (!isRecord(value) || !isCount(value.costUsd) || typeof value.converted !== "boolean" || !Array.isArray(value.models)) return undefined;
   const models: ModelUsage[] = [];
   for (const model of value.models as unknown[]) {
-    const read = modelUsageOf(model);
+    const read = modelOf(model);
     if (read === undefined) return undefined;
     models.push(read);
   }
