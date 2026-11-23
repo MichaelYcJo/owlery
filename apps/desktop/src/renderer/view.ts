@@ -1213,10 +1213,10 @@ function madeWithoutAsking(decided: number): string {
  * A count the daemon gave on one side alone says nothing of a change. Each
  * side is read through `inboxLine` with its own sessions, and no session of
  * one is matched to a session of the other: a session's id starts again with
- * the daemon, and a work item's id does not. A look keeps no seal, so the
- * look's side is read with the seal the work item holds now, and a seal
- * given or broken while the person was away changes no line of the
- * summary. A look that keeps a seal is read with its own.
+ * the daemon, and a work item's id does not. A look whose work item carries
+ * no `seal`, as one written by a build before the look kept the seal
+ * reading, is read with the seal the work item holds now. A look that keeps
+ * a seal reading, a null among them, is read with its own.
  */
 export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
   const changes = workItems.flatMap((workItem): Change[] => {

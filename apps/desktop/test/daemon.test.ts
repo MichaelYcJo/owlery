@@ -503,8 +503,8 @@ describe("work items", () => {
     for (const lists of [inbox, ready, ready.lastLook!]) {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      // The look keeps nothing of what the records say of the chain, and no seal.
-      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "seal") : WORK_ITEM_FIELDS);
+      // The look keeps nothing of what the records say of the chain, and keeps the seal reading the lists carried.
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded") : WORK_ITEM_FIELDS);
       if (lists !== ready.lastLook) {
         expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
         expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
@@ -3302,7 +3302,10 @@ describe("the inbox", () => {
     git(repo, "worktree", "remove", "--force", workItem.worktree);
     git(repo, "branch", "--quiet", "-D", workItem.branch);
     const gone = await c.message("inbox", (m) => m.workItems[0]?.newCommits === null);
-    expect(gone.workItems).toEqual([{ ...workItem, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }]);
+    // Nor a seal: what was read of the branch went with it, so the work item carries no `seal`.
+    const { seal: _seal, ...read } = workItem;
+    expect(gone.workItems).toEqual([{ ...read, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }]);
+    expect("seal" in gone.workItems[0]!).toBe(false);
   });
 
   it("sends no inbox while the counts stay as they were", async () => {
@@ -3389,7 +3392,7 @@ describe("the inbox", () => {
     expect(c.messages).toEqual([]);
   });
 
-  it("gives a work item from before the base commit was recorded no count, beside one that has it", async () => {
+  it("gives a work item from before the base commit was recorded no count and no `seal`, beside one that has them", async () => {
     const { repo, root, base } = repository();
     const runDir = join(base, "run");
     mkdirSync(runDir);
@@ -3401,10 +3404,13 @@ describe("the inbox", () => {
     writeFileSync(join(runDir, "work-items.json"), JSON.stringify([{ id: 1, title: "Before", createdAt: 1, ...old }, { id: 2, title: "After", createdAt: 2, ...after }]));
     const { url } = await daemon({ runDir, worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
-    expect((await c.message("ready")).workItems.map((w) => [w.baseCommit, w.newCommits, w.commits?.length ?? null, w.changes?.files ?? null])).toEqual([[null, null, null, null], [after.baseCommit, 1, 1, 1]]);
+    const ready = await c.message("ready");
+    expect(ready.workItems.map((w) => [w.baseCommit, w.newCommits, w.commits?.length ?? null, w.changes?.files ?? null])).toEqual([[null, null, null, null], [after.baseCommit, 1, 1, 1]]);
+    expect(ready.workItems.map((w) => ("seal" in w ? w.seal : "none"))).toEqual(["none", null]);
     commit(after.worktree, "again.txt");
     const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 2);
     expect(inbox.workItems[0]).toMatchObject({ id: 1, baseCommit: null, newCommits: null, commits: null, changes: null });
+    expect("seal" in inbox.workItems[0]!).toBe(false);
   });
 });
 
@@ -4154,6 +4160,23 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     expect(seal?.why).toMatch(new RegExp(`^The records at the head do not read: the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: \`target: x+$`, "u"));
   });
 
+  it("sends a work item with no `seal` until it has read the branch, so a `ready` that goes out before git answered carries none, and the lists that follow the read carry the seal, or null where the head holds none", async () => {
+    const stood = await standing(cleanups, ["Sealed work", "Unsealed work"], { commitPollMs: 60_000 });
+    const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    await stood.d.close();
+    // Each git call waits a fifth of a second, four times the wait of the daemon that starts now, so its `ready` goes out before it has read either branch.
+    watchedGit(stood.made.base, 0.2);
+    const c = await chainClient((await stood.start({ readyWaitMs: 50 })).url, cleanups);
+    const ready = await c.message("ready");
+    expect(ready.workItems.map((w) => [w.id, "seal" in w])).toEqual([[a.id, false], [b.id, false]]);
+    const read = await c.until(() => {
+      const [sealedItem, unsealedItem] = [c.workItem(a.id), c.workItem(b.id)];
+      return sealedItem?.seal?.state === "sealed" && unsealedItem !== undefined && "seal" in unsealedItem ? [sealedItem.seal, unsealedItem.seal] : undefined;
+    });
+    expect(read).toEqual([{ state: "sealed", commit: gate, why: null }, null]);
+  });
+
   it("sends no seal for a work item whose head holds none, though a pane of it prints `Verdict: sealed` and its stored chain rests", async () => {
     const stood = await standing(cleanups, ["Sealed work"], { commitPollMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf 'Verdict: sealed\\n'; sleep 30"], env: {} }) });
     const a = stood.workItems[0]!;
@@ -4529,9 +4552,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
-  /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep. */
-  // A look keeps nothing of what the records say of the chain, and no seal.
-  const asLooked = ({ recorded: _recorded, seal: _seal, ...kept }: WorkItem): WorkItem => kept;
+  /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep, and with its seal reading. */
+  const asLooked = ({ recorded: _recorded, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
@@ -4598,8 +4620,8 @@ describe("the last look", () => {
     expect(ready.workItems[0]?.newCommits).toBe(1);
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
-    // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, permissions: [], aheadOfBase: 1, behindBase: 0, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    // The look holds the work item as it is sent, the commit read at the hello among it, and the head read with no seal.
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, permissions: [], aheadOfBase: 1, behindBase: 0, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {
