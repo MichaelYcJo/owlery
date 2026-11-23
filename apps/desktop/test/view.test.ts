@@ -3829,8 +3829,8 @@ describe("the dialog of the records place", () => {
     expect([hygiene.holds.length, hygiene.required]).toEqual([3, HYGIENE]);
     // A plan that writes AgenticSeal's root beside a kept hygiene.yml says the same of that workflow.
     expect(recordsDialog(PROJECT, { ...PLAN, files: [{ path: "seal/README.md", text: "# x\n" }, { path: "seal/config.json", text: "{}\n" }, { path: ".github/workflows/hygiene.yml", text: null }] }, "pnpm test", "pnpm test").required).toBe(HYGIENE);
-    // Until the daemon answers, and where it refused the plan, no workflow is named and nothing is said of a check.
-    expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required]).toEqual(["", ""]);
+    // Until the daemon answers, where it refused the plan, and where a plan names no workflow, nothing is said of a check.
+    expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required, recordsDialog(PROJECT, { ...PLAN, files: PLAN.files.slice(0, 2) }, "pnpm test", "pnpm test").required]).toEqual(["", "", ""]);
   });
 
   it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
