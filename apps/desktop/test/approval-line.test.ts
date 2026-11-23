@@ -78,6 +78,24 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   const choose = (control: "theme" | "appearance", choice: string): Promise<void> =>
     app.evaluate(`(() => { const choices = document.getElementById(${JSON.stringify(control)}); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 
+  /**
+   * Opens a work item's view by a click on its line of the sidebar. The
+   * sidebar replaces its buttons each time it is drawn, so a press and a
+   * release with a draw between them land on two buttons and make no click.
+   * The click is made again until the view shows.
+   */
+  const openView = async ({ id, title }: WorkItem): Promise<void> => {
+    const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`;
+    for (const deadline = Date.now() + 15_000; ; ) {
+      await app.click(`#repositories button[data-work-item="${id}"]`);
+      try {
+        return await app.until(shown, `the view of ${title}`, 2_000);
+      } catch (error) {
+        if (Date.now() >= deadline) throw error;
+      }
+    }
+  };
+
   beforeAll(async () => {
     buildApp();
     made = temporaryRepository();
@@ -125,8 +143,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${workItem.branch} |\n`);
     for (const round of [1, 2]) writeFileSync(join(directory, "trail", "rounds", `round-${round}.md`), `# Round ${round}\n`);
 
-    await app.click(`#repositories button[data-work-item="${workItem.id}"]`);
-    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha"`, "the view of Alpha");
+    await openView(workItem);
     await app.until(`document.querySelector('#view-detail section.approval .place[data-role="proofer"] .note')?.textContent === "2 rounds" && document.querySelector('#view-detail section.approval .place[data-role="crafter"] .note')?.textContent === "1 commit"`, "the line as the records and the commit give it", 20_000);
   }, 120_000);
 
@@ -149,8 +166,8 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     const found: string[] = [];
     for (const where of ["view", "preview"] as const) {
       if (where === "view") {
-        await app.click(`#repositories button[data-work-item="${workItem.id}"]`);
-        await app.until(`!document.getElementById("work-item-view").hidden && document.querySelector("#view-detail section.approval")`, "the view with its approval line");
+        await openView(workItem);
+        await app.until(`document.querySelector("#view-detail section.approval")`, "the view with its approval line");
       } else {
         await app.click("#nav-inbox");
         await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector("#inbox-preview-detail section.approval")`, "the preview with its approval line");
@@ -175,16 +192,11 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   /** How an age reads within the first two minutes of what it counts from. */
   const YOUNG = "(less than a minute|1 min)";
 
-  /** Opens the view of the work item whose chain runs. */
-  const openBeta = async (): Promise<void> => {
-    await app.click(`#repositories button[data-work-item="${beta.id}"]`);
-    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Beta"`, "the view of Beta");
-  };
-
   it("marks the proofer's place working with the round's note while the work item's chain runs a round, with the role, the note and the age in the mark's words, and names the stage in the second row of the work item's line of the inbox, with an age in its first", async () => {
+    // The view is opened before the chain starts: what the chain's start tells the window draws the sidebar again, and a draw during the click would take it.
+    await openView(beta);
     commitFile(beta.worktree, "feature.ts");
     second.send({ type: "getSeal", requestId: 3, workItemId: beta.id });
-    await openBeta();
     // The chain's first commit declares the work item's routing, so the branch holds two commits once the round runs.
     await app.until(`document.querySelector('${PROOFER} .note')?.textContent === "Round 1" && document.querySelector('#view-detail section.approval .place[data-role="crafter"] .note')?.textContent === "2 commits"`, "the line with the round that runs", 20_000);
     const [line] = await sections("#view-detail");
@@ -212,8 +224,9 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     for (const deadline = Date.now() + 10_000; !existsSync(pidFile) && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
     const pid = Number(readFileSync(pidFile, "utf8").trim());
     expect(alive(pid)).toBe(true);
+    // The view is opened before the stop, for the same reason as before the chain's start, so the open view is what shows the failure.
+    await openView(beta);
     second.send({ type: "stopHeadless", requestId: 4, id: stage!.headlessId! });
-    await openBeta();
     await app.until(`document.querySelector('${PROOFER} .state-icon.failed')`, "the proofer's place as failed", 20_000);
     expect(await untilGone([pid], 5_000)).toEqual([]);
     const [line] = await sections("#view-detail");
