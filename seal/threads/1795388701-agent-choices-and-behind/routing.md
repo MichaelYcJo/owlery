@@ -2,7 +2,7 @@
 
 | Axis | Answer |
 |---|---|
-| Review | straight to the PR |
+| Review | through the review chain |
 | Destination | open the pull request |
 | Planning | framer |
 | Implementation | crafter |
@@ -17,6 +17,6 @@ The owner's words that hand the run over: "알아서 진행하고 완료되면 �
 
 - **Planning, framer:** the issue leaves open which field of a hook's payload carries the choices an agent offers, and how the daemon counts the commits a branch is behind its base without asking a remote.
 - **Implementation, crafter:** the daemon's reading of the payload and of git, the protocol and the window's preview.
-- **Review, straight to the PR:** the change adds two read values and their display, and a defect shows at once in the cases or on screen; the sealer's reading of the diff against the issue is the independent reading.
+- **Review, straight to the PR, raised to through the review chain on 2026-11-23** (`frame/plan.md` *Judgments of the run*): the change adds two read values and their display, and a defect shows at once in the cases or on screen; the sealer's reading of the diff against the issue is the independent reading.
 - **Automation, yes:** the cases inject hook payloads and read temporary repositories; no case starts a real `claude`.
 - **Branch:** the pull request merges into `release/v0.0.2` by squash.
