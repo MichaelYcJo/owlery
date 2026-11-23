@@ -676,7 +676,8 @@ describe("the Claude adapter's role launch", () => {
       ["sealer", "Read,Glob,Grep,Bash"],
       ["orchestrator", "Read,Glob,Grep,Bash"],
     ]);
-  });
+    // One launch of a process for each pair, four in all, which the whole suite's load can hold past a case's 5 seconds.
+  }, 20_000);
 
   it("reports a role session's request for a tool its launch did not give it as a call of another kind that names no path, whatever the tool does, and a request for a tool of the launch as before", async () => {
     const CRAFTER: RoleStage = { role: "crafter", stage: "fix-pass" };
