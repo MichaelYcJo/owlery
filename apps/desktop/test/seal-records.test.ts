@@ -186,6 +186,11 @@ describe("the text of a guarantee", () => {
     expect(() => guaranteeText(null, "1-x", SECTION, { ...PARTIES, model: "" })).toThrow("`model: ` does not read whole as `model: <value>`");
     expect(() => guaranteeText(null, "1-x", SECTION, { ...PARTIES, model: "owl\nrules: owlery 9" })).toThrow("a second `rules:` line");
     expect(() => guaranteeText(null, "1-x", SECTION, { ...PARTIES, version: "0.0.2 beta" })).toThrow("`rules: owlery 0.0.2 beta` does not read whole as `rules: <value>`");
+    // A value that ends with a carriage return reads back without it, as another value, and the reader refuses no line of it.
+    expect(() => guaranteeText(null, "1-x", SECTION, { ...PARTIES, builtBy: ["s-1\r"] })).toThrow("the building sessions do not read back as they were given");
+    for (const parties of [{ judgedBy: "s-2\r" }, { model: "owl-large\r" }, { version: "0.0.2\r" }]) {
+      expect(() => guaranteeText(null, "1-x", SECTION, { ...PARTIES, ...parties }), JSON.stringify(parties)).toThrow("the judging session, its model or the rules do not read back as they were given");
+    }
   });
 
   it("appends nothing to a guarantee the reader refuses a line of, and names the file and the line", () => {

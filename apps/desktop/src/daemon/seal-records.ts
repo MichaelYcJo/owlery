@@ -141,18 +141,17 @@ function above(stood: string): string {
  * `# Broad gate: <work item>` where no record stands, then what stands,
  * unchanged, and below it one run block that names the head the gate passed
  * on against the base's commit. `before` is the file as it stands, or null.
- * It throws where the reader refuses a line of what stands, where the head
- * or the base is no commit's hash, and where the reader would not read the
- * run below what stands.
+ * It throws, saying which, where the reader refuses a line of what stands,
+ * where the head or the base is no commit's hash, and where the reader would
+ * not read the run below what stands.
  */
 export function gateText(before: string | null, workItem: string, run: { head: string; base: string }): string {
   const refused = refusedAt(before === null ? [] : readGate(before).refusals, `${GATE_FILE} holds a line Owlery cannot read`);
   if (refused !== null) throw new Error(refused);
   const text = `${above(before ?? `# Broad gate: ${workItem}\n`)}${assemble([["run:", `${run.head} against ${run.base}`]], [RUN_BLOCK])}`;
-  const got = readGate(text);
-  const unread = refusedAt(got.refusals, `the run appended to ${GATE_FILE} would not be read`);
+  // Below a line that leaves the reader unsure, the run's own fences are refused, and a run nobody reads is not written.
+  const unread = refusedAt(readGate(text).refusals, `the run appended to ${GATE_FILE} would not be read`);
   if (unread !== null) throw new Error(unread);
-  if (got.runs.at(-1)?.commit !== run.head) throw new Error(`the run appended to ${GATE_FILE} would not be read as its newest run`);
   return text;
 }
 
@@ -217,12 +216,14 @@ function lineStart(text: string, line: number): number {
  * `sectionOf` gave. It throws, saying which, where the reader refuses a line
  * of what stands; where no session is named as having built the work; where
  * the judging session is one of them, whatever the verdict reads; where the
- * section does not hold its one block; and where the block the reader reads
- * back is not the newest with the parties as given.
+ * section does not hold its one block; where the reader would not read the
+ * section below what stands; and where the block it reads back does not
+ * name the parties as given, as a name that holds a comma or a line end
+ * does not.
  */
 export function guaranteeText(before: string | null, workItem: string, section: string, parties: Parties): string {
-  const stood = before === null ? [] : readGuarantee(before).verdicts;
-  const refused = refusedAt(before === null ? [] : readGuarantee(before).refusals, `${GUARANTEE_FILE} holds a line Owlery cannot read`);
+  const stood = readGuarantee(before ?? "");
+  const refused = refusedAt(stood.refusals, `${GUARANTEE_FILE} holds a line Owlery cannot read`);
   if (refused !== null) throw new Error(refused);
   if (parties.builtBy.length === 0) throw new Error("no session is named as having built the work, and a verdict names one or more");
   if (parties.builtBy.includes(parties.judgedBy)) throw new Error(`the judging session, ${parties.judgedBy}, is one of the sessions that built the work, and a session that built gives no verdict`);
@@ -235,7 +236,7 @@ export function guaranteeText(before: string | null, workItem: string, section: 
   const unread = refusedAt(got.refusals, `the section appended to ${GUARANTEE_FILE} would not be read`);
   if (unread !== null) throw new Error(unread);
   const newest = got.verdicts.at(-1);
-  if (got.verdicts.length !== stood.length + 1 || newest === undefined) throw new Error(`the section appended to ${GUARANTEE_FILE} would not be read as its newest verdict`);
+  if (newest === undefined || got.verdicts.length !== stood.verdicts.length + 1) throw new Error(`the section appended to ${GUARANTEE_FILE} would not be read as its newest verdict`);
   if (newest.builtBy.length !== parties.builtBy.length || newest.builtBy.some((name, index) => name !== parties.builtBy[index])) {
     throw new Error(`the building sessions do not read back as they were given: \`${parties.builtBy.join("`, `")}\``);
   }
