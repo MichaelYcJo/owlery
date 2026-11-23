@@ -231,6 +231,8 @@ interface HeadlessSession {
   end: () => void;
   /** The calls of the session its role's rule refused, in their order: each one's tool, what it does and the rule's name. */
   refusals: RefusedCall[];
+  /** The session's own id and its model, as its adapter reported them, and null until it does and for a session whose agent names no id. They stay in the daemon: no message carries either. */
+  named: { id: string; model: string | null } | null;
   /** The wait for the session's time limit. Its end and the daemon's close each cancel it. */
   limit: NodeJS.Timeout | undefined;
   /** The requests the session waits for the person to answer, by the ids its adapter gave them. They live in memory alone, as the session does, and end with it. */
@@ -1444,6 +1446,10 @@ export class Daemon {
       }
       // The result closes the answer: nothing that arrives after it changes the session.
       if (info.state !== "working") return;
+      if (event.type === "session") {
+        session.named = { id: event.id, model: event.model };
+        return;
+      }
       if (event.type === "permission") {
         // The adapter reports no event before its run is held (`RoleAdapter.start`), so the answer has a run to go to.
         const verdict = verdictOn(info.role, event, cwd);
@@ -1521,6 +1527,7 @@ export class Daemon {
       ended,
       end,
       refusals: [],
+      named: null,
       limit: undefined,
       asks: new Map(),
       repo: repository.folder,
