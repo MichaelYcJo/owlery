@@ -44,6 +44,11 @@ expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.a
 /** Why the stage `failed`, as a clause with no capital and no full stop, which the daemon's sentence of the chain wraps and the approval line says as a sentence, and null in the other two states. */
 ```
 
+```seal
+verdict: fixed 6df50cf
+answer: The finding holds. `6df50cf` adds `view.ts#asSentence`, and `byChain` passes a failed stage's `failure` through it, so the line reads "Proofer: The session was stopped at a request before it finished." The fix is written in the pass's own words, because the paste-ready one gives a capital to any first letter, and the daemon also writes failures that open with a path or a file's name (`chain.ts`, "`<path>` was written and not committed"). The capital goes only to a first word of letters alone, and `99d3ca9` narrows that rule and adds a case for a failure of one word. The commits change the expectations at `view.test.ts` and `approval-line.test.ts`, add one case to `describe("the approval line")` of `view.test.ts`, rewrite the comment on `ChainStage.failure` in `protocol.ts`, which also says that a session's own error arrives as the session gave it, and rewrite the example in `changelog.md`. The two cases of `view.test.ts` were seen red against the code before the fix, and ten mutants of `asSentence` and its call went red under `seal mutate`. `frame/design.md:98` and `:157` still state the clause as it is. They are the frame's lines, and the hand-back names them for the orchestrator to fold.
+```
+
 ### 2. The work item says the tests hold the colour of a failed place's line, and the cases hold only its class
 
 ```seal
@@ -74,6 +79,11 @@ expect(
 
 The probe span takes its colour from the page's custom property and nothing else. It assumes only that the section is drawn, which the lines above already wait for.
 
+```seal
+verdict: fixed 7b582ad
+answer: The finding holds. `7b582ad` adds the record's assertion to the last case of `approval-line.test.ts`, as written but for one word of its comment: the line's computed colour equals the colour the page resolves for `--state-failed`, and that colour differs from a note's. With the rule `.approval .under.failed` removed from `index.html` and nothing else changed, the case went red on the new assertion, with `[false, true]`, after the assertion of the line's words had passed. The rule was put back by hand and the file is as `a799df0` holds it. `bb960c4` rewrites the sentence at `gaps.md:23`: the built-app case holds a failed place's words and colour, and no case draws a waiting place's line in the built app. `pr.md:9` says the tests hold the colour of a place that waits too, which no case reads. It is the orchestrator's line, and the hand-back names it.
+```
+
 ### 3. The pull request part answers the issue's "committed records" with a read that also takes what is not committed, and does not say so
 
 ```seal
@@ -90,6 +100,11 @@ The daemon reads the work item's records in its worktree every few seconds, comm
 
 <!-- seal/threads/1795342001-progress-through-roles/frame/design.md:51, the second cell -->
 *Scope* items 1 to 5, and scenario 9. The daemon reads the records in the worktree, committed or not (*Scope* item 2), where the issue names the committed records
+```
+
+```seal
+verdict: fixed a799df0
+answer: The orchestrator's `a799df0` replaces the two cells with the record's text: `pr.md`'s row for *Done when* 4 and `frame/design.md`'s row for the same line now say that the daemon reads the records committed or not, where the issue names the committed records. The fix touches the work item's records alone.
 ```
 
 ## Confirmations
