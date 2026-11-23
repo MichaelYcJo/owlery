@@ -23,6 +23,7 @@
 | The whole suite, the repository-wide typecheck and the documents' checks of the `Broad gate` key, on the tree phase 5 leaves: phase 5 ran its own set alone (`trail/phases/phase-5.md`) | the orchestrator, at the broad gate |
 | The built-app test files that load the window or the daemon through the build and that phase 5's run did not start: every file of the `app` project but `approval-line.test.ts`, `get-a-seal.test.ts`, `notification-click.test.ts`, `terminal-basics.test.ts`, `work-item-menu.test.ts` and the screenshot run | the orchestrator, at the broad gate |
 | That the case of scenario 19 in `test/get-a-seal.test.ts` fails without the code it pins: it was not run before the code, since this run starts the built app once per phase, and `work-item-view.ts#showSeal`'s line under the head and the screenshot run's broken work item had no `seal mutate` run (`trail/phases/phase-5.md`) | the review chain's round 1, by reading, or a `seal mutate` run of `view.ts#branchLine` against that case in the orchestrator's next built-app batch |
+| The whole suite, the repository-wide typecheck and the documents' checks of the `Broad gate` key, on the tree review round 1's fix pass leaves: the pass ran `test/pr-check.test.ts` and the unit files that read `pr-check/`, and the typecheck, alone (`trail/rounds/round-1.md`, the close blocks) | the orchestrator, at the broad gate |
 
 ## Not done
 
