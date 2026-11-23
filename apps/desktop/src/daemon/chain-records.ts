@@ -15,13 +15,15 @@
 // A record whose reader refuses a line gives nothing, wherever the line
 // stands, as the pull request check reads it
 // (`pr-check/skills/code-review/scripts/chain_check.py#guarantee` and its
-// gate record's arm). Of the blocks the last is the newest. No round record
-// is parsed: a round is a file's name.
+// gate record's arm). Of the blocks the last is the newest. The two records
+// are parsed in `seal-records.ts`, which the chain reads them with too, so
+// each block has one parser. No round record is parsed: a round is a file's
+// name.
 import { lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Recorded } from "../shared/protocol";
-import { RUN_BLOCK, VERDICT_BLOCK, field, read, type Block, type Kind } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
+import { readGate, readGuarantee } from "./seal-records";
 
 /** What a work item holds of its records where its worktree holds no directory of its own, or the directory holds none of them. */
 export const NOTHING_RECORDED: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
@@ -29,30 +31,17 @@ export const NOTHING_RECORDED: Recorded = { framed: false, rounds: 0, gate: null
 /** The name of a round record: `round-`, a whole number from 1 with no leading zero, and `.md`. */
 const ROUND = /^round-[1-9][0-9]*\.md$/;
 
-/** The last block of the kind the text holds, or null where it holds none and where the reader refuses a line of it. A fence named as not read decides nothing. */
-function lastBlock(text: string, kind: Kind): Block | null {
-  const got = read(text, [kind]);
-  if (got.refusals.length > 0) return null;
-  return got.blocks.at(-1) ?? null;
-}
-
-/** The commit the last run block of a gate record names, or null. */
+/** The commit the newest run of a gate record names, as `seal-records.ts#readGate` reads the record, or null where it holds no run and where the reader refuses a line of it. A fence named as not read decides nothing. */
 export function lastRun(text: string): string | null {
-  const block = lastBlock(text, RUN_BLOCK);
-  return block === null ? null : (field(block, "run:")?.groups.commit ?? null);
+  const { runs, refusals } = readGate(text);
+  return refusals.length > 0 ? null : (runs.at(-1)?.commit ?? null);
 }
 
-/** The last verdict block of a guarantee, or null: the verdict's word, the commit its `target:` names, and the reason of a `withheld` or the question of an `undecided`. */
+/** The newest verdict of a guarantee, as `seal-records.ts#readGuarantee` reads the record, or null where it holds none and where the reader refuses a line of it: the verdict's word, the commit its `target:` names, and the reason of a `withheld` or the question of an `undecided`. */
 export function lastVerdict(text: string): Recorded["verdict"] {
-  const block = lastBlock(text, VERDICT_BLOCK);
-  if (block === null) return null;
-  const commit = field(block, "target:")?.groups.commit ?? "";
-  const said = field(block, "Verdict:")?.value ?? "";
-  const reason = /^withheld reason: (.*)$/su.exec(said)?.[1];
-  if (reason !== undefined) return { is: "withheld", commit, says: reason };
-  const question = /^undecided question: (.*)$/su.exec(said)?.[1];
-  if (question !== undefined) return { is: "undecided", commit, says: question };
-  return { is: "sealed", commit, says: null };
+  const { verdicts, refusals } = readGuarantee(text);
+  const newest = refusals.length > 0 ? undefined : verdicts.at(-1);
+  return newest === undefined ? null : { is: newest.is, commit: newest.commit, says: newest.says };
 }
 
 /** Whether a plain file stands at the path: a link and what is no plain file are none. */
