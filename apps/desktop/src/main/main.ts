@@ -149,7 +149,11 @@ function createWindow(): BrowserWindow {
     win.setFullScreen(false);
   });
   void win.loadFile(join(__dirname, "index.html"));
-  if (background) showInBackground(win);
+  if (background) {
+    showInBackground(win);
+    // The page draws its frames while the system counts the window as unseen, as it counts every window while the displays sleep: a page drawn no frame dispatches no change of a media query and runs no animation frame. A load and a reload each make the page a new frame, which draws none until the switch is set again (#164).
+    win.webContents.on("did-navigate", () => win.webContents.setBackgroundThrottling(false));
+  }
   return win;
 }
 

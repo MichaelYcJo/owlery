@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RoleEvent, RoleRun } from "../src/daemon/adapters/adapter";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
-import type { RoleStage } from "../src/shared/protocol";
+import type { RoleStage, Usage } from "../src/shared/protocol";
 
 /** Starts one run and gives its events once it has exited. */
 async function run(adapter: ReturnType<typeof fakeAdapter>, prompt: string, role?: RoleStage): Promise<RoleEvent[]> {
@@ -28,7 +28,7 @@ describe("the fake adapter", () => {
   it("answers a prompt with a text that quotes it, then the result and exit 0", async () => {
     expect(await run(fakeAdapter(), "Which owl?")).toEqual([
       { type: "text", text: 'You asked: "Which owl?"' },
-      { type: "result", text: 'You asked: "Which owl?"', isError: false, costUsd: null },
+      { type: "result", text: 'You asked: "Which owl?"', isError: false, usage: null },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
   });
@@ -39,7 +39,7 @@ describe("the fake adapter", () => {
       { type: "text", text: "Q: " },
       { type: "text", text: "a barn " },
       { type: "text", text: "owl" },
-      { type: "result", text: "Q: a barn owl", isError: false, costUsd: null },
+      { type: "result", text: "Q: a barn owl", isError: false, usage: null },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
   });
@@ -47,7 +47,7 @@ describe("the fake adapter", () => {
   it("started with a role, answers with a text that names the role and the stage, and with none answers as before", async () => {
     expect(await run(fakeAdapter(), "Which owl?", { role: "proofer", stage: "round" })).toEqual([
       { type: "text", text: 'As the proofer at the stage round, you asked: "Which owl?"' },
-      { type: "result", text: 'As the proofer at the stage round, you asked: "Which owl?"', isError: false, costUsd: null },
+      { type: "result", text: 'As the proofer at the stage round, you asked: "Which owl?"', isError: false, usage: null },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     expect((await run(fakeAdapter(), "Q", { role: "crafter", stage: "fix-pass" }))[0]).toEqual({ type: "text", text: 'As the crafter at the stage fix-pass, you asked: "Q"' });
@@ -56,8 +56,8 @@ describe("the fake adapter", () => {
 
   it("gives its pieces the role it was started with, and nothing where it was started with none", async () => {
     const adapter = fakeAdapter({ pieces: (prompt, role) => [prompt, ": ", role ? `${role.role}/${role.stage}` : "no role"] });
-    expect((await run(adapter, "Q", { role: "sealer", stage: "seal" })).at(-2)).toEqual({ type: "result", text: "Q: sealer/seal", isError: false, costUsd: null });
-    expect((await run(adapter, "Q")).at(-2)).toEqual({ type: "result", text: "Q: no role", isError: false, costUsd: null });
+    expect((await run(adapter, "Q", { role: "sealer", stage: "seal" })).at(-2)).toEqual({ type: "result", text: "Q: sealer/seal", isError: false, usage: null });
+    expect((await run(adapter, "Q")).at(-2)).toEqual({ type: "result", text: "Q: no role", isError: false, usage: null });
   });
 
   it("reports nothing before the turn in which it was started ends", async () => {
@@ -68,9 +68,17 @@ describe("the fake adapter", () => {
 
   it("told to fail, ends with an error result and exit 1", async () => {
     expect(await run(fakeAdapter({ fail: "result" }), "Q")).toEqual([
-      { type: "result", text: "the fake adapter was told to fail", isError: true, costUsd: null },
+      { type: "result", text: "the fake adapter was told to fail", isError: true, usage: null },
       { type: "exit", exitCode: 1, errorOutput: "" },
     ]);
+  });
+
+  it("reports the usage it is given on the result of a session that succeeds, for the prompt and the role it was started with, and none on a result told to fail", async () => {
+    const used = (prompt: string, role?: RoleStage): Usage => ({ costUsd: 0.5, converted: true, models: [{ model: `${prompt} as ${role ? `${role.role}/${role.stage}` : "no role"}`, inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, costUsd: 0.5 }] });
+    expect((await run(fakeAdapter({ usage: used }), "Q", { role: "proofer", stage: "round" })).at(-2)).toEqual({ type: "result", text: 'As the proofer at the stage round, you asked: "Q"', isError: false, usage: used("Q", { role: "proofer", stage: "round" }) });
+    expect((await run(fakeAdapter({ usage: used }), "Q")).at(-2)).toMatchObject({ type: "result", usage: used("Q") });
+    expect((await run(fakeAdapter({ usage: () => null }), "Q")).at(-2)).toMatchObject({ type: "result", usage: null });
+    expect((await run(fakeAdapter({ usage: used, fail: "result" }), "Q")).at(-2)).toEqual({ type: "result", text: "the fake adapter was told to fail", isError: true, usage: null });
   });
 
   it("told to exit early, exits 1 without a result", async () => {
@@ -137,7 +145,7 @@ describe("the fake adapter", () => {
       { type: "text", text: "allowed: Edit\n" },
       { type: "text", text: "refused: Bash: Not here.\n" },
       { type: "text", text: "done" },
-      { type: "result", text: "allowed: Edit\nrefused: Bash: Not here.\ndone", isError: false, costUsd: null },
+      { type: "result", text: "allowed: Edit\nrefused: Bash: Not here.\ndone", isError: false, usage: null },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
   });
@@ -162,7 +170,7 @@ describe("the fake adapter", () => {
     const events = await answering(fakeAdapter({ asks: () => [SHELL] }), (event, run) => {
       if (event.type === "permission") run.answer(event.id, { allow: false, reason: "No." });
     });
-    expect(events.at(-2)).toEqual({ type: "result", text: 'refused: Bash: No.\nYou asked: "Q"', isError: false, costUsd: null });
+    expect(events.at(-2)).toEqual({ type: "result", text: 'refused: Bash: No.\nYou asked: "Q"', isError: false, usage: null });
   });
 
   it("gives its requests the prompt and the role it was started with, as it gives its pieces", async () => {
@@ -186,7 +194,7 @@ describe("the fake adapter", () => {
       { type: "permission", id: "ask-2", ...EDIT },
       { type: "text", text: "allowed: Edit\n" },
       { type: "text", text: 'You asked: "Q"' },
-      { type: "result", text: 'allowed: Edit\nYou asked: "Q"', isError: false, costUsd: null },
+      { type: "result", text: 'allowed: Edit\nYou asked: "Q"', isError: false, usage: null },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
   });
@@ -199,6 +207,48 @@ describe("the fake adapter", () => {
     started.answer("ask-1", { allow: true });
     await new Promise((r) => setTimeout(r, 100));
     expect(events).toEqual([{ type: "permission", id: "ask-1", ...SHELL }]);
+  });
+
+  it("does its work in the session's folder before the first piece of its answer and after its requests were answered, with the folder, the prompt and the role, and waits for it; and reports nothing more where it was stopped meanwhile", async () => {
+    const order: string[] = [];
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const adapter = fakeAdapter({
+      asks: () => [{ tool: "Bash", action: "run", path: null, text: "git commit" }],
+      work: async (cwd, prompt, role) => {
+        order.push(`work in ${cwd} for ${JSON.stringify(prompt)} as ${role ? `${role.role}/${role.stage}` : "no role"}`);
+        await held;
+        order.push("work done");
+      },
+    });
+    let run: RoleRun | undefined;
+    const exited = new Promise<void>((resolve) => {
+      void adapter
+        .start({ prompt: "Fix it", cwd: "/a/worktree", role: { role: "crafter", stage: "fix-pass" } }, (event) => {
+          order.push(event.type);
+          if (event.type === "permission") run?.answer(event.id, { allow: true });
+          if (event.type === "exit") resolve();
+        })
+        .then((started) => {
+          run = started;
+        });
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    // The answer waits for the work: nothing of it was reported yet.
+    expect(order).toEqual(["permission", "text", 'work in /a/worktree for "Fix it" as crafter/fix-pass']);
+    release();
+    await exited;
+    expect(order).toEqual(["permission", "text", 'work in /a/worktree for "Fix it" as crafter/fix-pass', "work done", "text", "result", "exit"]);
+
+    const events: RoleEvent[] = [];
+    let stop = (): void => {};
+    const stopped = fakeAdapter({ work: async () => (await new Promise((r) => setTimeout(r, 20)), stop()) });
+    const second = await stopped.start({ prompt: "Q", cwd: "/nowhere" }, (event) => void events.push(event));
+    stop = () => void second.stop();
+    await new Promise((r) => setTimeout(r, 60));
+    expect(events).toEqual([]);
   });
 
   it("has no notice of its agent unless it is given one, and gives the one it was given at every call", async () => {

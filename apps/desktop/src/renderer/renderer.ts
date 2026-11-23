@@ -49,6 +49,7 @@ import {
   lossSections,
   menuKey,
   menuTarget,
+  chainNotifications,
   notificationFor,
   parkNotifications,
   permissionNotifications,
@@ -82,7 +83,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeHeadless, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeHeadless, takeSeal, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -1205,7 +1206,7 @@ function onNotificationClick(session: Pick<SessionInfo, "id" | "workItemId">): v
   if (opens) openView(opens.workItemId, opens.pane ?? undefined);
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions and of each call a headless session began to wait for the person to allow, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each call a headless session began to wait for the person to allow and of each chain that stopped, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   const heldBefore = [...held.workItems, ...held.archived];
@@ -1219,9 +1220,9 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     if (!notification) continue;
     new Notification(notification.title, { body: notification.body }).onclick = () => onNotificationClick(session);
   }
-  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, or on a request's, brings the window forward and opens the work item's view, where its questions and its requests are answered, where the lists still hold it.
+  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a request's or on a stopped chain's brings the window forward and opens the work item's view, where its questions and its requests are answered and its chain is started again, where the lists still hold it.
   const looking = front === "view" && document.hasFocus() ? held.viewing : undefined;
-  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...permissionNotifications(heldBefore, held.workItems, looking)]) {
+  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...permissionNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking)]) {
     new Notification(told.title, { body: told.body }).onclick = () => {
       void window.owlery.comeForward();
       if (held.workItems.some((workItem) => workItem.id === told.workItemId)) openView(told.workItemId);
@@ -1528,6 +1529,8 @@ function onMessage(message: ServerMessage): void {
       if (answered(message.requestId, null)) return;
       // The answers a person sent to a parked work item's questions were taken.
       if (takeAnswers(message.requestId, null)) return;
+      // The chain a press of "Get a seal" asked for has started.
+      if (takeSeal(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -1558,6 +1561,8 @@ function onMessage(message: ServerMessage): void {
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
       // The refusal of the answers to a parked work item's questions is its view's section's to show.
       if (takeAnswers(message.requestId, message.message)) return;
+      // The refusal of a chain's start is its view's to show, under "Get a seal".
+      if (takeSeal(message.requestId, message.message)) return;
       // A refused plan of the records place is its dialog's to show.
       if (takeRecordsPlan(message.requestId, { error: message.message })) return;
       if (registering?.requestId === message.requestId) registering = undefined;
