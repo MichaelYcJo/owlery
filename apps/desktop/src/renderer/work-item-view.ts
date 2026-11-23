@@ -3,14 +3,16 @@
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
 // above the "Ask" section, where the calls its headless sessions ask the
-// person to allow are answered, and the seal's place. The pool of terminal screens the window holds lives here, and so
+// person to allow are answered, and the seal's place with "Get a seal",
+// which starts the work item's chain, with the work item's pull request
+// under it. The pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
 import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
-import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
+import { byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
   answersFor,
   askButton,
@@ -20,6 +22,11 @@ import {
   cardStaysAt,
   closeAsks,
   droppedText,
+  GATE_HEAD,
+  GATE_OUTPUT_SHOWS,
+  type GateLine,
+  type GateOutput,
+  gateLine,
   headlessKey,
   headlessLines,
   type LinkAct,
@@ -34,11 +41,16 @@ import {
   type PaneMenuAct,
   paneTabs,
   pathCandidates,
+  pullRequestFacts,
   pathTarget,
   recentKept,
+  refusedSeal,
   replayStep,
   repoNameOf,
   screenMoves,
+  sealButton,
+  type SealRefusal,
+  sealShown,
   type ScreenTurns,
   screenTurns,
   stageOf,
@@ -85,6 +97,16 @@ let questionsDrawn: string | undefined;
 let askDrawn: string | undefined;
 // The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
 let answersRequest: number | undefined;
+// The address of the pull request the view shows, which a press of its row opens.
+let pullRequestUrl: string | undefined;
+// The request a press of "Get a seal" is waiting on, with its work item: the button stays off until the daemon answers.
+let sealRequest: { requestId: number; workItemId: number } | undefined;
+// What the window last read of a broad gate's output (./view, `GateOutput`), which stands under the line of the run it was read of.
+let gateRead: GateOutput | null = null;
+// The request a press of "Show output" is waiting on, with the work item and the run whose line was pressed.
+let gateRequest: { requestId: number; workItemId: number; startedAt: number } | undefined;
+// The daemon's refusal of the last "Get a seal", and the work item it refused it for.
+let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
 // The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
@@ -130,6 +152,15 @@ const questionsAge = byId("questions-age");
 const questionsList = byId("questions-list");
 const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
+const getSeal = byId<HTMLButtonElement>("get-seal");
+const sealHead = byId("view-seal-head");
+const sealWhy = byId("view-seal-why");
+// The seal's place at the view's foot is made once, and drawn again for each work item the view shows.
+const viewSeal = sealPlace("view", null);
+const sealSays = byId("seal-says");
+const sealRefusal = byId("seal-refusal");
+const pullRequestSection = byId("view-pull-request");
+const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
@@ -651,10 +682,62 @@ function answerButton(workItemId: number, id: number, allow: boolean): HTMLButto
   return button;
 }
 
+/** The broad gate's line of the "Ask" section, in the form of a headless session's line: the mark and the word of its state, the words "Broad gate" with the command, "Stop" while the command runs, "Show output" where the daemon kept what it printed, the failure of a gate that failed, and what the window last read of this run's output. */
+function gateItem(workItemId: number, line: GateLine): HTMLLIElement {
+  const item = document.createElement("li");
+  item.className = "gate";
+  const prompt = part("prompt", `${GATE_HEAD} `);
+  // The command is plain text, never markup.
+  prompt.append(part("command", line.command));
+  const head = row(headlessIcon(line.state, line.words), prompt, part(`state ${line.state}`, line.words));
+  if (line.stop) {
+    const stop = document.createElement("button");
+    stop.className = "quiet";
+    stop.textContent = "Stop";
+    stop.title = "Stop the broad gate's command";
+    stop.dataset.answer = "gate:stop";
+    stop.addEventListener("click", () => send({ type: "stopGate", requestId: request(), workItemId }));
+    head.append(stop);
+  }
+  if (line.output) {
+    const show = document.createElement("button");
+    show.className = "quiet";
+    show.textContent = GATE_OUTPUT_SHOWS;
+    show.title = "Show what the broad gate's command printed";
+    show.dataset.answer = "gate:output";
+    show.addEventListener("click", () => {
+      gateRequest = { requestId: request(), workItemId, startedAt: line.startedAt };
+      send({ type: "readGateOutput", requestId: gateRequest.requestId, workItemId });
+    });
+    head.append(show);
+  }
+  item.append(head, part("answer", line.text));
+  if (line.printed) {
+    if (line.printed.note) item.append(part("output-note", line.printed.note));
+    // What the command printed is plain text, never markup, whole, with its line breaks kept by the style.
+    item.append(part("error-output", line.printed.text));
+  }
+  return item;
+}
+
+/**
+ * Takes what the daemon answered a press of "Show output" with, and answers
+ * whether the request was that press's: the text stands under the line of
+ * the run whose line was pressed, where the view still draws that run.
+ */
+export function takeGateOutput(requestId: number, output: { text: string; cut: boolean }): boolean {
+  if (requestId !== gateRequest?.requestId) return false;
+  gateRead = { workItemId: gateRequest.workItemId, startedAt: gateRequest.startedAt, ...output };
+  gateRequest = undefined;
+  showAskSection();
+  return true;
+}
+
 /**
  * Draws the "Ask" section of the view on screen: the button as the field
- * stands, and the work item's headless sessions. The line of a working
- * session offers "Stop", which asks the daemon to stop it; the daemon answers
+ * stands, the line of the work item's newest broad gate, first, and the
+ * work item's headless sessions. The line of a working session offers
+ * "Stop", which asks the daemon to stop it; the daemon answers
  * `done`, and the `headless` that follows carries the session as failed. A
  * session that waits for the person to allow a call says "Needs you" with
  * the waiting mark, and shows each call it waits on as a card with "Allow"
@@ -663,20 +746,22 @@ function answerButton(workItemId: number, id: number, allow: boolean): HTMLButto
  * where the section's key is another (./view, `headlessKey`), so every
  * `inbox` that changes nothing they show leaves them, and the keyboard, as
  * they are. Where they are drawn again while the keyboard is on a request's
- * button, the same button of the same request takes it back, where it is
- * still drawn.
+ * button or on a button of the gate's line, the same button takes it back,
+ * where it is still drawn.
  */
 function showAskSection(): void {
   const workItem = viewed();
   if (!workItem) return;
   showAsk(workItem);
   const lines = headlessLines(held.headless, workItem);
-  const key = headlessKey(workItem.id, lines);
+  const gate = gateLine(workItem, gateRead);
+  const key = headlessKey(workItem.id, lines, gate);
   if (key === askDrawn) return;
   askDrawn = key;
   const focused = document.activeElement;
   const kept = focused instanceof HTMLElement && headlessList.contains(focused) ? focused.dataset.answer : undefined;
   headlessList.replaceChildren(
+    ...(gate ? [gateItem(workItem.id, gate)] : []),
     ...lines.map((line) => {
       const item = document.createElement("li");
       const head = row(headlessIcon(line.mark, line.words), part("prompt", line.prompt), part(`state ${line.mark}`, line.words));
@@ -814,6 +899,97 @@ function sendAnswers(): void {
 }
 
 /**
+ * Draws the view's foot for the view's work item: the seal's place and its
+ * words for the seal its branch's head holds (./view, `sealShown`), with
+ * the seal's sentence under its head where the seal is broken, and
+ * "Get a seal" (./view, `sealButton`): the button where the daemon sent the
+ * work item's chain, in its words for that seal, the chain's sentence above
+ * it and the daemon's refusal of the last press under it, while the chain
+ * stands as it stood at that refusal.
+ */
+function showSeal(workItem: WorkItem): void {
+  drawSeal(viewSeal, workItem.seal);
+  const shown = sealShown(workItem.seal);
+  sealHead.textContent = shown.words;
+  // The daemon's sentence is plain text, never markup.
+  sealWhy.textContent = shown.why;
+  const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
+  getSeal.textContent = button.words;
+  getSeal.hidden = !button.offered;
+  getSeal.disabled = !button.enabled;
+  getSeal.title = button.title;
+  sealSays.textContent = button.says;
+  sealRefusal.textContent = button.refusal;
+}
+
+/**
+ * Draws the view's work item's pull request under the seal's place (./view,
+ * `pullRequestFacts`), or hides the section where it has none: its number
+ * and its state on a row that opens it, the result of its checks, a row for
+ * each check, which opens the check where GitHub gave it an address, how
+ * many more checks GitHub listed, and why the last read failed. Each address
+ * goes to the main process, which opens an `http` or `https` one alone, and
+ * none in an app started in the background.
+ */
+function showPullRequest(workItem: WorkItem): void {
+  const facts = pullRequestFacts(workItem);
+  pullRequestSection.hidden = facts === null;
+  pullRequestUrl = facts?.url;
+  if (facts === null) {
+    pullRequestList.replaceChildren();
+    return;
+  }
+  byId("pull-request-number").textContent = facts.head;
+  byId("pull-request-state").textContent = facts.state;
+  byId("pull-request-open").title = `Open ${facts.head} on GitHub`;
+  byId("pull-request-checks").textContent = facts.checks;
+  pullRequestList.replaceChildren(
+    ...facts.rows.map(({ name, mark, words, link }) => {
+      const item = document.createElement("li");
+      const check = document.createElement(link === null ? "div" : "button");
+      check.className = "row check";
+      // A check's name is plain text, never markup.
+      check.append(headlessIcon(mark, words), part("name", name), part(`words state ${mark}`, words));
+      if (link !== null) {
+        (check as HTMLButtonElement).type = "button";
+        check.title = `Open the check ${name} on GitHub`;
+        check.addEventListener("click", () => void window.owlery.openLink(link));
+      }
+      item.append(check);
+      return item;
+    }),
+  );
+  byId("pull-request-more").textContent = facts.foot;
+  byId("pull-request-failure").textContent = facts.failure;
+}
+
+/** Asks the daemon to start the chain of the work item whose view is on screen, as a press of "Get a seal" does. The daemon answers `done` once the chain has started, and the `inbox` that follows carries it. */
+function askSeal(): void {
+  const workItem = viewed();
+  // One request per answer: a second press before the daemon has answered would ask for a second start.
+  if (!workItem || sealRequest !== undefined || !sealButton(workItem, false, null).enabled) return;
+  sealRequest = { requestId: request(), workItemId: workItem.id };
+  send({ type: "getSeal", requestId: sealRequest.requestId, workItemId: workItem.id });
+  showSeal(workItem);
+}
+
+/**
+ * Takes the daemon's answer to a press of "Get a seal", `refusal` being its
+ * refusal or null for `done`, and answers whether the request was that
+ * press's. A refusal is shown under the button, with the button on again,
+ * and is kept with the chain as the window holds it at the answer.
+ */
+export function takeSeal(requestId: number, refusal: string | null): boolean {
+  if (requestId !== sealRequest?.requestId) return false;
+  const { workItemId } = sealRequest;
+  sealRefused = refusal === null ? undefined : { workItemId, refusal: refusedSeal(held.workItems.find((item) => item.id === workItemId), refusal) };
+  sealRequest = undefined;
+  const workItem = viewed();
+  if (workItem) showSeal(workItem);
+  return true;
+}
+
+/**
  * Takes the daemon's answer to the section's request, `refusal` being its
  * refusal or null for `done`, and answers whether the request was the
  * section's. A refusal is shown in the section, with "Send answers" on
@@ -910,6 +1086,8 @@ export function showView(): void {
     }),
   );
   showQuestions(workItem);
+  showSeal(workItem);
+  showPullRequest(workItem);
   viewDetail.replaceChildren(...detail(entry, 0, { reverse: (decisionId) => reverseDecision(workItem.id, decisionId), runSetup: (command) => runSetup(workItem.id, command) }));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
@@ -935,6 +1113,8 @@ export function enterView(workItemId: number, pane?: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
+  // A press whose answer never came, as where the daemon ended first, holds the button off no longer.
+  sealRequest = undefined;
   held.viewing = workItemId;
   front = undefined;
   if (pane !== undefined) broughtToFront(workItemId, pane);
@@ -994,9 +1174,10 @@ export function dropHeadless(id: number): void {
   showAskSection();
 }
 
-/** Takes the daemon's refusal of a request: where it was the "Ask" field's, the field may ask again. */
+/** Takes the daemon's refusal of a request: where it was the "Ask" field's, the field may ask again, and where it was a press of "Show output", no answer is waited for. */
 export function requestRefused(requestId: number): void {
   if (requestId === askRequest) askRequest = undefined;
+  if (requestId === gateRequest?.requestId) gateRequest = undefined;
 }
 
 /**
@@ -1056,7 +1237,11 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     },
     { capture: true },
   );
-  byId("view-seal-place").replaceWith(sealPlace("view"));
+  byId("view-seal-place").replaceWith(viewSeal);
+  getSeal.addEventListener("click", askSeal);
+  byId("pull-request-open").addEventListener("click", () => {
+    if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
+  });
   askField.addEventListener("input", () => {
     const workItem = viewed();
     if (workItem) showAsk(workItem);

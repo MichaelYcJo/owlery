@@ -3,8 +3,8 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, RUN_SETUP_SAYS, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
+import { APPROVAL_HEAD, approvalPlaces, choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -113,22 +113,29 @@ export function titleClass(workItemId: number): string {
   return changedSince(workItemId) ? "title changed" : "title";
 }
 
-const NO_SEAL = "No seal yet";
-
 /**
- * The seal's place: on a line a small disc, and in the preview and at the
- * foot of a view's right column the seal's own drawing, which the page's
- * style presses blank into the ground. No work item can be sealed yet, so
- * `data-seal` is `none` everywhere, and the place says so.
+ * The seal's place for a work item's seal (./view, `sealShown`): on a line
+ * the small mark, and in the preview and at the foot of a view's right
+ * column the seal's own drawing. `data-seal` says which form the page's
+ * style draws: pressed blank into the ground before a seal, the seal lit
+ * where it holds at the branch's head, and the seal parted in two where a
+ * later commit broke it. The place says its words to a pointer and to a
+ * screen reader.
  */
-export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
+export function sealPlace(where: "line" | "preview" | "view", seal: Seal | null | undefined): HTMLElement {
   const place = document.createElement("span");
   place.className = where === "line" ? "seal" : where === "preview" ? "seal drawn" : "seal drawn large";
-  place.dataset.seal = "none";
   place.setAttribute("role", "img");
-  place.setAttribute("aria-label", NO_SEAL);
-  place.title = NO_SEAL;
+  drawSeal(place, seal);
   return place;
+}
+
+/** Draws a seal's place again for another seal, as the preview and the view's foot do for each work item they show. */
+export function drawSeal(place: HTMLElement, seal: Seal | null | undefined): void {
+  const shown = sealShown(seal);
+  place.dataset.seal = shown.state;
+  place.setAttribute("aria-label", shown.words);
+  place.title = shown.words;
 }
 
 /** The class that gives a state its colour and its mark the theme's shapes. */
@@ -269,9 +276,61 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 }
 
 /**
+ * The approval line's section, or null for a work item that carries no
+ * record of its chain: the four places in order, each its mark, which says
+ * the place's whole words, the role's name and a note under the name. A
+ * rule after each name joins it to the next place, where the theme draws
+ * one, and the sealer's place holds the seal's place. Under the places
+ * stands each place's line of text, plain text and never markup, in the
+ * colour of a failure for a place that failed.
+ */
+function approvalSection(entry: Entry): HTMLElement | null {
+  const places = approvalPlaces(entry.workItem);
+  if (places === null) return null;
+  const now = Date.now();
+  const line = document.createElement("ol");
+  line.className = "places";
+  line.append(
+    ...places.map((place) => {
+      const head = row(iconOf(place.state, placeWords(place, now)), part("name", place.name), place.role === "sealer" ? sealPlace("line", entry.workItem.seal) : part("join", ""));
+      const element = item(`place ${place.state}`, head, part("note", place.note));
+      element.dataset.role = place.role;
+      return element;
+    }),
+  );
+  const under = places.flatMap((place) => (place.under === null ? [] : [part(place.state === "failed" ? "under failed" : "under", place.under)]));
+  return section("approval", heading(APPROVAL_HEAD), line, ...under);
+}
+
+/**
+ * A question an agent asks in its pane, as the card of what it says lists
+ * it: the question, its choices as a numbered list in the agent's order,
+ * each with what it leads to, and under a question that takes more than one
+ * choice the words that say so. No choice is a button, since the person
+ * answers in the pane.
+ */
+function askedPart(question: AskedQuestion): HTMLElement {
+  const element = document.createElement("div");
+  element.className = "asked";
+  const note = choiceNote(question);
+  // The question and its choices are the agent's words, plain text, never markup.
+  element.append(part("asks", question.asks));
+  if (question.options.length > 0) {
+    const choices = document.createElement("ol");
+    choices.className = "choices";
+    choices.append(...question.options.map(({ label, implies }) => item("choice", part("label", label), part("implies", implies))));
+    element.append(choices);
+  }
+  if (note) element.append(part("hint", note));
+  return element;
+}
+
+/**
  * What the preview and a view's right column say of a work item alike: what
- * its agent says, the decisions made for it in place of asking, its commits,
- * its changed files and its setup, each left out where the daemon sent none.
+ * its agent says, the questions it asks with their choices in place of its
+ * text, its approval line, the decisions made for it in place of asking,
+ * its commits, its changed files and its setup, each left out where the
+ * daemon sent none.
  * Under the decisions stands a line for each line of the work item's record
  * that the daemon did not read, and the section is drawn for those lines
  * alone where the record gave no decision. The first `gained` commits carry
@@ -287,7 +346,9 @@ export function detail(entry: Entry, gained: number, { reverse, runSetup }: { re
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
   // The agent's words are plain text, never markup. Where the agent waits for the person the card says so by its class, and the theme gives that card its edge.
-  if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), part("said", says.text)));
+  if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), ...(says.questions.length > 0 ? says.questions.map(askedPart) : [part("said", says.text)])));
+  const approval = approvalSection(entry);
+  if (approval) parts.push(approval);
   const decisions = decisionLines(entry.workItem, Date.now());
   const unread = unreadLines(entry.workItem);
   if (decisions.length > 0 || unread.length > 0) {

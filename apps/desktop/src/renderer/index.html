@@ -129,7 +129,7 @@
       @keyframes turn { to { transform: rotate(360deg); } }
       .state-words { display: flex; align-items: center; gap: var(--space-3); font-size: var(--size-second); font-weight: 600; }
 
-      /* The seal's place. Before a seal it is blank: a disc on a line, and in the preview and a view the seal's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
+      /* The seal's place, drawn from the seal the branch's head holds. Before a seal it is blank: a disc on a line, and in the preview and a view the seal's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
       .seal { position: relative; flex: none; display: block; box-sizing: border-box; width: var(--seal-size-line); height: var(--seal-size-line); border-radius: 50%; }
       .seal[data-seal="none"] { background: var(--seal-blank-ground); box-shadow: var(--seal-blank-edge); }
       .seal.drawn { width: var(--seal-size); height: var(--seal-size); border-radius: 0; }
@@ -139,9 +139,15 @@
       /* The drawing's outline holds the blank's ground, and its light parts, read as a mask laid twice, the owl's tone. */
       .seal.drawn[data-seal="none"]::before { background: var(--seal-blank-ground); }
       .seal.drawn[data-seal="none"]::after { background: var(--seal-blank-owl); -webkit-mask-image: url("./owl.svg"), url("./owl.svg"); mask-image: url("./owl.svg"), url("./owl.svg"); mask-mode: luminance; }
-      /* A sealed place shows the wax seal as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size. Nothing sets it before a work item can be sealed. */
+      /* A sealed place shows the wax seal as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size, where the seal holds at the branch's head. */
       .seal[data-seal="sealed"] { background: url("./owl-icon-cream.svg") center / contain no-repeat; filter: var(--seal-light); }
       .seal.drawn[data-seal="sealed"] { background-image: url("./owl.svg"); }
+      /* A broken place shows the same drawing parted in two along one slanted break, with a gap between its halves, the same in every theme: each half is the drawing clipped by the page's own break. The theme's light takes the wax's red out and lays its shadow. */
+      .seal[data-seal="broken"] { filter: var(--seal-broken-light); }
+      .seal[data-seal="broken"]::before, .seal[data-seal="broken"]::after { content: ""; position: absolute; inset: 0; background: url("./owl-icon-cream.svg") center / contain no-repeat; }
+      .seal.drawn[data-seal="broken"]::before, .seal.drawn[data-seal="broken"]::after { background-image: url("./owl.svg"); }
+      .seal[data-seal="broken"]::before { clip-path: polygon(0 0, 55% 0, 43% 100%, 0 100%); }
+      .seal[data-seal="broken"]::after { clip-path: polygon(63% 0, 100% 0, 100% 100%, 51% 100%); }
       .seal-slot { flex: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
 
       /* What the preview and a view's right column say of a work item alike: what its agent says, the decisions made for it without asking, its commits, its changed files and its setup. */
@@ -155,6 +161,25 @@
       .detail .says.waiting { box-shadow: var(--said-edge-waiting); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
       .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* The approval line: four places of one width side by side, each its mark and the role's name on a row and the note under the name. After each name but the sealer's stands the rule that joins it to the next place, in the form the theme gives it, and the sealer's place holds the seal's place there. Where the theme draws the line as boxes, the block and each place after the first carry the theme's edges. Under the places stands each place's line of text, plain and with its line breaks kept, in the colour of a failure for a place that failed. */
+      .approval .places { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--space-2) 0 0; padding: 0; list-style: none; box-shadow: var(--approval-edge); }
+      .place { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-3); box-shadow: var(--approval-box-edge); }
+      .place:first-child { box-shadow: none; }
+      .place .row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+      .place .name { flex: none; font-size: var(--size-text); font-weight: 500; color: var(--ink); white-space: nowrap; }
+      .place .join { flex: 1; min-width: 0; height: 1px; background: var(--approval-rule); }
+      .place .seal { margin-left: auto; }
+      .place .note { padding-left: calc(var(--icon) + var(--space-3)); font-size: var(--size-caption); color: var(--ink-muted); white-space: nowrap; }
+      .approval .under { padding-top: var(--space-3); font-size: var(--size-second); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .approval .under.failed { color: var(--state-failed); }
+      /* The questions an agent asks in its pane, in place of its words: each question in the face of what an agent says, its choices under it as a numbered list in the agent's order, each choice's label in the strong ink and what it leads to in the muted one, and under a question that takes more than one choice the words that say so. No choice is a button and the card holds no field. Each text is plain, with its line breaks kept. */
+      .detail .says .asked { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-4); }
+      .detail .says .asks { font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .detail .says .choices { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0 0 0 1.5em; font-size: var(--size-second); }
+      .detail .says .choice::marker { color: var(--ink-muted); }
+      .detail .says .choice .label { display: block; color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .detail .says .choice .implies { display: block; color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .detail .says .choice .implies:empty { display: none; }
       /* A decision made in place of asking, a row of a list of records: its kind, who decided and its age on a row, with "Reverse" in a view, then what was decided, its grounds, and under one that no longer stands as made what became of it and the person's message. Each text is plain, with its line breaks kept. */
       .decision { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) 0; box-shadow: var(--line-edge); font-size: var(--size-second); }
       .decision .row { display: flex; align-items: center; gap: var(--space-4); min-height: var(--detail-line); }
@@ -287,7 +312,7 @@
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
       .line .title { flex: 1; }
-      /* The second row's text is the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
+      /* The second row's text is a question the work item is parked with, a call a session asks to make, the sentence of a chain that stopped, the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
       .line .says { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink-muted); }
       .line .says.branch { font-size: var(--size-caption); }
       /* The setup's words after the text, in the failure's colour where it failed. */
@@ -306,7 +331,7 @@
       .preview-facts .branch { color: var(--ink); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
-      .preview .detail .says, .preview .detail .decisions { grid-column: 1 / -1; }
+      .preview .detail .says, .preview .detail .approval, .preview .detail .decisions { grid-column: 1 / -1; }
       .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
       .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
 
@@ -401,6 +426,28 @@
       #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
       #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
+      /* Where the seal is broken, the seal's sentence, which says why, stands under the head in the ink of the text, and takes no room otherwise. */
+      #view-seal .why { font-size: var(--size-second); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+      #view-seal .why:empty { display: none; }
+      /* The chain's sentence stands above the button that starts the chain, and the daemon's refusal of a start under it. */
+      #view-seal .says, #view-seal .refusal { font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; }
+      #view-seal .says { margin-top: var(--space-3); color: var(--ink); }
+      #view-seal .refusal { color: var(--state-failed); }
+      #view-seal .says:empty, #view-seal .refusal:empty { display: none; }
+      #get-seal { align-self: flex-start; margin-top: var(--space-3); }
+      /* The work item's pull request, under the seal's place, as GitHub last answered: rows of a list of records. The first row is its number and its state, and opens it; then the result of its checks, then one row for each check with its mark, its name and its state's word, which opens the check where GitHub gave it an address. How many more checks GitHub listed, and why the last read failed, stand under the rows. A long list scrolls inside the section. */
+      #view-pull-request { flex: none; display: flex; flex-direction: column; box-sizing: border-box; max-height: 30%; overflow: auto; padding: var(--space-3) var(--space-6) var(--space-5); border-top: 1px solid var(--rule); font-size: var(--size-second); }
+      #view-pull-request .row { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; width: 100%; min-height: var(--detail-line); padding: var(--space-1) var(--space-2); border-radius: var(--radius-line); box-shadow: var(--line-edge); text-align: left; }
+      #view-pull-request button.row:hover { background: var(--hover); transition: background-color var(--motion); }
+      #view-pull-request button.row:active { background: var(--pressed); }
+      #pull-request-number { font-weight: 600; color: var(--ink-strong); }
+      #pull-request-state { margin-left: auto; color: var(--ink-muted); }
+      #pull-request-checks { color: var(--ink-muted); }
+      #pull-request-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+      #pull-request-list .words { flex: none; font-size: var(--size-caption); }
+      #pull-request-more { padding: var(--space-2) var(--space-2) 0; }
+      #pull-request-failure { padding: var(--space-3) var(--space-2) 0; color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
+      #pull-request-more:empty, #pull-request-failure:empty { display: none; }
 
       #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #ask-form { flex: none; display: flex; gap: var(--space-3); }
@@ -419,6 +466,9 @@
       #headless .answers { display: flex; justify-content: flex-end; gap: var(--space-3); }
       /* What a failed session's process printed on its error stream, under its error, as the process printed it. */
       #headless .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* The broad gate's line: its command in the fixed-width face after the words "Broad gate", and, above what its command printed, which is drawn as a failed session's error output is, a note where the daemon kept the end alone. */
+      #headless .gate .command { font-family: var(--font-mono); color: var(--ink-strong); }
+      #headless .output-note { display: block; margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
       #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }
 
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
@@ -452,6 +502,8 @@
       dialog h3.work-item { margin-bottom: var(--space-3); }
       /* The dialog of the records place: a file the setup would write is read whole, in the letters a file is read in, and a long one scrolls inside its own box. */
       #records-dialog { width: min(720px, 92vw); }
+      /* Its buttons stay at its foot while a plan longer than the window scrolls above them. The row reaches into the dialog's padding under it, on the dialog's own ground, so what scrolls shows above the row and not under it, and the buttons keep the padding's distance from the dialog's edge. */
+      #records-dialog .row.end { position: sticky; bottom: calc(-1 * var(--space-7)); margin-bottom: calc(-1 * var(--space-7)); padding: var(--space-4) 0 var(--space-7); background: var(--ground-raised); }
       #records-files pre { max-height: 180px; margin: 0 0 var(--space-5); padding: var(--space-3) var(--space-4); overflow: auto; border-radius: var(--radius-card); background: var(--ground-raised); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); user-select: text; }
       #records-files .path { display: block; margin-bottom: var(--space-2); }
       #records-gate-says { margin-top: calc(-1 * var(--space-3)); font-size: var(--size-second); }
@@ -594,7 +646,7 @@
                   <span data-part="preview-repo"></span>
                 </p>
               </div>
-              <span class="seal-slot"><span data-part="preview-seal"></span>No seal yet</span>
+              <span class="seal-slot"><span data-part="preview-seal"></span><span data-part="preview-seal-words"></span></span>
             </div>
             <div data-part="preview-detail" class="detail"></div>
           </div>
@@ -656,9 +708,20 @@
         <section id="view-seal">
           <span id="view-seal-place"></span>
           <span class="words">
-            <span class="name head">No seal yet</span>
+            <span id="view-seal-head" class="name head"></span>
+            <span id="view-seal-why" class="why"></span>
             <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
+            <span id="seal-says" class="says"></span>
+            <button type="button" id="get-seal" class="primary" hidden>Get a seal</button>
+            <span id="seal-refusal" class="refusal" role="alert"></span>
           </span>
+        </section>
+        <section id="view-pull-request" aria-label="Pull request" hidden>
+          <button type="button" id="pull-request-open" class="row"><span id="pull-request-number"></span><span id="pull-request-state"></span></button>
+          <p id="pull-request-checks" class="row"></p>
+          <ul id="pull-request-list"></ul>
+          <p id="pull-request-more" class="hint"></p>
+          <p id="pull-request-failure" role="alert"></p>
         </section>
       </aside>
     </main>
@@ -868,6 +931,7 @@
           <span class="row"><input id="records-gate" spellcheck="false" autocomplete="off" /></span>
         </label>
         <p id="records-gate-says" class="says" aria-live="polite" hidden></p>
+        <p id="records-required" class="says" hidden></p>
         <p id="records-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="records-cancel" class="quiet">Not now</button>

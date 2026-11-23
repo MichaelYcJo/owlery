@@ -1,62 +1,35 @@
 # The sealer's verdict
 
-The sealer writes this verdict, and the orchestrator and the pull request
-check read it.
+The sealer answers with this verdict, the daemon writes it, and the pull
+request check reads it.
 
 ## The guarantee
 
 **The sealer is the final, independent guarantor**, and what it verifies
-against is `agents/sealer.md` *Job*'s. It runs after the changelog fragment is written, the
-orchestrator's broad run has written `trail/gate.md`, and the pull request
-body is written from the records, on both routing answers; it reads that
-record and runs nothing broad, and its order of work is
-`agents/sealer.md`'s.
+against is `agents/sealer.md` *Job*'s. The daemon launches it after the
+review rounds settle and the daemon's own run of the repository's broad
+gate has written `trail/gate.md`. It reads that record and runs nothing,
+and its order of work is `agents/sealer.md`'s. Where a later commit broke
+an earlier seal, the sealer's prompt hands it the part that changed since
+that seal's commit, it stands on the earlier run's section for the rest,
+and its verdict still covers the whole branch against its base.
 
-**It checks a claim against the fact, and the parties against each other.**
-The acts are `agents/sealer.md` step 3's and step 4's, and this section
+**It checks a claim against the tree, and the parties against each other.**
+The acts are `agents/sealer.md` step 2's and step 3's, and this section
 names none of them, so the list has one home. Each act is one row of
-`## Claims re-run` or `## The parties` in `guarantee.md`. It does not
-re-judge the design or the code's quality.
-check: tests/behaviour/test_the_sealer_guarantees.py
+`### Claims checked by reading` or `### The parties` in its run's section
+of `guarantee.md`. It does not re-judge the design or the code's quality.
 
-**The pull request body opens with the orchestrator's part, the work item's `pr.md`, and the records' copy follows it in one fold; the sealer reads only the orchestrator's part.** `seal pr-body` writes above the line `skills/code-review/scripts/pr_body.py#HEADING` holds the work item's `pr.<lang>.md`, where `seal/config.json`'s `Commit and pull request language` and `Record language` keys name different languages, and then `pr.md`, each as its bytes stand; where the two keys name one language, `pr.md` comes first and any `pr.<lang>.md` follows it. Below that line it writes the copy of the work item's records inside one `<details>` block whose `<summary>` names the copy and is followed by a blank line, with nothing inside it folded again. `pr.md` holds the `Closes` lines, in the pull request's language, and quotes of the records, in the records' language, each with its coordinate, and no sentence of the orchestrator's own account; `pr.<lang>.md` holds those quotes rendered in the pull request's language, each with the same coordinate, and nothing else. The orchestrator commits them before the first round, so every round reads them (`skills/code-review/orchestration.md` *Orchestrator: the pull request opens once the sealer seals*). `seal pr-body` refuses where either language key is absent, so a body is composed only for a repository that declared its languages. A reader who stops after the first screen has the orchestrator's part, and the squash commit keeps the block's tags as text. The sealer runs `seal pr-body --check` on the body file before it compares the parties, and withholds where the part above the line is not what `pr.md` and, where the keys differ, `pr.<lang>.md` give, or the part below it is not what the records give. The copy then gives it nothing to compare: the records it copies are what the sealer audits.
-check: tests/skills/test_pr_body.py tests/behaviour/test_the_sealer_guarantees.py
+**Its answer is its run's section of `guarantee.md`, from `templates/records/sdd-guarantee.md`**: the heading `## Run <N>`, the claims checked by reading and the parties compared, in tables for people, and one `seal` block. The daemon appends the section below the sections of earlier runs, under the file's heading `# Guarantee: <work item>`, and no section is edited after its run. The sealer's block holds `target: <sha> against <base>`, each one word, as its prompt gave the line, and one `Verdict:` line, `sealed`, `withheld reason: <the claim, its party, its coordinate>` or `undecided question: <the question>`, written exactly so. The daemon writes four lines more into the block, before its closing fence: `built-by:`, each session that built the work, `judged-by:`, the session that judged it, `model:`, the judging model, and `rules:`, the version of Owlery. A session that built the work gives no verdict: the daemon writes none where the judging session is one of the builders. The last block is the newest run. A guarantee with no verdict block, or with a line of a block that does not parse, is refused naming the file and the line.
 
-**Its verdict is `guarantee.md`, from `templates/records/sdd-guarantee.md`**: the claims re-run and the parties compared, in tables for people, and one `seal` block per run of the sealer, appended below the blocks of earlier runs and never edited after its run. A verdict block holds `target: <sha> against <base>`, each one word, the `original:` line where `docs/checks/the-pull-request-check.md` *What the check reads at the pull request* owes one, and one `Verdict:` line, `sealed`, `withheld reason: <the claim, its party, its coordinate>` or `undecided question: <the question, for the owner>`, written exactly so. The last block is the newest run and the others are the earlier runs, which the stamp reads. A guarantee with no verdict block, or with a line of a block that does not parse, is refused naming the file and the line. An undecided question is the owner's: the answer goes on a line below the newest block, and the sealer runs again at the new HEAD and appends its block.
-check: tests/behaviour/test_the_sealer_guarantees.py tests/skills/test_chain_check.py
+**The verdict decides what the chain does next.** A `sealed` verdict rests the chain. A `withheld` verdict stops it with the reason on the work item's line, and the person fixes what the reason names and starts "Get a seal" again. The question of an `undecided` verdict is first decided by the orchestrator from the code and the policy and recorded in `decisions.md`, and one they cannot answer parks the work item until the person answers it in Owlery. The daemon's broad gate and the sealer then run on the new head, and each appends its block.
 
-**A ready pull request passes only where the newest verdict block of `guarantee.md` names HEAD and reads `sealed`.** Only the closing records, `trail/gate.md` and `guarantee.md`,
-may follow the commit it names, since every other file on the branch is one
-the sealer audited. A newest block reading `withheld` or `undecided`, an unfilled template, a block that does not parse or a stale commit each fail naming the file; a draft prints them.
+**A ready pull request passes only where the newest verdict block of `guarantee.md` reads `sealed` and names a commit that only the closing records follow.** The closing records are `trail/gate.md`, `guarantee.md` and `trail/refusals.md`:
+every other file on the branch is one the sealer audited, and the rows `trail/refusals.md` gains with the verdict are the daemon's account of the sealer's own stage. A newest block reading `withheld` or `undecided`, one whose `judged-by:` session is one of its `built-by:` sessions, an unfilled template, a block that does not parse or a stale commit each fail naming the file; a draft prints them.
 check: ready-needs-sealed
 
-**How it errs.** It samples, so a false claim outside the sample passes, and
-the sample is written in the file so the miss can be found afterwards.
-Whether five stories agree is a judgment, so a disagreement it does not see
-is missed.
-
-**A pull request body carries the seal mark only where the
-repository turns it on and the work item is sealed at HEAD.**
-`seal pr-body` writes the mark, the plugin's icon at the default
-branch of the plugin's repository, as the first line under the line
-`skills/code-review/scripts/pr_body.py#HEADING` holds. It writes it
-where `seal/config.json`'s `Pull request seal mark` key reads `yes` and
-the newest verdict block of `guarantee.md` reads `sealed` at a commit
-that only the closing records follow, so the mark means what the stamp
-means (`docs/checks/the-stamp.md` *The stamp*). It reads the row and HEAD in the work item's own
-checkout, and, for a work item under the common git directory, in the
-checkout the command runs in. A base the verdict block names that git
-cannot resolve there, and a sealed commit that checkout's HEAD does not
-hold, put no mark either, and are named, since whether the seal holds at
-HEAD cannot then be read. The key's other
-values, and what the mark's address ties a body to, are
-`templates/setup/config.md` *The seal mark*'s. The sealer's
-`seal pr-body --check` runs before its own verdict exists, so the copy
-it checks carries no mark from that run. The orchestrator runs
-`seal pr-body` once more after it commits a `sealed` guarantee, and that
-run changes no copied line, because the copy reads no `guarantee.md`. The
-pull request's check reads the body against what `seal pr-body` composes
-at HEAD, so a body sent before that run fails a ready pull request on the
-mark's line (`docs/checks/the-pull-request-check.md` *What the check reads
-at the pull request*).
-check: tests/skills/test_pr_body.py
+**How it errs.** It reads and runs nothing, so a claim that only a run
+would refute passes: a case that was never red, a command that does not
+pass. Each row says what was read, so the miss can be found afterwards.
+Whether the parties' stories agree is a judgment, so a disagreement it does
+not see is missed.

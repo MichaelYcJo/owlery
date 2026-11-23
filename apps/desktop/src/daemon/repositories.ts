@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Group, WorktreeSetup } from "../shared/protocol";
+import type { Chain, Group, PullRequest, WorktreeSetup } from "../shared/protocol";
+import { type WrittenChain, chainRead, isChain } from "./chain";
+import { isPullRequest, pullRequestOf } from "./github";
 import { writeWholeFile } from "./whole-file";
 import { DAEMON_STOPPED, isWorktreeSetup, setupOf } from "./worktree-setup";
 import { repositoryOfSync } from "./worktrees";
@@ -26,6 +28,10 @@ export interface StoredWorkItem {
   archivedAt: number | null;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
+  /** Its chain: where the run a `getSeal` started stands, with the stages of every start, or null where none ran for it. */
+  chain: Chain | null;
+  /** Its pull request, as GitHub last answered, or null where the daemon opened none for it. */
+  pullRequest: PullRequest | null;
 }
 
 /** A repository as the store keeps it, with its work items inside it. */
@@ -61,8 +67,8 @@ function isGroup(value: unknown): value is Group {
   return isRecord(value) && typeof value.id === "number" && typeof value.name === "string";
 }
 
-/** A stored work item as a file holds one: one written before the setup was recorded has none. */
-type WrittenWorkItem = Omit<StoredWorkItem, "setup"> & { setup?: WorktreeSetup | null };
+/** A stored work item as a file holds one: one written before the setup was recorded has none, one written before a chain was kept has none of that, and one written before a pull request was kept has none of that. */
+type WrittenWorkItem = Omit<StoredWorkItem, "setup" | "chain" | "pullRequest"> & { setup?: WorktreeSetup | null; chain?: WrittenChain | null; pullRequest?: PullRequest | null };
 
 function isStoredWorkItem(value: unknown): value is WrittenWorkItem {
   return (
@@ -78,7 +84,9 @@ function isStoredWorkItem(value: unknown): value is WrittenWorkItem {
     typeof value.muted === "boolean" &&
     isNumberOrNull(value.groupId) &&
     isNumberOrNull(value.archivedAt) &&
-    (value.setup === undefined || value.setup === null || isWorktreeSetup(value.setup))
+    (value.setup === undefined || value.setup === null || isWorktreeSetup(value.setup)) &&
+    (value.chain === undefined || value.chain === null || isChain(value.chain)) &&
+    (value.pullRequest === undefined || value.pullRequest === null || isPullRequest(value.pullRequest))
   );
 }
 
@@ -128,8 +136,8 @@ function isOldWorkItem(value: unknown): value is OldWorkItem {
   );
 }
 
-/** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
+/** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
 
 /** The next id of each kind the store gives. Each only rises, so no id is given twice though the one that bore it was removed. */
 interface Counts {
@@ -192,7 +200,10 @@ function readJson(file: string): unknown {
  * A work item written before the setup was recorded is read with none, and
  * one whose setup was running is read with that setup failed: its pane
  * ended with the daemon that started it. Every setup is read naming no
- * pane, since the next daemon gives that pane's id to another.
+ * pane, since the next daemon gives that pane's id to another. A work item
+ * written before a chain was kept is read with none, and one whose chain was
+ * running is read with that chain stopped (`chain.ts#chainRead`). A work
+ * item written before a pull request was kept is read with none.
  *
  * Where that file does not exist, the store starts from `work-items.json`,
  * the list a build before the repositories wrote: one repository for each
@@ -240,7 +251,7 @@ export class RepositoryStore {
         hidden,
         addedAt,
         groups: groups.map((group) => ({ id: group.id, name: group.name })),
-        workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup) })),
+        workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup, chain, pullRequest }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup), chain: chainRead(chain, this.now()), pullRequest: pullRequest ? pullRequestOf(pullRequest) : null })),
       });
     }
     // A file with no counts, and one whose counts stand below an id it holds, gives no id twice either.
@@ -312,17 +323,17 @@ export class RepositoryStore {
    * its mute, its title, its branch, its group, which is a group's id or
    * null for a work item in none, and its archive, which is the time it was
    * archived, or null for a work item that is restored; and the setup of its
-   * worktree, which the daemon sets. It answers whether
+   * worktree, its chain and its pull request, which the daemon sets. It answers whether
    * the work item is another than it was, and writes the store only where
    * it is. Undefined where no work item has the id. Whether a group is one
    * of the work item's repository is the caller's to hold.
    */
-  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch" | "groupId" | "archivedAt" | "setup">>): boolean | undefined {
+  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch" | "groupId" | "archivedAt" | "setup" | "chain" | "pullRequest">>): boolean | undefined {
     const item = this.workItem(id)?.item;
     if (!item) return undefined;
-    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch, groupId = item.groupId, archivedAt = item.archivedAt, setup = item.setup } = fields;
-    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch && groupId === item.groupId && archivedAt === item.archivedAt && setup === item.setup) return false;
-    Object.assign(item, { pinned, muted, title, branch, groupId, archivedAt, setup });
+    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch, groupId = item.groupId, archivedAt = item.archivedAt, setup = item.setup, chain = item.chain, pullRequest = item.pullRequest } = fields;
+    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch && groupId === item.groupId && archivedAt === item.archivedAt && setup === item.setup && chain === item.chain && pullRequest === item.pullRequest) return false;
+    Object.assign(item, { pinned, muted, title, branch, groupId, archivedAt, setup, chain, pullRequest });
     this.write();
     return true;
   }

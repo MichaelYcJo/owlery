@@ -2,7 +2,7 @@
 // nothing, so the daemon's cases run a role session's whole flow, and the
 // connector's shape is held by two adapters from the start
 // (docs/architecture.md, "Rules that keep it portable", rule 3).
-import type { RoleStage } from "../../shared/protocol";
+import type { RoleStage, Usage } from "../../shared/protocol";
 import type { PermissionAction, RoleAdapter, RoleEvent, RoleFeature } from "./adapter";
 
 /** One request a fake session raises. With `withdraw` the session withdraws it, and waits for no answer to it. */
@@ -19,6 +19,8 @@ export interface FakeAdapterOptions {
   pieces?: (prompt: string, role?: RoleStage) => string[];
   /** The requests a session raises before its answer, for the prompt and the role it was started with, if any. Each is reported under the id `ask-<n>`, counted from 1 in each session. The session waits until each is answered, but for the ones it withdraws, and its answer then opens with one line for each answer it was given, in the requests' order: `allowed: <tool>` or `refused: <tool>: <reason>`. */
   asks?: (prompt: string, role?: RoleStage) => FakeAsk[];
+  /** What a session does in its folder before the first piece of its answer, after its requests were answered: it is called with the folder, the prompt and the role the session was started with, if any, and awaited. A case's crafter commits a fix and appends a close block through it. */
+  work?: (cwd: string, prompt: string, role?: RoleStage) => void | Promise<void>;
   /** The features the adapter declares, in place of both. */
   features?: readonly RoleFeature[];
   /** `start`: no session starts. `result`: the turn ends with an error, and exit 1. `exit`: the process exits 1 without a result. */
@@ -29,31 +31,40 @@ export interface FakeAdapterOptions {
   errorOutput?: string;
   /** What the adapter says of its agent at every call of `notice`; nothing to say when absent. */
   notice?: string;
+  /** What the turn used, for the prompt and the role the session was started with, if any, on the result of a session that succeeds. Without it, and on the result of a session told to fail, the result carries no usage. */
+  usage?: (prompt: string, role?: RoleStage) => Usage | null;
+  /** The id and the model a session reports as its own, for the prompt and the role it was started with, if any. Without it each session reports the id `fake-<n>`, counted from 1 in each adapter, and the model `fake`. */
+  session?: (prompt: string, role?: RoleStage) => { id: string; model: string | null };
 }
 
 export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
+  let sessions = 0;
   return {
     name: "fake",
     features: options.features ?? ["role-tools", "permission-requests"],
     notice: () => Promise.resolve(options.notice ?? null),
-    start({ prompt, role }, listener) {
+    start({ prompt, cwd, role }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const asks = options.asks?.(prompt, role) ?? [];
       const pieces = options.pieces?.(prompt, role) ?? [role ? `As the ${role.role} at the stage ${role.stage}, you asked: "${prompt}"` : `You asked: "${prompt}"`];
       const errorOutput = options.errorOutput ?? "";
+      sessions += 1;
+      const named = options.session?.(prompt, role) ?? { id: `fake-${String(sessions)}`, model: "fake" };
       let stopped = false;
       let timer: NodeJS.Timeout | undefined;
       // Each event on a later turn of the event loop, as a process's output arrives. A stop leaves the wait unsettled, so nothing follows it.
-      const report = (event: RoleEvent): Promise<void> =>
+      const report = (event: RoleEvent, delayMs = options.delayMs ?? 0): Promise<void> =>
         new Promise((resolve) => {
           timer = setTimeout(() => {
             listener(event);
             resolve();
-          }, options.delayMs ?? 0);
+          }, delayMs);
         });
       // The requests the session waits on, by their ids, each with what takes the line its answer adds to the text.
       const waiting = new Map<string, (line: string) => void>();
       const session = async (): Promise<void> => {
+        // The session says who it is first, as an agent's first line does, and with no wait: `delayMs` is the wait before each event of the turn.
+        await report({ type: "session", ...named }, 0);
         const lines: Promise<string>[] = [];
         for (const [index, { tool, action, path, text, withdraw }] of asks.entries()) {
           const id = `ask-${index + 1}`;
@@ -70,11 +81,13 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
         }
         if (options.fail === "exit") return report({ type: "exit", exitCode: 1, errorOutput });
         if (options.fail === "result") {
-          await report({ type: "result", text: "the fake adapter was told to fail", isError: true, costUsd: null });
+          await report({ type: "result", text: "the fake adapter was told to fail", isError: true, usage: null });
           return report({ type: "exit", exitCode: 1, errorOutput });
         }
+        await options.work?.(cwd, prompt, role);
+        if (stopped) return;
         for (const text of pieces) await report({ type: "text", text });
-        await report({ type: "result", text: [...said, ...pieces].join(""), isError: false, costUsd: null });
+        await report({ type: "result", text: [...said, ...pieces].join(""), isError: false, usage: options.usage?.(prompt, role) ?? null });
         return report({ type: "exit", exitCode: 0, errorOutput });
       };
       void session();
