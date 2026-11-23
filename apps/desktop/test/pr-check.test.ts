@@ -324,6 +324,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         expect(passed.output).not.toContain("the pull request's body");
       }
     }
+    // A fence like a block's in the section is named, as in a record, and decides nothing.
+    const near = sealSection(...made.block);
+    near.splice(-1, 0, "```Seal", "x", "```");
+    const named = await run(made, { body: near.join("\n") });
+    expect(named.exit, named.output).toBe(0);
+    expect(named.output).toContain("seal/threads/1-x:0  the pull request's body, line 14: not read: ````Seal` opens a fence like a `seal` block and is not one");
   });
 
   it("refuses a seal section that is not the newest verdict block of guarantee.md at the head commit, on the work item's directory and naming the body's line: another target, a verdict that is not sealed, a line the reader refuses, a second block and no block", async () => {
@@ -408,7 +414,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(sent).toHaveLength(6);
   }, 60_000);
 
-  it("keeps its exit code where GitHub refuses the post and prints one notice with GitHub's status, and sends nothing without --post or without GITHUB_TOKEN", async () => {
+  it("keeps its exit code where GitHub refuses the post and prints one notice with GitHub's status, and sends nothing without --post, without GITHUB_TOKEN, under --worktree or under --sealing", async () => {
     const refusing = await server(403);
     const made = sealedBranch();
     const unsealed = reviewed();
@@ -425,6 +431,10 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const noToken = await run(made, { body: null, args: ["--post"], env: tokenless });
     expect(noToken.exit).toBe(0);
     expect(noToken.output).toContain("`Owlery seal` was not posted: the environment holds no `GITHUB_TOKEN`");
+    // The working tree is not what CI posts on, and the broad gate's own run comes before the guarantee.
+    for (const [flag, why] of [["--worktree", "--worktree reads the working tree, and CI posts the check from HEAD"], ["--sealing", "--sealing runs before the sealer writes `guarantee.md`"]] as const) {
+      expect((await run(made, { body: null, args: ["--post", flag], env: posting(quiet.url) })).output).toContain(`\`Owlery seal\` was not posted: ${why}\n`);
+    }
     expect(quiet.sent).toEqual([]);
   }, 60_000);
 
