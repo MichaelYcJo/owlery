@@ -9,7 +9,10 @@ request check reads it.
 against is `agents/sealer.md` *Job*'s. The daemon launches it after the
 review rounds settle and the daemon's own run of the repository's broad
 gate has written `trail/gate.md`. It reads that record and runs nothing,
-and its order of work is `agents/sealer.md`'s.
+and its order of work is `agents/sealer.md`'s. Where a later commit broke
+an earlier seal, the sealer's prompt hands it the part that changed since
+that seal's commit, it stands on the earlier run's section for the rest,
+and its verdict still covers the whole branch against its base.
 
 **It checks a claim against the tree, and the parties against each other.**
 The acts are `agents/sealer.md` step 2's and step 3's, and this section

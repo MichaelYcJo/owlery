@@ -151,6 +151,21 @@ describe("the role bundle", () => {
     expect(read("README.md")).toContain("a sealer reads the commit the daemon's broad gate passed on and answers with its run's section of the guarantee, which the daemon completes with who built the work and who judged it, writes and commits");
   });
 
+  it("tells the sealer how a run that follows a broken seal judges: its prompt hands it what changed since that seal's commit, it reads the earlier run's section as that run's claim, checks the records written since and the changed part against the tree, names the run it stands on, and still judges the whole branch against its base", () => {
+    // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
+    const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
+    const definition = flat("agents/sealer.md");
+    for (const named of [
+      "the paths the branch changed, and their diff. Where your prompt names the seal this run follows, they are what changed since that seal's commit, and otherwise what changed since the branch left its base.",
+      "**A run that follows a broken seal is handed the part that changed.**",
+      "Read the earlier run's section as that run's claim, and check against the tree the claims of the records written after that seal and the part that changed.",
+      "Then name in a row of your section's first table the run you stand on for the rest.",
+      "Your verdict is still a verdict on the whole branch against its base, and its target line is your prompt's.",
+    ]) expect(definition, named).toContain(named);
+    expect(definition).not.toContain("the paths the branch changed since it left its base, and their diff");
+    expect(flat("docs/forms/the-guarantee.md")).toContain("Where a later commit broke an earlier seal, the sealer's prompt hands it the part that changed since that seal's commit, it stands on the earlier run's section for the rest, and its verdict still covers the whole branch against its base.");
+  });
+
   it("holds no script, no library and no drawing: every file under the four taken folders is a document", () => {
     const taken = filesOf(BUNDLE).filter((file) => /^(agents|skills|docs|templates)\//.test(file));
     expect(taken.filter((file) => !file.endsWith(".md"))).toEqual([]);
