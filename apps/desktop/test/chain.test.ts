@@ -25,6 +25,7 @@ import {
   promptText,
   refusalsText,
   roundPrompt,
+  roundBase,
   roundRecordOf,
   routingText,
   rulingPrompt,
@@ -76,6 +77,19 @@ describe("the step a chain owes", () => {
     expect(stepOwed({ ...NOTHING, base: A })).toEqual({ is: "round", round: 1, target: `${HEAD} against ${A}`, from: null });
     // A reversal is taken in by a fix pass, which answers a record, so it waits for round 1.
     expect(stepOwed({ ...NOTHING, reversals: [REVERSAL] })).toMatchObject({ is: "round", round: 1 });
+  });
+
+  it("names round 1's base as the work item's base branch where the round block's target line takes the name, and otherwise as the commit the branch was cut at, or the head where the work item records none", () => {
+    for (const taken of ["main", "release/v0.0.2", "feat/41-review_rounds", "기준"]) expect(roundBase(taken, A, HEAD), taken).toBe(taken);
+    // Git allows each of these names, and the target line's shape takes none of them.
+    for (const refused of ["feat/a+b", "user@fix", "fix#41", "a,b", "wip!", "ends-"]) {
+      expect(roundBase(refused, A, HEAD), refused).toBe(A);
+      expect(readRoundRecord(roundRecord(HEADING(1), `${HEAD} against ${refused}`)).refusals, refused).not.toEqual([]);
+      expect(readRoundRecord(roundRecord(HEADING(1), `${HEAD} against ${roundBase(refused, A, HEAD)}`)).refusals, refused).toEqual([]);
+    }
+    expect(roundBase(null, A, HEAD)).toBe(A);
+    expect(roundBase("feat/a+b", null, HEAD)).toBe(HEAD);
+    expect(roundBase(null, null, HEAD)).toBe(HEAD);
   });
 
   it("is parked where the record holds an open question, whatever else the records say", () => {
@@ -797,6 +811,23 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     await c.chain(a.id, "reviewed");
     expect(givenRound(started[0]?.prompt ?? "").target).toMatch(/^[0-9a-f]{40} against gone-branch$/u);
     expect(started[0]?.prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+  });
+
+  it("reads round 1 against the commit the branch was cut at where the round block's target line does not take the base branch's name, so the round's record is one the reader takes", async () => {
+    const { adapter, started } = noted(roles());
+    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const a = stood.workItems[0]!;
+    // The run folder as it stands for a work item cut from a branch git allows and the target line's shape does not, read by a second daemon.
+    await stood.d.close();
+    writeFileSync(join(stood.runDir, "work-items.json"), JSON.stringify([{ ...a, baseBranch: "feat/a+b" }]));
+    rmSync(join(stood.runDir, "repositories.json"), { force: true });
+    const { url } = await stood.start();
+    const c = await client(url, cleanups);
+    await c.message("ready");
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "reviewed");
+    expect(a.baseCommit).toMatch(/^[0-9a-f]{40}$/u);
+    expect(givenRound(started[0]?.prompt ?? "").target).toMatch(new RegExp(`^[0-9a-f]{40} against ${a.baseCommit ?? "none"}$`, "u"));
   });
 
   it("starts only once a commit of a person's word that is under way in the worktree has ended, so round 1's target holds a renamed branch's routing", async () => {

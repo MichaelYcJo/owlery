@@ -346,11 +346,17 @@ const PLACES = `${PLACE}(?:, ${PLACE})*`;
 const PLACES_SAYS = "a location is one or more of `path`, `path:line` or `path:first-last`, each backticked, joined by `, `";
 const ORIGINAL_SPEC = spec(`(?<commit>${COMMIT})`, "at most one", "it names the migration config's baseline commit, as 7 to 40 hex digits");
 
+/** The base a round block's `target:` line takes after `against`: letters, numbers, `_`, `.`, `/` and `-`, ending in a letter, a number or `_`. */
+const BASE = `[\\p{L}\\p{N}_./-]*${WORD}`;
+
+/** Whether a name is a base the round block's `target:` line takes. Git allows a branch's name it does not: one with a `+`, an `@`, a `#`, a `,` or a `!`, and one that ends in `-`. */
+export const ROUND_BASE = new RegExp(`^(?:${BASE})$`, "su");
+
 /** A round's one block, as `pr-check/lib/fields.py#ROUND_BLOCK` spells it. */
 export const ROUND_BLOCK = kind("round", [
   [
     "target:",
-    spec(`(?<commit>${COMMIT})(?: against [\\p{L}\\p{N}_./-]*${WORD}|, fixes ${COMMIT}\\.\\.${COMMIT})`, "one", "it names the reviewed commit as `<sha> against <base>`, or `<sha>, fixes <a>..<b>` for a verifying round"),
+    spec(`(?<commit>${COMMIT})(?: against ${BASE}|, fixes ${COMMIT}\\.\\.${COMMIT})`, "one", "it names the reviewed commit as `<sha> against <base>`, or `<sha>, fixes <a>..<b>` for a verifying round"),
   ],
   ["original:", ORIGINAL_SPEC],
 ]);

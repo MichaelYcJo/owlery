@@ -46,6 +46,7 @@ import {
   promptText,
   refusalsText,
   reviewedSays,
+  roundBase,
   roundFile,
   roundPrompt,
   roundRecordOf,
@@ -1979,7 +1980,7 @@ export class Daemon {
         if (why !== null) throw new ChainStop(why);
         const directory = await this.chainDirectory(held);
         const head = await worktreeHead(worktree);
-        const standing = await standingOf(worktree, directory, head, baseBranch ?? baseCommit ?? head);
+        const standing = await standingOf(worktree, directory, head, roundBase(baseBranch, baseCommit, head));
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);

@@ -21,7 +21,7 @@ import type { Chain, ChainStage, ChainStageKind, RoleStage } from "../shared/pro
 import { CHAIN_STAGE_KINDS } from "../shared/protocol";
 import type { PermissionAction } from "./adapters/adapter";
 import { RECORD_FILE, readDecisionRecord } from "./decision-record";
-import { ASK_BLOCK, CONVERGENCE_BLOCK, RULING_BLOCK, type Block, type Kind, field, gfmLines, read, stripped } from "./record-blocks";
+import { ASK_BLOCK, CONVERGENCE_BLOCK, ROUND_BASE, RULING_BLOCK, type Block, type Kind, field, gfmLines, read, stripped } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import type { RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
@@ -135,12 +135,25 @@ export interface Standing {
   reversals: Reversal[];
   /** The branch's head, whole. */
   head: string;
-  /** What round 1 reads the branch against: the work item's base branch, or its base commit where it has none. */
+  /** What round 1's target names the branch against (`roundBase`). */
   base: string;
   /** The paths the commits after the last record's target changed, from the worktree's top. */
   changed: string[];
   /** The work item's directory, from the worktree's top. */
   directory: string;
+}
+
+/**
+ * What round 1's target names the branch against: the work item's base
+ * branch where the round block's `target:` line takes its name
+ * (`record-blocks.ts#ROUND_BASE`), and otherwise the commit the branch was
+ * cut at, or the branch's head where the work item records none. A record
+ * whose target named a base the line does not take would be refused by the
+ * daemon's reader and by the pull request check at every round 1, and a
+ * commit is always a word the line takes.
+ */
+export function roundBase(baseBranch: string | null, baseCommit: string | null, head: string): string {
+  return baseBranch !== null && ROUND_BASE.test(baseBranch) ? baseBranch : (baseCommit ?? head);
 }
 
 /** The stage a chain runs next, or the state it rests in. */
