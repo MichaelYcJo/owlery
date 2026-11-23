@@ -20,5 +20,5 @@ This work item's id is the one #46's comment of 2026-11-22 names. A session that
 - **Planning, framer:** the issue leaves open what progress the daemon sends, how the approval line draws each stage, and whether a role session's own screen opens from the line in this release. The design system of #130 and the artboards #22 names answer the look.
 - **Implementation, crafter:** the protocol, the daemon's progress and the window's view and inbox line.
 - **Review, through the review chain:** the line is how the person reads the chain at all, and it is drawn beside #41's stages, which are built at the same time.
-- **Automation, yes:** the fake adapter drives the stages, and the window is read through the debugging port of an app started under `OWLERY_BACKGROUND=1`.
+- **Automation, yes:** a stand-in script for the CLI holds the stages in the built app's cases and in the screenshot run, and no fake adapter drives them. The window is read through the debugging port of an app started under `OWLERY_BACKGROUND=1`.
 - **Branch:** the pull request merges into `release/v0.0.2` by squash.
