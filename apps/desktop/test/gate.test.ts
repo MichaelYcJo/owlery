@@ -91,7 +91,9 @@ describe("a broad gate's command", { timeout: 30_000 }, () => {
     const pids = [Number(await written(join(cwd, "child"))), Number(await written(join(cwd, "shell")))];
     const before = Date.now();
     await gate.stop();
+    // The wait is the one the caller gave, and not the two seconds of a daemon's stop.
     expect(Date.now() - before).toBeGreaterThanOrEqual(190);
+    expect(Date.now() - before).toBeLessThan(1_500);
     expect(await gate.ended).toMatchObject({ exitCode: null, signal: "SIGKILL" });
     expect(await untilGone(pids, 5_000)).toEqual([]);
     expect([GATE_KILL_AFTER_MS, GATE_LIMIT_MS]).toEqual([2000, 60 * 60_000]);
