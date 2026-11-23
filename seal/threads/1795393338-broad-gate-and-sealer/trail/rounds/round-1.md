@@ -24,6 +24,11 @@ The paragraph is a memo of `## Not done`, so it is rewritten in place and not ta
 Three statements of `docs/design.md` and of its Korean edition were untrue at phase 4's head: the notes of the approval line, the paragraph on the lit seal, and the paragraph on the screenshot run. `trail/phases/phase-4.md` names each. The fold at `00a6963` wrote a `change` operation for each, and one for its Korean twin, into `frame/design.md` *Rule changes*, so the settle rewrites them.
 ```
 
+```seal
+verdict: fixed a7a273a
+answer: The finding holds: `frame/design.md` *Rule changes* holds a `change` operation for each of the three statements and for each Korean twin. The memo of `gaps.md` is rewritten in place with the text above, and it stays under `## Not done`.
+```
+
 ### 2. The verdict block's `built-by:` names the fix-pass sessions of other work items once the base branch is merged into this branch
 
 ```seal
@@ -78,6 +83,12 @@ The case it owes, in `apps/desktop/test/worktrees.test.ts` beside the case at li
 
 The snippet leaves three statements of the same fact, and the fix pass owes each. The first is the docstring of `Daemon#runSeal` (`daemon.ts:2446-2450`), which reads "of the commits between the work item's base commit and the gate's commit" and gains "on the branch's own line". The other two are `frame/design.md:133` and `:291`, which say the same and belong to the fold.
 
+```seal
+verdict: fixed 25d7787
+location: `seal/threads/1795393338-broad-gate-and-sealer/changelog.md`
+answer: The finding holds, and its precondition was read: `Daemon#chainCommit` commits through `worktrees.ts#commitPaths`, which refuses a worktree that is not on the work item's branch, so a fix pass's commit stands on the branch's own line. `trailerValues` reads with `--first-parent` as the snippet has it, and the docstring of `Daemon#runSeal`, `frame/design.md` *Scope* item 16 and its *Data & interfaces* line say the same. The case is the snippet's with one more fix-pass commit after the merge, so it also holds that the read goes on past a merge. It failed on the old read with `s-other` first among the values, and `seal mutate` without `--first-parent` read red on it. The fix also went to a path the finding does not name: the bullet of this work's `changelog.md` on the seal record gains the sentence on the branch's own line. `b7da1f7` puts back a space the fix's commit lost after a comma of that line. One branch stays uncovered and stands in `gaps.md` `## Not done`, committed in `a7a273a`: a branch fast-forwarded over the base's commits holds them on its own line, and a trailer among them is read.
+```
+
 ### 3. The role bundle's changelog still says that the final verdict comes with a later issue, which this work ships, and `gaps.md` gives that bullet to #41 alone
 
 ```seal
@@ -95,6 +106,12 @@ Claimed: `gaps.md:44` names the bullet's sentence "The window has no control tha
 ```
 
 The fix pass keeps the bullet's first two sentences as they stand, and the replacement above changes only its last two. The bullet of `seal/threads/1795330500-no-question-holds-the-run/changelog.md:15` is rewritten to say which stages of this release make a decision or park a work item: the rounds, the fix passes, the convergence judgment and the sealer's `undecided` verdict. Its last sentence on a work item with no directory goes as well, since the chain's first start makes the directory. `gaps.md:44` is rewritten in place to say that this work rewrote both bullets, and the paragraph stays.
+
+```seal
+verdict: fixed a7a273a
+location: `seal/threads/1795338000-role-tools-and-permissions/changelog.md`, `seal/threads/1795341001-cost-per-stage/changelog.md`
+answer: The finding holds. The role bundle's bullet takes the replacement above. The bullet of the fragment on questions is written in the pass's own words: it names the orchestrator's decisions on convergence, on a round's or a fix pass's question and on a sealer's `undecided` verdict, what holds a work item, the route's choice as not yet deciding (#51), and the first start of "Get a seal" as what makes the directory. The fix also went to two paths the finding does not name, since the same cause made a sentence of each untrue: "No stage launches a role session yet" of the role tools' fragment, and "which no stage writes yet (issue #42)" of the ledger's fragment, which this work alone made untrue. The memo of `gaps.md` is rewritten in place: it names the four rewrites, and the two sentences of earlier fragments that #41 and #119 made untrue and this work is no cause of, which stand as they were. The search behind that list read the fragments' sentences that hold "yet", "later", "comes with" or an issue's number, and read no fragment whole.
+```
 
 ## Confirmations
 
