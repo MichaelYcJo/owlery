@@ -29,7 +29,8 @@
 // "Ask", with its command and "Show output", and its approval line counts
 // the round and marks the sealer's place, which waits on the questions.
 // The second question is a block the run writes into the parked work
-// item's record, which the daemon reads in its worktree. The repository names a setup once four work items
+// item's record, which the daemon reads in its worktree. The repository
+// names a setup once four work items
 // stand, so the one at work shows its setup running, the one in
 // the view has a setup that succeeded, with the paths it copied, and the
 // form names the setup's command; no setup's command runs, and the run

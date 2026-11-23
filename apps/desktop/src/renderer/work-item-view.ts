@@ -725,8 +725,8 @@ export function takeGateOutput(requestId: number, output: { text: string; cut: b
 /**
  * Draws the "Ask" section of the view on screen: the button as the field
  * stands, the line of the work item's newest broad gate, first, and the
- * work item's headless sessions. The line of a working
- * session offers "Stop", which asks the daemon to stop it; the daemon answers
+ * work item's headless sessions. The line of a working session offers
+ * "Stop", which asks the daemon to stop it; the daemon answers
  * `done`, and the `headless` that follows carries the session as failed. A
  * session that waits for the person to allow a call says "Needs you" with
  * the waiting mark, and shows each call it waits on as a card with "Allow"

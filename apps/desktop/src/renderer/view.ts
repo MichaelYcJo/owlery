@@ -497,8 +497,9 @@ function byChain(role: Role, workItem: WorkItem): Reached | null {
  * of its role and failed, with the stage's failure under the line. The
  * broad gate and the seal are the sealer's place's: it works while either
  * runs, and waits, with "Gate failed", where the newest stage is a broad
- * gate that failed. Otherwise the records say how far it came. It reads the work item alone,
- * so no pane's state, no hook and no session changes it.
+ * gate that failed. Otherwise the records say how far it came. It reads
+ * the work item alone, so no pane's state, no hook and no session changes
+ * it.
  */
 export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
   const recorded = workItem.recorded;
@@ -1224,9 +1225,10 @@ export function choiceNote(question: AskedQuestion): string {
  * daemon wrote it; otherwise, where the chain runs a stage and the line's
  * pane does not wait for the person, the stage in short, who runs it and
  * what it is, as in "Proofer, round 2" and "Sealer, verdict", and "Broad
- * gate" for the broad gate, which no role runs; otherwise, where the agent asks the
- * person a question in its pane, the first question and the labels of its
- * choices, followed by how many more questions it asks, as in "Which
+ * gate" for the broad gate, which no role runs; otherwise, where the agent
+ * asks the person a question in its pane, the first question and the
+ * labels of its choices, followed by how many more questions it asks, as
+ * in "Which
  * library formats the dates? date-fns · dayjs (and 1 more question)";
  * otherwise what the agent's state carried, otherwise the newest commit's
  * subject, otherwise the branch. While a search is typed it is the branch,
