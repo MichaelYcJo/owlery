@@ -411,7 +411,8 @@ export function fixPassRecord(before: string, after: string): { closes: { findin
  */
 export async function fixedCommitsHeld(worktree: string, closes: readonly { finding: number; close: Close }[], head: string, target: string): Promise<void> {
   for (const { finding, close } of closes) {
-    if (close.verdict !== "fixed" || close.commit === null) continue;
+    // Only a `fixed` verdict names a commit.
+    if (close.commit === null) continue;
     const commit = await commitNamed(worktree, close.commit);
     if (commit === null || !(await holdsCommit(worktree, head, commit))) throw new ChainStop(`finding ${String(finding)} is closed \`fixed ${close.commit}\`, and the branch holds no such commit`);
     if (await holdsCommit(worktree, target, commit)) throw new ChainStop(`finding ${String(finding)} is closed \`fixed ${close.commit}\`, and the round's target already held that commit`);
