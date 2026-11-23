@@ -2902,14 +2902,15 @@ export class Daemon {
 
   /**
    * Arranges the watch's next turn, at the earliest time one of the watched
-   * pull requests is due (`watched`), where no turn is arranged or under way.
-   * The turns follow one another while a client is connected, and the hello
-   * of the next client to connect starts them again. A daemon that closed,
-   * or that has no client, arranges none, and nothing the watch does holds
-   * the daemon or the Mac.
+   * pull requests is due (`watched`), in place of the turn arranged before,
+   * where no turn is under way. The turns follow one another while a client
+   * is connected: a turn that comes while none is reads nothing and arranges
+   * no other, and the hello of the next client to connect starts them again.
+   * A daemon that closed arranges none, and nothing the watch does holds the
+   * daemon or the Mac.
    */
   private scheduleWatch(): void {
-    if (this.closed || this.watching || this.clients.size === 0) return;
+    if (this.closed || this.watching) return;
     clearTimeout(this.watchTimer);
     this.watchTimer = undefined;
     const watched = this.watched();

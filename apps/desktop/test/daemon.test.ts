@@ -6344,6 +6344,7 @@ describe("keeping the Mac awake", () => {
 describe("the watch of an open pull request", () => {
   const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const VIEW = ["pr", "view", PULL_REQUEST_URL, "--json", VIEW_FIELDS];
+  const SECOND_URL = "https://github.com/owner/project/pull/2";
   const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "seal" });
 
   /**
@@ -6352,7 +6353,7 @@ describe("the watch of an open pull request", () => {
    * holder of the Mac, a read every 100 milliseconds while the checks run
    * and every minute otherwise, and no client.
    */
-  async function watched(options: Partial<DaemonOptions> = {}, item: Record<string, unknown> = {}) {
+  async function watched(options: Partial<DaemonOptions> = {}, item: Record<string, unknown> = {}, other: Record<string, unknown> | null = null) {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     const runDir = join(made.base, "run");
@@ -6360,8 +6361,14 @@ describe("the watch of an open pull request", () => {
     const place = await createWorktree({ folder: made.repo, title: "Watched", root: made.root });
     const at = git(place.worktree, "rev-parse", "HEAD").trim();
     const stored: PullRequest = { number: 1, url: PULL_REQUEST_URL, state: "open", head: at, pushed: at, checks: "none", list: [], listCount: 0, readAt: 1, failure: null };
-    const workItem = { id: 1, title: "Watched", branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch ?? null, pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: stored, ...item };
-    writeFileSync(join(runDir, "repositories.json"), JSON.stringify([{ id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems: [workItem] }]));
+    const plain = { id: 1, title: "Watched", branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch ?? null, pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: stored };
+    const workItems: Record<string, unknown>[] = [{ ...plain, ...item }];
+    if (other !== null) {
+      // A second work item, whose pull request is number 2.
+      const second = await createWorktree({ folder: made.repo, title: "Watched too", root: made.root });
+      workItems.push({ ...plain, id: 2, title: "Watched too", branch: second.branch, worktree: second.worktree, baseCommit: second.baseCommit, baseBranch: second.baseBranch ?? null, pullRequest: { ...stored, number: 2, url: SECOND_URL }, ...other });
+    }
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify([{ id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems }]));
     const gh = ghStandIn(cleanups, made.base);
     const seen = { held: 0 };
     const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, gh: gh.gh, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, prPollMs: 100, prRestPollMs: 60_000, now: () => 7, holdAwake: () => (seen.held++, { release: () => undefined }), ...options });
@@ -6395,6 +6402,10 @@ describe("the watch of an open pull request", () => {
     const calls = w.gh.calls().length;
     await pause(500);
     expect(w.gh.calls()).toHaveLength(calls);
+    // A second client's hello reads it again at once.
+    const second = await client(w.url);
+    await second.message("ready");
+    await c.until(() => (w.gh.calls().length === calls + 1 ? true : undefined));
   });
 
   it("reads again soon while GitHub's head is not the commit the stage pushed, though the checks passed", async () => {
@@ -6443,6 +6454,11 @@ describe("the watch of an open pull request", () => {
     // An answer that does not read is a failed read too.
     w.gh.answer("view", { out: "not json\n" });
     expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
+    // So is an answer whose checks are no list.
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    await c.until(() => (pullRequestIn(c)?.failure === null ? true : undefined));
+    w.gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: w.at, mergedAt: null, statusCheckRollup: null }) });
+    expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
   });
 
   it("calls gh for no work item while no client is connected, nor once its client left, nor for an archived work item", async () => {
@@ -6457,11 +6473,11 @@ describe("the watch of an open pull request", () => {
     const calls = w.gh.calls().length;
     await pause(400);
     expect(w.gh.calls()).toHaveLength(calls);
-    const archived = await watched({}, { archivedAt: 5 });
-    archived.answer([run("Owlery seal", "IN_PROGRESS")]);
+    // Of two work items, the archived one's pull request is not read, and the other's is, in the same turn.
+    const archived = await watched({}, { archivedAt: 5 }, {});
+    archived.answer([run("Owlery seal", "IN_PROGRESS")], { number: 2, url: SECOND_URL });
     const other = await client(archived.url);
-    await other.message("ready");
-    await pause(400);
-    expect(archived.gh.calls()).toHaveLength(0);
+    await other.until(() => (archived.gh.calls().length >= 2 ? true : undefined));
+    expect(new Set(archived.gh.calls().map((call) => call[2]))).toEqual(new Set([SECOND_URL]));
   });
 });

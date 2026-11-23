@@ -3886,6 +3886,8 @@ describe("a work item's pull request", () => {
       { says: "pull-request", text: "Merged" },
       { says: "pull-request", text: "Closed" },
     ]);
+    // The first failed check is named, wherever it stands in the list.
+    expect(said(with_({ checks: "failed", list: [SEAL_PASSED, BUILD_FAILED], listCount: 2 })).text).toBe("Check failed: build");
     // A search shows the branch, as it does on every line.
     expect(lineText(FAILED, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
     // A work item without a pull request says what it said before.
@@ -3926,6 +3928,10 @@ describe("a work item's pull request", () => {
     expect(pullRequestNotifications([PENDING], [FAILED], [], KINDS, FAILED.id)).toEqual([]);
     expect(pullRequestNotifications([PENDING], [FAILED], [session(2, { state: "working" })], KINDS, undefined)).toEqual([]);
     expect(pullRequestNotifications([PENDING], [{ ...FAILED, chain: { ...SEALED, state: "running" } }], [], KINDS, undefined)).toEqual([]);
+    // A park, a call that waits and a stopped chain each raise their own notification, and the pull request none.
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 };
+    for (const more of [{ questions: [asked] }, { permissions: [ask] }, { chain: { ...SEALED, state: "stopped" as const, says: "The pull request stage failed: x." } }]) expect(pullRequestNotifications([PENDING], [{ ...FAILED, ...more }], [], KINDS, undefined), Object.keys(more)[0]).toEqual([]);
   });
 
   it("takes a merged pull request's decisions off the line's mark, the summary and the filter of the decisions, and the view still lists both", () => {
