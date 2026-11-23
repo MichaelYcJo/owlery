@@ -2465,20 +2465,21 @@ export interface GateLine {
  * says it works in a chain that does not run it now is drawn failed, with
  * no "Stop": no command of it runs. `read` is what the window last read of
  * a gate's output, or null, and it stands under the line only where it was
- * read of this work item's run and the run still offers its output.
+ * read of this run of this work item's gate.
  */
 export function gateLine(workItem: WorkItem, read: GateOutput | null): GateLine | null {
-  const stage = chainOf(workItem)?.stages.findLast((held) => held.kind === "gate" && (held.gate ?? null) !== null);
+  // A stage of another kind holds no run, and neither does a stage a build before the gate stored.
+  const stage = chainOf(workItem)?.stages.findLast((held) => (held.gate ?? null) !== null);
   const run = stage?.gate;
   if (!stage || !run) return null;
   const state: HeadlessState = stage.state === "working" && runningStage(workItem) !== stage ? "failed" : stage.state;
-  const shown = read !== null && run.output && read.workItemId === workItem.id && read.startedAt === stage.startedAt;
+  const shown = read !== null && read.workItemId === workItem.id && read.startedAt === stage.startedAt;
   return {
     startedAt: stage.startedAt,
     command: run.command,
     state,
     words: state,
-    text: stage.state === "failed" && stage.failure !== null ? asSentence(stage.failure) : "",
+    text: stage.failure === null ? "" : asSentence(stage.failure),
     stop: state === "working",
     output: run.output,
     printed: shown ? { text: read.text, note: read.cut ? "Owlery kept the end of the output alone." : "" } : null,
