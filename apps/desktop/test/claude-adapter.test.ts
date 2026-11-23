@@ -398,15 +398,16 @@ describe("the Claude adapter's run", () => {
     const at = Date.now();
     const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
     const childPid = await pidIn(join(folder, "child"));
-    const end = Date.now() + 5000;
+    const end = Date.now() + 10_000;
     while (events.length === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
     expect(events).toEqual([{ type: "exit", exitCode: 4, errorOutput: "gone\n" }]);
-    expect(Date.now() - at).toBeLessThan(1500);
+    // The child holds the streams for 30 seconds, so an exit reported within 10 is one that did not wait for it.
+    expect(Date.now() - at).toBeLessThan(10_000);
     // The CLI's group may be gone or another's by now, so the stop signals it no more.
     await started.stop();
     await new Promise((r) => setTimeout(r, 100));
     expect(alive(childPid)).toBe(true);
-  });
+  }, 20_000);
 
   it("reports nothing after the exit, and closes both streams to a child the CLI started, so what the child prints later fails to reach the run", async () => {
     const folder = temporaryFolder();

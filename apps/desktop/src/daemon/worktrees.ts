@@ -609,20 +609,23 @@ export async function newCommits(repo: string, branch: string, baseCommit: strin
 }
 
 /**
- * How many commits `head` holds that the base `baseBranch` names does not: how
- * far a work item's branch is ahead of its base. The name is read as `baseRef`
- * reads it, at every call, so the count against a remote's branch moves when a
- * fetch moves that branch. A commit the base gained and the work item's branch
- * merged in is not counted, and the count is none once the base holds `head`.
- * Null where git gives no count: the name is neither a local branch nor a
- * remote's any more, or the commit or the repository is gone.
+ * How far a work item's branch is from its base, read by one git command:
+ * `ahead`, how many commits `head` holds that the base `baseBranch` names does
+ * not, and `behind`, how many the base holds that `head` does not. The name is
+ * read as `baseRef` reads it, at every call, so the counts against a remote's
+ * branch move when a fetch moves that branch, and no remote is asked. A commit
+ * the base gained and the work item's branch merged in is counted in neither,
+ * and both are none once the base holds `head`. Null where git gives no two
+ * counts: the name is neither a local branch nor a remote's any more, or the
+ * commit or the repository is gone.
  */
-export async function aheadOf(repo: string, baseBranch: string, head: string): Promise<number | null> {
+export async function baseDistance(repo: string, baseBranch: string, head: string): Promise<{ ahead: number; behind: number } | null> {
   const base = await baseRef(repo, baseBranch);
   if (base === null) return null;
   try {
-    const count = Number.parseInt(await git(repo, ["rev-list", "--count", `${base}..${head}`, "--"]), 10);
-    return Number.isInteger(count) ? count : null;
+    // The symmetric difference counted by side: the base's side first, then the head's.
+    const counts = /^(\d+)\t(\d+)\n?$/.exec(await git(repo, ["rev-list", "--left-right", "--count", `${base}...${head}`, "--"]));
+    return counts ? { ahead: Number(counts[2]), behind: Number(counts[1]) } : null;
   } catch {
     return null;
   }
