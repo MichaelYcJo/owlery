@@ -62,7 +62,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1. The seal's state | `frame/design.md` *Scope* items 1 to 5 | Scenarios 1 to 4, 7 and 8, and of scenario 6 the two states, the commits and the sentence after a restart | |
+| 1. The seal's state | `frame/design.md` *Scope* items 1 to 5 | Scenarios 1 to 4, 7 and 8, and of scenario 6 the two states, the commits and the sentence after a restart | `1a0cfb9` |
 | 2. A new seal | *Scope* items 13 and 14 | Scenarios 17 and 18 | |
 | 3. The seal's place | *Scope* items 12, 15, 16, 19 and 20, and of item 17 all but the paragraph on the screenshot run | Scenarios 13, 15 and 16 | |
 | 4. The check and the resting state | *Scope* items 6 to 11 | Scenarios 5 and 9 to 12, and of scenario 6 the run folder that names neither state | |
