@@ -9,6 +9,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { claudeArgs, versionNotice } from "../src/daemon/adapters/claude";
 import { PLUGIN_NAME, roleDocuments, rulesText } from "../src/daemon/adapters/claude-roles";
+import { RULING_BLOCK } from "../src/daemon/record-blocks";
 import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
 import { alive, buildApp, BuiltApp, untilGone } from "./built-app";
 import { temporaryRepository } from "./repositories";
@@ -46,7 +47,7 @@ describe("the role bundle", () => {
   });
 
   it("holds the definition of each role a session can be launched as, and every document the adapter appends for its stage", () => {
-    expect(ROLE_STAGES.map(({ role }) => role)).toEqual(["proofer", "crafter", "sealer"]);
+    expect(ROLE_STAGES.map(({ role }) => role)).toEqual(["proofer", "crafter", "sealer", "orchestrator"]);
     for (const pair of ROLE_STAGES) {
       expect(frontmatterOf(read(`agents/${pair.role}.md`)), pair.role).toContain(`name: ${pair.role}\n`);
       const documents = roleDocuments(pair);
@@ -78,6 +79,27 @@ describe("the role bundle", () => {
       expect(frontmatter, role).not.toBe("");
       expect(frontmatter, role).not.toMatch(/^skills:/m);
     }
+  });
+
+  it("holds the orchestrator's definition for its two judgments: the signals that say the rounds are not converging, how a question is decided from the code and the policy, what alone parks a work item, and the blocks of its answer by the keys the daemon reads", () => {
+    const definition = read("agents/orchestrator.md");
+    for (const named of [
+      "whether the review rounds are converging",
+      "a ruling on each\nquestion a stage asked",
+      "These signals say the rounds are not\nconverging",
+      "`reopens:`",
+      "`regression:`",
+      "**A question is first decided from the code and the policy.**",
+      "**Only what a person alone can give parks a work item.**",
+      "`decided:`",
+      "`grounds:`",
+      "You write no file and run no command",
+    ]) expect(definition, named).toContain(named);
+    for (const ruling of ["answered", "default", "scope", "park"]) expect(definition, ruling).toContain(`- \`${ruling}\`: `);
+    // The words of a ruling are the ones the daemon's reader takes.
+    expect(RULING_BLOCK.keys.get("rules:")?.shape.source).toContain("default|scope|answered|park");
+    // The README no longer says that the bundle holds no definition of the orchestrator.
+    expect(read("README.md")).toContain("The bundle holds the orchestrator's definition, `agents/orchestrator.md`, for the two judgments the daemon asks of it");
   });
 
   it("has the sealer queue and draw no stamp", () => {

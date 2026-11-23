@@ -4539,6 +4539,7 @@ describe("headless sessions", () => {
       { role: "proofer", stage: "round" },
       { role: "crafter", stage: "fix-pass" },
       { role: "sealer", stage: "seal" },
+      { role: "orchestrator", stage: "judgment" },
     ]);
     for (const [index, pair] of ROLE_STAGES.entries()) {
       c.send({ type: "ask", requestId: index + 1, workItemId: workItem.id, prompt: "Q", role: { ...pair, more: "not kept" } });
@@ -5153,6 +5154,7 @@ describe("headless sessions", () => {
     it.each([
       ["proofer", { role: "proofer", stage: "round" }],
       ["sealer", { role: "sealer", stage: "seal" }],
+      ["orchestrator", { role: "orchestrator", stage: "judgment" }],
     ] as const)("refuses every request of a %s, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report, and nothing waits for the person", async (name, role) => {
       const { held, adapter } = asking();
       const { c, workItem } = await withWorkItem({ roleAdapter: adapter });

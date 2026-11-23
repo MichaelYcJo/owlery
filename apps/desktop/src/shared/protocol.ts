@@ -320,12 +320,13 @@ export interface ChainStage {
 
 /**
  * What the daemon runs for one work item after a `getSeal`: its review
- * rounds and fix passes, one stage at a time. Which stage is next is read
+ * rounds, its fix passes and the orchestrator's judgments, one stage at a
+ * time. Which stage is next is read
  * from the work item's committed records at each step, and this is what a
  * window shows of the run.
  */
 export interface Chain {
-  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, and where the daemon ended while a stage ran. `reviewed` where the last round left nothing open and no commit after it is unread. */
+  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, and where the daemon ended while a stage ran. `reviewed` where the last round left nothing open and no commit after it is unread. */
   state: "running" | "parked" | "stopped" | "reviewed";
   /** Where the chain stands, as a sentence the window shows as it is. */
   says: string;
@@ -389,6 +390,7 @@ export const ROLE_STAGES = [
   { role: "proofer", stage: "round" },
   { role: "crafter", stage: "fix-pass" },
   { role: "sealer", stage: "seal" },
+  { role: "orchestrator", stage: "judgment" },
 ] as const;
 
 /** One pair of `ROLE_STAGES`. */

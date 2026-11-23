@@ -84,7 +84,7 @@ describe("the Claude adapter's launch", () => {
 
   it("turns no permission check off, with no role and with each role: the mode is default, and no other mode and no option that skips a check is named", () => {
     const launches = [claudeArgs("/work/tree"), ...ROLE_STAGES.map((pair) => claudeArgs("/work/tree", { bundleDir: "/bundle", agent: agentOf(pair), rulesFile: "/rules.md", tools: toolsOf(pair) }))];
-    expect(launches).toHaveLength(4);
+    expect(launches).toHaveLength(5);
     for (const args of launches) {
       expect(args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
       expect(args[args.indexOf("--permission-mode") + 1]).toBe("default");
@@ -496,8 +496,8 @@ describe("a role's rules file", () => {
   const PROOFER: RoleStage = { role: "proofer", stage: "round" };
 
   it("names each role's agent as the bundle's plugin names it, and its file by the role and the stage", () => {
-    expect(ROLE_STAGES.map(agentOf)).toEqual(["owlery:proofer", "owlery:crafter", "owlery:sealer"]);
-    expect(ROLE_STAGES.map(rulesFileName)).toEqual(["proofer-round.md", "crafter-fix-pass.md", "sealer-seal.md"]);
+    expect(ROLE_STAGES.map(agentOf)).toEqual(["owlery:proofer", "owlery:crafter", "owlery:sealer", "owlery:orchestrator"]);
+    expect(ROLE_STAGES.map(rulesFileName)).toEqual(["proofer-round.md", "crafter-fix-pass.md", "sealer-seal.md", "orchestrator-judgment.md"]);
   });
 
   it("holds the core and the agent contract for every pair, then the documents the role opens first at its stage", () => {
@@ -505,6 +505,8 @@ describe("a role's rules file", () => {
       ["proofer", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "skills/code-review/SKILL.md"]],
       ["crafter", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "skills/implement/SKILL.md", "skills/implement/fix-pass.md"]],
       ["sealer", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md"]],
+      // The orchestrator reads every round record for its judgment, so the record's form follows the two.
+      ["orchestrator", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "docs/forms/the-round-record.md"]],
     ]);
   });
 
@@ -651,7 +653,7 @@ describe("the Claude adapter's role launch", () => {
     expect(readdirSync(rulesDir)).toEqual(["proofer-round.md"]);
   });
 
-  it("launches each role with the tools of its grant alone, as one value after --tools: a proofer and a sealer with none that writes a file, a crafter with Edit and Write", async () => {
+  it("launches each role with the tools of its grant alone, as one value after --tools: a proofer, a sealer and the orchestrator with none that writes a file, a crafter with Edit and Write", async () => {
     const launched: [string, string | undefined][] = [];
     for (const pair of ROLE_STAGES) {
       const init = JSON.stringify({ type: "system", subtype: "init", agents: [agentOf(pair)] });
@@ -662,12 +664,16 @@ describe("the Claude adapter's role launch", () => {
       // One `--tools`, and one argument as its value: the next argument is the bundle's option.
       expect(args.filter((arg) => arg === "--tools"), pair.role).toHaveLength(1);
       expect(args[args.indexOf("--tools") + 2], pair.role).toBe("--plugin-dir");
+      // Each role is launched as its own agent of the bundle, with the rules file of its pair.
+      expect(args[args.indexOf("--agent") + 1], pair.role).toBe(`owlery:${pair.role}`);
+      expect(args[args.indexOf("--append-system-prompt-file") + 1], pair.role).toBe(join(rulesDir, `${pair.role}-${pair.stage}.md`));
       launched.push([pair.role, args[args.indexOf("--tools") + 1]]);
     }
     expect(launched).toEqual([
       ["proofer", "Read,Glob,Grep,Bash"],
       ["crafter", "Read,Glob,Grep,Bash,Edit,Write"],
       ["sealer", "Read,Glob,Grep,Bash"],
+      ["orchestrator", "Read,Glob,Grep,Bash"],
     ]);
   });
 
@@ -954,7 +960,11 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
   });
 
   it("passes the check of the role it was launched as, and of no role the bundle does not hold", () => {
-    for (const pair of ROLE_STAGES) expect(roleCheck(lines[0]!, agentOf(pair)), pair.role).toEqual({ seen: true, failure: null });
+    // The run was recorded before the bundle held the orchestrator's definition, so its session lists the three agents of that day.
+    const recorded = ROLE_STAGES.filter((pair) => pair.role !== "orchestrator");
+    expect(recorded).toHaveLength(3);
+    for (const pair of recorded) expect(roleCheck(lines[0]!, agentOf(pair)), pair.role).toEqual({ seen: true, failure: null });
+    expect(roleCheck(lines[0]!, "owlery:orchestrator")).toEqual({ seen: true, failure: "the session does not hold the agent owlery:orchestrator" });
     expect(roleCheck(lines[0]!, "owlery:framer")).toEqual({ seen: true, failure: "the session does not hold the agent owlery:framer" });
     expect(roleCheck(lines[0]!, "proofer")).toEqual({ seen: true, failure: "the session does not hold the agent proofer" });
   });
