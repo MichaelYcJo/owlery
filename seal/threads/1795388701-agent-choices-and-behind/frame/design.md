@@ -66,6 +66,8 @@ Out of scope, each with why.
 
 ## User scenarios & acceptance *(mandatory)*
 
+The line numbers this section gives are read at `9fe0c0c`; the earlier phases have moved them.
+
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
 | 1. The reader gives the questions an event asks | Given a `PreToolUse` whose `tool_name` is `AskUserQuestion` and whose `tool_input.questions` holds two questions, the first with two options and the second with `multiSelect: true`, then `agentSaid` gives the first question's text as `text` and both questions, each with its options' labels and descriptions, and with `multiple` false and true. Given the same payload as a `PermissionRequest`, then the same questions and the tool's name | Cases in `apps/desktop/test/agent-events.test.ts` |
@@ -83,6 +85,8 @@ Out of scope, each with why.
 | 13. The screenshots | Given `pnpm run screenshots` in `apps/desktop`, then the inbox's preview and the view of the work item that needs the person show the card with its two choices, in Night watch dark and light | The PNG files committed under `seal/threads/1795388701-agent-choices-and-behind/screenshots/`, read by the review against `docs/design.md` |
 
 ## Data & interfaces
+
+The line numbers this section gives are read at `9fe0c0c`; the earlier phases have moved them.
 
 `apps/desktop/src/shared/protocol.ts`:
 
