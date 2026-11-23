@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,7 +17,7 @@ import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -4542,7 +4542,7 @@ describe("headless sessions", () => {
     const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ pieces: () => ["A barn ", "owl."] }) }, 2);
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?" });
-    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
+    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
     expect(await one.message("asked")).toEqual({ type: "asked", requestId: 5, headless: working });
     for (const c of [one, two]) {
       await c.message("headless", (m) => m.headless.state === "finished");
@@ -4573,7 +4573,7 @@ describe("headless sessions", () => {
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     const role = { role: "proofer", stage: "round" } as const;
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?", role });
-    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role });
+    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role });
     for (const c of [one, two]) {
       const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
       expect(headless.answer).toBe('As the proofer at the stage round, you asked: "Which owl?"');
@@ -4641,7 +4641,8 @@ describe("headless sessions", () => {
     expect(seen.stopped).toBe(2);
   });
 
-  it("carries the cost the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+  it("carries the usage the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+    const usage: Usage = { costUsd: 0.25, converted: false, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: 0, costUsd: 0.25 }] };
     const roleAdapter: RoleAdapter = {
       name: "priced",
       features: [],
@@ -4650,7 +4651,7 @@ describe("headless sessions", () => {
         setTimeout(() => {
           listener({ type: "text", text: "Let me look. " });
           listener({ type: "text", text: "An owl." });
-          listener({ type: "result", text: "An owl.", isError: false, costUsd: 0.25 });
+          listener({ type: "result", text: "An owl.", isError: false, usage });
           listener({ type: "text", text: " And more." });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
         }, 0);
@@ -4660,7 +4661,7 @@ describe("headless sessions", () => {
     const { c, workItem } = await withWorkItem({ roleAdapter });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
     const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
-    expect(headless).toMatchObject({ answer: "An owl.", costUsd: 0.25, error: null });
+    expect(headless).toMatchObject({ answer: "An owl.", usage, error: null });
     // The result closes the answer: the text that arrives after it changes nothing.
     await pause(100);
     expect(told(c).map((h) => h.answer)).toEqual(["", "Let me look. ", "Let me look. An owl.", "An owl."]);
@@ -4673,7 +4674,7 @@ describe("headless sessions", () => {
     expect((await one.message("asked")).headless.state).toBe("working");
     for (const c of [one, two]) {
       const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
-      expect(headless).toMatchObject({ id: 1, state: "failed", answer: "", error: "the fake adapter was told not to start", costUsd: null });
+      expect(headless).toMatchObject({ id: 1, state: "failed", answer: "", error: "the fake adapter was told not to start", usage: null });
     }
   });
 
@@ -4709,7 +4710,7 @@ describe("headless sessions", () => {
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
   });
 
   it("lists no headless session where none was asked, and counts them apart from the panes", async () => {
@@ -4724,16 +4725,23 @@ describe("headless sessions", () => {
     expect((await (await client(url)).message("ready")).headless.map((h) => [h.id, h.prompt, h.state])).toEqual([[1, "One", "finished"], [2, "Two", "finished"]]);
   });
 
-  it("carries only the fields the protocol names, the adapter's name not among them", async () => {
-    const { c, url, workItem } = await withWorkItem();
+  it("carries only the fields the protocol names, the adapter's name not among them, and a usage only with its mark", async () => {
+    const usage: Usage = { costUsd: 0.5, converted: true, models: [{ model: "owl-1", inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, costUsd: 0.5 }] };
+    const { c, url, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ usage: () => usage }) });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
     const asked = await c.message("asked");
     const changed = await c.message("headless", (m) => m.headless.state === "finished");
     const ready = await (await client(url)).message("ready");
-    const fields = ["answer", "costUsd", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "workItemId"];
+    const fields = ["answer", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "usage", "workItemId"];
     expect(Object.keys(asked).sort()).toEqual(["headless", "requestId", "type"]);
     expect(Object.keys(changed).sort()).toEqual(["headless", "type"]);
-    for (const info of [asked.headless, changed.headless, ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
+    for (const info of [asked.headless, ...told(c), ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
+    // The cost travels with whether it is a value converted at API prices, and nothing else of the agent's travels beside it.
+    for (const info of [changed.headless, ready.headless[0]!]) {
+      expect(info.usage).toEqual(usage);
+      expect(Object.keys(info.usage!).sort()).toEqual(["converted", "costUsd", "models"]);
+      expect(Object.keys(info.usage!.models[0]!).sort()).toEqual(["cacheReadTokens", "cacheWriteTokens", "costUsd", "inputTokens", "model", "outputTokens"]);
+    }
     expect(JSON.stringify([asked, changed, ready.headless])).not.toContain("fake");
   });
 
@@ -4938,7 +4946,7 @@ describe("headless sessions", () => {
       start: async (options, listener) => {
         if (options.prompt !== "Slow?") return quick.start(options, listener);
         finishSlow = () => {
-          listener({ type: "result", text: "slow", isError: false, costUsd: null });
+          listener({ type: "result", text: "slow", isError: false, usage: null });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
         };
         return { stop: () => Promise.resolve(), answer: () => {} };
@@ -4998,7 +5006,7 @@ describe("headless sessions", () => {
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
         if (options.prompt !== "First?") return quick.start(options, listener);
-        setTimeout(() => listener({ type: "result", text: "first", isError: false, costUsd: null }), 0);
+        setTimeout(() => listener({ type: "result", text: "first", isError: false, usage: null }), 0);
         exitFirst = () => listener({ type: "exit", exitCode: 0, errorOutput: "late" });
         return { stop: () => Promise.resolve(), answer: () => {} };
       },
@@ -5057,6 +5065,185 @@ describe("headless sessions", () => {
     await pause(100);
     expect(toldSince(before)).toEqual([]);
     expect((await listed()).map(([id]) => id)).toEqual([third]);
+  });
+
+  describe("the ledger", () => {
+    type Client = Awaited<ReturnType<typeof client>>;
+    const USAGE: Usage = { costUsd: 0.25, converted: true, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, costUsd: 0.25 }] };
+    const ENTRY_FIELDS = ["branch", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
+    const PROOFER = { role: "proofer", stage: "round" } as const;
+
+    /** A run folder the case's daemons share, removed after the case. */
+    function runFolder(): string {
+      const runDir = mkdtempSync(join(tmpdir(), "owlery-ledger-"));
+      cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
+      return runDir;
+    }
+
+    let nextRequest = 1000;
+    /** The answer a client is given to a `readLedger` of the work item. */
+    async function ledgerOf(c: Client, workItemId: unknown) {
+      const requestId = nextRequest++;
+      c.send({ type: "readLedger", requestId, workItemId });
+      type Answer = Extract<ServerMessage, { type: "ledger" | "error" }>;
+      return c.until(() => c.messages.find((m): m is Answer => (m.type === "ledger" || m.type === "error") && m.requestId === requestId));
+    }
+
+    /** Asks a prompt and waits until the session has ended. */
+    async function asked(c: Client, workItemId: number, prompt: string, role?: RoleStage): Promise<HeadlessInfo> {
+      const requestId = nextRequest++;
+      c.send({ type: "ask", requestId, workItemId, prompt, ...(role ? { role } : {}) });
+      const { headless } = await c.message("asked", (m) => m.requestId === requestId);
+      return (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working")).headless;
+    }
+
+    it("keeps one entry for each session that ends, with a role and without: its work item, its repository and branch, its stage, its two times, how it ended and the usage its result reported", async () => {
+      let clock = 1000;
+      // The clock moves on while each turn runs, so a session's end is read after its start.
+      const usage = (prompt: string): Usage => {
+        clock += 500;
+        return prompt === "Which owl?" ? USAGE : { ...USAGE, costUsd: 0.5 };
+      };
+      const { c, workItem } = await withWorkItem({ now: () => clock, roleAdapter: fakeAdapter({ usage }) });
+      clock = 1500;
+      await asked(c, workItem.id, "Which owl?", PROOFER);
+      clock = 3000;
+      await asked(c, workItem.id, "And you?");
+      const answer = await ledgerOf(c, workItem.id);
+      const kept = { workItemId: workItem.id, repo: workItem.repo, branch: workItem.branch, state: "finished", stopped: null };
+      expect(answer).toEqual({
+        type: "ledger",
+        requestId: answer.requestId,
+        workItemId: workItem.id,
+        entries: [
+          { ...kept, stage: PROOFER, startedAt: 1500, endedAt: 2000, usage: USAGE },
+          { ...kept, stage: null, startedAt: 3000, endedAt: 3500, usage: { ...USAGE, costUsd: 0.5 } },
+        ],
+        unread: 0,
+      });
+      for (const entry of (answer as Extract<ServerMessage, { type: "ledger" }>).entries) expect(Object.keys(entry).sort()).toEqual(ENTRY_FIELDS);
+    });
+
+    it("outlives the daemon in a file of its run folder the user alone can read, commits nothing in the work item's worktree or the main checkout, and gives a work item no entry of an earlier one under its id", async () => {
+      const runDir = runFolder();
+      const { daemon: first, c, workItem } = await withWorkItem({ runDir, roleAdapter: fakeAdapter({ usage: () => USAGE }) });
+      expect(workItem.id).toBe(1);
+      const status = () => [git(workItem.worktree, "status", "--porcelain", "--ignored"), git(workItem.repo, "status", "--porcelain", "--ignored")];
+      const before = status();
+      await asked(c, workItem.id, "Which owl?", PROOFER);
+      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [kept], unread: 0 });
+      expect(status()).toEqual(before);
+      await first.close();
+      expect(statSync(join(runDir, "ledger.jsonl")).mode & 0o777).toBe(0o600);
+      // A line of an earlier work item 1, whose stage started before this one was created: the id was given again after `repositories.json` was lost.
+      const earlier = { workItemId: 1, repo: "/earlier", branch: "owlery/earlier", stage: null, startedAt: 5, endedAt: 6, state: "finished", stopped: null, usage: null };
+      appendFileSync(join(runDir, "ledger.jsonl"), `${JSON.stringify(earlier)}\n{not json\n`);
+      const { url } = await daemon({ runDir });
+      const later = await client(url);
+      await later.message("ready");
+      expect(await ledgerOf(later, workItem.id)).toMatchObject({ workItemId: 1, entries: [kept], unread: 1 });
+      expect(readFileSync(join(runDir, "ledger.jsonl"), "utf8")).toBe(`${JSON.stringify(kept)}\n${JSON.stringify(earlier)}\n{not json\n`);
+    });
+
+    it("enters a session its limit stopped with no usage", async () => {
+      const { c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ delayMs: 60_000, usage: () => USAGE }), headlessLimitMs: 150 });
+      expect((await asked(c, workItem.id, "Q", PROOFER)).stopped).toBe("limit");
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [{ stage: PROOFER, state: "failed", stopped: "limit", usage: null }], unread: 0 });
+    });
+
+    it("enters a session a request stopped with no usage", async () => {
+      const { c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ delayMs: 60_000, usage: () => USAGE }) });
+      c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+      const { headless } = await c.message("asked");
+      c.send({ type: "stopHeadless", requestId: 2, id: headless.id });
+      await c.message("headless", (m) => m.headless.state === "failed");
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [{ stage: null, state: "failed", stopped: "request", usage: null }], unread: 0 });
+    });
+
+    it("enters each session still working when the daemon closes, once, as stopped by the daemon with no usage, though its run's exit follows the stop", async () => {
+      const runDir = runFolder();
+      const inner = fakeAdapter({ delayMs: 60_000, usage: () => USAGE });
+      // The run reports its process's exit as soon as it is stopped, as a process that ends at the signal does.
+      const roleAdapter: RoleAdapter = {
+        name: inner.name,
+        features: inner.features,
+        notice: inner.notice,
+        start: async (options, listener) => {
+          const run = await inner.start(options, listener);
+          return {
+            ...run,
+            stop: () => {
+              listener({ type: "exit", exitCode: 143, errorOutput: "" });
+              return run.stop();
+            },
+          };
+        },
+      };
+      let clock = 1000;
+      const { daemon: first, c, workItem } = await withWorkItem({ runDir, roleAdapter, now: () => clock });
+      c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role: PROOFER });
+      await c.message("asked");
+      await pause(20);
+      clock = 4000;
+      await first.close();
+      const later = await client((await daemon({ runDir })).url);
+      await later.message("ready");
+      expect(await ledgerOf(later, workItem.id)).toMatchObject({ entries: [{ stage: PROOFER, startedAt: 1000, endedAt: 4000, state: "failed", stopped: "daemon", usage: null }], unread: 0 });
+    });
+
+    it("keeps what a failed session reported: the usage of an error result, no usage for an exit with no result, and no entry for a start the adapter rejected", async () => {
+      const roleAdapter: RoleAdapter = {
+        name: "scripted",
+        features: [],
+        notice: () => Promise.resolve(null),
+        start: (options, listener) => {
+          if (options.prompt === "Rejected?") return Promise.reject(new Error("the login shell found no CLI"));
+          setTimeout(() => {
+            if (options.prompt === "Error?") listener({ type: "result", text: "the turn failed", isError: true, usage: USAGE });
+            listener({ type: "exit", exitCode: 1, errorOutput: "" });
+          }, 0);
+          return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
+        },
+      };
+      const { c, workItem } = await withWorkItem({ roleAdapter });
+      for (const prompt of ["Error?", "Exited?", "Rejected?"]) expect((await asked(c, workItem.id, prompt)).state).toBe("failed");
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({
+        entries: [
+          { state: "failed", stopped: null, usage: USAGE },
+          { state: "failed", stopped: null, usage: null },
+        ],
+        unread: 0,
+      });
+    });
+
+    it("keeps a deleted work item's entries in its file, and answers a read of the deleted work item with an error", async () => {
+      const runDir = runFolder();
+      const { c, workItem } = await withWorkItem({ runDir });
+      const { session } = await c.message("workItemCreated");
+      await asked(c, workItem.id, "Q");
+      const written = readFileSync(join(runDir, "ledger.jsonl"), "utf8");
+      expect(written.split("\n").map((line) => (line === "" ? line : (JSON.parse(line) as { workItemId: number }).workItemId))).toEqual([workItem.id, ""]);
+      c.send({ type: "readLoss", requestId: 2, id: workItem.id });
+      const { loss } = await c.message("workItemLoss", (m) => m.requestId === 2);
+      c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+      await c.message("done", (m) => m.requestId === 3);
+      expect(readFileSync(join(runDir, "ledger.jsonl"), "utf8")).toBe(written);
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ type: "error", message: `no work item ${workItem.id}` });
+    });
+
+    it("answers a read of an archived work item as of any other, and a read of an id it lists no work item under with an error", async () => {
+      const { c, workItem } = await withWorkItem();
+      const { session } = await c.message("workItemCreated");
+      await asked(c, workItem.id, "Q");
+      const { entries } = (await ledgerOf(c, workItem.id)) as Extract<ServerMessage, { type: "ledger" }>;
+      expect(entries).toHaveLength(1);
+      c.send({ type: "archiveWorkItem", requestId: 2, id: workItem.id, running: { panes: [session.id], headless: [] } });
+      await c.message("done", (m) => m.requestId === 2);
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ type: "ledger", workItemId: workItem.id, entries, unread: 0 });
+      expect(await ledgerOf(c, 42)).toMatchObject({ type: "error", message: "no work item 42" });
+      expect(await ledgerOf(c, String(workItem.id))).toMatchObject({ type: "error", message: `no work item ${workItem.id}` });
+    });
   });
 
   describe("permission requests", () => {
@@ -5344,7 +5531,7 @@ describe("headless sessions", () => {
           notice: () => Promise.resolve(null),
           start: (_options, listener) => {
             setTimeout(() => listener({ type: "permission", id: "r1", tool: "Bash", action: "run", path: null, text: "ls" }), 0);
-            end = () => listener(last === "exit" ? { type: "exit", exitCode: 3, errorOutput: "" } : { type: "result", text: "done", isError: false, costUsd: null });
+            end = () => listener(last === "exit" ? { type: "exit", exitCode: 3, errorOutput: "" } : { type: "result", text: "done", isError: false, usage: null });
             return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
           },
         };

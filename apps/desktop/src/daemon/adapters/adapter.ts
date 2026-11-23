@@ -3,7 +3,7 @@
 // adapter reports names its vendor (docs/architecture.md, "Agent adapters" and
 // "Rules that keep it portable").
 
-import type { RoleStage } from "../../shared/protocol";
+import type { RoleStage, Usage } from "../../shared/protocol";
 
 /** What a call does, as its adapter reads it: it reads or writes the file at a path, runs a command, or does something else. */
 export type PermissionAction = "read" | "write" | "run" | "other";
@@ -11,8 +11,8 @@ export type PermissionAction = "read" | "write" | "run" | "other";
 export type RoleEvent =
   // A piece of the agent's answer, in order.
   | { type: "text"; text: string }
-  // The end of the turn: the whole answer, or the error's text where `isError`; the cost in US dollars where the agent reports one.
-  | { type: "result"; text: string; isError: boolean; costUsd: number | null }
+  // The end of the turn: the whole answer, or the error's text where `isError`; what the turn used, and null where the agent reported neither a cost nor a model's tokens.
+  | { type: "result"; text: string; isError: boolean; usage: Usage | null }
   // The agent's process ended. `errorOutput` is the last of what it printed on its error stream, and empty where it printed nothing there. Nothing follows it.
   | { type: "exit"; exitCode: number; errorOutput: string }
   // The agent asks to make one call, and makes none of it before `RoleRun.answer` is called with this `id`. `path` is the file a read or a write names, and null otherwise. `text` is what a person reads of the call: the path, the command, or the call's input, 2,000 characters at most, and a cut text ends with a mark that says so.

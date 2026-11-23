@@ -211,7 +211,7 @@ describe("the Claude adapter's run", () => {
     const events = await run(fakeShell(folder, cli).env, "Which bird?", cwd);
     expect(events).toEqual([
       { type: "text", text: "owl" },
-      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted: true, models: [] } },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     expect(readFileSync(join(folder, "cwd"), "utf8").trim()).toBe(cwd);
@@ -226,6 +226,34 @@ describe("the Claude adapter's run", () => {
     expect(readFileSync(join(folder, "stdin"), "utf8")).toBe(`${INITIALIZE_LINE}${promptLine("Which bird?")}`);
     expect(JSON.parse(INITIALIZE_LINE)).toEqual({ type: "control_request", request_id: "owlery-initialize", request: { subtype: "initialize" } });
     expect(INITIALIZE_LINE.endsWith("\n")).toBe(true);
+  });
+
+  it.each([
+    ["names the key of the environment", "ANTHROPIC_API_KEY", false],
+    ["names a key helper", "apiKeyHelper", false],
+    ["names the key a login manages", "/login managed key", false],
+    ["names no key, as a subscription login does", "none", true],
+    ["names a login the adapter does not know", "a login of another kind", true],
+    ["names the login by no string", 7, true],
+    ["is not there", undefined, true],
+  ])("marks the turn's cost as a charge only where the stream's init line names a key: an init line that %s (%s) gives converted %s", async (_, source, converted) => {
+    const folder = temporaryFolder();
+    const init = JSON.stringify({ type: "system", subtype: "init", ...(source === undefined ? {} : { apiKeySource: source }) });
+    const result = JSON.stringify({ type: "result", is_error: false, result: "owl", total_cost_usd: 0.5, modelUsage: { "owl-1": { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4, costUSD: 0.5 } } });
+    const cli = script(folder, "cli", [`echo '${init}'`, `echo '${result}'`, "cat > /dev/null", "exit 0"].join("\n"));
+    const events = await run(fakeShell(folder, cli).env, "Q", folder);
+    expect(events.at(-2)).toEqual({ type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted, models: [{ model: "owl-1", inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, costUsd: 0.5 }] } });
+  });
+
+  it("marks the cost as converted where the result came before any init line, and where a later init line names a key after the first named none", async () => {
+    const folder = temporaryFolder();
+    const keyed = '{"type":"system","subtype":"init","apiKeySource":"ANTHROPIC_API_KEY"}';
+    const unkeyed = '{"type":"system","subtype":"init","apiKeySource":"none"}';
+    const result = '{"type":"result","is_error":false,"result":"owl","total_cost_usd":0.5}';
+    const early = script(folder, "early", [`echo '${result}'`, `echo '${keyed}'`, "cat > /dev/null", "exit 0"].join("\n"));
+    expect((await run(fakeShell(folder, early).env, "Q", folder)).at(-2)).toMatchObject({ type: "result", usage: { converted: true } });
+    const twice = script(folder, "twice", [`echo '${unkeyed}'`, `echo '${keyed}'`, `echo '${result}'`, "cat > /dev/null", "exit 0"].join("\n"));
+    expect((await run(fakeShell(folder, twice).env, "Q", folder)).at(-2)).toMatchObject({ type: "result", usage: { converted: true } });
   });
 
   it("asks the login shell with a pane's environment: none of what a package script or Electron gave the app, and no node_modules folder in PATH", async () => {
@@ -642,7 +670,7 @@ describe("the Claude adapter's role launch", () => {
     const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
     expect(events).toEqual([
       { type: "text", text: "owl" },
-      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted: true, models: [] } },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     const rulesFile = join(rulesDir, "proofer-round.md");
@@ -687,7 +715,7 @@ describe("the Claude adapter's role launch", () => {
     expect(events).toEqual([
       { type: "permission", id: "r1", tool: "NotebookEdit", action: "other", path: null, text: '{"notebook_path":"FOLDER/a.ipynb"}' },
       { type: "permission", id: "r2", tool: "Write", action: "write", path: "FOLDER/a.ts", text: "FOLDER/a.ts" },
-      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted: true, models: [] } },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
   });
@@ -705,7 +733,7 @@ describe("the Claude adapter's role launch", () => {
     const { folder, env, bundleDir, rulesDir } = launch([RESULT]);
     const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder);
     expect(events).toEqual([
-      { type: "result", text: "owl", isError: false, costUsd: 0.5 },
+      { type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted: true, models: [] } },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder));
@@ -735,7 +763,7 @@ describe("the Claude adapter's role launch", () => {
     const { folder, env, bundleDir, rulesDir } = launch([first, ANSWER, RESULT], "echo 'still here' >&2\nexec sleep 30");
     const { events, ms } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
     expect(events).toEqual([
-      { type: "result", text: reason, isError: true, costUsd: null },
+      { type: "result", text: reason, isError: true, usage: null },
       // A process ended by a signal has no code.
       { type: "exit", exitCode: 1, errorOutput: "still here\n" },
     ]);
@@ -746,10 +774,17 @@ describe("the Claude adapter's role launch", () => {
     const { folder, env, bundleDir, rulesDir } = launch([RESULT, ANSWER], "exec sleep 30");
     const { events, ms } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
     expect(events).toEqual([
-      { type: "result", text: "the session did not say which agents it holds", isError: true, costUsd: null },
+      { type: "result", text: "the session did not say which agents it holds", isError: true, usage: null },
       { type: "exit", exitCode: 1, errorOutput: "" },
     ]);
     expect(ms).toBeLessThan(KILL_AFTER_MS);
+  });
+
+  it("reads the login of a role launch from the init line the role's check reads: a key there marks the cost as a charge", async () => {
+    const init = '{"type":"system","subtype":"init","agents":["claude","owlery:proofer"],"apiKeySource":"apiKeyHelper"}';
+    const { folder, env, bundleDir, rulesDir } = launch([init, RESULT]);
+    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
+    expect(events.at(-2)).toEqual({ type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted: false, models: [] } });
   });
 
   it("reads the first line of a role launch once: a later line that lists no agent fails nothing", async () => {
@@ -892,7 +927,7 @@ describe("a permission request on the Claude adapter's streams", () => {
     expect(events).toEqual([
       { type: "permission", id: "r1", tool: "Edit", action: "write", path: edit.file_path, text: edit.file_path },
       { type: "permission", id: "r2", tool: "Bash", action: "run", path: null, text: "ls" },
-      { type: "result", text: "done", isError: false, costUsd: 0 },
+      { type: "result", text: "done", isError: false, usage: { costUsd: 0, converted: true, models: [] } },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     const written = readFileSync(join(folder, "answers"), "utf8");
@@ -928,7 +963,7 @@ describe("a permission request on the Claude adapter's streams", () => {
     expect(events).toEqual([
       { type: "permission", id: "r1", tool: "Bash", action: "run", path: null, text: "ls" },
       { type: "permission-withdrawn", id: "r1" },
-      { type: "result", text: "done", isError: false, costUsd: 0 },
+      { type: "result", text: "done", isError: false, usage: { costUsd: 0, converted: true, models: [] } },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     expect(readFileSync(join(folder, "answers"), "utf8").split("\n").slice(0, -1).map((line) => JSON.parse(line) as unknown)).toEqual([
@@ -973,7 +1008,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
   it("gives the answer, which states a fact of the definition, one of the appended rules and the first line of a bundle file the session read", () => {
     const events = lines.flatMap((line) => eventsForLine(line));
     const last = events.at(-1);
-    expect(last).toMatchObject({ type: "result", isError: false, costUsd: expect.any(Number) });
+    expect(last).toMatchObject({ type: "result", isError: false, usage: { costUsd: expect.any(Number) } });
     const answer = last?.type === "result" ? last.text : "";
     for (const fact of ["round-<n>/clone", "8, 16 and 20", "# Review round <N>"]) expect(answer, fact).toContain(fact);
     // The one tool the session used is the read of the bundle's file, in the folder the launch added.
@@ -981,7 +1016,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
     expect(used.map((block) => [block.name, block.input?.file_path])).toEqual([["Read", "/app/dist/bundle/templates/records/sdd-round.md"]]);
   });
 
-  it("goes on as a role launch's run: the adapter reports its text and its result, and fails nothing", async () => {
+  it("goes on as a role launch's run: the adapter reports its text and its result, and fails nothing; the result carries what the turn used, its cost marked as converted because the init line of the subscription login names no key", async () => {
     const folder = temporaryFolder();
     const cli = script(folder, "cli", `cat '${fixture}'`);
     const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
@@ -995,7 +1030,12 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
         .catch(reject);
     });
     expect(events).toEqual([...lines.flatMap((line) => eventsForLine(line)), { type: "exit", exitCode: 0, errorOutput: "" }]);
-    expect(events.at(-2)).toMatchObject({ type: "result", isError: false });
+    expect(lines[0]).toContain('"apiKeySource":"none"');
+    expect(events.at(-2)).toMatchObject({
+      type: "result",
+      isError: false,
+      usage: { costUsd: 0.2807378, converted: true, models: [{ model: "claude-opus-5-5", inputTokens: 4, outputTokens: 300, cacheReadTokens: 33249, cacheWriteTokens: 33509, costUsd: 0.2807378 }] },
+    });
   });
 });
 
@@ -1009,7 +1049,7 @@ describe("the output stream of a run with no login, as Claude Code 2.1.330 print
   it("gives the message's text, then a result that is an error with the same text and no cost", () => {
     expect(lines.flatMap((line) => eventsForLine(line))).toEqual([
       { type: "text", text: "Not logged in · Please run /login" },
-      { type: "result", text: "Not logged in · Please run /login", isError: true, costUsd: 0 },
+      { type: "result", text: "Not logged in · Please run /login", isError: true, usage: { costUsd: 0, converted: true, models: [] } },
     ]);
   });
 });
@@ -1026,12 +1066,17 @@ describe("the output stream, as one real run printed it", () => {
     expect(types.some((type) => !["assistant", "result", "system"].includes(type))).toBe(true);
   });
 
-  it("gives the answer's text, then the result with the whole answer and the cost", () => {
+  it("gives the answer's text, then the result with the whole answer and what the turn used", () => {
     const events = lines.flatMap((line) => eventsForLine(line));
     const texts = events.flatMap((event) => (event.type === "text" ? [event.text] : []));
     expect(texts.join("")).toMatch(/^owl\.?$/i);
     const last = events.at(-1);
-    expect(last).toEqual({ type: "result", text: texts.join(""), isError: false, costUsd: expect.any(Number) });
+    expect(last).toEqual({
+      type: "result",
+      text: texts.join(""),
+      isError: false,
+      usage: { costUsd: 0.0508754, converted: true, models: [{ model: "claude-opus-5-5", inputTokens: 2, outputTokens: 4, cacheReadTokens: 11617, cacheWriteTokens: 6058, costUsd: 0.0508754 }] },
+    });
     expect(events).toHaveLength(texts.length + 1);
   });
 
@@ -1046,9 +1091,45 @@ describe("the output stream, as one real run printed it", () => {
     for (const line of ["", "not json", "[]", "null", "7", '{"type":"assistant"}', '{"type":"assistant","message":{"content":"owl"}}']) expect(eventsForLine(line), line).toEqual([]);
   });
 
-  it("maps a result that is an error, and one without a cost", () => {
-    expect(eventsForLine('{"type":"result","is_error":true,"result":"Not logged in"}')).toEqual([{ type: "result", text: "Not logged in", isError: true, costUsd: null }]);
-    expect(eventsForLine('{"type":"result","is_error":false}')).toEqual([{ type: "result", text: "", isError: false, costUsd: null }]);
+  it("maps a result that is an error, and one with neither a cost nor a model's tokens as no usage", () => {
+    expect(eventsForLine('{"type":"result","is_error":true,"result":"Not logged in"}')).toEqual([{ type: "result", text: "Not logged in", isError: true, usage: null }]);
+    expect(eventsForLine('{"type":"result","is_error":false}')).toEqual([{ type: "result", text: "", isError: false, usage: null }]);
+    for (const extra of ['"total_cost_usd":"0.5"', '"modelUsage":[]', '"modelUsage":null', '"modelUsage":7', '"total_cost_usd":null,"modelUsage":"owl"']) {
+      expect(eventsForLine(`{"type":"result","is_error":false,${extra}}`), extra).toEqual([{ type: "result", text: "", isError: false, usage: null }]);
+    }
+  });
+
+  it("reads what the turn used into the neutral names: the cost, and each model in the line's order with its four counts and its cost, a value that is no number as null", () => {
+    const line = JSON.stringify({
+      type: "result",
+      is_error: false,
+      result: "owl",
+      total_cost_usd: 1.5,
+      modelUsage: {
+        "owl-large": { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4, costUSD: 1, webSearchRequests: 0, costBasis: "list" },
+        "owl-small": { inputTokens: "5", outputTokens: null, cacheReadInputTokens: 0, costUSD: 0.5 },
+        "owl-odd": 7,
+      },
+    });
+    expect(eventsForLine(line)).toEqual([
+      {
+        type: "result",
+        text: "owl",
+        isError: false,
+        usage: {
+          costUsd: 1.5,
+          converted: true,
+          models: [
+            { model: "owl-large", inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, costUsd: 1 },
+            { model: "owl-small", inputTokens: null, outputTokens: null, cacheReadTokens: 0, cacheWriteTokens: null, costUsd: 0.5 },
+            { model: "owl-odd", inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, costUsd: null },
+          ],
+        },
+      },
+    ]);
+    // A model's tokens with no cost of the turn, and a cost with no model.
+    expect(eventsForLine('{"type":"result","modelUsage":{}}')).toEqual([{ type: "result", text: "", isError: false, usage: { costUsd: null, converted: true, models: [] } }]);
+    expect(eventsForLine('{"type":"result","total_cost_usd":0}')).toEqual([{ type: "result", text: "", isError: false, usage: { costUsd: 0, converted: true, models: [] } }]);
   });
 
   it("maps each text block of a message, and no block of another kind", () => {

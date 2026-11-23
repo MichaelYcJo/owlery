@@ -2,7 +2,7 @@
 // nothing, so the daemon's cases run a role session's whole flow, and the
 // connector's shape is held by two adapters from the start
 // (docs/architecture.md, "Rules that keep it portable", rule 3).
-import type { RoleStage } from "../../shared/protocol";
+import type { RoleStage, Usage } from "../../shared/protocol";
 import type { PermissionAction, RoleAdapter, RoleEvent, RoleFeature } from "./adapter";
 
 /** One request a fake session raises. With `withdraw` the session withdraws it, and waits for no answer to it. */
@@ -31,6 +31,8 @@ export interface FakeAdapterOptions {
   errorOutput?: string;
   /** What the adapter says of its agent at every call of `notice`; nothing to say when absent. */
   notice?: string;
+  /** What the turn used, for the prompt and the role the session was started with, if any, on the result of a session that succeeds. Without it, and on the result of a session told to fail, the result carries no usage. */
+  usage?: (prompt: string, role?: RoleStage) => Usage | null;
 }
 
 export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
@@ -72,13 +74,13 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
         }
         if (options.fail === "exit") return report({ type: "exit", exitCode: 1, errorOutput });
         if (options.fail === "result") {
-          await report({ type: "result", text: "the fake adapter was told to fail", isError: true, costUsd: null });
+          await report({ type: "result", text: "the fake adapter was told to fail", isError: true, usage: null });
           return report({ type: "exit", exitCode: 1, errorOutput });
         }
         await options.work?.(cwd, prompt, role);
         if (stopped) return;
         for (const text of pieces) await report({ type: "text", text });
-        await report({ type: "result", text: [...said, ...pieces].join(""), isError: false, costUsd: null });
+        await report({ type: "result", text: [...said, ...pieces].join(""), isError: false, usage: options.usage?.(prompt, role) ?? null });
         return report({ type: "exit", exitCode: 0, errorOutput });
       };
       void session();
