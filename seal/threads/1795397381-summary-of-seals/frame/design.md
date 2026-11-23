@@ -191,6 +191,8 @@ No case reaches GitHub, and none starts a real `claude`. The built app starts th
 | A change's sentence, a seal that broke | "Seal broken." and the seal's sentence as the daemon sends it, backticks included, as in "Seal broken. `` `src/app.ts` changed after the sealed commit `3f2a9c1`. ``" |
 | The main control, a line that waits on a question, a call or a pane | "Answer the first question", as today |
 | The main control, a line that waits for another reason | "Open the first that needs you" |
+| The hint under "Answer the first question" | "Enter opens the first question." (round 1, finding 2) |
+| The hint under "Open the first that needs you" | "Enter opens the first that needs you." |
 
 ## Rule changes
 
