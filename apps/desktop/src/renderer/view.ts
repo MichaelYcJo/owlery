@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -967,19 +967,36 @@ function saidBy(session: SessionInfo | undefined): string | null {
   return session.state === "waiting" && session.stateTool ? asksToUse(session.stateTool) : null;
 }
 
+/** The questions a pane's agent asks the person, as the event that began its state carried them: none where that event asked none, and against a daemon of a build before them, which sends no such field. */
+function askedBy(session: SessionInfo | undefined): AskedQuestion[] {
+  return session?.stateQuestions ?? [];
+}
+
+/** How many more questions there are than the one a line says, as in " (and 2 more questions)", or nothing where there are none. */
+function moreQuestions(more: number): string {
+  return more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : "";
+}
+
 /**
  * What the agent of a work item's line says, under its head: the label of
  * the pane's kind and "asks" while the agent waits, "said" otherwise.
  * `waiting` says that the agent waits for the person, which the card of its
- * words shows by its edge. Nothing where the state carried neither a text
- * nor, for a pane that waits, a tool's name.
+ * words shows by its edge. `questions` are the questions the agent asks the
+ * person in its pane, each with its choices, which the card lists in place
+ * of the text, and none where it asks none. Nothing where the state carried
+ * neither a text nor, for a pane that waits, a tool's name.
  */
-export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean } | null {
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean; questions: AskedQuestion[] } | null {
   const text = saidBy(session);
   if (!session || text === null) return null;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   const waiting = session.state === "waiting";
-  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting };
+  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting, questions: askedBy(session) };
+}
+
+/** What the card says under a question an agent asks that takes more than one choice, and nothing under one that takes one. */
+export function choiceNote(question: AskedQuestion): string {
+  return question.multiple ? "More than one may be chosen." : "";
 }
 
 /**
@@ -988,20 +1005,23 @@ export function stateSays(session: SessionInfo | undefined, paneKinds: readonly 
  * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
  * session of the work item waits for the person to allow a call, the oldest
  * request as the tool it asks to use and its text, followed by how many
- * more wait, as in " (and 1 more)"; otherwise what the agent's state
- * carried, otherwise the newest commit's subject, otherwise the branch.
- * While a search is typed it is the branch, where the letters that match
- * are marked.
+ * more wait, as in " (and 1 more)"; otherwise, where the agent asks the
+ * person a question in its pane, the first question and the labels of its
+ * choices, followed by how many more questions it asks, as in "Which
+ * library formats the dates? date-fns · dayjs (and 1 more question)";
+ * otherwise what the agent's state carried, otherwise the newest commit's
+ * subject, otherwise the branch. While a search is typed it is the branch,
+ * where the letters that match are marked.
  */
 export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "state" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
-  if (open) {
-    const more = open.length - 1;
-    return { says: "question", text: `${open[0]?.asks ?? ""}${more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : ""}` };
-  }
+  if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const asks = searching ? [] : permissionsOf(workItem);
   const oldest = asks[0];
   if (oldest) return { says: "permission", text: `${asksToUse(oldest.tool)}: ${oldest.text}${asks.length > 1 ? ` (and ${asks.length - 1} more)` : ""}` };
+  const asked = searching ? [] : askedBy(session);
+  const first = asked[0];
+  if (first) return { says: "state", text: `${first.asks}${first.options.length > 0 ? ` ${first.options.map(({ label }) => label).join(" · ")}` : ""}${moreQuestions(asked.length - 1)}` };
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];

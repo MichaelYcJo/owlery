@@ -17,6 +17,7 @@ import {
   bellSays,
   cardStaysAt,
   changesSince,
+  choiceNote,
   closeAsks,
   commandKey,
   commitLines,
@@ -130,7 +131,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -169,7 +170,7 @@ const KINDS: PaneKindInfo[] = [
 ];
 
 function session(id: number, fields: Partial<SessionInfo> = {}): SessionInfo {
-  return { id, kind: "claude", alive: true, workItemId: 1, state: null, stateSince: null, stateText: null, stateTool: null, ...fields };
+  return { id, kind: "claude", alive: true, workItemId: 1, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null, ...fields };
 }
 
 function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo {
@@ -2965,17 +2966,21 @@ describe("stateWithAge", () => {
   });
 });
 
+/** A question an agent asks with two choices, and one that takes more than one choice. */
+const DATES: AskedQuestion = { asks: "Which library formats the dates?", options: [{ label: "date-fns", implies: "Small functions, one import each." }, { label: "dayjs", implies: "" }], multiple: false };
+const CHECKS: AskedQuestion = { asks: "Which checks run before a commit?", options: [{ label: "Lint", implies: "" }, { label: "Types", implies: "tsc --noEmit" }], multiple: true };
+
 describe("stateSays", () => {
   it("gives a finished agent's last message under the label of its pane's kind and the word said", () => {
-    expect(stateSays(session(3, { state: "finished", stateText: "The login form is fixed." }), KINDS)).toEqual({ head: "Claude Code said", text: "The login form is fixed.", waiting: false });
+    expect(stateSays(session(3, { state: "finished", stateText: "The login form is fixed." }), KINDS)).toEqual({ head: "Claude Code said", text: "The login form is fixed.", waiting: false, questions: [] });
   });
 
   it("gives what a waiting agent tells the person under the word asks", () => {
-    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?" }), KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?", waiting: true });
+    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?" }), KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?", waiting: true, questions: [] });
   });
 
   it("says which tool a waiting agent asks for where its event carried the tool's name and no text", () => {
-    expect(stateSays(session(3, { state: "waiting", stateTool: "Bash" }), KINDS)).toEqual({ head: "Claude Code asks", text: "Asks to use Bash", waiting: true });
+    expect(stateSays(session(3, { state: "waiting", stateTool: "Bash" }), KINDS)).toEqual({ head: "Claude Code asks", text: "Asks to use Bash", waiting: true, questions: [] });
     expect(stateSays(session(3, { state: "waiting", stateText: "May I?", stateTool: "Bash" }), KINDS)?.text).toBe("May I?");
   });
 
@@ -2999,10 +3004,42 @@ describe("stateSays", () => {
     const { stateText: _text, stateTool: _tool, ...old } = session(3, { state: "waiting" });
     expect(stateSays(old as SessionInfo, KINDS)).toBeNull();
   });
+
+  it("gives the questions a waiting agent asks, each with its choices and whether more than one may be chosen, and none where its event asked none", () => {
+    expect(stateSays(session(3, { state: "waiting", stateText: DATES.asks, stateQuestions: [DATES, CHECKS] }), KINDS)).toEqual({ head: "Claude Code asks", text: DATES.asks, waiting: true, questions: [DATES, CHECKS] });
+    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?", stateQuestions: null }), KINDS)?.questions).toEqual([]);
+    // A daemon of an earlier build sends no such field.
+    const { stateQuestions: _questions, ...old } = session(3, { state: "waiting", stateText: "May I run the tests?" });
+    expect(stateSays(old as SessionInfo, KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?", waiting: true, questions: [] });
+  });
+
+  it("says under a question that takes more than one choice that more than one may be chosen, and nothing under one that takes one", () => {
+    expect(choiceNote(CHECKS)).toBe("More than one may be chosen.");
+    expect(choiceNote(DATES)).toBe("");
+  });
 });
 
 describe("lineText", () => {
   const two = { ...LOGIN, newCommits: 2, commits: [commit("b2b2b2b", "Check the token"), commit("a1a1a1a", "Add the form")] };
+
+  it("says the question a waiting agent asks and the labels of its choices, with how many more questions it asks", () => {
+    const asking = (stateQuestions: AskedQuestion[]) => session(3, { state: "waiting", stateText: stateQuestions[0]?.asks ?? null, stateQuestions });
+    expect(lineText(two, asking([DATES]), false)).toEqual({ says: "state", text: "Which library formats the dates? date-fns · dayjs" });
+    expect(lineText(two, asking([DATES, CHECKS]), false)).toEqual({ says: "state", text: "Which library formats the dates? date-fns · dayjs (and 1 more question)" });
+    expect(lineText(two, asking([CHECKS, DATES, DATES]), false)).toEqual({ says: "state", text: "Which checks run before a commit? Lint · Types (and 2 more questions)" });
+    expect(lineText(two, asking([{ ...DATES, options: [] }]), false)).toEqual({ says: "state", text: "Which library formats the dates?" });
+    // A daemon of an earlier build sends no such field, and the line says the state's text.
+    const { stateQuestions: _questions, ...old } = asking([DATES]);
+    expect(lineText(two, old as SessionInfo, false)).toEqual({ says: "state", text: "Which library formats the dates?" });
+  });
+
+  it("keeps a parked work item's question and a headless session's call before the question an agent asks, and the branch while a search is typed", () => {
+    const asking = session(3, { state: "waiting", stateText: DATES.asks, stateQuestions: [DATES] });
+    const parked: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: null };
+    expect(lineText({ ...two, questions: [parked] }, asking, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...two, permissions: [{ id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 }] }, asking, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(two, asking, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
 
   it("says what the agent's state carried where it carried a text or, while it waits, a tool's name", () => {
     expect(lineText(two, session(3, { state: "waiting", stateText: "May I run the tests?" }), false)).toEqual({ says: "state", text: "May I run the tests?" });

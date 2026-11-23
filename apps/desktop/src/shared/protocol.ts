@@ -319,6 +319,17 @@ export interface SessionInfo {
   stateText: string | null;
   /** The name of the tool the event that began `state` asks for. Null where the event named none, and where no event began the state. */
   stateTool: string | null;
+  /** The questions the event that began `state` asks the person in the agent's own pane, each with the choices the agent offers, and each of their texts 2000 characters at most. Null where that event asked none, and where no event began the state. A daemon of a build before it sends no such field, which a client reads as null. */
+  stateQuestions: AskedQuestion[] | null;
+}
+
+/** One question an agent asks the person in its own pane, with the choices it offers. */
+export interface AskedQuestion {
+  asks: string;
+  /** The choices in the agent's order, each with what the agent says it leads to, which may be empty. It may hold none. */
+  options: { label: string; implies: string }[];
+  /** True where the person may choose more than one. */
+  multiple: boolean;
 }
 
 /**

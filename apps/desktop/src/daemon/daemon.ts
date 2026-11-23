@@ -276,9 +276,11 @@ export class Daemon {
   /**
    * Delivers an agent's event for a pane to every client, as a neutral event,
    * and keeps the state it leaves the pane's session in, with the time the
-   * state began and what the event that began it said. An event that leaves
-   * the state as it was changes none of them. Any event ends the pane's
-   * silent start, an event the daemon maps to no neutral one among them.
+   * state began and what the event that began it said, the questions it asks
+   * the person among it. An event that asks a question leaves the session
+   * waiting. An event that leaves the state as it was changes none of them.
+   * Any event ends the pane's silent start, an event the daemon maps to no
+   * neutral one among them.
    */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const session = this.sessions.get(paneId);
@@ -288,13 +290,14 @@ export class Daemon {
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });
     if (!session || !this.reportsState(session.info.kind)) return;
-    const state = agentStateAfter(event);
-    if (state === session.info.state) return;
     const said = agentSaid(hookName, payload);
+    const state = agentStateAfter(event, said.questions !== null);
+    if (state === session.info.state) return;
     session.info.state = state;
     session.info.stateSince = state === null ? null : (this.options.now ?? Date.now)();
     session.info.stateText = cutText(said.text);
     session.info.stateTool = said.tool;
+    session.info.stateQuestions = said.questions && said.questions.map(({ asks, options, multiple }) => ({ asks: cutText(asks), options: options.map(({ label, implies }) => ({ label: cutText(label), implies: cutText(implies) })), multiple }));
     this.broadcastInbox();
   }
 
@@ -1420,7 +1423,7 @@ export class Daemon {
     });
     let exited = (): void => {};
     const session: Session = {
-      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null },
+      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
       terminal,
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,

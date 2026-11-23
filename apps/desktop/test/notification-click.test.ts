@@ -38,9 +38,9 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     }
   }
 
-  /** Hands the daemon a hook's event for Alpha's Claude Code pane, as the hook's own command does: the pane's id on a line and the event's JSON after it, to the socket named from inside its folder. */
-  function feed(hook: string): void {
-    execFileSync("/usr/bin/nc", ["-U", "-w", "2", "hooks.sock"], { cwd: join(app.userData, "run"), input: `${agentPane}\n${JSON.stringify({ hook_event_name: hook })}` });
+  /** Hands the daemon a hook's event for Alpha's Claude Code pane, as the hook's own command does: the pane's id on a line and the event's JSON after it, with the fields given, to the socket named from inside its folder. */
+  function feed(hook: string, fields: Record<string, unknown> = {}): void {
+    execFileSync("/usr/bin/nc", ["-U", "-w", "2", "hooks.sock"], { cwd: join(app.userData, "run"), input: `${agentPane}\n${JSON.stringify({ hook_event_name: hook, ...fields })}` });
   }
 
   /** Creates a work item through the form, with a first pane of `kind`, and waits for its view. */
@@ -154,5 +154,59 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     feed("PermissionRequest");
     await app.until(`document.getElementById("bell").classList.contains("ringing")`, "the bell ringing");
     expect(await bell()).toEqual({ title: "1 needs you. Show them alone.", name: "1 needs you. Show them alone.", count: "1" });
+  });
+
+  it("says the question an agent asks and its choices on the inbox's line, and lists the choices in the preview's card and in the view's, with no button and no field", async () => {
+    // The form the second case left open is closed, so the screens behind it take the clicks.
+    await app.evaluate(`document.getElementById("work-item-dialog").close()`);
+    const alpha = (await sessions()).find((session) => session.id === agentPane)?.workItemId;
+    if (alpha === undefined || alpha === null) throw new Error("the daemon lists Alpha's pane with no work item");
+    // The agent works again, and then calls its question tool, which the hook hands over before the person answers.
+    feed("UserPromptSubmit");
+    feed("PreToolUse", {
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [
+          {
+            question: "Which library formats the dates?",
+            header: "Dates",
+            multiSelect: false,
+            options: [
+              { label: "date-fns", description: "Small functions, one import each." },
+              { label: "dayjs", description: "One object, with plugins." },
+            ],
+          },
+        ],
+      },
+    });
+    await app.click("#nav-inbox");
+    const line = `#inbox-screen button.line[data-work-item="${alpha}"]`;
+    await app.until(`document.querySelector(${JSON.stringify(`${line} .second .says`)})?.textContent === "Which library formats the dates? date-fns · dayjs"`, "Alpha's line saying the question and its choices");
+    // The line stands in the group of the work items that need the person.
+    expect(await app.evaluate<string | null>(`document.querySelector(${JSON.stringify(line)}).closest("ul").previousElementSibling?.querySelector(".word")?.textContent ?? null`)).toBe("Needs you");
+
+    /** The card of what the agent says, under `selector`: its head, its questions, the label and what each choice leads to, how many numbered lists it holds, and how many buttons and fields. */
+    const card = (selector: string) =>
+      app.evaluate<{ head: string; waiting: boolean; asks: string[]; choices: [string, string][]; lists: number; controls: number } | null>(`(() => {
+        const card = document.querySelector(${JSON.stringify(selector)});
+        if (!card) return null;
+        return {
+          head: card.querySelector("h3").textContent,
+          waiting: card.classList.contains("waiting"),
+          asks: [...card.querySelectorAll(".asks")].map((asks) => asks.textContent),
+          choices: [...card.querySelectorAll("ol > li")].map((choice) => [choice.querySelector(".label").textContent, choice.querySelector(".implies").textContent]),
+          lists: card.querySelectorAll("ol").length,
+          controls: card.querySelectorAll("button, input, textarea, select").length,
+        };
+      })()`);
+    const drawn = { head: "Claude Code asks", waiting: true, asks: ["Which library formats the dates?"], choices: [["date-fns", "Small functions, one import each."], ["dayjs", "One object, with plugins."]], lists: 1, controls: 0 };
+    // The keyboard's place on a line selects it, and the preview shows the selected line.
+    await app.evaluate(`document.querySelector(${JSON.stringify(line)}).focus()`);
+    await app.until(`document.querySelector('#inbox-screen [data-part="preview-title"]')?.textContent === "Alpha"`, "Alpha's preview");
+    expect(await card(`#inbox-screen [data-part="preview-detail"] .says`)).toEqual(drawn);
+
+    await app.click(line);
+    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha"`, "the view of Alpha");
+    expect(await card("#view-detail .says")).toEqual(drawn);
   });
 });

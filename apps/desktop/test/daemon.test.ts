@@ -22,10 +22,10 @@ import { commitFile, git, runs, temporaryClone, temporaryRepository, unanswering
 
 const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
-const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null };
+const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null };
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
-const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
+const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
 const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
@@ -2762,7 +2762,7 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     d.agentEvent(session.id, "Stop", {});
     const last = await c.message("inbox", (m) => stateOf(m, session.id) === "finished");
-    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
+    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
     expect(last.workItems).toEqual([workItem]);
   });
 
@@ -2807,7 +2807,7 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.socket.close();
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
   });
 
   it("carries with a session's state the time it began, and the tool or the text the event that began it carried, until the state changes", async () => {
@@ -2879,6 +2879,52 @@ describe("the inbox", () => {
     expect(await listed()).toEqual({ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null });
     // One inbox for the pane's start and one per state.
     expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "waiting", "working"]);
+  });
+
+  /** A call of Claude Code's question tool, with one question and its two options. */
+  const ASKING = { tool_name: "AskUserQuestion", tool_input: { questions: [{ question: "Which library formats the dates?", header: "Dates", multiSelect: false, options: [{ label: "date-fns", description: "Small functions." }, { label: "dayjs", description: "One object." }] }] } };
+  const ASKED = [{ asks: "Which library formats the dates?", options: [{ label: "date-fns", implies: "Small functions." }, { label: "dayjs", implies: "One object." }], multiple: false }];
+
+  it("lists a session whose agent asks a question as waiting from the call that asks, with the question as its text and its questions, and keeps them through the events that follow until the call ends", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    clock = 200;
+    d.agentEvent(session.id, "PreToolUse", ASKING);
+    const waiting = { ...session, state: "waiting", stateSince: 200, stateText: "Which library formats the dates?", stateTool: null, stateQuestions: ASKED };
+    expect(await listed()).toEqual(waiting);
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+    clock = 300;
+    d.agentEvent(session.id, "PermissionRequest", ASKING);
+    clock = 400;
+    d.agentEvent(session.id, "Notification", { message: "Claude needs your permission to use AskUserQuestion" });
+    expect(await listed()).toEqual(waiting);
+    clock = 500;
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "AskUserQuestion", tool_input: ASKING.tool_input });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 500, stateText: null, stateTool: null, stateQuestions: null });
+    clock = 600;
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", tool_input: { command: "ls" } });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 500, stateText: null, stateTool: null, stateQuestions: null });
+    // One inbox for the pane's start and one per state.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting", "working"]);
+  });
+
+  it("keeps 2000 characters of a question's text, of an option's label and of what it implies", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const long = (letter: string) => `${letter.repeat(2000)}and more`;
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "AskUserQuestion", tool_input: { questions: [{ question: long("q"), options: [{ label: long("l"), description: long("d") }] }] } });
+    const listed = (await (await client(url)).message("ready")).sessions[0];
+    expect(listed?.stateText).toBe("q".repeat(2000));
+    expect(listed?.stateQuestions).toEqual([{ asks: "q".repeat(2000), options: [{ label: "l".repeat(2000), implies: "d".repeat(2000) }], multiple: false }]);
   });
 
   /** A pane whose process prints nothing and stays alive, as a CLI that asks a question before its session starts sends no event. */
@@ -3050,7 +3096,7 @@ describe("the inbox", () => {
     d.agentEvent(session.id, "PermissionRequest", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.send({ type: "input", id: session.id, data: "go\n" });
-    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null };
+    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null };
     for (const each of [c, bystander]) expect((await each.message("inbox", (m) => m.sessions[0]?.alive === false)).sessions).toEqual([ended]);
   });
 
@@ -4302,8 +4348,8 @@ describe("the last look", () => {
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const ready = await (await client(url)).message("ready");
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash" }]);
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [workItem] });
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash", stateQuestions: null }]);
   });
 
   it("replaces the look with the one of a later `looked`, from whichever client", async () => {
@@ -4369,7 +4415,7 @@ describe("the last look", () => {
     const { url } = await daemon({ runDir, worktreesRoot: root, now: () => 5678 });
     const ready = await (await client(url)).message("ready");
     // The look keeps the session it was taken with, which the daemon that starts no longer holds.
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [workItem] });
     expect(ready.sessions).toEqual([]);
   });
 

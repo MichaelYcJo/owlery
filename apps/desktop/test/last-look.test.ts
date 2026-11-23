@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { Decision, Look, PermissionAsk, Question, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
+import type { AskedQuestion, Decision, Look, PermissionAsk, Question, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -16,7 +16,11 @@ function runDir(): string {
   return dir;
 }
 
-const SESSION: SessionInfo = { id: 4, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: 1200, stateText: "May I run the tests?", stateTool: "Bash" };
+const ASKED: AskedQuestion[] = [
+  { asks: "May I run the tests?", options: [{ label: "Yes", implies: "Runs pnpm test." }, { label: "No", implies: "" }], multiple: false },
+  { asks: "Which ones?", options: [], multiple: true },
+];
+const SESSION: SessionInfo = { id: 4, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: 1200, stateText: "May I run the tests?", stateTool: "Bash", stateQuestions: ASKED };
 const COMMIT = { hash: "abc1234", subject: "add the form", at: 1100, added: 3, removed: 1 };
 const FILE = { path: "src/form.ts", added: 3, removed: 1 };
 const ASK: PermissionAsk = { id: 3, headlessId: 2, tool: "Bash", action: "run", text: "printf x >> README.md", at: 1150 };
@@ -71,13 +75,17 @@ describe("LastLook", () => {
   });
 
   it("keeps the lists as they stood, though a session or a work item it was given changes afterwards", () => {
-    const session = { ...SESSION };
+    const session = structuredClone(SESSION);
     const workItem = structuredClone(WORK_ITEM);
     const sessions = [session];
     const look = new LastLook(runDir());
     look.record(1234, sessions, [workItem]);
     session.state = "finished";
     session.stateText = "Done.";
+    session.stateQuestions![0]!.asks = "changed";
+    session.stateQuestions![0]!.options[0]!.implies = "changed";
+    session.stateQuestions![0]!.options.pop();
+    session.stateQuestions!.pop();
     workItem.newCommits = 9;
     workItem.commits![0]!.subject = "amended";
     workItem.commits!.pop();
@@ -120,7 +128,7 @@ describe("LastLook", () => {
     const dir = runDir();
     const look: Look = {
       at: 1,
-      sessions: [{ id: 2, kind: "shell", alive: false, workItemId: null, state: null, stateSince: null, stateText: null, stateTool: null }],
+      sessions: [{ id: 2, kind: "shell", alive: false, workItemId: null, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null }],
       workItems: [{ ...WORK_ITEM, baseCommit: null, baseBranch: null, aheadOfBase: null, newCommits: null, commits: null, changes: null }],
     };
     writeFileSync(join(dir, "last-look.json"), JSON.stringify(look));
@@ -140,7 +148,8 @@ describe("LastLook", () => {
       unread: UNREAD.map((unread) => ({ ...unread, block: 39 })),
       setup: { ...SETUP, shell: "/bin/zsh", failedCopies: SETUP.failedCopies.map((entry) => ({ ...entry, code: "EACCES" })) },
     };
-    writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, by: "a window", sessions: [{ ...SESSION, pid: 7 }], workItems: [workItem] }));
+    const stateQuestions = ASKED.map((question) => ({ ...question, header: "Tests", options: question.options.map((option) => ({ ...option, preview: "x" })) }));
+    writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, by: "a window", sessions: [{ ...SESSION, pid: 7, stateQuestions }], workItems: [workItem] }));
     expect(new LastLook(dir).get()).toEqual(LOOK);
   });
 
@@ -173,6 +182,11 @@ describe("LastLook", () => {
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, newCommits: "2" }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, stateSince: "1200" }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, stateText: 3 }] }))).toBeNull();
+    const [asked] = ASKED as [AskedQuestion];
+    const askedFields = [{ asks: 3 }, { asks: undefined }, { options: {} }, { options: [null] }, { options: [{ label: "Yes" }] }, { options: [{ label: 3, implies: "x" }] }, { multiple: "yes" }, { multiple: undefined }];
+    for (const stateQuestions of ["May I?", {}, [null], ["May I?"], ...askedFields.map((field) => [{ ...asked, ...field }])]) {
+      expect(read(JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, stateQuestions }] })), JSON.stringify(stateQuestions)).toBeNull();
+    }
     expect(read(JSON.stringify({ ...LOOK, sessions: [{ ...SESSION, stateTool: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, repoName: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, baseBranch: 3 }] }))).toBeNull();
@@ -266,6 +280,18 @@ describe("LastLook", () => {
     const held = [[[DECISION, REVERSED], QUESTIONS, UNREAD], [[], [], []]];
     expect(JSON.parse(readFileSync(file, "utf8")).workItems.map((item: WorkItem) => [item.decisions, item.questions, item.unread])).toEqual(held);
     expect(new LastLook(dir).get()?.workItems.map((item) => [item.decisions, item.questions, item.unread])).toEqual(held);
+  });
+
+  it("reads a look a build before the questions an agent asks wrote, whose sessions lack them, with none, and holds in a look recorded now the questions of each session", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { stateQuestions: _questions, ...before } = SESSION;
+    writeFileSync(file, JSON.stringify({ ...LOOK, sessions: [before, { ...before, id: 5 }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, sessions: [{ ...before, stateQuestions: null }, { ...before, id: 5, stateQuestions: null }] });
+    const look = new LastLook(dir);
+    look.record(1234, [SESSION, { ...SESSION, id: 5, stateQuestions: null }], [WORK_ITEM]);
+    expect(JSON.parse(readFileSync(file, "utf8")).sessions.map((session: SessionInfo) => session.stateQuestions)).toEqual([ASKED, null]);
+    expect(new LastLook(dir).get()?.sessions.map((session) => session.stateQuestions)).toEqual([ASKED, null]);
   });
 
   it("reads a look a build before the setup wrote, whose work items lack it, with none", () => {
