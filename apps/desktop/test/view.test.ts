@@ -1364,8 +1364,9 @@ describe("the approval line", () => {
     expect(read(fix)?.filter((_, place) => place !== 1)).toEqual(read(RECORDED)?.filter((_, place) => place !== 1));
     // The orchestrator's two kinds of stage belong to none of the four roles.
     for (const kind of ["judgment", "ruling"] as const) expect(read(chained("running", ROUND_ONE, stage({ kind })))).toEqual(read(RECORDED));
-    // Between two stages the newest one has ended, and an older stage marks no place whatever it says.
+    // Between two stages the newest one has ended, and an older stage marks no place whatever it says. A round that finished leaves the proofer's place to the records.
     expect(read(chained("running", stage({}), stage({ kind: "judgment", state: "finished", endedAt: NOW - MINUTE })))).toEqual(read(RECORDED));
+    for (const state of ["running", "reviewed"] as const) expect(read(chained(state, ROUND_ONE))).toEqual(read(RECORDED));
     // A chain a restarted daemon reads as stopped keeps a newest stage that still says working, and no place works.
     for (const state of ["stopped", "parked", "reviewed"] as const) expect(read(chained(state, ROUND_ONE, stage({})))).toEqual(read(RECORDED));
     // An open question of the role stands over the stage that runs.
