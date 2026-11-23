@@ -90,6 +90,11 @@ This snippet does not reach every statement of the fact, and the fix pass owes t
 
 Where the fix pass keeps the check as it is instead, the frame's *Scope* item 9, the three READMEs' sentences and the changelog bullet are untrue for these histories. Each then has to say that a merge of the base whose change the sealed tree already holds passes the check while the app reads the seal broken.
 
+```seal
+verdict: fixed 80a440c
+answer: Fixed in the guarantee arm as the paste-ready fix reads, after reading it against frame/design.md Scope items 8 and 9 as folded at 3b943c4: `since_sealed` takes the baseline and, where the two trees hold the same, walks the commits `git merge-base HEAD <base>` holds and the sealed commit does not, with the paths `git log --name-only` prints, as `worktrees.ts#pathsOfCommits` reads them; where git names no fork it walks nothing. In my own words where the snippet answered `differs`: such a path is answered `("brought", sha, path)`, and `since_sealed_reason` names it as "a commit of the base that a merge brought after the sealed commit `<7>` touches `<path>`, outside the work item's records", since the path does not differ between the trees; `judge` counts every answer an arm refused, so the title is the broken seal's. `guarantee` takes `base`, its call passes `args.baseline`, and both docstrings say the walk. Scenario 9's table gains histories A and B, each `broken` with the line it prints, and a case of scenario 10 posts both and reads the title; both cases were red against the arm at 3b943c4 (`pr-check.test.ts:636` and `:733`). `seal mutate` of chain_check.py, 6 mutants, all red: the walk skipped, the refusal dropped, the walk from the fork itself, the walk of every commit the fork holds and the sentence's kind renamed, each against the merge cases; and the baseline replaced by HEAD, which those cases let through and the case of scenario 11 failed at `pr-check.test.ts:503`, the head whose commit after the seal was taken back, where the guarantee arm refuses nothing. The frame's statements were folded by the framer at 3b943c4; changelog.md and pr-check/README.md say the walk in 80a440c, and the sentences of README.md and README.ko.md hold as they stand, since a merge of the base after the seal now fails the check.
+```
+
 ### 2. The rule changes and the changelog say the daemon and the check share one rule, and records written by hand still get two answers from them
 
 ```seal
@@ -125,6 +130,12 @@ On the pull request the check `Owlery seal` judges the same records, with or wit
 ```
 
 The Korean twins at `frame/design.md:259` and `:269` are rewritten the same way, and the changelog bullet at `changelog.md:11` opens "On the pull request, the check `Owlery seal` judges the same records." Add the other three histories to `frame/plan.md:31`, and close the row at `gaps.md:22`.
+
+```seal
+verdict: fixed 97de906
+location: `README.md:28`, `README.ko.md:28`, `pr-check/README.md:5`
+answer: The frame's part was folded by the framer at 3b943c4: the four `to:` texts, Scope item 11 and plan.md's failure scenario now say which histories the two readers judge alike and name the hand-written records as a class. The fix pass took the rest: changelog.md's bullet now opens "On the pull request, the check `Owlery seal` judges the same records." and says that records no chain of the app commits can be judged apart (80a440c); pr-check/README.md says the same in that commit; README.md and README.ko.md each gain the sentence in the paragraph of *The seal check on GitHub*, kept at equal heading and table-row counts (97de906, 6 headings and 16 table rows each); and gaps.md's row on the open question committed before the seal is closed, citing plan.md's failure scenario that names the class (97de906). No code changes for this finding: the class stays apart by the frame's choice in Scope item 11.
+```
 
 ## Confirmations
 
