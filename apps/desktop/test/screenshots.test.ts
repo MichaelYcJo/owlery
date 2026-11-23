@@ -5,8 +5,10 @@
 // work item's view, the view of the parked work item, a work item's menu and
 // the "New work item" form) in each appearance of the theme a first run
 // opens in. No agent runs: a pane's process is a fixture, a state is what
-// the daemon's hook socket is fed, and the view's work item is asked two
-// prompts, which a stand-in for the CLI answers. It fails the first at once,
+// the daemon's hook socket is fed, the agent of the work item that needs the
+// person waits on a question with two choices, fed as its question tool's
+// call, and the view's work item is asked two prompts, which a stand-in for
+// the CLI answers. It fails the first at once,
 // and holds the second, whose session asks the person to allow a command and
 // gets no answer, so the work item's line says the request and the view's
 // "Ask" section shows its card. The run waits until the section shows that
@@ -18,8 +20,10 @@
 // work items stand, so the one at work shows its setup running, the one in
 // the view has a setup that succeeded, with the paths it copied, and the
 // form names the setup's command; no setup's command runs, and the run
-// types the code a setup pane ends with. Each view's shot opens at the top
-// of its side column, where the parked view's questions stand. With
+// types the code a setup pane ends with. The inbox's shot previews the work
+// item that needs the person, with its agent's question. Each view's shot
+// opens at the top of its side column, where the parked view's questions
+// stand. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -60,7 +64,31 @@ const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<stri
   { title: "Rename the settings file", kind: "shell", events: [], setup: null },
   { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }], setup: null },
   { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
-  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }], setup: "succeeded" },
+  {
+    title: "Fix the login redirect",
+    kind: "claude",
+    events: [
+      { hook_event_name: "UserPromptSubmit" },
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              question: "Should the redirect keep the query string of the page the person came from?",
+              header: "Redirect",
+              multiSelect: false,
+              options: [
+                { label: "Keep it", description: "The person lands on the page they left, with its filters." },
+                { label: "Drop it", description: "The person lands on the page's plain address." },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    setup: "succeeded",
+  },
 ];
 /**
  * The ignored files of the repository's main checkout, each with what it
@@ -241,8 +269,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   /** Brings a view to the front, as a person does, and waits until it is drawn. */
   const show: Record<View, () => Promise<void>> = {
     inbox: async () => {
+      // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
+      await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length}`, "the inbox with its lines");
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)}`, `the inbox with its lines and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
