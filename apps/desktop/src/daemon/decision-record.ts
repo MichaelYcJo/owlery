@@ -129,7 +129,7 @@ function routingRows(text: string): Map<string, { value: string; index: number }
  * and a declaration only where `Review` and `Destination` each hold an answer
  * the check knows and `Branch` holds a name.
  */
-function declaredBranch(text: string): string | null {
+export function declaredBranch(text: string): string | null {
   const rows = routingRows(text);
   const one = (label: string): string => {
     const values = rows.get(label) ?? [];
@@ -140,32 +140,42 @@ function declaredBranch(text: string): string | null {
 }
 
 /**
- * The work item's directory in a worktree: the one under `<root>/threads/`
- * whose `routing.md` names the branch in its `Branch` row. Null where none
- * does, where more than one does, and where the worktree holds no records
- * root, which is how the pull request check reads it
- * (`pr-check/lib/routing.py#item_dir`). It reads the working tree, committed
- * or not. A `routing.md` that is a link, that is no plain file, or that holds
- * more than `REPOSITORY_FILE_BYTES` names no branch here, though the check
- * reads it: the daemon reads each one in its pass, from a checkout it did not
- * write.
+ * Every directory under a worktree's `<root>/threads/` whose `routing.md`
+ * names the branch in its `Branch` row, in the order of their names. None
+ * where the worktree holds no records root. It reads the working tree,
+ * committed or not. A `routing.md` that is a link, that is no plain file, or
+ * that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
+ * the check reads it: the daemon reads each one in its pass, from a checkout
+ * it did not write.
  */
-export function workItemDirectory(worktree: string, branch: string): string | null {
+export function workItemDirectories(worktree: string, branch: string): string[] {
   const root = rootOf(worktree);
-  if (root === null) return null;
+  if (root === null) return [];
   const threads = join(worktree, root, "threads");
   let names: string[];
   try {
-    names = readdirSync(threads);
+    names = readdirSync(threads).sort();
   } catch {
-    return null;
+    return [];
   }
-  const naming = names.filter((name) => {
-    const text = textOf(join(threads, name, ROUTING_FILE));
-    return text !== null && declaredBranch(text) === branch;
-  });
+  return names
+    .filter((name) => {
+      const text = textOf(join(threads, name, ROUTING_FILE));
+      return text !== null && declaredBranch(text) === branch;
+    })
+    .map((name) => join(threads, name));
+}
+
+/**
+ * The work item's directory in a worktree: the one of `workItemDirectories`.
+ * Null where none names the branch, where more than one does, and where the
+ * worktree holds no records root, which is how the pull request check reads
+ * it (`pr-check/lib/routing.py#item_dir`).
+ */
+export function workItemDirectory(worktree: string, branch: string): string | null {
+  const naming = workItemDirectories(worktree, branch);
   const [only] = naming;
-  return naming.length === 1 && only !== undefined ? join(threads, only) : null;
+  return naming.length === 1 && only !== undefined ? only : null;
 }
 
 // ---------------------------------------------------------------------------

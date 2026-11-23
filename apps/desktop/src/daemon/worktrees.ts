@@ -901,3 +901,82 @@ export async function commitPaths(worktree: string, branch: string, paths: reado
   const committed = await run(["commit", "-m", subject, "-m", trailer, "--", ...paths]);
   if (committed.failed) return refused(committed.said);
 }
+
+/** The commit a worktree's HEAD names, whole. It throws git's words where git cannot say. */
+export async function worktreeHead(worktree: string): Promise<string> {
+  return (await git(worktree, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+}
+
+/** The commit a name gives in a worktree, whole, or null where it names none: a hash, shortened or whole, a branch or a remote's branch. */
+export async function commitNamed(worktree: string, name: string): Promise<string | null> {
+  try {
+    return (await git(worktree, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${name}^{commit}`])).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the commit `holder` holds the commit `held`: `held` is `holder` or one of its ancestors. It throws git's words where either names no commit. */
+export async function holdsCommit(worktree: string, holder: string, held: string): Promise<boolean> {
+  const asked = await gitIn(worktree, ["merge-base", "--is-ancestor", held, holder]);
+  if (!asked.failed) return true;
+  // Git exits 1 with no word where the commit is no ancestor, and with its words where it could not say.
+  if (asked.said !== "" && !asked.said.startsWith("Command failed")) throw new Error(asked.said);
+  return false;
+}
+
+/** The paths git prints between NUL characters, in its order, each once. */
+function nulPaths(printed: string): string[] {
+  return [...new Set(printed.split("\0").map((path) => path.replace(/^\n+/, "")).filter((path) => path !== ""))];
+}
+
+/**
+ * The paths of a worktree that hold a change no commit holds, a staged one
+ * and one not staged alike, and its untracked files, each by its own path
+ * from the worktree's top. A file that was moved is both of its paths. The
+ * files git ignores are none. It throws git's words where git cannot say.
+ */
+export async function uncommittedPaths(worktree: string): Promise<string[]> {
+  const printed = await git(worktree, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], BRANCH_OUTPUT_BYTES);
+  const paths: string[] = [];
+  const entries = printed.split("\0");
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index] ?? "";
+    if (entry.length < 4) continue;
+    paths.push(entry.slice(3));
+    // A rename's or a copy's entry is followed by the path it came from.
+    if ("RC".includes(entry.charAt(0)) || "RC".includes(entry.charAt(1))) paths.push(entries[++index] ?? "");
+  }
+  return [...new Set(paths.filter((path) => path !== ""))];
+}
+
+/** The paths the commits that `to` holds and `from` does not changed, each once, a merge's own changes left out. It throws git's words where either names no commit. */
+export async function pathsOfCommits(worktree: string, from: string, to: string): Promise<string[]> {
+  return nulPaths(await git(worktree, ["log", "--format=", "--name-only", "-z", `${from}..${to}`], BRANCH_OUTPUT_BYTES));
+}
+
+/**
+ * What `to` changed against `from`, as `git diff` prints it: the paths, and
+ * the diff's text. With `sinceFork` the diff is from the commit the two last
+ * shared, so what `from` gained since is no part of it. It throws git's
+ * words where either names no commit.
+ */
+export async function diffBetween(worktree: string, from: string, to: string, sinceFork: boolean): Promise<{ paths: string[]; text: string }> {
+  const range = `${from}${sinceFork ? "..." : ".."}${to}`;
+  const [paths, text] = await Promise.all([git(worktree, ["diff", "--name-only", "-z", range], BRANCH_OUTPUT_BYTES), git(worktree, ["diff", range], BRANCH_OUTPUT_BYTES)]);
+  return { paths: nulPaths(paths), text };
+}
+
+/** The text of the file at a path, from the worktree's top, as a commit holds it, or null where the commit holds no file there. */
+export async function fileAt(worktree: string, commit: string, path: string): Promise<string | null> {
+  try {
+    return await git(worktree, ["show", `${commit}:${path}`], BRANCH_OUTPUT_BYTES);
+  } catch {
+    return null;
+  }
+}
+
+/** The files a commit holds directly in a folder, each by its path from the worktree's top, in git's order. None where the commit holds no such folder. It throws git's words where the commit is none. */
+export async function filesAt(worktree: string, commit: string, folder: string): Promise<string[]> {
+  return nulPaths(await git(worktree, ["ls-tree", "-z", "--name-only", commit, "--", `${folder.replace(/\/+$/u, "")}/`], BRANCH_OUTPUT_BYTES));
+}

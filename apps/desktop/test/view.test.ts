@@ -156,6 +156,7 @@ const LOGIN: WorkItem = {
   questions: [],
   unread: [],
   setup: null,
+  chain: null,
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };

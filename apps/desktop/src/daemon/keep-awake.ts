@@ -17,13 +17,15 @@ const CAFFEINATE = "/usr/bin/caffeinate";
 /**
  * Whether the daemon wants the Mac awake: never under `never`, always under
  * `always`, and under `working` while a pane is alive with the state
- * `working` or a headless session has it. An exited pane keeps its last
- * state, so `alive` is read beside it.
+ * `working`, a headless session has it, or a work item's chain is running:
+ * between two stages of a chain no session works, and the Mac is held awake
+ * across them. An exited pane keeps its last state, so `alive` is read
+ * beside it.
  */
-export function wantsAwake(choice: KeepAwakeChoice, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[]): boolean {
+export function wantsAwake(choice: KeepAwakeChoice, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], chainRuns = false): boolean {
   if (choice === "never") return false;
   if (choice === "always") return true;
-  return sessions.some((session) => session.alive && session.state === "working") || headless.some((session) => session.state === "working");
+  return chainRuns || sessions.some((session) => session.alive && session.state === "working") || headless.some((session) => session.state === "working");
 }
 
 /**

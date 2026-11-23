@@ -287,6 +287,52 @@ export interface WorkItem {
   unread: Unread[];
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
+  /** Its chain: where the run a `getSeal` started stands, with the stages of every start, or null where none ran for it. A daemon of an earlier build sends no such field, and a client reads its absence as a daemon that offers no "Get a seal". */
+  chain: Chain | null;
+}
+
+/**
+ * The kinds of stage a work item's chain runs, each one role session: a
+ * review round, a fix pass, and a judgment of the orchestrator's.
+ */
+export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment"] as const;
+
+/** One of `CHAIN_STAGE_KINDS`. */
+export type ChainStageKind = (typeof CHAIN_STAGE_KINDS)[number];
+
+/** One stage a chain ran or is running. */
+export interface ChainStage {
+  kind: ChainStageKind;
+  /** The round a round is, the round a fix pass answers, or the round a judgment follows. */
+  round: number;
+  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. */
+  state: "working" | "finished" | "failed";
+  /** Why the stage `failed`, as a sentence the window shows as it is, and null in the other two states. */
+  failure: string | null;
+  startedAt: number;
+  /** When the stage ended, or null while it works and where the daemon ended before it did. */
+  endedAt: number | null;
+  /** The stage's headless session, by its id of this daemon's run, or null once the daemon that ran it has ended, since the next daemon gives the id to another session, and for a stage whose session did not start. */
+  headlessId: number | null;
+  /** How many calls of the stage's session its role's rule refused. */
+  refusals: number;
+}
+
+/**
+ * What the daemon runs for one work item after a `getSeal`: its review
+ * rounds and fix passes, one stage at a time. Which stage is next is read
+ * from the work item's committed records at each step, and this is what a
+ * window shows of the run.
+ */
+export interface Chain {
+  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, and where the daemon ended while a stage ran. `reviewed` where the last round left nothing open and no commit after it is unread. */
+  state: "running" | "parked" | "stopped" | "reviewed";
+  /** Where the chain stands, as a sentence the window shows as it is. */
+  says: string;
+  /** The commit the rounds settled at where `reviewed`, and null otherwise. */
+  reviewedAt: string | null;
+  /** The stages, the oldest first: the newest of them, as many as the daemon keeps (`CHAIN_STAGES_KEPT` of `src/daemon/chain.ts`). */
+  stages: ChainStage[];
 }
 
 /** One call a headless session waits for the person to allow or refuse. */
@@ -365,6 +411,7 @@ export type HeadlessState = "working" | "finished" | "failed";
 export interface HeadlessInfo {
   id: number;
   workItemId: number;
+  /** The prompt as it was asked. For a stage of a chain it is the stage's prompt without the diff the agent was given after it. */
   prompt: string;
   state: HeadlessState;
   /** The answer as far as it has arrived, and the whole of it once `finished`. */
@@ -441,13 +488,13 @@ export type ClientMessage =
   | { type: "addGroup"; requestId: number; repoId: number; name: string }
   // Sets a work item's pin, its mute, its group, or several of them: a field that is absent is left as it is. `groupId` is the id of a group of the work item's repository, or null, which takes the work item out of its group. A group of another repository, or one no repository holds, is refused, and nothing of the message is then set. The daemon answers with `done`.
   | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
-  // Reverses a decision made for a work item in place of asking, with the person's message, which is written into the decision's block of the work item's record without the white space at its ends. `decisionId` is the block's id. The decision stays listed, as `reversed`, with the message. An empty message is refused, and so are an id the record holds no decision of, a decision that does not stand `decided` and a work item whose worktree holds no directory of its own: no file is then changed. It is refused too, before anything is written, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it, with an `error` that says which, since a word written in the middle of a rebase is lost where the rebase is aborted. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working and no headless session of it is working, and otherwise leaves the file written for the session's own commit. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  // Reverses a decision made for a work item in place of asking, with the person's message, which is written into the decision's block of the work item's record without the white space at its ends. `decisionId` is the block's id. The decision stays listed, as `reversed`, with the message. An empty message is refused, and so are an id the record holds no decision of, a decision that does not stand `decided` and a work item whose worktree holds no directory of its own: no file is then changed. It is refused too, before anything is written, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it, with an `error` that says which, since a word written in the middle of a rebase is lost where the rebase is aborted. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working, no headless session of it is working and its chain is not running, and otherwise leaves the file written for the session's own commit, or for the commit of the chain's next stage. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
   | { type: "reverseDecision"; requestId: number; workItemId: number; decisionId: number; message: string }
-  // Answers the questions a work item is parked with, which ends the park: one answer for each open question of the work item's record, named by the block's id, an option's label or the person's own words, written into the question's block without the white space at its ends. Refused, with no file changed, where the record holds no open question, where an open question has no answer in the message, where the message answers an id that is no open question of the record or one question twice, for an empty answer, for a work item whose worktree holds no directory of its own, and, as a `reverseDecision` is, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it. The answered blocks stay in the record. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working and no headless session of it is working, and otherwise leaves the file written for the session's own commit. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  // Answers the questions a work item is parked with, which ends the park: one answer for each open question of the work item's record, named by the block's id, an option's label or the person's own words, written into the question's block without the white space at its ends. Refused, with no file changed, where the record holds no open question, where an open question has no answer in the message, where the message answers an id that is no open question of the record or one question twice, for an empty answer, for a work item whose worktree holds no directory of its own, and, as a `reverseDecision` is, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it. The answered blocks stay in the record. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working, no headless session of it is working and its chain is not running, and otherwise leaves the file written for the session's own commit, or for the commit of the chain's next stage. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
   | { type: "answerQuestions"; requestId: number; workItemId: number; answers: { questionId: number; answer: string }[] }
   // Asks what renaming the work item's branch after the name `title` would give. The daemon renames nothing, and answers with a `renamePlan`.
   | { type: "planRename"; requestId: number; id: number; title: string }
-  // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so is a rename of the branch that a plan would answer with `blocked`: nothing is then changed, the name neither. The worktree's folder keeps its name. Where the `routing.md` of one directory of the worktree's records names the branch, the daemon writes the new name into that file's `Branch` row and commits the file alone, as it commits a person's word, so the work item's records are still found by its branch. The daemon answers with `done`.
+  // Gives the work item the name `title`, without the white space at its ends, and where `branch` is true renames its branch to the one a `renamePlan` names. An empty name is refused, and so are a rename of the branch that a plan would answer with `blocked` and a rename of the branch while the work item's chain is running: nothing is then changed, the name neither. The worktree's folder keeps its name. Where the `routing.md` of one directory of the worktree's records names the branch, the daemon writes the new name into that file's `Branch` row and commits the file alone, as it commits a person's word, so the work item's records are still found by its branch. The daemon answers with `done`.
   | { type: "renameWorkItem"; requestId: number; id: number; title: string; branch: boolean }
   // Archives a work item: it leaves `workItems` for `archived`, and nothing on disk is changed, its worktree's folder and its branch neither. `running` names the running sessions the person was told of. Where a session of the work item runs that the message does not name, the daemon refuses and ends none. Otherwise it ends the sessions named, waits for the panes' processes to exit, as long as it waits at a removal, and archives the work item whether or not each has exited by then. A pane it ended stays listed, as an exited one, and a headless session it stopped as a failed one. The daemon reads git for no archived work item, and starts no pane and no headless session in one. It answers with `done`, and an archive of a work item that is archived changes nothing.
   | { type: "archiveWorkItem"; requestId: number; id: number; running: Running }
@@ -469,6 +516,8 @@ export type ClientMessage =
   | { type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number; setupCommand?: string | null }
   // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage, and the daemon answers each call of it that asks for permission by the role's rule. The daemon answers a pair `ROLE_STAGES` does not list with an `error`, and so an adapter that cannot launch a role, and starts nothing. Without `role` the session has no role, and each call of it that asks for permission waits for the person, in its work item's `permissions`, while the session stays `working`.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string; role?: RoleStage }
+  // Starts the work item's chain: its review rounds and fix passes, one role session at a time, in its worktree. The daemon reads the work item's round records, its record of decisions and questions and its branch's head, and runs the stage they say is owed: round 1 where no round record stands, a fix pass where the last record holds an open finding or a decision stands reversed, a verifying round where the last record holds a closed finding or a commit after its target changed a path outside the work item's directory, and none where the last round left nothing to read, which is `reviewed`. It reads them again after each stage. Where no directory of the worktree's records names the branch, it first makes one, `<root>/threads/<seconds>-<slug>/`, with a `routing.md` that names the branch, and commits that file alone. After a round it writes the session's answer, from its heading on, unchanged to `trail/rounds/round-<N>.md` and commits it, and after a fix pass it commits the record the crafter closed findings in, each commit with the person's git identity, the repository's hooks and the trailer `Seal-Routing:`, and nothing pushed. It writes and commits nothing of a stage whose session failed or was stopped, or whose record the pull request check would refuse, and the chain is then `stopped` with a sentence that says why. Each stage's session is stopped, and its process has exited, before the next stage starts. A chain goes on with no client connected. The daemon answers with `done` once the chain has started, before the `inbox` that carries it, and with an `error`, starting nothing and writing nothing, for a work item it does not list, an archived one, one being deleted and one whose folder is gone; while a chain of the work item is running; while a pane of it says it is working or a headless session of it is working; where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it; where the worktree holds a tracked file with a change no commit holds, or an untracked file, outside the work item's directory; where it holds no records root; where two directories name the branch; for a work item with no `baseCommit`; where the branch holds no commit after it; where the adapter cannot launch a role; and where the work item's record holds an open question.
+  | { type: "getSeal"; requestId: number; workItemId: number }
   // Stops a headless session that is working: its run is stopped, and it is `failed`, with `stopped` set to `request`. A session that is not working is left as it is. The daemon answers with `done`, and with an `error` for an id it does not list.
   | { type: "stopHeadless"; requestId: number; id: number }
   // Answers one permission request of the work item's `permissions`, by its `id`: with `allow` true the call runs, and that one call alone, and with `allow` false the agent is told the person refused it. The daemon answers with `done`, before the `inbox` that carries the work item without the request, and with an `error` for a request that does not wait in that work item, which changes nothing.
