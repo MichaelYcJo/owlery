@@ -1,6 +1,7 @@
-// A work item's chain: the review rounds and the fix passes the daemon runs
-// after a `getSeal`. Every stage runs on the fake adapter, on a temporary
-// repository, and no case starts an agent.
+// A work item's chain: the review rounds, the fix passes and the
+// orchestrator's judgments the daemon runs after a `getSeal`. Every stage
+// runs on the fake adapter, on a temporary repository, and no case starts an
+// agent.
 import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";

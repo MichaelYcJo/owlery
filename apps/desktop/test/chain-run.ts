@@ -1,7 +1,8 @@
 // What the cases of a work item's chain share: a daemon on a temporary
 // repository with the records root, a client, the round records a fake
-// proofer answers with and the fix a fake crafter makes. No case starts an
-// agent: every stage runs on the fake adapter.
+// proofer answers with, the fix a fake crafter makes and the blocks a fake
+// orchestrator answers with. No case starts an agent: every stage runs on
+// the fake adapter.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
