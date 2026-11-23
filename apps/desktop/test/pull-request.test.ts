@@ -3,12 +3,14 @@
 // body composed from the records the head commit holds, and the seal
 // section replaced in a body a person may have edited. Each case runs on a
 // temporary repository, and none reaches a remote.
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { OPEN_PULL_REQUEST, pullRequestOwed } from "../src/daemon/chain";
-import { BODY_LIMIT, SECTION_CLOSE, SECTION_OPEN, bodyRecords, pullRequestBody, pullRequestTitle, pushTarget, withSealSection } from "../src/daemon/github";
+import { BODY_LIMIT, SECTION_CLOSE, SECTION_OPEN, bodyRecords, openPullRequests, pullRequestBody, pullRequestTitle, pushTarget, withSealSection } from "../src/daemon/github";
 import { type Cleanups, bareRemote, commitAll, write } from "./chain-run";
 import type { PullRequest } from "../src/shared/protocol";
-import { git, temporaryClone, temporaryRepository } from "./repositories";
+import { git, runs, temporaryClone, temporaryRepository } from "./repositories";
 
 const cleanups: Cleanups = [];
 afterEach(async () => {
@@ -47,6 +49,33 @@ describe("whether a sealed chain owes the pull request stage", () => {
     for (const destination of ["stop before the pull request", null, "Open the pull request"]) expect(pullRequestOwed(destination, null, HEAD), String(destination)).toBe(false);
     expect(pullRequestOwed(OPEN_PULL_REQUEST, stored("merged", "d".repeat(40)), HEAD)).toBe(false);
     expect(pullRequestOwed(OPEN_PULL_REQUEST, stored("open"), HEAD)).toBe(false);
+  });
+});
+
+describe("a call of gh past its time limit", () => {
+  /** A stand-in for gh in the repository's folder that runs the shell's lines given, and the call made of it with a limit of 1.5 seconds, which leaves a busy machine the time to start the shell. */
+  const calling = (made: { base: string; repo: string }, lines: string): Promise<unknown> => {
+    const gh = join(made.base, "gh");
+    writeFileSync(gh, `#!/bin/sh\n${lines}\n`, { mode: 0o755 });
+    return openPullRequests({ gh: [gh], env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, cwd: made.repo, limitMs: 1500 }, "feature");
+  };
+
+  it("is ended by a signal to its process group, which reaches what it started, and is killed 2 seconds after the signal where it ignores it", async () => {
+    const made = repository();
+    const child = join(made.base, "child");
+    let began = Date.now();
+    expect(await refusal(calling(made, `sleep 30 & echo $! > '${child}'; wait`))).toBe("gh pr list did not end within 1.5 seconds and was stopped");
+    // The kill would come 2 seconds after the signal.
+    expect(Date.now() - began).toBeLessThan(3200);
+    // The shell's own child had the signal too, and is gone.
+    const pid = Number(readFileSync(child, "utf8").trim());
+    const end = Date.now() + 2000;
+    while (runs(pid) && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    expect(runs(pid)).toBe(false);
+    began = Date.now();
+    expect(await refusal(calling(made, 'trap "" TERM; exec sleep 30'))).toBe("gh pr list did not end within 1.5 seconds and was stopped");
+    expect(Date.now() - began).toBeGreaterThanOrEqual(3500);
+    expect(Date.now() - began).toBeLessThan(10_000);
   });
 });
 
