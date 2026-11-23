@@ -5,11 +5,12 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type Repository, type RoleStage, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
+import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
+import { NOTHING_RECORDED, readChainRecords } from "./chain-records";
 import {
   type Ask,
   BUILT_BY_TRAILER,
@@ -155,15 +156,22 @@ function characters(text: string): number {
 /** The kinds of a decision. */
 const DECISION_KINDS: readonly DecisionKind[] = ["route", "default", "scope", "answered"];
 
-/** What the daemon holds of one read of a work item's record, as a client is sent it. */
+/** What the daemon holds of one read of a work item's record and of its records of the chain, as a client is sent it. */
 interface RecordRead {
   decisions: Decision[];
   questions: Question[];
   unread: Unread[];
+  recorded: Recorded;
 }
 
-/** What a work item holds of its record where its worktree holds none. */
-const NO_RECORD: RecordRead = { decisions: [], questions: [], unread: [] };
+/** What the records say of the chain as a client is sent it: a verdict's reason or question cut at `STATE_TEXT_CHARS`. */
+function recordedOf(recorded: Recorded): Recorded {
+  const { verdict } = recorded;
+  return verdict === null ? recorded : { ...recorded, verdict: { ...verdict, says: cutText(verdict.says) } };
+}
+
+/** What a work item holds of its records where its worktree holds none. */
+const NO_RECORD: RecordRead = { decisions: [], questions: [], unread: [], recorded: NOTHING_RECORDED };
 
 export interface PaneCommand {
   command: string;
@@ -530,7 +538,11 @@ export class Daemon {
    * unread line that says why: a record that is a link, one that is no plain
    * file and one over `REPOSITORY_FILE_BYTES` among them, as
    * `repositoryFileText` refuses each. Each block's time is the daemon's own,
-   * from the store of the times.
+   * from the store of the times. Beside the record it reads, in the same
+   * directory, what the work item's records say of its chain
+   * (`chain-records.ts`), with a verdict's reason or question cut at
+   * `STATE_TEXT_CHARS`; a work item with no directory of its own says
+   * nothing of it.
    */
   private readRecord({ item }: Held): boolean {
     const directory = workItemDirectory(item.worktree, item.branch);
@@ -558,6 +570,7 @@ export class Daemon {
       })),
       questions: record.questions.map(({ id, asks, grounds, by, options, default: taken, state }) => ({ id, asks, grounds, by, options: options.map(({ label, implies }) => ({ label, implies })), default: taken, answer: state.is === "answered" ? state.answer : null, since: since.get(id) ?? null })),
       unread: [...record.refusals, ...record.notices].map(({ line, why }) => ({ line, why })).sort((a, b) => a.line - b.line),
+      recorded: recordedOf(readChainRecords(directory)),
     };
     const before = this.recordsRead.get(item.id);
     this.recordsRead.set(item.id, read);
@@ -1830,7 +1843,7 @@ export class Daemon {
     return this.options.version;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with what was last read of its record: its decisions, its questions and what the reader did not read; and with the requests of its headless sessions that wait for the person, the oldest first. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -2743,7 +2756,8 @@ export class Daemon {
 
   /**
    * Reads from git the new commits of each work item that is not archived,
-   * from its worktree its record of decisions and questions, and from each
+   * from its worktree its record of decisions and questions and what its
+   * records say of its chain, and from each
    * repository's working tree what it holds of the records place, and tells
    * every client where a count changed, a branch's head moved, a record
    * reads otherwise or a repository's records place is another. An archived

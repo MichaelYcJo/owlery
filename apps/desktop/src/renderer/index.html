@@ -155,6 +155,17 @@
       .detail .says.waiting { box-shadow: var(--said-edge-waiting); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
       .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      /* The approval line: four places of one width side by side, each its mark and the role's name on a row and the note under the name. After each name but the sealer's stands the rule that joins it to the next place, in the form the theme gives it, and the sealer's place holds the seal's place there. Where the theme draws the line as boxes, the block and each place after the first carry the theme's edges. Under the places stands each place's line of text, plain and with its line breaks kept, in the colour of a failure for a place that failed. */
+      .approval .places { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--space-2) 0 0; padding: 0; list-style: none; box-shadow: var(--approval-edge); }
+      .place { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-3); box-shadow: var(--approval-box-edge); }
+      .place:first-child { box-shadow: none; }
+      .place .row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+      .place .name { flex: none; font-size: var(--size-text); font-weight: 500; color: var(--ink); white-space: nowrap; }
+      .place .join { flex: 1; min-width: 0; height: 1px; background: var(--approval-rule); }
+      .place .seal { margin-left: auto; }
+      .place .note { padding-left: calc(var(--icon) + var(--space-3)); font-size: var(--size-caption); color: var(--ink-muted); white-space: nowrap; }
+      .approval .under { padding-top: var(--space-3); font-size: var(--size-second); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .approval .under.failed { color: var(--state-failed); }
       /* The questions an agent asks in its pane, in place of its words: each question in the face of what an agent says, its choices under it as a numbered list in the agent's order, each choice's label in the strong ink and what it leads to in the muted one, and under a question that takes more than one choice the words that say so. No choice is a button and the card holds no field. Each text is plain, with its line breaks kept. */
       .detail .says .asked { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-4); }
       .detail .says .asks { font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
@@ -314,7 +325,7 @@
       .preview-facts .branch { color: var(--ink); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
-      .preview .detail .says, .preview .detail .decisions { grid-column: 1 / -1; }
+      .preview .detail .says, .preview .detail .approval, .preview .detail .decisions { grid-column: 1 / -1; }
       .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
       .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
 
