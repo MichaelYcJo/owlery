@@ -156,12 +156,12 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     expect(await bell()).toEqual({ title: "1 needs you. Show them alone.", name: "1 needs you. Show them alone.", count: "1" });
   });
 
-  it("says the question an agent asks and its choices on the inbox's line, and lists the choices in the preview's card and in the view's, with no button and no field", async () => {
+  it("says the question an agent asks and its choices on the inbox's line, and lists the choices in the preview's card and in the view's, with the words under a question that takes more than one, and no button and no field", async () => {
     // The form the second case left open is closed, so the screens behind it take the clicks.
     await app.evaluate(`document.getElementById("work-item-dialog").close()`);
     const alpha = (await sessions()).find((session) => session.id === agentPane)?.workItemId;
     if (alpha === undefined || alpha === null) throw new Error("the daemon lists Alpha's pane with no work item");
-    // The agent works again, and then calls its question tool, which the hook hands over before the person answers.
+    // The agent works again, and then calls its question tool with two questions, the second of which takes more than one choice. The hook hands the call over before the person answers.
     feed("UserPromptSubmit");
     feed("PreToolUse", {
       tool_name: "AskUserQuestion",
@@ -176,30 +176,48 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
               { label: "dayjs", description: "One object, with plugins." },
             ],
           },
+          {
+            question: "Which checks run before a commit?",
+            header: "Checks",
+            multiSelect: true,
+            options: [
+              { label: "Lint", description: "" },
+              { label: "Types", description: "tsc --noEmit" },
+            ],
+          },
         ],
       },
     });
     await app.click("#nav-inbox");
     const line = `#inbox-screen button.line[data-work-item="${alpha}"]`;
-    await app.until(`document.querySelector(${JSON.stringify(`${line} .second .says`)})?.textContent === "Which library formats the dates? date-fns · dayjs"`, "Alpha's line saying the question and its choices");
+    await app.until(`document.querySelector(${JSON.stringify(`${line} .second .says`)})?.textContent === "Which library formats the dates? date-fns · dayjs (and 1 more question)"`, "Alpha's line saying the question and its choices");
     // The line stands in the group of the work items that need the person.
     expect(await app.evaluate<string | null>(`document.querySelector(${JSON.stringify(line)}).closest("ul").previousElementSibling?.querySelector(".word")?.textContent ?? null`)).toBe("Needs you");
 
-    /** The card of what the agent says, under `selector`: its head, its questions, the label and what each choice leads to, how many numbered lists it holds, and how many buttons and fields. */
+    /** The card of what the agent says, under `selector`: its head, its questions, the words under each question or null where it has none, the label and what each choice leads to, how many numbered lists it holds, and how many buttons and fields. */
     const card = (selector: string) =>
-      app.evaluate<{ head: string; waiting: boolean; asks: string[]; choices: [string, string][]; lists: number; controls: number } | null>(`(() => {
+      app.evaluate<{ head: string; waiting: boolean; asks: string[]; notes: (string | null)[]; choices: [string, string][]; lists: number; controls: number } | null>(`(() => {
         const card = document.querySelector(${JSON.stringify(selector)});
         if (!card) return null;
         return {
           head: card.querySelector("h3").textContent,
           waiting: card.classList.contains("waiting"),
           asks: [...card.querySelectorAll(".asks")].map((asks) => asks.textContent),
+          notes: [...card.querySelectorAll(".asked")].map((asked) => asked.querySelector(".hint")?.textContent ?? null),
           choices: [...card.querySelectorAll("ol > li")].map((choice) => [choice.querySelector(".label").textContent, choice.querySelector(".implies").textContent]),
           lists: card.querySelectorAll("ol").length,
           controls: card.querySelectorAll("button, input, textarea, select").length,
         };
       })()`);
-    const drawn = { head: "Claude Code asks", waiting: true, asks: ["Which library formats the dates?"], choices: [["date-fns", "Small functions, one import each."], ["dayjs", "One object, with plugins."]], lists: 1, controls: 0 };
+    const drawn = {
+      head: "Claude Code asks",
+      waiting: true,
+      asks: ["Which library formats the dates?", "Which checks run before a commit?"],
+      notes: [null, "More than one may be chosen."],
+      choices: [["date-fns", "Small functions, one import each."], ["dayjs", "One object, with plugins."], ["Lint", ""], ["Types", "tsc --noEmit"]],
+      lists: 2,
+      controls: 0,
+    };
     // The keyboard's place on a line selects it, and the preview shows the selected line.
     await app.evaluate(`document.querySelector(${JSON.stringify(line)}).focus()`);
     await app.until(`document.querySelector('#inbox-screen [data-part="preview-title"]')?.textContent === "Alpha"`, "Alpha's preview");
