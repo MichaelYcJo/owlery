@@ -64,7 +64,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 |---|---|---|---|
 | 1. The seal's state | `frame/design.md` *Scope* items 1 to 5 | Scenarios 1 to 4, 7 and 8, and of scenario 6 the two states, the commits and the sentence after a restart | `1a0cfb9` |
 | 2. A new seal | *Scope* items 13 and 14 | Scenarios 17 and 18 | `7e79398` |
-| 3. The seal's place | *Scope* items 12, 15, 16, 19 and 20, and of item 17 all but the paragraph on the screenshot run | Scenarios 13, 15 and 16 | |
+| 3. The seal's place | *Scope* items 12, 15, 16, 19 and 20, and of item 17 all but the paragraph on the screenshot run | Scenarios 13, 15 and 16 | `6e31bcd` |
 | 4. The check and the resting state | *Scope* items 6 to 11 | Scenarios 5 and 9 to 12, and of scenario 6 the run folder that names neither state | |
 | 5. The line, the view's foot and the screenshots | *Scope* items 18 and 21 to 23, and of item 17 the paragraph on the screenshot run | Scenarios 14, 19 and 20 | |
 
