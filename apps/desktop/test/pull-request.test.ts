@@ -176,6 +176,14 @@ describe("the body of a pull request", () => {
     expect(pullRequestBody(await bodyRecords(made.repo, head, DIRECTORY))).toBe(`${[SECTION, CHANGED, ROUNDS, GATE_PART].join("\n\n")}\n`);
   });
 
+  it("lists the round records in the order of their rounds, round 10 after round 2, though git lists its file first", async () => {
+    const made = repository();
+    records(made);
+    write(made.repo, `${DIRECTORY}/trail/rounds/round-10.md`, round(10, null));
+    const head = commitAll(made.repo, "chore: record review round 10");
+    expect((await bodyRecords(made.repo, head, DIRECTORY)).rounds.map(({ path }) => path.slice(path.lastIndexOf("/") + 1))).toEqual(["round-1.md", "round-2.md", "round-10.md"]);
+  });
+
   it("refuses records whose guarantee holds no verdict block", async () => {
     const made = repository();
     const head = records(made, { guarantee: `# Guarantee: ${NAME}\n\nNo verdict yet.\n` });
