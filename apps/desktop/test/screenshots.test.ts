@@ -1,11 +1,13 @@
 // The screenshot command: `pnpm run screenshots` sets `OWLERY_SCREENSHOTS`
 // and this file then starts the built app in the background, on a temporary
-// repository with six work items, one in each state a work item has, one
-// whose chain runs a review round, one parked with questions and a finished
-// one whose pull request's checks passed, and writes one PNG file for each
-// view (the inbox, a work item's view, the view of the parked work item, the
-// view of the finished work item, a work item's menu and the "New work
-// item" form) in each appearance of the theme a first run opens in. No agent runs: a pane's process is a fixture, a state is what
+// repository with seven work items, one in each state a work item has, one
+// whose chain runs a review round, one parked with questions, a finished
+// one whose seal holds and whose pull request's checks passed, and one whose
+// seal a later commit broke, and writes one PNG file for each view (the
+// inbox, a work item's view, the view of the parked work item, the view of
+// the finished work item, the view of the broken one, a work item's menu and
+// the "New work item" form) in each appearance of the theme a first run
+// opens in. No agent runs: a pane's process is a fixture, a state is what
 // the daemon's hook socket is fed, the agent of the work item that needs the
 // person waits on a question with two choices, fed as its question tool's
 // call, and the view's work item is asked two prompts, which a stand-in for
@@ -35,7 +37,11 @@
 // the stand-in for `gh` the login shell's PATH names (fixtures/sample-gh/gh),
 // which reaches no GitHub and answers the pull request open with two checks
 // that passed. So that work item's line says "Checks passed", and its view
-// lists the pull request under the seal's place.
+// lists the pull request under the seal's place, which is lit. The broken
+// work item runs no chain: the run commits the records of a seal in its
+// worktree with git, as the daemon writes them, and one commit after them,
+// so its line waits and says "Seal broken", and its view's foot shows the
+// broken seal, the seal's sentence and "Get a new seal".
 // The second question is a block the run writes into the parked work
 // item's record, which the daemon reads in its worktree. The repository
 // names a setup once four work items
@@ -64,6 +70,7 @@ import { WINDOW_SIZE } from "../src/main/window-size";
 import type { ClientMessage, ServerMessage, SessionInfo, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { commitFile, git, temporaryRepository } from "./repositories";
+import { commitSeal } from "./chain-run";
 import { createdPane, pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
 /** The run, started by `pnpm run screenshots`. Without it the file is the cases. */
@@ -88,6 +95,7 @@ const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<stri
   { title: "Sort the history by date", kind: "shell", events: [], setup: null },
   { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }], setup: null },
   { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
+  { title: "Cache the user avatars", kind: "shell", events: [], setup: null },
   {
     title: "Fix the login redirect",
     kind: "claude",
@@ -140,6 +148,11 @@ const FINISHED = "Add an export of the history";
 /** The pull request's number and its checks as the stand-in for `gh` answers them. */
 const PULL_REQUEST = "Pull request #12";
 const CHECKS = ["seal", "Owlery seal"];
+/** The work item whose seal a later commit broke: the run commits the records of a seal in its worktree, in the folder of the records this name gives, and one commit after them. Its view is the view "broken". */
+const BROKEN = "Cache the user avatars";
+const BROKEN_RECORDS = "1795396354-cache-the-user-avatars";
+/** The file of the commit that breaks the seal, which the seal's sentence names. */
+const AFTER_THE_SEAL = "avatars.ts";
 /** The work item at review: the run commits a file on its branch and starts its chain, whose first round the stand-in for the CLI holds, so its line of the inbox names the stage. */
 const AT_REVIEW = "Sort the history by date";
 /** The question the parked work item's sealer asks in place of a verdict, as the stand-in for the CLI answers its seal (fixtures/sample-cli.sh). The chain parks the work item with it. */
@@ -176,19 +189,21 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-view.png",
       "night-watch-dark-parked.png",
       "night-watch-dark-finished.png",
+      "night-watch-dark-broken.png",
       "night-watch-dark-menu.png",
       "night-watch-dark-dialog.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
       "night-watch-light-parked.png",
       "night-watch-light-finished.png",
+      "night-watch-light-broken.png",
       "night-watch-light-menu.png",
       "night-watch-light-dialog.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(36);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(36);
-    expect(all[35]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
+    expect(all).toHaveLength(42);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(42);
+    expect(all[41]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -239,6 +254,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const PARKED_LINE = `#repositories button[data-work-item="1"]`;
   const REVIEW_LINE = `#inbox-lines button[data-work-item="${WORK_ITEMS.findIndex(({ title }) => title === AT_REVIEW) + 1}"]`;
   const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
+  const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
+  /** The commit the broken work item's seal names, once the run has committed it. */
+  let brokenAt = "";
   /** A role's place of the approval line in the view's right column. */
   const place = (role: string): string => `#view-detail section.approval .place[data-role="${role}"]`;
   const MENU = `[role="menu"]`;
@@ -333,7 +351,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('${REVIEW_LINE} .says')?.textContent === "Proofer, round 1" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed"`, `the inbox with its lines, the stage on the line of ${AT_REVIEW}, the pull request on the line of ${FINISHED} and the preview of ${SHOWN}`);
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('${REVIEW_LINE} .says')?.textContent === "Proofer, round 1" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]')`, `the inbox with its lines, the stage on the line of ${AT_REVIEW}, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
@@ -349,8 +367,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     finished: async () => {
       await app.click(`#repositories button[data-work-item="${FINISHED_ID}"]`);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(FINISHED)} && !document.getElementById("view-pull-request").hidden && document.getElementById("pull-request-number").textContent === ${JSON.stringify(PULL_REQUEST)} && document.getElementById("pull-request-checks").textContent === "Checks passed" && [...document.querySelectorAll("#pull-request-list .name")].map((name) => name.textContent).join() === ${JSON.stringify(CHECKS.join())} && document.querySelector('${place("sealer")} .note')?.textContent === "Sealed"`, "the finished work item's view with its pull request under the seal's place and its sealer's place sealed");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(FINISHED)} && !document.getElementById("view-pull-request").hidden && document.getElementById("pull-request-number").textContent === ${JSON.stringify(PULL_REQUEST)} && document.getElementById("pull-request-checks").textContent === "Checks passed" && [...document.querySelectorAll("#pull-request-list .name")].map((name) => name.textContent).join() === ${JSON.stringify(CHECKS.join())} && document.querySelector('${place("sealer")} .note')?.textContent === "Sealed" && document.getElementById("view-seal-head").textContent.startsWith("Sealed at ")`, "the finished work item's view with its pull request under the lit seal's place and its sealer's place sealed");
       // The approval line stands under what the agent says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
+      await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
+    },
+    broken: async () => {
+      await app.click(`#repositories button[data-work-item="${BROKEN_ID}"]`);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-seal-head").textContent === ${JSON.stringify(`Seal broken, sealed at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-seal-why").textContent === ${JSON.stringify(`\`${AFTER_THE_SEAL}\` changed after the sealed commit \`${brokenAt.slice(0, 7)}\`.`)} && !document.getElementById("get-seal").hidden && document.getElementById("get-seal").textContent === "Get a new seal" && document.querySelector('${place("sealer")} .note')?.textContent === "Seal broken"`, "the broken work item's view with the broken seal, its sentence and Get a new seal at its foot");
+      // The approval line stands under what the work item says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
     menu: async () => {
@@ -473,6 +497,17 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     if (sealed.join() !== "round finished,gate finished,seal finished,pull-request finished") throw new Error(`the chain of ${FINISHED} was sealed after other stages: ${sealed.join()}`);
     const branch = git(finished.worktree, "rev-parse", "--abbrev-ref", "HEAD").trim();
     if (git(bare, "rev-parse", branch).trim() !== git(finished.worktree, "rev-parse", "HEAD").trim()) throw new Error(`the bare remote does not hold the branch of ${FINISHED} at its worktree's head`);
+
+    // The broken work item's seal: the records of a chain that sealed it, committed with git in its worktree as the daemon writes them, and one commit after them, which breaks the seal. No chain runs for it, and it holds no pull request.
+    const broken = (await listed()).workItems.find((workItem) => workItem.title === BROKEN);
+    if (!broken?.baseCommit) throw new Error(`the daemon lists no work item ${BROKEN} with its base commit`);
+    brokenAt = commitSeal(broken.worktree, { workItem: BROKEN_RECORDS, branch: broken.branch, base: broken.baseCommit });
+    commitFile(broken.worktree, AFTER_THE_SEAL);
+    const sealOfBroken = async (): Promise<WorkItem["seal"]> => (await listed()).workItems.find((workItem) => workItem.id === broken.id)?.seal ?? null;
+    for (let deadline = Date.now() + 20_000, seal = await sealOfBroken(); seal?.state !== "broken" || seal.commit !== brokenAt; seal = await sealOfBroken()) {
+      if (Date.now() >= deadline) throw new Error(`the seal of ${BROKEN} never read broken at ${brokenAt}: ${JSON.stringify(seal)}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
 
     // The two chains that stay at work: one commit on the branch of the work item at review, and a seal asked for it and for the shown work item, before the shown one's prompts, since a chain starts in no work item a session works in. Each chain declares its work item's routing in a commit of its own and then runs round 1, which the stand-in for the CLI holds.
     const atReview = (await listed()).workItems.find((item) => item.title === AT_REVIEW);

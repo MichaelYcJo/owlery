@@ -1688,12 +1688,57 @@ describe("the seal a work item's head holds", () => {
   const BROKEN: WorkItem = { ...LOGIN, seal: BROKE };
 
   it("gives the seal's place its state and its words: none and No seal yet where the head holds no seal, where the daemon read none and for a daemon of an earlier build, the sealed commit in short where the seal holds, and the same commit after Seal broken where a later commit broke it", () => {
-    expect(sealShown(null)).toEqual({ state: "none", words: "No seal yet" });
-    expect(sealShown(undefined)).toEqual({ state: "none", words: "No seal yet" });
-    expect(sealShown(HOLDS)).toEqual({ state: "sealed", words: "Sealed at 3f2a9c1" });
-    expect(sealShown(BROKE)).toEqual({ state: "broken", words: "Seal broken, sealed at 3f2a9c1" });
+    expect(sealShown(null)).toEqual({ state: "none", words: "No seal yet", why: "" });
+    expect(sealShown(undefined)).toEqual({ state: "none", words: "No seal yet", why: "" });
+    expect(sealShown(HOLDS)).toEqual({ state: "sealed", words: "Sealed at 3f2a9c1", why: "" });
+    expect(sealShown(BROKE)).toEqual({ state: "broken", words: "Seal broken, sealed at 3f2a9c1", why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." });
     // A commit the repository does not hold is shown as the block writes it, cut to seven characters as any other.
     expect(sealShown({ ...BROKE, commit: "abc" }).words).toBe("Seal broken, sealed at abc");
+    // The sentence under the head of the view's foot is a broken seal's alone, and a broken seal the daemon sent no sentence for says none.
+    expect(sealShown({ ...HOLDS, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." }).why).toBe("");
+    expect(sealShown({ ...BROKE, why: null }).why).toBe("");
+  });
+
+  it("makes the line of a work item whose seal is broken wait, saying Seal broken in its second row with no age, where nothing says more, and leaves the line to a park, a call that waits, a running or stopped chain and a pane that works or waits", () => {
+    expect(inboxLine(BROKEN, [], KINDS).state).toBe("waiting");
+    expect(lineText(BROKEN, undefined, false)).toEqual({ says: "seal", text: "Seal broken" });
+    // A finished pane and a chain that rests say no more than the seal, and the daemon stores no time the seal broke at, so the line says no age.
+    const finished = session(2, { state: "finished", stateSince: 40, stateText: "The form is done." });
+    const rests = { ...BROKEN, chain: { state: "rested", says: "Pull request #12 is open.", since: 5, stages: [] } satisfies Chain };
+    expect(inboxLine(rests, [finished], KINDS).state).toBe("waiting");
+    expect(lineText(rests, finished, false)).toEqual({ says: "seal", text: "Seal broken" });
+    expect(lineSince(rests, finished)).toBeNull();
+    expect(lineSince(BROKEN, undefined)).toBeNull();
+    const entries = workItemEntries([BROKEN, SEARCH], [], KINDS);
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Asleep", [2]]]);
+    // What says more than the seal keeps the line.
+    const working = session(2, { state: "working", stateSince: 50, stateText: "Running the tests" });
+    const waiting = session(2, { state: "waiting", stateSince: 60, stateText: "May I run the tests?" });
+    expect([inboxLine(BROKEN, [working], KINDS).state, lineText(BROKEN, working, false), lineSince(BROKEN, working)]).toEqual(["working", { says: "state", text: "Running the tests" }, 50]);
+    expect([inboxLine(BROKEN, [waiting], KINDS).state, lineText(BROKEN, waiting, false), lineSince(BROKEN, waiting)]).toEqual(["waiting", { says: "state", text: "May I run the tests?" }, 60]);
+    const stage: ChainStage = { kind: "round", round: 2, state: "working", failure: null, startedAt: 70, endedAt: null, headlessId: 3, refusals: 0, gate: null };
+    const running = { ...BROKEN, chain: { state: "running", says: "Review round 2 is running.", since: 70, stages: [stage] } satisfies Chain };
+    expect([inboxLine(running, [], KINDS).state, lineText(running, undefined, false), lineSince(running, undefined)]).toEqual(["working", { says: "stage", text: "Proofer, round 2" }, 70]);
+    const stopped = { ...BROKEN, chain: { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
+    expect([inboxLine(stopped, [], KINDS).state, lineText(stopped, undefined, false), lineSince(stopped, undefined)]).toEqual(["waiting", { says: "chain", text: "Review round 2 failed: the session ended." }, 80]);
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 90 };
+    expect([inboxLine({ ...BROKEN, questions: [asked] }, [], KINDS).state, lineText({ ...BROKEN, questions: [asked] }, undefined, false).says, lineSince({ ...BROKEN, questions: [asked] }, undefined)]).toEqual(["waiting", "question", 90]);
+    const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 95 };
+    expect([inboxLine({ ...BROKEN, permissions: [ask] }, [], KINDS).state, lineText({ ...BROKEN, permissions: [ask] }, undefined, false).says, lineSince({ ...BROKEN, permissions: [ask] }, undefined)]).toEqual(["waiting", "permission", 95]);
+    // A search shows the branch, as it does on every line.
+    expect(lineText(BROKEN, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
+  });
+
+  it("finishes the line of a work item whose seal holds and that holds no pull request, saying Sealed in its second row with no age, where nothing says more, and says nothing of a seal the daemon read none of", () => {
+    expect(inboxLine(SEALED, [], KINDS).state).toBe("finished");
+    expect(lineText(SEALED, undefined, false)).toEqual({ says: "seal", text: "Sealed" });
+    const finished = session(2, { state: "finished", stateSince: 40, stateText: "The form is done." });
+    expect([inboxLine(SEALED, [finished], KINDS).state, lineText(SEALED, finished, false), lineSince(SEALED, finished)]).toEqual(["finished", { says: "seal", text: "Sealed" }, null]);
+    const working = session(2, { state: "working", stateSince: 50, stateText: "Running the tests" });
+    expect([inboxLine(SEALED, [working], KINDS).state, lineText(SEALED, working, false)]).toEqual(["working", { says: "state", text: "Running the tests" }]);
+    // No seal, and a daemon of an earlier build, which sends none, leave the line as it was.
+    const { seal: _, ...earlier } = SEALED;
+    for (const workItem of [{ ...LOGIN, seal: null }, earlier as WorkItem]) expect([inboxLine(workItem, [finished], KINDS).state, lineText(workItem, finished, false), lineSince(workItem, finished)]).toEqual(["finished", { says: "state", text: "The form is done." }, 40]);
   });
 
   it("notifies of a seal that broke since the window's lists were held, sealed then and broken now, titled with the work item's title and saying Seal broken, and of none that was broken already, had no seal, is muted or whose view is in front", () => {
@@ -1862,6 +1907,15 @@ describe("changesSince", () => {
       [2, finished],
       [1, undefined],
     ]);
+  });
+
+  it("reads a look that keeps no seal as holding the seal the work item holds now, so a seal changes no line of the summary, and shows the present line with its seal", () => {
+    const broken: Seal = { state: "broken", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+    const holds: Seal = { state: "sealed", commit: broken.commit, why: null };
+    for (const seal of [broken, holds]) expect(changesSince(look([LOGIN]), [{ ...LOGIN, seal }], [], KINDS), seal.state).toEqual([]);
+    // A change the look shows for another reason carries the line the seal gives now.
+    const changes = changesSince(look([{ ...LOGIN, newCommits: 0 }]), [{ ...LOGIN, newCommits: 1, seal: broken }], [], KINDS);
+    expect(changes.map((change) => [change.line.state, change.sentence])).toEqual([["waiting", "Needs you. 1 new commit since you were last here."]]);
   });
 
   it("puts the changes in the order a person acts on them, the ones with no state last, and keeps the given order inside a state", () => {
@@ -4036,6 +4090,26 @@ describe("a work item's pull request", () => {
     const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
     const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 };
     for (const more of [{ questions: [asked] }, { permissions: [ask] }, { chain: { ...RESTS, state: "stopped" as const, says: "The pull request stage failed: x." } }]) expect(pullRequestNotifications([PENDING], [{ ...FAILED, ...more }], [], KINDS, undefined), Object.keys(more)[0]).toEqual([]);
+  });
+
+  it("gives a broken seal the line ahead of an open or closed pull request's result and behind a merged one, and leaves a seal that holds to the pull request's words", () => {
+    const broken: Seal = { state: "broken", commit: HEAD, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+    const holds: Seal = { state: "sealed", commit: HEAD, why: null };
+    const line = (workItem: WorkItem) => [inboxLine(workItem, [], KINDS).state, lineText(workItem, undefined, false), lineSince(workItem, undefined)];
+    for (const workItem of [PASSED, FAILED, PENDING, OPEN, CLOSED]) expect(line({ ...workItem, seal: broken }), workItem.pullRequest?.checks).toEqual(["waiting", { says: "seal", text: "Seal broken" }, null]);
+    // A merge asks nothing more of the person, whatever lands on the branch after it.
+    expect(line({ ...MERGED, seal: broken })).toEqual(["finished", { says: "pull-request", text: "Merged" }, null]);
+    // A seal that holds says no more than the pull request.
+    expect(line({ ...PASSED, seal: holds })).toEqual(["finished", { says: "pull-request", text: "Checks passed" }, null]);
+    expect(line({ ...FAILED, seal: holds })).toEqual(["waiting", { says: "pull-request", text: "Check failed: build" }, null]);
+  });
+
+  it("notifies of no pull request's result while the work item's seal is broken, since the seal gives the line, and of the result again once a seal holds", () => {
+    const broken: Seal = { state: "broken", commit: HEAD, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+    const holds: Seal = { state: "sealed", commit: HEAD, why: null };
+    expect(pullRequestNotifications([{ ...PASSED, seal: broken }], [{ ...FAILED, seal: broken }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([{ ...PENDING, seal: broken }], [{ ...PASSED, seal: broken }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([{ ...PENDING, seal: holds }], [{ ...FAILED, seal: holds }], [], KINDS, undefined)).toEqual([{ workItemId: FAILED.id, title: FAILED.title, body: "Needs you" }]);
   });
 
   it("takes a merged pull request's decisions off the line's mark, the summary and the filter of the decisions, and the view still lists both", () => {

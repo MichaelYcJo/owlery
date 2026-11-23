@@ -108,7 +108,7 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 export interface InboxLine {
   title: string;
   branch: string;
-  /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request gives (`pullRequestLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request or its seal gives (`branchLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
@@ -167,19 +167,55 @@ function pullRequestSays(pullRequest: PullRequest): { state: AgentState; text: s
 }
 
 /**
+ * Whether something says more on a work item's line than its seal and its
+ * pull request, `pane` being the state of the pane the line reads: the work
+ * item is parked with questions, a headless session of it waits for the
+ * person to allow a call, its chain runs or stopped, or its pane works or
+ * waits. A finished pane and a chain that rests say no more.
+ */
+function saysMoreThanTheBranch(workItem: WorkItem, pane: AgentState | null): boolean {
+  const chain = chainOf(workItem)?.state;
+  return parkedWith(workItem) !== null || permissionsOf(workItem).length > 0 || chain === "running" || chain === "stopped" || pane === "working" || pane === "waiting";
+}
+
+/**
  * What a work item's pull request gives its line where nothing says more,
  * `pane` being the state of the pane the line reads: the state and the words
  * of `pullRequestSays`. Null where the work item has no pull request, where
- * it is parked with questions, where a headless session waits for the person
- * to allow a call, where its chain runs or stopped, and where its pane works
- * or waits. A finished pane and a chain that rests say no more than the pull
- * request.
+ * something says more (`saysMoreThanTheBranch`), and where the seal the
+ * branch's head holds is broken and the pull request did not merge: the
+ * broken seal then gives the line (`sealLine`), and the check that fails is
+ * most often the seal check on the commit that broke it.
  */
 function pullRequestLine(workItem: WorkItem, pane: AgentState | null): { state: AgentState; text: string } | null {
   const pullRequest = pullRequestOf(workItem);
-  const chain = chainOf(workItem)?.state;
-  if (pullRequest === null || parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "running" || chain === "stopped" || pane === "working" || pane === "waiting") return null;
+  if (pullRequest === null || saysMoreThanTheBranch(workItem, pane)) return null;
+  if (pullRequest.state !== "merged" && workItem.seal?.state === "broken") return null;
   return pullRequestSays(pullRequest);
+}
+
+/**
+ * What the seal the branch's head holds gives a work item's line where
+ * nothing says more (`saysMoreThanTheBranch`) and its pull request did not
+ * merge: a broken seal waits, "Seal broken", ahead of an open or closed
+ * pull request, since the work item needs a new seal; a seal that holds
+ * finishes, "Sealed", where the work item holds no pull request, which
+ * otherwise gives the line its own words. Null for no seal, a seal the
+ * daemon has not read, and a daemon of an earlier build, which sends none.
+ */
+function sealLine(workItem: WorkItem, pane: AgentState | null): { state: AgentState; text: string } | null {
+  const seal = workItem.seal;
+  if (!seal || saysMoreThanTheBranch(workItem, pane) || mergedWorkItem(workItem)) return null;
+  if (seal.state === "broken") return { state: "waiting", text: SEAL_BROKEN };
+  return pullRequestOf(workItem) === null ? { state: "finished", text: SEALED_LINE } : null;
+}
+
+/** What the branch's head gives a work item's line where nothing says more: its pull request's state and words (`pullRequestLine`), or its seal's (`sealLine`), and which of the two gives them. */
+function branchLine(workItem: WorkItem, pane: AgentState | null): { says: "pull-request" | "seal"; state: AgentState; text: string } | null {
+  const pulled = pullRequestLine(workItem, pane);
+  if (pulled) return { says: "pull-request", ...pulled };
+  const sealed = sealLine(workItem, pane);
+  return sealed && { says: "seal", ...sealed };
 }
 
 /**
@@ -205,7 +241,8 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
  * but where the pane waits for the person: the pane of the session that
  * built the branch stays finished while the rounds run. Where none of
  * these says more and the pane neither works nor waits, the line takes the
- * state its pull request gives (`pullRequestLine`).
+ * state its pull request or its seal gives (`branchLine`): a broken seal
+ * waits, as the work item needs a new seal.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
@@ -215,7 +252,7 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : (pullRequestLine(workItem, pane)?.state ?? pane),
+    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : (branchLine(workItem, pane)?.state ?? pane),
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
@@ -230,17 +267,18 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
  * and the pane the line reads, `session`, does not wait for the person, the
  * time that stage started at. Otherwise the time of that pane's state. Null
  * where none gives one, for a work item whose chain is between two stages
- * and alone says that it works, and for one whose pull request gives the
- * line its state (`pullRequestLine`): its pane's time is that of another
- * state, and the daemon reads no time at which the checks began to run,
- * failed or passed.
+ * and alone says that it works, and for one whose pull request or seal
+ * gives the line its state (`branchLine`): its pane's time is that of
+ * another state, the daemon reads no time at which the checks began to
+ * run, failed or passed, and it stores no state of the seal, so nothing it
+ * sends says when the seal was given or broke.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
   const parked = parkedWith(workItem) ?? [];
   const asks = permissionsOf(workItem);
   const chain = chainOf(workItem);
   if (parked.length === 0 && asks.length === 0 && chain?.state !== "stopped") {
-    if (pullRequestLine(workItem, session?.state ?? null)) return null;
+    if (branchLine(workItem, session?.state ?? null)) return null;
     if (chain?.state === "running" && session?.state !== "waiting") {
       const stage = runningStage(workItem);
       if (stage) return stage.startedAt;
@@ -467,21 +505,26 @@ function shortCommit(commit: string): string {
   return commit.slice(0, 7);
 }
 
-/** What a broken seal is called, in two words: on the sealer's place, in a notification and at the head of the seal's place. */
+/** What a broken seal is called, in two words: on the sealer's place, in a notification, in a line's second row and at the head of the seal's place. */
 const SEAL_BROKEN = "Seal broken";
+
+/** What a seal that holds says in the second row of a line that holds no pull request. */
+const SEALED_LINE = "Sealed";
 
 /**
  * The seal's place for a work item's seal, which the daemon read from the
  * branch's head commit: the state its drawing takes, `none`, `sealed` or
- * `broken`, and the words it says to a pointer and to a screen reader, which
- * the preview and the view's foot also show beside it. No seal, a seal the
- * daemon has not read and a daemon of an earlier build, which sends none,
- * all say "No seal yet". A sealed commit is shown in short.
+ * `broken`, the words it says to a pointer and to a screen reader, which
+ * the preview and the head of the view's foot also show beside it, and
+ * `why`, the seal's sentence that the line under that head says where the
+ * seal is broken, and empty otherwise. No seal, a seal the daemon has not
+ * read and a daemon of an earlier build, which sends none, all say "No
+ * seal yet". A sealed commit is shown in short.
  */
-export function sealShown(seal: Seal | null | undefined): { state: "none" | Seal["state"]; words: string } {
-  if (!seal) return { state: "none", words: "No seal yet" };
+export function sealShown(seal: Seal | null | undefined): { state: "none" | Seal["state"]; words: string; why: string } {
+  if (!seal) return { state: "none", words: "No seal yet", why: "" };
   const commit = shortCommit(seal.commit);
-  return { state: seal.state, words: seal.state === "broken" ? `${SEAL_BROKEN}, sealed at ${commit}` : `Sealed at ${commit}` };
+  return seal.state === "broken" ? { state: seal.state, words: `${SEAL_BROKEN}, sealed at ${commit}`, why: seal.why ?? "" } : { state: seal.state, words: `Sealed at ${commit}`, why: "" };
 }
 
 /** A count with its noun, one or many. */
@@ -753,7 +796,9 @@ export function sealNotifications(before: readonly WorkItem[], workItems: readon
  * pull request gave in `before`, the work items and the archived ones the
  * window held. A pull request that opens is one that finishes. It is titled
  * with the work item's title and says what a pane's notification says.
- * None is given for a work item whose notifications are muted, nor for
+ * None is given while the seal the branch's head holds is broken, since the
+ * seal gives the line then and raised its own notification when it broke
+ * (`sealNotifications`). None is given for a work item whose notifications are muted, nor for
  * `inFront`, the work item whose view is in front of a focused window. An
  * archived work item is not among `workItems`, so none is given for one.
  */
@@ -1163,7 +1208,10 @@ function madeWithoutAsking(decided: number): string {
  * A count the daemon gave on one side alone says nothing of a change. Each
  * side is read through `inboxLine` with its own sessions, and no session of
  * one is matched to a session of the other: a session's id starts again with
- * the daemon, and a work item's id does not.
+ * the daemon, and a work item's id does not. A look keeps no seal, so the
+ * look's side is read with the seal the work item holds now, and a seal
+ * given or broken while the person was away changes no line of the
+ * summary. A look that keeps a seal is read with its own.
  */
 export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
   const changes = workItems.flatMap((workItem): Change[] => {
@@ -1177,7 +1225,8 @@ export function changesSince(look: Look, workItems: readonly WorkItem[], session
       said.push("New since you were last here.");
     } else {
       const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
-      if (rise === 0 && decided === 0 && inboxLine(before, look.sessions, paneKinds).state === line.state) return [];
+      const held = before.seal === undefined ? { ...before, seal: workItem.seal } : before;
+      if (rise === 0 && decided === 0 && inboxLine(held, look.sessions, paneKinds).state === line.state) return [];
       if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
     }
     if (decided > 0) said.push(madeWithoutAsking(decided));
@@ -1332,7 +1381,7 @@ export function choiceNote(question: AskedQuestion): string {
 }
 
 /**
- * The text of a line's second row, and which of the seven it is: for a work
+ * The text of a line's second row, and which of the nine it is: for a work
  * item parked with questions the first question, followed by how many more
  * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
  * session of the work item waits for the person to allow a call, the oldest
@@ -1347,13 +1396,14 @@ export function choiceNote(question: AskedQuestion): string {
  * labels of its choices, followed by how many more questions it asks, as
  * in "Which
  * library formats the dates? date-fns · dayjs (and 1 more question)";
- * otherwise, where the work item's pull request gives the line its state,
- * its words (`pullRequestLine`), as in "Checks running" and "Check failed:
- * build"; otherwise what the agent's state carried, otherwise the newest commit's
+ * otherwise, where the work item's pull request or its seal gives the line
+ * its state, their words (`branchLine`), as in "Checks running", "Check
+ * failed: build", "Seal broken" and "Sealed"; otherwise what the agent's
+ * state carried, otherwise the newest commit's
  * subject, otherwise the branch. While a search is typed it is the branch,
  * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "stage" | "state" | "pull-request" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "stage" | "state" | "pull-request" | "seal" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const asks = searching ? [] : permissionsOf(workItem);
@@ -1366,8 +1416,8 @@ export function lineText(workItem: WorkItem, session: SessionInfo | undefined, s
   const asked = searching ? [] : askedBy(session);
   const first = asked[0];
   if (first) return { says: "state", text: `${first.asks}${first.options.length > 0 ? ` ${first.options.map(({ label }) => label).join(" · ")}` : ""}${moreQuestions(asked.length - 1)}` };
-  const pulled = searching ? null : pullRequestLine(workItem, session?.state ?? null);
-  if (pulled) return { says: "pull-request", text: pulled.text };
+  const branched = searching ? null : branchLine(workItem, session?.state ?? null);
+  if (branched) return { says: branched.says, text: branched.text };
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];

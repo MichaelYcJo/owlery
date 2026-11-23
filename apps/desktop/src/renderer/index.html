@@ -426,6 +426,9 @@
       #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
       #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
+      /* Where the seal is broken, the seal's sentence, which says why, stands under the head in the ink of the text, and takes no room otherwise. */
+      #view-seal .why { font-size: var(--size-second); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+      #view-seal .why:empty { display: none; }
       /* The chain's sentence stands above the button that starts the chain, and the daemon's refusal of a start under it. */
       #view-seal .says, #view-seal .refusal { font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; }
       #view-seal .says { margin-top: var(--space-3); color: var(--ink); }
@@ -706,6 +709,7 @@
           <span id="view-seal-place"></span>
           <span class="words">
             <span id="view-seal-head" class="name head"></span>
+            <span id="view-seal-why" class="why"></span>
             <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
             <span id="seal-says" class="says"></span>
             <button type="button" id="get-seal" class="primary" hidden>Get a seal</button>

@@ -154,6 +154,7 @@ const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
 const getSeal = byId<HTMLButtonElement>("get-seal");
 const sealHead = byId("view-seal-head");
+const sealWhy = byId("view-seal-why");
 // The seal's place at the view's foot is made once, and drawn again for each work item the view shows.
 const viewSeal = sealPlace("view", null);
 const sealSays = byId("seal-says");
@@ -899,7 +900,8 @@ function sendAnswers(): void {
 
 /**
  * Draws the view's foot for the view's work item: the seal's place and its
- * words for the seal its branch's head holds (./view, `sealShown`), and
+ * words for the seal its branch's head holds (./view, `sealShown`), with
+ * the seal's sentence under its head where the seal is broken, and
  * "Get a seal" (./view, `sealButton`): the button where the daemon sent the
  * work item's chain, in its words for that seal, the chain's sentence above
  * it and the daemon's refusal of the last press under it, while the chain
@@ -907,7 +909,10 @@ function sendAnswers(): void {
  */
 function showSeal(workItem: WorkItem): void {
   drawSeal(viewSeal, workItem.seal);
-  sealHead.textContent = sealShown(workItem.seal).words;
+  const shown = sealShown(workItem.seal);
+  sealHead.textContent = shown.words;
+  // The daemon's sentence is plain text, never markup.
+  sealWhy.textContent = shown.why;
   const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
   getSeal.textContent = button.words;
   getSeal.hidden = !button.offered;
