@@ -187,6 +187,19 @@ The line of the inbox, from phase 3. Where the chain is `running` and its last s
   to: **작업의 줄은 그 작업에서 돌고 있는 단계를 말합니다.** 체인이 단계를 돌리고 있고 그 줄에 사람이 필요한 것이 없는 동안, 줄의 둘째 행은 "Proofer, round 2"처럼 단계를 짧게 말하고, 줄의 나이는 단계가 시작한 때부터 셉니다. 질문이나 허락할 호출이나 자기 pane 때문에 기다리는 줄은 단계가 도는 동안에도 기다린다고 말합니다.
     check: apps/desktop/test/view.test.ts apps/desktop/test/approval-line.test.ts
 
+- change
+  file: docs/architecture.md
+  section: Options for launching Claude Code
+  from: | `--mcp-config` | Gives the agent the app's tools through MCP servers the daemon launches. For example: updating the approval line, recording cost |
+  to: | `--mcp-config` | Gives the agent the app's tools through MCP servers the daemon launches. The approval line is drawn from the work item's records and the cost from the session's result, so neither is such a tool |
+    check: apps/desktop/test/chain-records.test.ts apps/desktop/test/approval-line.test.ts
+- change
+  file: docs/architecture.ko.md
+  section: Claude Code를 띄우는 옵션
+  from: | `--mcp-config` | 데몬이 띄운 MCP 서버로 에이전트에게 앱의 도구를 줍니다. 예: 승인 줄 갱신, 비용 기록 |
+  to: | `--mcp-config` | 데몬이 띄운 MCP 서버로 에이전트에게 앱의 도구를 줍니다. 승인 줄은 작업의 기록에서, 비용은 세션의 결과에서 그리므로 둘 다 그런 도구가 아닙니다 |
+    check: apps/desktop/test/chain-records.test.ts apps/desktop/test/approval-line.test.ts
+
 ## Removes
 
 | Removes | Coordinate | Where it lands, or why it can go |

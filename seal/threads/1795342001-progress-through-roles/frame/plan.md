@@ -1,7 +1,5 @@
 # Implementation Plan: 1795342001-progress-through-roles
 
-To fold before phase 3's spawn: phase 2's hand-back names `docs/architecture.md:253` (and its Korean edition), whose row of `--mcp-config` gives "updating the approval line" as an example of the app's tools reached through MCP, while this work draws the line from the records and no MCP tool.
-
 ## Technical context
 
 The tree as read at `b6cd259`.
@@ -82,4 +80,4 @@ No migration, no environment variable and no dependency. The version does not mo
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-23 | The row of `--mcp-config` in `docs/architecture.md` *Options for launching Claude Code* and its Korean edition drops its two examples, updating the approval line and recording cost, and says that neither is a tool reached through MCP: *Rule changes* gains a `change` operation on each edition. | Phase 2 draws the approval line from the work item's records and its questions, and #45 (merged as `9e4a95f`) keeps the cost from the session's result; no MCP server holds either. The row's examples would tell the next work item to build a tool this work and #45 chose not to. | `docs/architecture.md` *Options for launching Claude Code*; this frame's *Scope* items 1 and 2; `seal/threads/1795341001-cost-per-stage/frame/design.md` on the cost read from the result |
