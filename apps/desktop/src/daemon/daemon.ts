@@ -211,7 +211,7 @@ export class Daemon {
   private readonly keepAwake: KeepAwakeStore;
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
   private readonly times: RecordTimes;
-  // The cost ledger: one entry for each headless session that ended. It holds no entry in memory between two reads.
+  // The cost ledger: one entry for each headless session that ended. Between two reads it holds in memory only the entries whose append failed.
   private readonly ledger: Ledger;
   // What was last read of each work item's record of decisions and questions, by the work item's id, as a client is sent it. The record is the store: this is what the last read found, and nothing is written from it.
   private readonly recordsRead = new Map<number, RecordRead>();

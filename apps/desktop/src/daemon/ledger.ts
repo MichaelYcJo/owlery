@@ -74,8 +74,8 @@ function endsInsideALine(file: string): boolean {
  * user alone, one entry as JSON on each line in the order the stages ended
  * (docs/architecture.md, "State lives in three places"). Nothing rewrites or
  * removes a line, so no write loses an entry that was written, and a delete
- * of a work item leaves its entries. The store holds no entry in memory
- * between two reads: `read` reads the file each time. An append that fails is
+ * of a work item leaves its entries. The store holds no entry it wrote in
+ * memory: `read` reads the file each time. An append that fails is
  * logged, and its entry is held in memory, written before the next entry's
  * line and given in every read meanwhile. Given no run directory, the entries
  * are kept in memory alone.
