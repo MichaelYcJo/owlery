@@ -29,6 +29,11 @@ The fix rewrites the row in place. Nothing else states the claim: `git grep -n "
 | The case of `test/daemon.test.ts` "lists a pane that sent no event in the time after its start as waiting", which failed in the pull request's second run of `check`. It is the release branch's case, of `b1336c6`, and this work item does not change it. This work item does change the pass that sends the inboxes the case counts: `daemon.ts#readRecord` reads `recorded` too, and its answer says whether `readCommits` sends an inbox. That is not what sent the extra inbox here. With the hello's wait set to 0, a probe gave the same failure, and the inbox that came first differed from `ready` only in the counts git gives, with `recorded` the same in both. At the base `71d035e`, which has no `recorded`, a wait of 0 also sends an inbox the case does not expect (`trail/rounds/round-4.md`, *Probes*). The case leaves the hello's wait at 500 ms, and a first read of the commits that takes longer sends that inbox | the orchestrator, as a follow-up beside #168 |
 ```
 
+```seal
+verdict: fixed bbf6513
+answer: The orchestrator's `bbf6513` replaces the row of `gaps.md` with the record's text: it says this work item changes the pass that sends the inboxes the case counts, and that the base sends the unexpected inbox too. The fix touches the work item's records alone.
+```
+
 ## Confirmations
 
 What matched: the first attempt's failure is #168's and not this work item's. Attempt 1 failed only `test/terminal-basics.test.ts`, on the two cases #168 names, with the messages #168 quotes: the paste arrived without bracketed paste, then "the window never showed one tab". `approval-line.test.ts` passed in that attempt, 4 cases. Read in the log of attempt 1 and in #168's body. This work item does not change `terminal-basics.test.ts`.
