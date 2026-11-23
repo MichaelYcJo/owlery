@@ -2835,21 +2835,25 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
       return chain?.state === "sealed" && chain.stages.length === stages ? chain : undefined;
     });
 
-  it("hands the sealer that follows a broken seal the part that changed since the sealed commit: a commit after the seal owes a verifying round on the commits after round 1's target, the gate and the seal, whose prompt names run 1 and its sealed commit and holds the paths that differ since that commit and no other path of the source, and the second verdict names the new gate's commit against the base, where the seal holds again", async () => {
+  it("hands the sealer that follows a broken seal the part that changed since the sealed commit: a commit after the seal owes a verifying round on the commits after round 1's target, the gate and the seal, whose prompt names run 1 and its sealed commit and holds the paths that differ since that commit and no other path of the source, and the second verdict names the new gate's commit against the base, where the seal holds again and the pull request the first start opened carries it", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, commitPollMs: 100 });
+    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, commitPollMs: 100 });
     const a = workItems[0]!;
     expect(await c.getSeal(a.id, 1)).toBe("done");
-    await sealedWith(c, a.id, 3);
+    // The routing the daemon writes sends the work to a pull request, so the first start rests after the stage that opens it.
+    expect(stagesOf(await sealedWith(c, a.id, 4))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
     const sealed = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    // The stand-in for gh lists that pull request open from here on, with the body the stage created.
+    gh.answer("list", { out: JSON.stringify([{ number: 1, url: PULL_REQUEST_URL, headRefOid: head(a.worktree), body: gh.bodies()[1] ?? "" }]) });
     // A commit of a source file the branch did not change before the seal breaks it.
     write(a.worktree, "later.txt", "Said later\n");
     const broke = commitAll(a.worktree, "feat: say more");
     expect(await c.until(() => (c.workItem(a.id)?.seal?.state === "broken" ? c.workItem(a.id)?.seal : undefined))).toMatchObject({ commit: sealed });
 
     expect(await c.getSeal(a.id, 2)).toBe("done");
-    const chain = await sealedWith(c, a.id, 6);
-    expect(stagesOf(chain).slice(3)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"]]);
+    const chain = await sealedWith(c, a.id, 8);
+    expect(stagesOf(chain).slice(4)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    // The stage is no session, so the sessions started are the two rounds and the two seals.
     expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "proofer", "sealer"]);
     // Round 1 read the commit of the routing, the one before the sealed commit, and round 2 reads the commits after it.
     const routed = git(a.worktree, "rev-parse", `${sealed}~1`).trim();
@@ -2865,13 +2869,17 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(prompt).not.toContain("diff --git a/feature.txt");
     expect(guaranteeAt(a.worktree)).toContain(`\n## Run 2\n`);
     expect(guaranteeAt(a.worktree)).toContain(`\ntarget: ${gate} against ${base}\nVerdict: sealed\n`);
+    expect(chain.says).toBe(`Pull request #1 carries the seal at ${gate.slice(0, 7)}.`);
     expect(await c.until(() => (c.workItem(a.id)?.seal?.commit === gate ? c.workItem(a.id)?.seal : undefined))).toEqual({ state: "sealed", commit: gate, why: null });
   });
 
-  it("hands the sealer the whole branch since its base where the commit the newest seal names is no ancestor of the gate's commit: a rebase onto a base that gained a commit leaves the sealed commit off the branch", async () => {
+  it("hands the sealer the whole branch since its base where the commit the newest seal names is no ancestor of the gate's commit: a rebase onto a base that gained a commit leaves the sealed commit off the branch, in a work item whose routing stops before the pull request", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const { made, c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
     const a = workItems[0]!;
+    // With the routing the daemon writes, the second start would stop at the pull request stage: the rebase replaced the head the first stage pushed, and the stage never forces a push.
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY).replace("| Destination | open the pull request |", "| Destination | stop before the pull request |"));
+    commitAll(a.worktree, "chore: declare the work item's routing");
     expect(await c.getSeal(a.id, 1)).toBe("done");
     await sealedWith(c, a.id, 3);
     const sealed = git(a.worktree, "rev-parse", "HEAD~2").trim();
@@ -2889,6 +2897,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(prompt).toContain("\nThe branch changed these paths since it left its base:\n- `feature.txt`\n");
     expect(prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
     expect(prompt).not.toContain("on-main.txt");
+    expect(gh.calls()).toEqual([]);
   });
 });
 
