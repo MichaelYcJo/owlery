@@ -37,10 +37,12 @@ import {
   pathCandidates,
   pathTarget,
   recentKept,
+  refusedSeal,
   replayStep,
   repoNameOf,
   screenMoves,
   sealButton,
+  type SealRefusal,
   type ScreenTurns,
   screenTurns,
   stageOf,
@@ -89,8 +91,8 @@ let askDrawn: string | undefined;
 let answersRequest: number | undefined;
 // The request a press of "Get a seal" is waiting on, with its work item: the button stays off until the daemon answers.
 let sealRequest: { requestId: number; workItemId: number } | undefined;
-// The sentence the daemon refused the last "Get a seal" with, and the work item it refused it for.
-let sealRefused: { workItemId: number; says: string } | undefined;
+// The daemon's refusal of the last "Get a seal", and the work item it refused it for.
+let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
 // The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
@@ -826,10 +828,10 @@ function sendAnswers(): void {
  * Draws "Get a seal" at the view's foot for the view's work item (./view,
  * `sealButton`): the button where the daemon sent the work item's chain,
  * the chain's sentence above it and the daemon's refusal of the last press
- * under it.
+ * under it, while the chain stands as it stood at that refusal.
  */
 function showSeal(workItem: WorkItem): void {
-  const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.says : null);
+  const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
   getSeal.hidden = !button.offered;
   getSeal.disabled = !button.enabled;
   getSeal.title = button.title;
@@ -850,11 +852,13 @@ function askSeal(): void {
 /**
  * Takes the daemon's answer to a press of "Get a seal", `refusal` being its
  * refusal or null for `done`, and answers whether the request was that
- * press's. A refusal is shown under the button, with the button on again.
+ * press's. A refusal is shown under the button, with the button on again,
+ * and is kept with the chain as the window holds it at the answer.
  */
 export function takeSeal(requestId: number, refusal: string | null): boolean {
   if (requestId !== sealRequest?.requestId) return false;
-  sealRefused = refusal === null ? undefined : { workItemId: sealRequest.workItemId, says: refusal };
+  const { workItemId } = sealRequest;
+  sealRefused = refusal === null ? undefined : { workItemId, refusal: refusedSeal(held.workItems.find((item) => item.id === workItemId), refusal) };
   sealRequest = undefined;
   const workItem = viewed();
   if (workItem) showSeal(workItem);

@@ -619,33 +619,43 @@ describe("the routing a first start writes", () => {
 
 describe("a chain as the store reads it", () => {
   const stage = (more: Partial<ChainStage> = {}): ChainStage => ({ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 4, refusals: 0, ...more });
-  const chain = (more: Partial<Chain> = {}): Chain => ({ state: "reviewed", says: "The review rounds settled at ccccccc, after round 1.", reviewedAt: HEAD, stages: [stage()], ...more });
+  const chain = (more: Partial<Chain> = {}): Chain => ({ state: "reviewed", says: "The review rounds settled at ccccccc, after round 1.", reviewedAt: HEAD, stages: [stage()], since: 5, ...more });
 
-  it("reads a chain that rests as it was stored, each stage naming no headless session, and none as none", () => {
-    expect(chainRead(chain())).toEqual(chain({ stages: [stage({ headlessId: null })] }));
-    expect(chainRead(null)).toBeNull();
-    expect(chainRead(undefined)).toBeNull();
+  it("reads a chain that rests as it was stored, with the time it took its state, each stage naming no headless session, and none as none", () => {
+    expect(chainRead(chain(), 9)).toEqual(chain({ stages: [stage({ headlessId: null })] }));
+    expect(chainRead(null, 9)).toBeNull();
+    expect(chainRead(undefined, 9)).toBeNull();
     // Only the fields of a chain, whatever else the file's entry carries.
-    expect(chainRead({ ...chain(), extra: 1 } as Chain)).toEqual(chain({ stages: [stage({ headlessId: null })] }));
+    expect(chainRead({ ...chain(), extra: 1 } as Chain, 9)).toEqual(chain({ stages: [stage({ headlessId: null })] }));
+  });
+
+  it("reads a chain written before a chain kept the time of its state as in that state since its newest stage ended, since that stage started where it did not end, and since 0 where it holds no stage", () => {
+    const { since: _since, ...written } = chain({ stages: [stage(), stage({ round: 2, startedAt: 3, endedAt: 4 })] });
+    expect(isChain(written)).toBe(true);
+    expect(chainRead(written, 9)?.since).toBe(4);
+    expect(chainRead({ ...written, stages: [stage({ startedAt: 3, endedAt: null, state: "failed" })] }, 9)?.since).toBe(3);
+    expect(chainRead({ ...written, stages: [] }, 9)?.since).toBe(0);
   });
 
   it("reads a chain stored running as stopped: its sentence says that the daemon ended while the stage ran, and the stage that was working has failed", () => {
     const working = stage({ kind: "fix-pass", round: 2, state: "working", endedAt: null, headlessId: 9 });
-    expect(chainRead(chain({ state: "running", says: "The fix pass of round 2 is running.", reviewedAt: null, stages: [stage(), working] }))).toEqual({
+    expect(chainRead(chain({ state: "running", says: "The fix pass of round 2 is running.", reviewedAt: null, stages: [stage(), working] }), 9)).toEqual({
       state: "stopped",
+      // Stopped since the clock of the daemon that reads it, not since the chain began to run.
+      since: 9,
       says: "The daemon ended while the fix pass of round 2 ran.",
       reviewedAt: null,
       stages: [stage({ headlessId: null }), { ...working, state: "failed", failure: "the daemon ended while the stage ran", headlessId: null }],
     });
-    expect(chainRead(chain({ state: "running", says: "Review round 1 is running.", reviewedAt: null, stages: [stage({ state: "working", endedAt: null })] }))?.says).toBe("The daemon ended while review round 1 ran.");
+    expect(chainRead(chain({ state: "running", says: "Review round 1 is running.", reviewedAt: null, stages: [stage({ state: "working", endedAt: null })] }), 9)?.says).toBe("The daemon ended while review round 1 ran.");
     // A chain that was between two stages had none working.
-    expect(chainRead(chain({ state: "running", says: "Owlery is reading the work item's records.", reviewedAt: null }))).toMatchObject({ state: "stopped", says: "The daemon ended while the chain ran.", stages: [stage({ headlessId: null })] });
+    expect(chainRead(chain({ state: "running", says: "Owlery is reading the work item's records.", reviewedAt: null }), 9)).toMatchObject({ state: "stopped", since: 9, says: "The daemon ended while the chain ran.", stages: [stage({ headlessId: null })] });
   });
 
   it("tells a chain from what is none: a state, a stage's kind or a stage's state the protocol does not list, and a field of another type", () => {
     expect(isChain(chain())).toBe(true);
     expect(isChain(chain({ stages: [] }))).toBe(true);
-    for (const wrong of [null, {}, { ...chain(), state: "sealed" }, { ...chain(), says: 1 }, { ...chain(), reviewedAt: 1 }, { ...chain(), stages: "none" }, chain({ stages: [stage({ kind: "seal" as "round" })] }), chain({ stages: [stage({ state: "stopped" as "failed" })] }), chain({ stages: [{ ...stage(), refusals: "0" } as unknown as ChainStage] }), chain({ stages: [{ ...stage(), round: null } as unknown as ChainStage] })]) {
+    for (const wrong of [null, {}, { ...chain(), state: "sealed" }, { ...chain(), says: 1 }, { ...chain(), reviewedAt: 1 }, { ...chain(), stages: "none" }, { ...chain(), since: "5" }, { ...chain(), since: null }, chain({ stages: [stage({ kind: "seal" as "round" })] }), chain({ stages: [stage({ state: "stopped" as "failed" })] }), chain({ stages: [{ ...stage(), refusals: "0" } as unknown as ChainStage] }), chain({ stages: [{ ...stage(), round: null } as unknown as ChainStage] })]) {
       expect(isChain(wrong), JSON.stringify(wrong)).toBe(false);
     }
   });
@@ -696,7 +706,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(answers[1]).toBe(roundRecord(HEADING(2), `${fixed}, fixes ${routing}..${fixed}`, [], ["round-1#1"]));
     expect(readFileSync(recordAt(a.worktree, 2), "utf8")).toBe(answers[1]);
 
-    expect(chain).toEqual({ state: "reviewed", says: `The review rounds settled at ${second.slice(0, 7)}, after round 2.`, reviewedAt: second, stages: [ended("round", 1, 1), ended("fix-pass", 1, 2), ended("round", 2, 3)] });
+    expect(chain).toEqual({ state: "reviewed", says: `The review rounds settled at ${second.slice(0, 7)}, after round 2.`, reviewedAt: second, since: NOW, stages: [ended("round", 1, 1), ended("fix-pass", 1, 2), ended("round", 2, 3)] });
     expect(head(a.worktree)).toBe(second);
   });
 
@@ -927,7 +937,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     write(a.worktree, `${DIRECTORY}/routing.md`, other);
     const at = commitAll(a.worktree, "chore: declare another branch's routing");
     expect(await stood.c.getSeal(a.id, 1)).toBe("done");
-    expect(await stood.c.chain(a.id, "stopped")).toEqual({ state: "stopped", says: `The chain stopped: ${DIRECTORY} stands already, and its routing names another branch.`, reviewedAt: null, stages: [] });
+    expect(await stood.c.chain(a.id, "stopped")).toEqual({ state: "stopped", says: `The chain stopped: ${DIRECTORY} stands already, and its routing names another branch.`, reviewedAt: null, stages: [], since: NOW });
     expect([readFileSync(join(a.worktree, DIRECTORY, "routing.md"), "utf8"), head(a.worktree), status(a.worktree)]).toEqual([other, at, []]);
   });
 
@@ -954,7 +964,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.getSeal(a.id, 1)).toBe("done");
       expect(await c.getSeal(b.id, 2)).toBe("done");
       const stopped = await c.chain(a.id, "stopped");
-      expect(stopped).toEqual({ state: "stopped", says: "Review round 1 failed: the fake adapter was told to fail.", reviewedAt: null, stages: [{ kind: "round", round: 1, state: "failed", failure: "the fake adapter was told to fail", startedAt: NOW, endedAt: NOW, headlessId: stopped.stages[0]?.headlessId, refusals: 0 }] });
+      expect(stopped).toEqual({ state: "stopped", says: "Review round 1 failed: the fake adapter was told to fail.", reviewedAt: null, since: NOW, stages: [{ kind: "round", round: 1, state: "failed", failure: "the fake adapter was told to fail", startedAt: NOW, endedAt: NOW, headlessId: stopped.stages[0]?.headlessId, refusals: 0 }] });
       noRecord(a.worktree, "stopped-here");
       expect((await c.chain(b.id, "reviewed")).stages.map(({ state }) => state)).toEqual(["finished", "finished", "finished"]);
       failing = false;
@@ -1202,7 +1212,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       write(a.worktree, record(1), roundRecord(HEADING(1), `${target} against main`));
       const at = commitAll(a.worktree, "chore: record review round 1");
       expect(await stood.c.getSeal(a.id, 1)).toBe("done");
-      expect(await stood.c.chain(a.id, "reviewed")).toEqual({ state: "reviewed", says: `The review rounds settled at ${at.slice(0, 7)}, after round 1.`, reviewedAt: at, stages: [] });
+      expect(await stood.c.chain(a.id, "reviewed")).toEqual({ state: "reviewed", says: `The review rounds settled at ${at.slice(0, 7)}, after round 1.`, reviewedAt: at, stages: [], since: NOW });
       // Round 10 is the last record, though git lists `round-10.md` before `round-2.md`.
       write(a.worktree, record(2), roundRecord(HEADING(2), `${at}, fixes ${target}..${at}`));
       write(a.worktree, record(10), roundRecord(HEADING(10), `${at}, fixes ${target}..${at}`));
@@ -1238,7 +1248,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const { url } = await stood.start();
     const c = await client(url, cleanups);
     const ready = await c.message("ready");
-    expect(ready.workItems[0]?.chain).toEqual({ state: "stopped", says: "The daemon ended while review round 1 ran.", reviewedAt: null, stages: [{ kind: "round", round: 1, state: "failed", failure: "the daemon ended while the stage ran", startedAt: NOW, endedAt: null, headlessId: null, refusals: 0 }] });
+    expect(ready.workItems[0]?.chain).toEqual({ state: "stopped", says: "The daemon ended while review round 1 ran.", reviewedAt: null, since: NOW, stages: [{ kind: "round", round: 1, state: "failed", failure: "the daemon ended while the stage ran", startedAt: NOW, endedAt: null, headlessId: null, refusals: 0 }] });
     await new Promise((r) => setTimeout(r, 300));
     expect(started.length).toBe(count);
     expect(ready.headless).toEqual([]);
@@ -1615,7 +1625,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
     });
 
-    it("stops a parked chain that cannot go on once its question is answered, with what refuses the start, and a later getSeal starts it", async () => {
+    it("stops a parked chain that cannot go on once its question is answered, with what refuses the start, and a later getSeal starts it: each state the chain takes holds the daemon's time when it took it, whenever its newest stage ended", async () => {
+      let clock = NOW;
       let passes = 0;
       const crafter = (cwd: string, prompt: string): void => {
         if ((passes += 1) > 1) fixes(cwd, prompt);
@@ -1623,19 +1634,26 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       let said = 0;
       const stood = await standing(cleanups, ["Sealed work"], {
         roleAdapter: roles({ crafter, crafterSays: () => ((said += 1) === 1 ? askBlock({ asks: "May the pass push the branch?", grounds: "A push needs an approval." }) : "Done."), orchestrator: () => rulingBlock(1, "park", null, "Only the person approves a push.") }),
+        now: () => clock,
       });
       const a = stood.workItems[0]!;
       expect(await stood.c.getSeal(a.id, 1)).toBe("done");
-      await stood.c.chain(a.id, "parked");
+      expect((await stood.c.chain(a.id, "parked")).since).toBe(NOW);
+      // The person answers an hour and a half after the ruling's stage ended.
+      clock = NOW + 90 * 60_000;
       // A file no commit holds, outside the work item's directory: a round reads a committed tree.
       write(a.worktree, "loose.txt", "loose\n");
       stood.c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "It may not." }] });
       const stopped = await stood.c.chain(a.id, "stopped");
       expect(stopped.says).toBe("The chain did not go on after the answers. The worktree holds a change no commit holds, at loose.txt. A round reads a committed tree: commit the change or remove it first.");
       expect(stopped.stages.length).toBe(3);
+      expect([stopped.stages.at(-1)?.endedAt, stopped.since]).toEqual([NOW, NOW + 90 * 60_000]);
       rmSync(join(a.worktree, "loose.txt"));
+      clock = NOW + 100 * 60_000;
       expect(await stood.c.getSeal(a.id, 3)).toBe("done");
-      expect(stagesOf(await stood.c.chain(a.id, "reviewed")).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"]]);
+      const reviewed = await stood.c.chain(a.id, "reviewed");
+      expect(stagesOf(reviewed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"]]);
+      expect(reviewed.since).toBe(NOW + 100 * 60_000);
     });
 
     it("asks for the judgment of convergence at a person's start where round 2's chain stopped after the ruling on its proofer's question: a ruling the chain's last stage holds is no answered judgment of convergence", async () => {

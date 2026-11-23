@@ -93,6 +93,7 @@ import {
   lacksRecords,
   recordsDialog,
   recordsOf,
+  refusedSeal,
   registered,
   repositoryMenu,
   rowButtons,
@@ -1245,7 +1246,7 @@ describe("a work item's chain", () => {
   const ROUND: ChainStage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: NOW - 30 * MINUTE, endedAt: NOW - 20 * MINUTE, headlessId: 3, refusals: 0 };
   const FIX: ChainStage = { kind: "fix-pass", round: 1, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: NOW - 19 * MINUTE, endedAt: NOW - 6 * MINUTE, headlessId: 4, refusals: 0 };
   const STOPPED_SAYS = "The fix pass of round 1 failed: the session reached its time limit and was stopped.";
-  const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", reviewedAt: null, stages: [], ...fields });
+  const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", reviewedAt: null, stages: [], since: NOW - 4 * MINUTE, ...fields });
   const RUNNING: WorkItem = { ...LOGIN, chain: chain("running", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) };
   const STOPPED: WorkItem = { ...LOGIN, chain: chain("stopped", { stages: [ROUND, FIX] }) };
   const REVIEWED: WorkItem = { ...LOGIN, chain: chain("reviewed", { says: "The review rounds settled at 1a2b3c4.", reviewedAt: "1a2b3c4", stages: [ROUND] }) };
@@ -1298,16 +1299,19 @@ describe("a work item's chain", () => {
     }
   });
 
-  it("counts the age of a stopped chain's line from the end of its newest stage, from the earlier of that and its questions' and its requests' times, and gives no age where the newest stage did not end or the chain holds no stage", () => {
-    expect(lineSince(STOPPED, finished)).toBe(NOW - 6 * MINUTE);
-    expect(lineSince(STOPPED, undefined)).toBe(NOW - 6 * MINUTE);
-    expect(stateWithAge(inboxLine(STOPPED, [finished], KINDS).state, lineSince(STOPPED, finished), NOW)).toBe("Needs you, 6 min");
+  it("counts the age of a stopped chain's line from when the chain stopped, whenever its newest stage ended, and from the earlier of that and its questions' and its requests' times", () => {
+    // The chain stopped 4 minutes ago, 2 minutes after its newest stage ended.
+    expect(lineSince(STOPPED, finished)).toBe(NOW - 4 * MINUTE);
+    expect(lineSince(STOPPED, undefined)).toBe(NOW - 4 * MINUTE);
+    expect(stateWithAge(inboxLine(STOPPED, [finished], KINDS).state, lineSince(STOPPED, finished), NOW)).toBe("Needs you, 4 min");
     expect(lineSince({ ...STOPPED, questions: [QUESTION] }, finished)).toBe(NOW - 12 * MINUTE);
-    expect(lineSince({ ...STOPPED, permissions: [BASH] }, finished)).toBe(NOW - 6 * MINUTE);
-    // The daemon ended while the stage ran, so the stage has no end.
-    expect(lineSince({ ...LOGIN, chain: chain("stopped", { stages: [ROUND, { ...FIX, endedAt: null }] }) }, finished)).toBeNull();
-    expect(lineSince({ ...LOGIN, chain: chain("stopped") }, finished)).toBeNull();
-    expect(lineSince({ ...LOGIN, chain: chain("stopped"), permissions: [BASH] }, finished)).toBe(NOW - 2 * MINUTE);
+    expect(lineSince({ ...STOPPED, permissions: [BASH] }, finished)).toBe(NOW - 4 * MINUTE);
+    // A chain that stopped outside a stage, at a start long after its newest stage ended, has waited since that stop.
+    expect(lineSince({ ...LOGIN, chain: chain("stopped", { stages: [ROUND], since: NOW - MINUTE }) }, finished)).toBe(NOW - MINUTE);
+    // The daemon ended while the stage ran, so the stage has no end, and a chain may stop before its first stage.
+    expect(lineSince({ ...LOGIN, chain: chain("stopped", { stages: [ROUND, { ...FIX, endedAt: null }] }) }, finished)).toBe(NOW - 4 * MINUTE);
+    expect(lineSince({ ...LOGIN, chain: chain("stopped") }, finished)).toBe(NOW - 4 * MINUTE);
+    expect(lineSince({ ...LOGIN, chain: chain("stopped", { since: NOW - MINUTE }), permissions: [BASH] }, finished)).toBe(NOW - 2 * MINUTE);
   });
 
   it("gives the line of a running chain no age where the chain alone says that it works, and the pane's where the pane works or waits", () => {
@@ -1337,7 +1341,7 @@ describe("a work item's chain", () => {
     }
   });
 
-  it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal until the chain runs', () => {
+  it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal the daemon gave for the chain as it stands, and none while the chain runs', () => {
     const start = "Start the review rounds on Fix the login bug";
     expect(sealButton(LOGIN, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: "" });
     expect(sealButton(STOPPED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
@@ -1346,10 +1350,31 @@ describe("a work item's chain", () => {
     expect(sealButton(RUNNING, false, null)).toEqual({ offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
     expect(sealButton(STOPPED, true, null)).toEqual({ offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
     const refused = "The branch holds no commit after its base, so a round has nothing to read.";
-    expect(sealButton(LOGIN, false, refused)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: refused });
-    expect(sealButton(STOPPED, false, refused)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
-    // A chain that runs was started since the refusal.
-    expect(sealButton(RUNNING, false, refused).refusal).toBe("");
+    expect(sealButton(LOGIN, false, refusedSeal(LOGIN, refused))).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: refused });
+    expect(sealButton(STOPPED, false, refusedSeal(STOPPED, refused))).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
+    // A chain that runs was started since the refusal, and one that is running says no refusal of a press on it.
+    expect(sealButton(RUNNING, false, refusedSeal(STOPPED, refused)).refusal).toBe("");
+    expect(sealButton(RUNNING, false, refusedSeal(RUNNING, "The chain of work item 1 is already running.")).refusal).toBe("");
+  });
+
+  it("says a refusal only while the chain stands as it stood when the daemon refused: not once a chain that no press of this window started has run and rests in another state, or in the same state since a later time", () => {
+    const waits = "The work item waits for the answers to its open questions. Answer them first.";
+    const atParked = refusedSeal(PARKED, waits);
+    expect(atParked).toEqual({ says: waits, state: "parked", since: NOW - 4 * MINUTE });
+    expect(sealButton(PARKED, false, atParked).refusal).toBe(waits);
+    // The person answered, the chain ran by itself and rests: no question is open any more.
+    for (const rests of [STOPPED, REVIEWED]) expect(sealButton(rests, false, atParked).refusal).toBe("");
+    // A chain another window started stopped again: the same state, since a later time.
+    const loose = "The worktree holds a change no commit holds, at notes.txt. A round reads a committed tree: commit the change or remove it first.";
+    const atStopped = refusedSeal(STOPPED, loose);
+    expect(sealButton(STOPPED, false, atStopped).refusal).toBe(loose);
+    expect(sealButton({ ...STOPPED, chain: chain("stopped", { stages: [ROUND, FIX], since: NOW - MINUTE }) }, false, atStopped).refusal).toBe("");
+    // A refusal for a work item no chain ran for holds until one runs, and one for a work item the window no longer lists is kept as for none.
+    const atNone = refusedSeal(LOGIN, loose);
+    expect(atNone).toEqual({ says: loose, state: null, since: null });
+    expect(refusedSeal(undefined, loose)).toEqual(atNone);
+    expect(sealButton(LOGIN, false, atNone).refusal).toBe(loose);
+    expect(sealButton(STOPPED, false, atNone).refusal).toBe("");
   });
 
   it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line, and offers no "Get a seal" for it', () => {
@@ -1359,7 +1384,7 @@ describe("a work item's chain", () => {
     expect(chainNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
     expect(chainNotifications([EARLIER], [STOPPED], undefined)).toHaveLength(1);
     expect(sealButton(EARLIER, false, null)).toEqual({ offered: false, enabled: false, title: "", says: "", refusal: "" });
-    expect(sealButton(EARLIER, false, "refused").offered).toBe(false);
+    expect(sealButton(EARLIER, false, refusedSeal(EARLIER, "refused")).offered).toBe(false);
   });
 });
 

@@ -149,7 +149,7 @@ describe("RepositoryStore", () => {
     const store = new RepositoryStore(dir, () => 1);
     const { item } = store.addWorkItem(PLACE);
     const stage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 4, refusals: 0 } as const;
-    const chain: Chain = { state: "reviewed", says: "The review rounds settled at ccccccc, after round 1.", reviewedAt: "c".repeat(40), stages: [stage] };
+    const chain: Chain = { state: "reviewed", says: "The review rounds settled at ccccccc, after round 1.", reviewedAt: "c".repeat(40), stages: [stage], since: 3 };
     expect(store.setWorkItem(item.id, { chain })).toBe(true);
     expect(store.setWorkItem(item.id, { chain })).toBe(false);
     expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, chain: { ...chain, stages: [{ ...stage, headlessId: null }] } });
@@ -157,8 +157,12 @@ describe("RepositoryStore", () => {
     const file = (workItem: object): string => JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [workItem] }] });
     writeFileSync(join(dir, "repositories.json"), file(before));
     expect(new RepositoryStore(dir).workItem(1)?.item).toEqual({ ...before, chain: null });
-    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { state: "running", says: "Review round 1 is running.", reviewedAt: null, stages: [{ ...stage, state: "working", endedAt: null }] } }));
-    expect(new RepositoryStore(dir).workItem(1)?.item.chain).toEqual({ state: "stopped", says: "The daemon ended while review round 1 ran.", reviewedAt: null, stages: [{ ...stage, state: "failed", failure: "the daemon ended while the stage ran", endedAt: null, headlessId: null }] });
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { state: "running", says: "Review round 1 is running.", reviewedAt: null, since: 3, stages: [{ ...stage, state: "working", endedAt: null }] } }));
+    expect(new RepositoryStore(dir, () => 7).workItem(1)?.item.chain).toEqual({ state: "stopped", says: "The daemon ended while review round 1 ran.", reviewedAt: null, since: 7, stages: [{ ...stage, state: "failed", failure: "the daemon ended while the stage ran", endedAt: null, headlessId: null }] });
+    // A chain a build before the time of its state wrote is read as in its state since its newest stage ended.
+    const { since: _since, ...written } = chain;
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: written }));
+    expect(new RepositoryStore(dir).workItem(1)?.item.chain).toEqual({ ...chain, since: 2, stages: [{ ...stage, headlessId: null }] });
     // A file whose chain is none of a chain's states is read as no repository, as a file whose setup is none is.
     writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, state: "sealed" } }));
     expect(new RepositoryStore(dir).repositories()).toEqual([]);

@@ -1866,7 +1866,7 @@ export class Daemon {
     if (why !== null) throw new Error(why);
     const held = this.store.workItem(workItemId);
     if (!held) throw new Error(`no work item ${String(workItemId)}`);
-    this.store.setWorkItem(workItemId, { chain: { state: "running", says: READING_SAYS, reviewedAt: null, stages: held.item.chain?.stages ?? [] } });
+    this.store.setWorkItem(workItemId, { chain: { state: "running", says: READING_SAYS, reviewedAt: null, stages: held.item.chain?.stages ?? [], since: (this.options.now ?? Date.now)() } });
     this.chains.set(workItemId, Promise.resolve().then(() => this.runChain(workItemId, byPerson)));
   }
 
@@ -1888,7 +1888,7 @@ export class Daemon {
       this.broadcastInbox();
     } catch (error) {
       const chain = this.store.workItem(workItemId)?.item.chain;
-      if (chain) this.chainSet(workItemId, { ...chain, state: "stopped", says: notResumedSays(error instanceof Error ? error.message : String(error)) });
+      if (chain) this.chainSet(workItemId, { ...chain, state: "stopped", says: notResumedSays(error instanceof Error ? error.message : String(error)), since: (this.options.now ?? Date.now)() });
     }
   }
 
@@ -1961,7 +1961,8 @@ export class Daemon {
   private async runChain(workItemId: number, byPerson: boolean): Promise<void> {
     const rest = (state: Chain["state"], says: string, reviewedAt: string | null = null): void => {
       const chain = this.store.workItem(workItemId)?.item.chain;
-      if (chain) this.chainSet(workItemId, { ...chain, state, says, reviewedAt });
+      // The chain rests in a state it was not in while it ran, from now on.
+      if (chain) this.chainSet(workItemId, { ...chain, state, says, reviewedAt, since: (this.options.now ?? Date.now)() });
     };
     const ceiling = this.options.roundsCeiling ?? ROUNDS_CEILING;
     // Whether the step is the first of a start a person made, and the round this run's judgment of convergence was answered yes after.

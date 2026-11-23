@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Chain, Group, WorktreeSetup } from "../shared/protocol";
-import { chainRead, isChain } from "./chain";
+import { type WrittenChain, chainRead, isChain } from "./chain";
 import { writeWholeFile } from "./whole-file";
 import { DAEMON_STOPPED, isWorktreeSetup, setupOf } from "./worktree-setup";
 import { repositoryOfSync } from "./worktrees";
@@ -65,7 +65,7 @@ function isGroup(value: unknown): value is Group {
 }
 
 /** A stored work item as a file holds one: one written before the setup was recorded has none, and one written before a chain was kept has none of that. */
-type WrittenWorkItem = Omit<StoredWorkItem, "setup" | "chain"> & { setup?: WorktreeSetup | null; chain?: Chain | null };
+type WrittenWorkItem = Omit<StoredWorkItem, "setup" | "chain"> & { setup?: WorktreeSetup | null; chain?: WrittenChain | null };
 
 function isStoredWorkItem(value: unknown): value is WrittenWorkItem {
   return (
@@ -246,7 +246,7 @@ export class RepositoryStore {
         hidden,
         addedAt,
         groups: groups.map((group) => ({ id: group.id, name: group.name })),
-        workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup, chain }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup), chain: chainRead(chain) })),
+        workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup, chain }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup), chain: chainRead(chain, this.now()) })),
       });
     }
     // A file with no counts, and one whose counts stand below an id it holds, gives no id twice either.

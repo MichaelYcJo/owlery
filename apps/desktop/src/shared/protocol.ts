@@ -337,6 +337,8 @@ export interface Chain {
   reviewedAt: string | null;
   /** The stages, the oldest first: the newest of them, as many as the daemon keeps (`CHAIN_STAGES_KEPT` of `src/daemon/chain.ts`). */
   stages: ChainStage[];
+  /** When the chain took its `state`, by the daemon's clock. A chain stops at times no stage ended at: where a start is refused after the answers, and where the read of the records between two stages fails. */
+  since: number;
 }
 
 /** One call a headless session waits for the person to allow or refuse. */

@@ -773,14 +773,32 @@ function isChainStage(value: unknown): value is ChainStage {
   );
 }
 
-/** Whether a value is a chain as the store writes one. */
-export function isChain(value: unknown): value is Chain {
-  return isRecord(value) && ["running", "parked", "stopped", "reviewed"].includes(value.state as string) && typeof value.says === "string" && isTextOrNull(value.reviewedAt) && Array.isArray(value.stages) && value.stages.every(isChainStage);
+/** A chain as a file holds one: one written before a chain kept the time of its state has no `since`. */
+export type WrittenChain = Omit<Chain, "since"> & { since?: number };
+
+/** Whether a value is a chain as the store writes one, or wrote one before a chain kept the time of its state. */
+export function isChain(value: unknown): value is WrittenChain {
+  return (
+    isRecord(value) &&
+    ["running", "parked", "stopped", "reviewed"].includes(value.state as string) &&
+    typeof value.says === "string" &&
+    isTextOrNull(value.reviewedAt) &&
+    Array.isArray(value.stages) &&
+    value.stages.every(isChainStage) &&
+    (value.since === undefined || typeof value.since === "number")
+  );
 }
 
-/** Only the fields of a chain, each stage a copy. */
-export function chainOf(chain: Chain): Chain {
-  return { state: chain.state, says: chain.says, reviewedAt: chain.reviewedAt, stages: chain.stages.map(({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals }) => ({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals })) };
+/** Only the fields of a chain, each stage a copy. A chain written with no `since` takes the end of its newest stage, the start of that stage where it did not end, and 0 where it holds no stage. */
+export function chainOf(chain: WrittenChain): Chain {
+  const newest = chain.stages.at(-1);
+  return {
+    state: chain.state,
+    says: chain.says,
+    reviewedAt: chain.reviewedAt,
+    stages: chain.stages.map(({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals }) => ({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals })),
+    since: chain.since ?? newest?.endedAt ?? newest?.startedAt ?? 0,
+  };
 }
 
 /** Why a stage that was working when the daemon ended failed. */
@@ -792,14 +810,16 @@ export const DAEMON_ENDED = "the daemon ended while the stage ran";
  * that session's id to another. A chain stored `running` is read as
  * `stopped`: its stage's session ended with the daemon that started it, and
  * nothing starts a stage but a `getSeal`. Its sentence says that the daemon
- * ended while the stage ran, and the stage that was working is `failed`.
+ * ended while the stage ran, the stage that was working is `failed`, and
+ * the chain is stopped since `now`, the clock of the daemon that reads it:
+ * nothing holds when the daemon before it ended.
  */
-export function chainRead(chain: Chain | null | undefined): Chain | null {
+export function chainRead(chain: WrittenChain | null | undefined, now: number): Chain | null {
   if (chain === undefined || chain === null) return null;
   const stages = chainOf(chain).stages.map((stage): ChainStage => ({ ...stage, headlessId: null }));
   const read: Chain = { ...chainOf(chain), stages };
   if (read.state !== "running") return read;
   const working = stages.find((stage) => stage.state === "working");
   if (working !== undefined) Object.assign(working, { state: "failed", failure: DAEMON_ENDED });
-  return { ...read, state: "stopped", says: working === undefined ? "The daemon ended while the chain ran." : `The daemon ended while ${stageName(working.kind, working.round).replace(/^[A-Z]/u, (letter) => letter.toLowerCase())} ran.` };
+  return { ...read, state: "stopped", since: now, says: working === undefined ? "The daemon ended while the chain ran." : `The daemon ended while ${stageName(working.kind, working.round).replace(/^[A-Z]/u, (letter) => letter.toLowerCase())} ran.` };
 }

@@ -170,8 +170,8 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
  * a work item parked with questions, one whose headless session waits for
  * the person to allow a call, and one whose chain stopped, the earliest of
  * the times the daemon first read one of its open questions at, the times
- * its requests arrived at and the time the stopped chain's newest stage
- * ended at, all of them the daemon's clock, and otherwise the time of the
+ * its requests arrived at and the time the chain stopped at, all of them
+ * the daemon's clock, and otherwise the time of the
  * state of the pane the line reads, `session`. Null where none gives one,
  * and for a work item whose running chain alone says that it works: its
  * pane's time is that of another state.
@@ -184,7 +184,7 @@ export function lineSince(workItem: WorkItem, session: SessionInfo | undefined):
     if (chain?.state === "running" && session?.state !== "working" && session?.state !== "waiting") return null;
     return session?.stateSince ?? null;
   }
-  const stopped = chain?.state === "stopped" ? (chain.stages.at(-1)?.endedAt ?? null) : null;
+  const stopped = chain?.state === "stopped" ? chain.since : null;
   const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...asks.map(({ at }) => at), ...(stopped === null ? [] : [stopped])];
   return times.length > 0 ? Math.min(...times) : null;
 }
@@ -2150,6 +2150,19 @@ export function askButton(prompt: string, workItem: WorkItem): { enabled: boolea
   return { enabled: true, title: `Ask in ${workItem.title}` };
 }
 
+/** The daemon's refusal of a press of "Get a seal": its sentence, with the state of the work item's chain and the time the chain took it as the window held them at the refusal, each null where no chain ran for the work item. */
+export interface SealRefusal {
+  says: string;
+  state: Chain["state"] | null;
+  since: number | null;
+}
+
+/** The refusal the daemon answered a press of "Get a seal" with, for the work item as the window holds it at the answer, or for none where the window no longer lists it. */
+export function refusedSeal(workItem: WorkItem | undefined, says: string): SealRefusal {
+  const chain = workItem && chainOf(workItem);
+  return { says, state: chain?.state ?? null, since: chain?.since ?? null };
+}
+
 /**
  * The "Get a seal" button of a work item's view, which starts the work
  * item's chain: whether it is drawn, whether it can be pressed, its title,
@@ -2158,20 +2171,24 @@ export function askButton(prompt: string, workItem: WorkItem): { enabled: boolea
  * and not for a daemon of an earlier build, which sends no such field and
  * starts no chain. It cannot be pressed while the chain is running, nor
  * while `asked`, the window's own request to start it, waits for the
- * daemon's answer. `refused` is the sentence the daemon refused the
- * window's last request for the work item with, or null; it is said until
- * the chain runs.
+ * daemon's answer. `refused` is the daemon's refusal of the window's last
+ * request for the work item (`refusedSeal`), or null. Its sentence is said
+ * while the chain stands as it stood when the daemon refused, in that state
+ * since that time, and not while the chain runs: a chain that took a state
+ * since then ran, whoever started it, and what refused the press may no
+ * longer hold.
  */
-export function sealButton(workItem: WorkItem, asked: boolean, refused: string | null): { offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
+export function sealButton(workItem: WorkItem, asked: boolean, refused: SealRefusal | null): { offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
   const chain = chainOf(workItem);
   if (chain === undefined) return { offered: false, enabled: false, title: "", says: "", refusal: "" };
   const running = chain?.state === "running";
+  const stands = refused !== null && refused.state === (chain?.state ?? null) && refused.since === (chain?.since ?? null);
   return {
     offered: true,
     enabled: !running && !asked,
     title: running ? "The chain is running." : asked ? "The chain is starting." : `Start the review rounds on ${workItem.title}`,
     says: chain?.says ?? "",
-    refusal: running ? "" : (refused ?? ""),
+    refusal: running || !stands ? "" : refused.says,
   };
 }
 
