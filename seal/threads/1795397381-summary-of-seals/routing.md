@@ -19,4 +19,4 @@ The owner's words that hand the run over: "알아서 진행하고 완료되면 �
 - **Implementation, crafter:** the daemon's look, the summary screen and its lines.
 - **Review, through the review chain:** the summary is the first thing a person who comes back reads, and it states what was sealed; a defect there says sealed of a work item whose seal broke.
 - **Automation, yes:** the cases feed the daemon's look and read the summary; no case reaches GitHub or starts a real `claude`.
-- **Branch:** cut from `release/v0.0.2` at `41e8aa4`; the pull request merges into `release/v0.0.2` by squash, after #44's.
+- **Branch:** cut from `release/v0.0.2` at `41e8aa4`; the branch merged `release/v0.0.2` at `099e086`; the pull request merges into `release/v0.0.2` by squash, after #44's.
