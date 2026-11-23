@@ -16,7 +16,7 @@ The tree as read at `1e65c7a`, the commit at which this branch merged `release/v
 - `repositories.ts#StoredWorkItem`, which holds `setup` and `chain`.
 - `pr-check/skills/code-review/scripts/chain_check.py#main`, which decides `strict` from the draft state, gathers `problems` and `notices` from the arms, prints them and returns the exit code. `#pull_request_body` reads the payload. `#guarantee` is the arm whose refusal names a head with no seal, and, since #42, a judge that is one of the builders. `#body` is the arm this work rewrites. `pr-check/lib/fields.py#GUARANTEE` is the grammar the body arm hands the section's lines to.
 - `records-place.ts#workflowText`, and `view.ts#recordsDialog`.
-- `view.ts#inboxLine`, `#lineText`, `#lineBadge`, `#changesSince` and `#matchWorkItems`, and `view.ts#STAGES`, the table of the kinds of stage, whose rows of `judgment` and `ruling` mark no place.
+- `view.ts#inboxLine`, `#lineText`, `#decisionMark`, `#changesSince` and `#matchWorkItems`, and `view.ts#STAGES`, the table of the kinds of stage, whose rows of `judgment` and `ruling` mark no place.
 - `main/links.ts`, which opens an `http` or `https` address in the system browser and nothing in an app started with `OWLERY_BACKGROUND=1`.
 
 **Constraints.**
@@ -72,7 +72,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 | 1. The seal check | `frame/design.md` *Scope* items 19 to 24 | Scenarios 11 to 15, and of scenario 2 a body the case writes by hand in the form of *Data & interfaces* | `e770399` |
 | 2. The pull request stage | *Scope* items 1 to 11, of item 12 the type and the store, and of item 25 the kind `pull-request` | Scenarios 1 to 7 and 9, and scenario 2 with the body the stage wrote | `fdc4c5b` |
 | 3. The watch | *Scope* items 13 to 18; phase 2 delivered items 12 and 25 whole, `WorkItem.pullRequest` and the look's field among them (`trail/phases/phase-2.md`) | Scenarios 8 and 10, and of scenario 9 the watch's calls | `5d559e6` |
-| 4. The window and the words | *Scope* items 26 to 31 | Scenarios 16 to 21 | |
+| 4. The window and the words | *Scope* items 26 to 31 | Scenarios 18 to 21, and of scenario 16 the view's part; phase 3 pinned scenario 17 and the line's part of scenario 16 (`trail/phases/phase-3.md`) | |
 
 The new test file that `frame/design.md` *Rule changes* names in its `check:` lines, `test/pull-request.test.ts`, is made in phase 2 under that name. The check at the pull request refuses a `check:` line that names no file.
 
@@ -94,7 +94,7 @@ The spawn named #41, #42, #46 and #45, whose frames stood committed on their bra
 - **No migration.** A work item an earlier build stored holds no pull request, and is read with none.
 - **No new dependency of the app.** The stage needs the person's `gh` on the `PATH` of their login shell, logged in to the host of the repository, and a git that can push to the remote with no question asked. Where one is missing the stage stops with a sentence that says which, and the seal stands.
 - **The daemon pushes a branch to the person's remote and opens a pull request there, with nobody asked at that moment.** It does so only after a seal, only where the work item's `routing.md` reads `open the pull request`, never by force, and it sets the branch's upstream. The repository's push hooks run.
-- **The daemon calls GitHub through `gh` while a client is connected**: once at a hello and then every 30 seconds for each open pull request with a pending check, and every 5 minutes for each other open one.
+- **The daemon calls GitHub through `gh` while a client is connected**: once at a hello and 30 seconds after the stage, and then every 30 seconds for each open pull request with a pending check, and every 5 minutes for each other open one.
 - **The workflow Owlery writes at a connection asks for the right to write checks**, and its step is handed the run's token. A repository connected by a build of the release branch before this work keeps the file it has, whose job posts nothing, since a committed file is kept. No release has shipped such a build.
 - **A connected repository's check comes from the release that wrote its workflow.** A workflow that passes `--post` to a `pr-check/` without the option fails, so the option and the workflow's text ship in one release.
 - **An administrator who requires `Owlery seal` blocks every pull request that gets no posted check**: one from a fork, and every one where the organisation gives workflows a token that cannot write a check. The dialog and the README say so.
