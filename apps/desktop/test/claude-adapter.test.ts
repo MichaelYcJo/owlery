@@ -787,7 +787,8 @@ describe("the Claude adapter's role launch", () => {
       // A process ended by a signal has no code.
       { type: "exit", exitCode: 1, errorOutput: "still here\n" },
     ]);
-    expect(ms).toBeLessThan(KILL_AFTER_MS);
+    // The CLI would work for 30 seconds, so a run that ends within 10 is one the adapter stopped. The time is counted from the run's start, the shell's start among it, so KILL_AFTER_MS is no bound for it under load.
+    expect(ms).toBeLessThan(10_000);
   });
 
   it("fails a role launch whose session gives a result before it said which agents it holds, and stops the CLI", async () => {
@@ -797,7 +798,8 @@ describe("the Claude adapter's role launch", () => {
       { type: "result", text: "the session did not say which agents it holds", isError: true, usage: null },
       { type: "exit", exitCode: 1, errorOutput: "" },
     ]);
-    expect(ms).toBeLessThan(KILL_AFTER_MS);
+    // As above: the CLI would sleep for 30 seconds, and the time counts the run's start.
+    expect(ms).toBeLessThan(10_000);
   });
 
   it("reads the login of a role launch from the init line the role's check reads: a key there marks the cost as a charge", async () => {
