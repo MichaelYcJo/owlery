@@ -981,7 +981,7 @@ export async function pathsOfCommits(worktree: string, from: string, to: string)
  * It throws git's words where either names no commit.
  */
 export async function trailerValues(worktree: string, from: string, to: string, key: string): Promise<string[]> {
-  const printed = await git(worktree, ["log", "--first-parent", "--reverse",`--format=%(trailers:key=${key},valueonly)`, `${from}..${to}`], BRANCH_OUTPUT_BYTES);
+  const printed = await git(worktree, ["log", "--first-parent", "--reverse", `--format=%(trailers:key=${key},valueonly)`, `${from}..${to}`], BRANCH_OUTPUT_BYTES);
   return [...new Set(printed.split("\n").map((line) => line.trim()).filter((line) => line !== ""))];
 }
 
