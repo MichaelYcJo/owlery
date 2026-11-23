@@ -14,7 +14,8 @@
 // branch, and its branch holds the records of a seal, committed with git
 // before the app starts as a chain commits them. The last case commits once
 // more in its worktree, which breaks the seal. The login shell is a script
-// that names no CLI, and the case opens no pane. The page's `Notification`
+// that names no CLI, and the case opens no pane. The last case archives the
+// second work item as a second client of the daemon. The page's `Notification`
 // is replaced by one that does nothing, so the broken seal's notification
 // does not reach the system's.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -22,6 +23,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withApplied, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
+import type { ClientMessage, ServerMessage } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { commitSeal } from "./chain-run";
 import { commitFile, git, temporaryRepository } from "./repositories";
@@ -251,7 +253,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     }
   });
 
-  it("says the present of each line of the summary: the seal given since the look, then broken by a commit while the summary is in front, which draws its sentence, its line and the line's seal again and leaves the keyboard on the line it was on", async () => {
+  it("says the present of each line of the summary: the seal given since the look, then broken by a commit while the summary is in front, which draws its sentence, its line and the line's seal again and leaves the keyboard on the line it was on, and no line of a work item archived since, which the sidebar's count leaves out", async () => {
     const delta = `#summary-lines button[data-work-item="4"]`;
     const at = sealedAt.slice(0, 7);
     // The summary is one step away from the inbox the last case left in front, and the work items it lists are the load's: the sealed one first, then the two whose lists changed. The second one's questions are answered since, so it no longer needs the person: its line says its state alone and stands after the first's, in the daemon's order, and the sentence no longer counts it.
@@ -275,5 +277,27 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     expect(await app.evaluate(`document.activeElement === document.querySelector('${delta}')`)).toBe(true);
     // The sidebar counts the lines the summary draws.
     expect(await text("#nav-summary-count")).toBe("3 new");
+
+    // The third line's work item archived, by a second client of the daemon: the summary draws no line for it, the sidebar counts one line fewer, and the keyboard stays on the sealed line.
+    const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })));
+        socket.addEventListener("message", (event) => {
+          const message = JSON.parse(String(event.data)) as ServerMessage;
+          if (message.type === "ready") socket.send(JSON.stringify({ type: "archiveWorkItem", requestId: 1, id: 2, running: { panes: [], headless: [] } } satisfies ClientMessage));
+          if (message.type === "done" && message.requestId === 1) resolve();
+          if (message.type === "error" && message.requestId === 1) reject(new Error(`the daemon archived nothing: ${message.message}`));
+        });
+      });
+    } finally {
+      socket.close();
+    }
+    await app.until(`document.querySelectorAll("#summary-lines button[data-work-item]").length === 2`, "the summary without the archived work item's line");
+    expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Alpha"]);
+    expect(await text("#summary-sentence")).toBe("1 seal broken. 1 decision made without asking.");
+    expect(await text("#nav-summary-count")).toBe("2 new");
+    expect(await app.evaluate(`document.activeElement === document.querySelector('${delta}')`)).toBe(true);
   });
 });
