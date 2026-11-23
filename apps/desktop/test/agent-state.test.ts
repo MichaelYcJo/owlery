@@ -21,4 +21,12 @@ describe("agentStateAfter", () => {
   it("is no state after the agent's session starts, before anything was asked of it", () => {
     expect(agentStateAfter("session-start")).toBeNull();
   });
+
+  it("is waiting after an event that asks the person a question, whatever the event, and as before after one that asks none", () => {
+    for (const event of ["prompt", "tool-start", "tool-end", "tool-failed", "permission", "notification", "turn-end", "session-start"] as const) {
+      expect(agentStateAfter(event, true), event).toBe("waiting");
+      expect(agentStateAfter(event, false), event).toBe(agentStateAfter(event));
+    }
+    expect(agentStateAfter("tool-start", false)).toBe("working");
+  });
 });

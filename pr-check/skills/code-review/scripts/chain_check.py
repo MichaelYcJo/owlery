@@ -69,8 +69,10 @@ judged (`carried_by`). The arms are nine:
                 no run block, or with a line the reader refuses, fails
   guarantee     the last verdict block of `guarantee.md`, the newest run of
                 the sealer, read through `lib/fields.py`, names HEAD,
-                or every commit after it touches only the closing records,
-                and its `Verdict:` reads `sealed`; a guarantee with no
+                or every commit after it touches only the closing records
+                (`trail/gate.md`, `guarantee.md` and `trail/refusals.md`),
+                its `Verdict:` reads `sealed`, and its `judged-by:` session
+                is none of its `built-by:` sessions; a guarantee with no
                 verdict block, or with a line the reader refuses, fails
   body          where the event payload holds `pull_request.body`, that
                 body is what `seal pr-body` composes at HEAD for the one
@@ -178,10 +180,13 @@ BROAD_GATE_FILE = "trail/gate.md"
 GUARANTEE_FILE = "guarantee.md"
 SPEC_FILE = "frame/design.md"
 PLAN_FILE = "frame/plan.md"
-# The closing records: the orchestrator's run writes the one, the sealer the
-# other, and they are the only files that may follow the commit the
-# guarantee names, since the sealer audited everything else on the branch.
-CLOSING_RECORDS = (BROAD_GATE_FILE, GUARANTEE_FILE)
+REFUSALS_FILE = "trail/refusals.md"
+# The closing records: the daemon's gate writes the first on a passed run,
+# and the sealer's stage the second, with the rows of the calls the sealer's
+# role was refused in the third. They are the only files that may follow the
+# commit the guarantee names, since the sealer audited everything else on
+# the branch.
+CLOSING_RECORDS = (BROAD_GATE_FILE, GUARANTEE_FILE, REFUSALS_FILE)
 # A round record's fields stand in `seal` blocks, and `lib/fields.py`
 # is the one spelling of their grammar. What this file holds is where
 # a block stands, which turns on headings that module does not read: the one
@@ -1664,9 +1669,9 @@ def originals_of(reader, routing, root, home, paths, items, direct=()):
 # A gate record with no run block: one of the older shape, its run written
 # outside any block, or one nobody wrote a run into.
 NO_RUN_BLOCK = (
-    "no run block: since #1198 the run stands in a `seal` block holding "
-    "`run: <tree> against <base commit>`, which `seal gate --base <base> "
-    "--record <item>` appends below the text already there on a green run"
+    "no run block: a passed run of the broad gate stands in a `seal` block "
+    "holding `run: <tree> against <base commit>`, which Owlery's daemon "
+    "appends below the text already there"
 )
 
 
@@ -1691,9 +1696,9 @@ def broad_gate(reader, root, item, base, notices=None):
             (
                 rel,
                 0,
-                "git carries no gate record: the orchestrator runs "
-                "`seal gate --base <base> --record <item>` before it spawns "
-                "the sealer, and the run writes it on a green run",
+                "git carries no gate record: once the review rounds settle, "
+                "Owlery's daemon runs the repository's broad gate on the "
+                "branch's head and commits this record where the run passes",
             )
         ]
     runs, problems = blocks_of(rel, text, FIELDS.GATE, notices)
@@ -1711,11 +1716,18 @@ def broad_gate(reader, root, item, base, notices=None):
 # A guarantee with no verdict block: one of the older shape, its verdict
 # written outside any block, or one the sealer never filled.
 NO_VERDICT_BLOCK = (
-    "no verdict block: since #1198 the sealer's verdict stands in a `seal` "
-    "block holding `target: <sha> against <base>`, the `original:` line where "
-    "one is owed and `Verdict:`, as `templates/records/sdd-guarantee.md` "
-    "shows; the sealer runs again at HEAD and appends one below the text "
-    "already there"
+    "no verdict block: the sealer's verdict stands in a `seal` block holding "
+    "`target: <sha> against <base>`, the `original:` line where one is owed "
+    "and `Verdict:`, which the sealer's stage of Owlery's daemon appends "
+    "below the text already there once the broad gate has passed on the "
+    "branch's head"
+)
+# A verdict block whose judge is one of its builders: the daemon writes no
+# such block, and one written by hand or by another tool is no seal.
+JUDGE_BUILT = (
+    "`{line}` names a session that the block's `{built}` line names too: "
+    "the session that judges a work item built none of it, so this verdict "
+    "block is no seal"
 )
 
 
@@ -1723,9 +1735,9 @@ def guarantee(reader, root, item, base, notices=None):
     """[(path, line, problem)] for the work item's `guarantee.md`: absent, a
     line `lib/fields.py` refuses, a fence nobody closed and a line that
     begins with `<!--` among them, no verdict block, or a newest block, the
-    last, naming a commit with anything but the closing records after it or
-    a verdict other than `sealed`. A fence named as not read goes to
-    NOTICES."""
+    last, naming a commit with anything but the closing records after it, a
+    verdict other than `sealed`, or as its judge one of the sessions its
+    `built-by:` line names. A fence named as not read goes to NOTICES."""
     rel = f"{item}/{GUARANTEE_FILE}"
     text = read_record(root, rel)
     if text is None:
@@ -1733,8 +1745,9 @@ def guarantee(reader, root, item, base, notices=None):
             (
                 rel,
                 0,
-                "git carries no guarantee file: the sealer writes it from "
-                "`templates/records/sdd-guarantee.md` after the orchestrator's broad run",
+                "git carries no guarantee file: the sealer's stage of Owlery's "
+                "daemon writes it once the broad gate has passed on the "
+                "branch's head",
             )
         ]
     verdicts, problems = blocks_of(rel, text, FIELDS.GUARANTEE, notices)
@@ -1762,11 +1775,20 @@ def guarantee(reader, root, item, base, notices=None):
                 rel,
                 said.line,
                 f"the sealer's verdict reads `{line}`: a ready pull request needs "
-                f"`{FIELDS.SEALED}`: fix what it names, or answer its question "
-                "below the newest block, and the sealer runs again at the new "
-                "HEAD and appends its block",
+                f"`{FIELDS.SEALED}`. Where the reason of a `withheld` verdict "
+                'names something to fix, fix it and start "Get a seal" again '
+                "in Owlery. The question of an `undecided` verdict is decided "
+                "by Owlery's orchestrator agent, or answered in Owlery where "
+                "it parked the work item. Owlery's daemon then runs the broad "
+                "gate and the sealer's stage on the new head, and each appends "
+                "its block",
             )
         )
+    judge = newest.fields.get(FIELDS.JUDGED_BY)
+    if judge and judge.value in FIELDS.builders(newest):
+        line = f"{FIELDS.JUDGED_BY} {judge.value}"
+        said = JUDGE_BUILT.format(line=line, built=FIELDS.BUILT_BY)
+        problems.append((rel, judge.line, said))
     return problems
 
 
