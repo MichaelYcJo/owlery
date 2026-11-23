@@ -1184,7 +1184,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(status(worktree)).toEqual([]);
     };
 
-    it("stops its one chain where a round's session fails: the chain says that round 1 failed and why, no record is written, the other work item's chain reaches reviewed, and a later getSeal runs round 1 again", async () => {
+    it("stops its one chain where a round's session fails: the chain says that round 1 failed and why, no record is written, the other work item's chain is sealed, and a later getSeal runs round 1 again", async () => {
       let failing = true;
       const inner = roles();
       const failed = fakeAdapter({ fail: "result" });
@@ -1902,9 +1902,9 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       rmSync(join(a.worktree, "loose.txt"));
       clock = NOW + 100 * 60_000;
       expect(await stood.c.getSeal(a.id, 3)).toBe("done");
-      const reviewed = await stood.c.chain(a.id, "sealed");
-      expect(stagesOf(reviewed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"]]);
-      expect(reviewed.since).toBe(NOW + 110 * 60_000);
+      const sealed = await stood.c.chain(a.id, "sealed");
+      expect(stagesOf(sealed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"]]);
+      expect(sealed.since).toBe(NOW + 110 * 60_000);
       // While it ran, each start's chain was running since that start: the first, and the person's after the stop.
       const ran = stood.c.messages.flatMap((message) => (message.type === "inbox" ? message.workItems : [])).flatMap((item) => (item.id === a.id && item.chain?.state === "running" ? [item.chain.since] : []));
       expect([...new Set(ran)]).toEqual([NOW, NOW + 100 * 60_000]);
@@ -2740,7 +2740,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
     const stood = await standing(cleanups, ["Sealed work", "Other work"], { roleAdapter: adapter });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
-    // The records of a branch an earlier build reviewed: one round and the gate's run, and no guarantee.
+    // The records of a branch whose chain an earlier build rested: one round and the gate's run, and no guarantee.
     write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
     const target = commitAll(a.worktree, "chore: declare the work item's routing");
     write(a.worktree, `${DIRECTORY}/trail/rounds/round-1.md`, roundRecord(HEADING(1), `${target} against main`));
