@@ -333,7 +333,7 @@ describe("LastLook", () => {
     }
   });
 
-  it("reads a look a build before the chain wrote, whose work items lack it, with none, keeps a chain a look holds with only a chain's fields, reads a chain an earlier build stored as reviewed as none with the look around it kept, and reads a look whose chain is none as no look", () => {
+  it("reads a look a build before the chain wrote, whose work items lack it, with none, keeps a chain a look holds with only a chain's fields, reads a chain an earlier build stored as reviewed or as sealed as none with the look around it kept, and reads a look whose chain is none as no look", () => {
     const dir = runDir();
     const file = join(dir, "last-look.json");
     const { chain: _chain, ...before } = WORK_ITEM;
