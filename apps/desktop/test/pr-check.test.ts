@@ -350,6 +350,13 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     twice.splice(-1, 0, "", "```seal", ...made.block, "```");
     await refused(twice, "line 16: the seal section holds a second verdict block");
     await refused(["<!-- owlery:seal -->", "## Owlery seal", "", "No block.", "<!-- /owlery:seal -->"], "line 2: the seal section holds no verdict block");
+
+    // A branch with no guarantee: the section copies a record that is not there.
+    const unsealed = reviewed();
+    gated(unsealed);
+    const none = await run(unsealed, { body: ["A person's line.", ...sealSection(...made.block)].join("\n") });
+    expect(none.output).toContain(`seal/threads/1-x:0  the pull request's body, line 7: the section's verdict block copies none, since no judged work item's \`guarantee.md\` holds a verdict block that reads at the head commit; ${SECTION_IS}\n`);
+    expect(none.exit).toBe(1);
   }, 60_000);
 
   it("names the body as not read and refuses nothing of it where it holds no seal section, where it holds two, where its closing marker does not follow its opening one, and where the payload holds no body", async () => {
