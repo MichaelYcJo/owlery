@@ -19,4 +19,4 @@ The owner's words that hand the run over: "알아서 진행하고 완료되면 �
 - **Implementation, crafter:** the back of the seal in the window, and the pull request body's part.
 - **Review, through the review chain:** the back is where the seal shows whether it is worth its cost; a wrong number there misleads the person about the process itself.
 - **Automation, yes:** the cases read committed round records and a ledger the fake adapter writes; no case starts a real `claude`.
-- **Branch:** cut from `release/v0.0.2` at `629bfec`; the pull request merges into `release/v0.0.2` by squash, after #44's and #22's. The build waits for #41 to #44 to merge.
+- **Branch:** cut from `release/v0.0.2` at `629bfec`; the pull request merges into `release/v0.0.2` by squash, after #44's and #22's. The build waited for #41 to #44 to merge; all have, and the branch merged the release at `cad4a64`. It now waits for #22 to merge and for the branch to merge the release again.

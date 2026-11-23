@@ -98,4 +98,4 @@ The release's merge order is #27, #45, #41, #46, #42, #43, #44, #22, then this w
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-24 | #45 (`9e4a95f`), #41 (`71d035e`), #46 (`7641741`), #42 (`de2257c`), #43 (`70504e2`, PR #172), issue #171 (`d0479ce`, PR #173) and #44 (`3868fa8`, PR #174) merged into `release/v0.0.2`, and this branch merged the release branch at `cad4a64`. The frame's statements of their code, written from frames and builds in review, are re-read against the merged tree and rewritten where it contradicts them: a ledger entry names its chain's stage by kind and round, the screenshot run gains no view, and the case #43's review deferred here is *Scope* item 27. #22 is in build and merges before this work, and *Overlap with the release* lists what a second fold reads after its merge | the merges named; the framer's fold at `7d38765`; issue #47's comment of 2026-11-23 | plugin `skills/implement/orchestration.md` *A decision made after the frame is committed is folded* |
