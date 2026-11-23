@@ -89,7 +89,7 @@ import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, trailerValues, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
-/** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
+/** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
 
 /** The first `STATE_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
@@ -2826,10 +2826,11 @@ export class Daemon {
     return true;
   }
 
-  /** The seal a head of the work item's branch holds, or null where it holds none and where git could not say, which the log then says. */
+  /** The seal a head of the work item's branch holds, its sentence cut at `STATE_TEXT_CHARS`, since a sentence that quotes a line the reader refuses can be long. Null where it holds none and where git could not say, which the log then says. */
   private async sealAt(item: Held["item"], head: string): Promise<Seal | null> {
     try {
-      return await workItemSeal(item, head);
+      const seal = await workItemSeal(item, head);
+      return seal?.why ? { ...seal, why: cutText(seal.why) } : seal;
     } catch (error) {
       console.error(`the seal of work item ${String(item.id)} was not read: ${error instanceof Error ? error.message : String(error)}`);
       return null;

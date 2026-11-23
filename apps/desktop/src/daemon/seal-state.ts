@@ -21,17 +21,14 @@ import { workItemDirectory } from "./decision-record";
 import { GUARANTEE_FILE } from "./seal-records";
 import { commitNamed, fileAt, holdsCommit, pathsBetween } from "./worktrees";
 
-/** How many characters of a broken seal's sentence a work item carries: a sentence that quotes a reader's refusal can be long. */
-export const SEAL_WHY_CHARS = 2000;
-
 /** A commit as a sentence shows it: its first seven characters. */
 function shown(commit: string): string {
   return commit.slice(0, 7);
 }
 
-/** A broken seal of the commit, with its sentence cut at `SEAL_WHY_CHARS`. */
+/** A broken seal of the commit, and why, whole: the daemon cuts the sentence where it sends it. */
 function broken(commit: string, why: string): Seal {
-  return { state: "broken", commit, why: why.length > SEAL_WHY_CHARS ? `${why.slice(0, SEAL_WHY_CHARS - 1)}…` : why };
+  return { state: "broken", commit, why };
 }
 
 /** The sentence of a broken seal where no path but a closing record differs from the sealed commit: which step the order owes. */

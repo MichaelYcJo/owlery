@@ -18,7 +18,7 @@ import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
-import { commitSeal, standing } from "./chain-run";
+import { commitSeal, roundRecord, standing } from "./chain-run";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -4139,6 +4139,18 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     const moved = spawnSync("git", ["commit-tree", tree, "-p", at, "-m", "fix: change the greeting elsewhere"], { cwd: made.repo, encoding: "utf8" }).stdout.trim();
     git(made.repo, "update-ref", `refs/heads/${a.branch}`, moved, at);
     expect(await broken(c, a.id)).toEqual({ state: "broken", commit: gate, why: `\`feature.txt\` changed after the sealed commit \`${gate.slice(0, 7)}\`.` });
+  });
+
+  it("sends a broken seal's sentence cut at 2000 characters, where it quotes a long line of a record the reader refuses", async () => {
+    const { c, a, gate } = await sealed();
+    const record = `seal/threads/${NAME}/trail/rounds/round-2.md`;
+    mkdirSync(join(a.worktree, record, ".."), { recursive: true });
+    writeFileSync(join(a.worktree, record), roundRecord(`# Review round 2: ${NAME}`, "x".repeat(3000)));
+    git(a.worktree, "add", record);
+    git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
+    const seal = await broken(c, a.id);
+    expect([seal?.commit, seal?.why?.length]).toEqual([gate, 2000]);
+    expect(seal?.why).toMatch(new RegExp(`^The records at the head do not read: the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: \`target: x+$`, "u"));
   });
 });
 
