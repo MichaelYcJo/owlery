@@ -394,7 +394,8 @@ export const GATE_HEAD = "Broad gate";
  * inbox names it while it runs, who runs it and what it is, and the place
  * it marks on the approval line, with the note under the role's name and
  * the mark's words while it works. The orchestrator's two kinds belong to
- * none of the four roles and mark no place. The broad gate is no role's
+ * none of the four roles and mark no place, and neither does the pull
+ * request stage, which the daemon runs after the seal. The broad gate is no role's
  * session, so its words name no role, and it marks the sealer's place,
  * since the seal rests on it. `failed` is what the place says where the
  * stage failed, for a kind whose failure is no failure of its role: a
@@ -410,6 +411,7 @@ const STAGES: Record<ChainStageKind, { short: (round: number) => string; marks: 
   ruling: { short: () => "Orchestrator, ruling", marks: null },
   gate: { short: () => GATE_HEAD, marks: { role: "sealer", note: () => GATE_HEAD, label: () => GATE_HEAD, failed: { state: "waiting", note: "Gate failed", label: "Gate failed" } } },
   seal: { short: () => "Sealer, verdict", marks: { role: "sealer", note: () => "Judging", label: () => "Judging" } },
+  "pull-request": { short: () => "Pull request", marks: null },
 };
 
 /** A commit as a place's words show it: its first seven characters. */

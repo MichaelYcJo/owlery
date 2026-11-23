@@ -167,6 +167,7 @@ const LOGIN: WorkItem = {
   unread: [],
   setup: null,
   chain: null,
+  pullRequest: null,
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
@@ -1532,6 +1533,8 @@ describe("a work item's chain", () => {
     // The broad gate is no role's session, so its words name no role, and the seal is the sealer's.
     expect(lineText(runs({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }), finished, false)).toEqual({ says: "stage", text: "Broad gate" });
     expect(lineText(runs({ kind: "seal" }), finished, false)).toEqual({ says: "stage", text: "Sealer, verdict" });
+    // The pull request stage is no role's session either, and runs after the seal.
+    expect(lineText(runs({ kind: "pull-request", headlessId: null }), finished, false)).toEqual({ says: "stage", text: "Pull request" });
     // A line that waits keeps saying what it waits on while the stage runs.
     expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
     expect(lineText({ ...RUNNING, permissions: [BASH] }, finished, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });

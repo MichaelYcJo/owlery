@@ -293,6 +293,36 @@ export interface WorkItem {
   setup: WorktreeSetup | null;
   /** Its chain: where the run a `getSeal` started stands, with the stages of every start, or null where none ran for it. A daemon of an earlier build sends no such field, and a client reads its absence as a daemon that offers no "Get a seal". */
   chain: Chain | null;
+  /** Its pull request, as GitHub last answered, or null where the daemon opened none for it. The daemon keeps it, and no record of the repository holds it. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  pullRequest: PullRequest | null;
+}
+
+/** One check of a pull request, as GitHub last listed it: its name, its state read into one of three, and its address, or null where GitHub gave none. */
+export interface PullRequestCheck {
+  name: string;
+  state: "pending" | "passed" | "failed";
+  link: string | null;
+}
+
+/** A work item's pull request, as the daemon last read it from GitHub through the person's `gh`. */
+export interface PullRequest {
+  number: number;
+  url: string;
+  state: "open" | "merged" | "closed";
+  /** The commit GitHub held as the pull request's head at the last read. */
+  head: string;
+  /** The commit the pull request stage last pushed. */
+  pushed: string;
+  /** The result of its checks: `none` where GitHub lists no check, `failed` where one failed, `pending` where none failed and one is pending, and `passed` otherwise. */
+  checks: "none" | "pending" | "passed" | "failed";
+  /** Its checks, 50 at most. */
+  list: PullRequestCheck[];
+  /** How many checks GitHub listed in all. */
+  listCount: number;
+  /** The daemon's clock at the last read that succeeded. */
+  readAt: number;
+  /** Why the last read failed, as one sentence with `gh`'s first line, or null where it succeeded. */
+  failure: string | null;
 }
 
 /**
@@ -300,10 +330,12 @@ export interface WorkItem {
  * each: a review round, a fix pass, the orchestrator's judgment of whether
  * the rounds are converging, its ruling on the questions a stage asked, and
  * the seal, a sealer's session that gives its verdict on the commit the
- * broad gate passed on. The broad gate is no session: the daemon runs the
- * repository's broad gate command.
+ * broad gate passed on. Two are no session: the broad gate, where the daemon
+ * runs the repository's broad gate command, and the pull request stage,
+ * where the daemon pushes the sealed branch and opens or updates its pull
+ * request through the person's `gh`.
  */
-export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling", "gate", "seal"] as const;
+export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling", "gate", "seal", "pull-request"] as const;
 
 /** One of `CHAIN_STAGE_KINDS`. */
 export type ChainStageKind = (typeof CHAIN_STAGE_KINDS)[number];
@@ -321,18 +353,18 @@ export interface GateRun {
 /** One stage a chain ran or is running. */
 export interface ChainStage {
   kind: ChainStageKind;
-  /** The round a round is, the round a fix pass answers, the round a judgment or a ruling follows, or the last round recorded before a broad gate or a seal. */
+  /** The round a round is, the round a fix pass answers, the round a judgment or a ruling follows, or the last round recorded before a broad gate, a seal or a pull request stage. */
   round: number;
-  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. A broad gate is `finished` where its command exited with 0 on a tree that stood still and the run's record was committed, and `failed` at every other end. A seal is `finished` where the daemon wrote and committed the sealer's verdict, whichever of the three it reads. */
+  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. A broad gate is `finished` where its command exited with 0 on a tree that stood still and the run's record was committed, and `failed` at every other end. A seal is `finished` where the daemon wrote and committed the sealer's verdict, whichever of the three it reads. A pull request stage is `finished` where the branch was pushed and its pull request opened or updated and read again, and `failed` at every other end. */
   state: "working" | "finished" | "failed";
   /** Why the stage `failed`, and null in the other two states: a clause with no capital and no full stop where the daemon words it, and a session's own error as the session gave it. The daemon's sentence of the chain wraps it, and the approval line says it as a sentence. */
   failure: string | null;
   startedAt: number;
   /** When the stage ended, or null while it works and where the daemon ended before it did. */
   endedAt: number | null;
-  /** The stage's headless session, by its id of this daemon's run, or null once the daemon that ran it has ended, since the next daemon gives the id to another session, for a stage whose session did not start, and for a broad gate, which is no session. */
+  /** The stage's headless session, by its id of this daemon's run, or null once the daemon that ran it has ended, since the next daemon gives the id to another session, for a stage whose session did not start, and for a broad gate and a pull request stage, which are no session. */
   headlessId: number | null;
-  /** How many calls of the stage's session its role's rule refused, and 0 for a broad gate. */
+  /** How many calls of the stage's session its role's rule refused, and 0 for a broad gate and a pull request stage. */
   refusals: number;
   /** The run of a broad gate, and null for every other kind of stage. */
   gate: GateRun | null;
@@ -341,13 +373,13 @@ export interface ChainStage {
 /**
  * What the daemon runs for one work item after a `getSeal`: its review
  * rounds, its fix passes, the orchestrator's judgments and rulings, and,
- * once the rounds settle, the repository's broad gate and the seal, one
- * stage at a time. Which stage is next is read
+ * once the rounds settle, the repository's broad gate and the seal, and
+ * after a seal the pull request stage, one stage at a time. Which stage is next is read
  * from the work item's committed records at each step, and this is what a
  * window shows of the run.
  */
 export interface Chain {
-  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where a sealer's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `sealed` where the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `guarantee.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `guarantee.md` reads `sealed` and names that commit. */
+  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where a sealer's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `sealed` where the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `guarantee.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `guarantee.md` reads `sealed` and names that commit; where the work item's `routing.md` sends the work to a pull request, the chain is `running` while the pull request stage runs on such a commit, `sealed` once it ended well, and `stopped` where it failed. */
   state: "running" | "parked" | "stopped" | "sealed";
   /** Where the chain stands, as a sentence the window shows as it is. */
   says: string;

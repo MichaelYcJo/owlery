@@ -332,6 +332,19 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(named.output).toContain("seal/threads/1-x:0  the pull request's body, line 14: not read: ````Seal` opens a fence like a `seal` block and is not one");
   });
 
+  it("passes a ready pull request whose body is the one the daemon's pull request stage wrote for a sealed chain of two rounds and one fix pass, and names no line of it", async () => {
+    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "sealed");
+    const created = gh.calls().findIndex((call) => call[1] === "create");
+    const body = gh.bodies()[created] ?? "";
+    expect(body).toContain("\n<!-- /owlery:seal -->\n\n## Review rounds\n");
+    const passed = await run({ base: join(a.worktree, ".."), repo: a.worktree }, { body });
+    expect(passed.exit, passed.output).toBe(0);
+    expect(passed.output).not.toContain("the pull request's body");
+  });
+
   it("refuses a seal section that is not the newest verdict block of guarantee.md at the head commit, on the work item's directory and naming the body's line: another target, a verdict that is not sealed, a line the reader refuses, a second block and no block", async () => {
     const made = sealedBranch();
     const base = git(made.repo, "rev-parse", "main").trim();

@@ -26,10 +26,10 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "recorded", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
-/** What a work item holds of the fields set after its creation, by a person, by its setup or by its chain, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null };
+/** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
 /** What a work item holds of its record of decisions and questions where its worktree holds none. */
 const NO_RECORD = { decisions: [], questions: [], unread: [] };
 /** What a work item holds of its records of the chain where its worktree holds none of them. */

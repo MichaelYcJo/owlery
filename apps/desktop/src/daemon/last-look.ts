@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AskedQuestion, Changes, CommitInfo, Decision, FileChange, Look, PermissionAsk, Question, SessionInfo, Unread, WorkItem } from "../shared/protocol";
 import { chainOf, isChain } from "./chain";
+import { isPullRequest, pullRequestOf } from "./github";
 import { writeWholeFile } from "./whole-file";
 import { isWorktreeSetup, setupOf } from "./worktree-setup";
 
@@ -99,8 +100,8 @@ function isUnread(value: unknown): value is Unread {
   return isRecord(value) && typeof value.line === "number" && typeof value.why === "string";
 }
 
-/** The fields of a work item that came after the first look was written: the ones that came with the repositories, `setup`, which came with the worktree's setup, and `decisions`, `questions` and `unread`, which came with the work item's record, `permissions`, which came with the permission requests, `behindBase`, which came with the count behind the base, and `chain`, which came with the chain. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
-type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "setup" | "decisions" | "questions" | "unread" | "permissions" | "behindBase" | "chain";
+/** The fields of a work item that came after the first look was written: the ones that came with the repositories, `setup`, which came with the worktree's setup, and `decisions`, `questions` and `unread`, which came with the work item's record, `permissions`, which came with the permission requests, `behindBase`, which came with the count behind the base, `chain`, which came with the chain, and `pullRequest`, which came with the pull request stage. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
+type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "setup" | "decisions" | "questions" | "unread" | "permissions" | "behindBase" | "chain" | "pullRequest";
 /** A work item as a look's file holds one: every field of the protocol's, the ones that came later absent or of the protocol's type. */
 type WrittenWorkItem = Omit<WorkItem, CameLater> & Partial<Pick<WorkItem, CameLater>>;
 
@@ -133,7 +134,8 @@ function isWorkItem(value: unknown): value is WrittenWorkItem {
     (item.questions === undefined || (Array.isArray(item.questions) && item.questions.every(isQuestion))) &&
     (item.unread === undefined || (Array.isArray(item.unread) && item.unread.every(isUnread))) &&
     (item.permissions === undefined || (Array.isArray(item.permissions) && item.permissions.every(isPermissionAsk))) &&
-    (item.chain === undefined || item.chain === null || isChain(item.chain))
+    (item.chain === undefined || item.chain === null || isChain(item.chain)) &&
+    (item.pullRequest === undefined || item.pullRequest === null || isPullRequest(item.pullRequest))
   );
 }
 
@@ -151,7 +153,7 @@ function isLook(value: unknown): value is { at: number; sessions: WrittenSession
  * question. A work item without a field that came later
  * gets that field's empty value: the id 0, which no repository bears, no
  * pin, no mute, no group, no archive, no setup, no decision, no question,
- * nothing unread, no permission request, no count behind the base and no chain. The decisions and the questions a look holds, each under its work
+ * nothing unread, no permission request, no count behind the base, no chain and no pull request. The decisions and the questions a look holds, each under its work
  * item's id with its id and its state, are what the person has seen of the
  * work item's record.
  */
@@ -169,7 +171,7 @@ function lookOf(at: number, sessions: readonly WrittenSession[], workItems: read
       stateTool,
       stateQuestions: stateQuestions ? stateQuestions.map(({ asks, options, multiple }) => ({ asks, options: options.map(({ label, implies }) => ({ label, implies })), multiple })) : null,
     })),
-    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, behindBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, setup, decisions, questions, unread, permissions, chain }) => ({
+    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, behindBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, setup, decisions, questions, unread, permissions, chain, pullRequest }) => ({
       id,
       title,
       repoId: repoId ?? 0,
@@ -195,6 +197,7 @@ function lookOf(at: number, sessions: readonly WrittenSession[], workItems: read
       unread: (unread ?? []).map(({ line, why }) => ({ line, why })),
       permissions: (permissions ?? []).map(({ id, headlessId, tool, action, text, at }) => ({ id, headlessId, tool, action, text, at })),
       chain: chain ? chainOf(chain) : null,
+      pullRequest: pullRequest ? pullRequestOf(pullRequest) : null,
     })),
   };
 }
