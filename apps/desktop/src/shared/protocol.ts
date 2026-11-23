@@ -296,47 +296,61 @@ export interface WorkItem {
 }
 
 /**
- * The kinds of stage a work item's chain runs, each one role session: a
- * review round, a fix pass, the orchestrator's judgment of whether the
- * rounds are converging, and its ruling on the questions a stage asked.
+ * The kinds of stage a work item's chain runs. Five are one role session
+ * each: a review round, a fix pass, the orchestrator's judgment of whether
+ * the rounds are converging, its ruling on the questions a stage asked, and
+ * the seal, a sealer's session that gives its verdict on the commit the
+ * broad gate passed on. The broad gate is no session: the daemon runs the
+ * repository's broad gate command.
  */
-export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling"] as const;
+export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling", "gate", "seal"] as const;
 
 /** One of `CHAIN_STAGE_KINDS`. */
 export type ChainStageKind = (typeof CHAIN_STAGE_KINDS)[number];
 
+/** One run of a repository's broad gate command, as a chain's stage of the kind `gate` holds it. */
+export interface GateRun {
+  /** The command, as the `Broad gate` key of the worktree's `config.json` held it when the run started: 2,000 characters of it at most. */
+  command: string;
+  /** The code the command exited with, and null while it runs, where a signal ended it and where no process started. */
+  exitCode: number | null;
+  /** Whether a `readGateOutput` of the work item has text to answer with: the run has ended and the command printed something the daemon kept. */
+  output: boolean;
+}
+
 /** One stage a chain ran or is running. */
 export interface ChainStage {
   kind: ChainStageKind;
-  /** The round a round is, the round a fix pass answers, or the round a judgment or a ruling follows. */
+  /** The round a round is, the round a fix pass answers, the round a judgment or a ruling follows, or the last round recorded before a broad gate or a seal. */
   round: number;
-  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. */
+  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. A broad gate is `finished` where its command exited with 0 on a tree that stood still and the run's record was committed, and `failed` at every other end. A seal is `finished` where the daemon wrote and committed the sealer's verdict, whichever of the three it reads. */
   state: "working" | "finished" | "failed";
   /** Why the stage `failed`, and null in the other two states: a clause with no capital and no full stop where the daemon words it, and a session's own error as the session gave it. The daemon's sentence of the chain wraps it, and the approval line says it as a sentence. */
   failure: string | null;
   startedAt: number;
   /** When the stage ended, or null while it works and where the daemon ended before it did. */
   endedAt: number | null;
-  /** The stage's headless session, by its id of this daemon's run, or null once the daemon that ran it has ended, since the next daemon gives the id to another session, and for a stage whose session did not start. */
+  /** The stage's headless session, by its id of this daemon's run, or null once the daemon that ran it has ended, since the next daemon gives the id to another session, for a stage whose session did not start, and for a broad gate, which is no session. */
   headlessId: number | null;
-  /** How many calls of the stage's session its role's rule refused. */
+  /** How many calls of the stage's session its role's rule refused, and 0 for a broad gate. */
   refusals: number;
+  /** The run of a broad gate, and null for every other kind of stage. */
+  gate: GateRun | null;
 }
 
 /**
  * What the daemon runs for one work item after a `getSeal`: its review
- * rounds, its fix passes and the orchestrator's judgments and rulings, one
+ * rounds, its fix passes, the orchestrator's judgments and rulings, and,
+ * once the rounds settle, the repository's broad gate and the seal, one
  * stage at a time. Which stage is next is read
  * from the work item's committed records at each step, and this is what a
  * window shows of the run.
  */
 export interface Chain {
-  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `reviewed` where the last round left nothing open and no commit after it is unread. */
-  state: "running" | "parked" | "stopped" | "reviewed";
+  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where a sealer's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `sealed` where the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `guarantee.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `guarantee.md` reads `sealed` and names that commit. */
+  state: "running" | "parked" | "stopped" | "sealed";
   /** Where the chain stands, as a sentence the window shows as it is. */
   says: string;
-  /** The commit the rounds settled at where `reviewed`, and null otherwise. */
-  reviewedAt: string | null;
   /** The stages, the oldest first: the newest of them, as many as the daemon keeps (`CHAIN_STAGES_KEPT` of `src/daemon/chain.ts`). */
   stages: ChainStage[];
   /** When the chain took its `state`, by the daemon's clock. A chain stops at times no stage ended at: where a start is refused after the answers, and where the read of the records between two stages fails. */
@@ -591,8 +605,12 @@ export type ClientMessage =
   | { type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number; setupCommand?: string | null }
   // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage, and the daemon answers each call of it that asks for permission by the role's rule. The daemon answers a pair `ROLE_STAGES` does not list with an `error`, and so an adapter that cannot launch a role, and starts nothing. Without `role` the session has no role, and each call of it that asks for permission waits for the person, in its work item's `permissions`, while the session stays `working`.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string; role?: RoleStage }
-  // Starts the work item's chain: its review rounds, its fix passes and the orchestrator's judgments, one role session at a time, in its worktree. The daemon reads the work item's round records, its record of decisions and questions and its branch's head, and runs the stage they say is owed: round 1 where no round record stands, a fix pass where the last record holds an open finding or a decision stands reversed, a verifying round where the last record holds a closed finding or a commit after its target changed a path outside the work item's directory, and none where the last round left nothing to read, which is `reviewed`. It reads them again after each stage. Before a fix pass on the record of round 2 or a later round it asks the orchestrator whether the rounds are converging, records the answer as a decision in the work item's record, and stops the chain at a `no`. Where such a round is the ceiling of the rounds or a later one, it asks nothing and stops the chain. A `getSeal` after either stop runs that fix pass. A stage whose answer asks questions is followed by the orchestrator's judgment on them: each is recorded as a decision, or the work item is parked with it, and the chain is then `parked` until an `answerQuestions` leaves no question open, which starts it again. After a fix pass whose prompt held a reversed decision, that decision reads `applied` with the branch's head. Each call a stage's role's rule refused is a row of `trail/refusals.md`, committed with the stage's record. Where no directory of the worktree's records names the branch, it first makes one, `<root>/threads/<seconds>-<slug>/`, with a `routing.md` that names the branch, and commits that file alone. After a round it writes the session's answer, from its heading on, unchanged to `trail/rounds/round-<N>.md` and commits it, and after a fix pass it commits the record the crafter closed findings in, each commit with the person's git identity, the repository's hooks and the trailer `Seal-Routing:`, and nothing pushed. It writes and commits nothing of a stage whose session failed or was stopped, or whose record the pull request check would refuse, and the chain is then `stopped` with a sentence that says why. Each stage's session is stopped, and its process has exited, before the next stage starts. A chain goes on with no client connected. The daemon answers with `done` once the chain has started, before the `inbox` that carries it, and with an `error`, starting nothing and writing nothing, for a work item it does not list, an archived one, one being deleted and one whose folder is gone; while a chain of the work item is running; while a pane of it says it is working or a headless session of it is working; where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it; where the worktree holds a tracked file with a change no commit holds, or an untracked file, outside the work item's directory; where it holds no records root; where two directories name the branch; for a work item with no `baseCommit`; where the branch holds no commit after it; where the adapter cannot launch a role; and where the work item's record holds an open question.
+  // Starts the work item's chain: its review rounds, its fix passes and the orchestrator's judgments, each one role session, and, once the rounds settle, the repository's broad gate and the seal, a sealer's session, one stage at a time, in its worktree. The daemon reads the work item's round records, its record of decisions and questions and its branch's head, and runs the stage they say is owed: round 1 where no round record stands, a fix pass where the last record holds an open finding or a decision stands reversed, a verifying round where the last record holds a closed finding or a commit after its target changed a path outside the work item's directory, and, where the last round left nothing to read, the broad gate where it does not hold at the branch's head, the seal where the gate holds and the newest verdict block of `guarantee.md` is no `sealed` one that names the gate's commit, and none where it is, which is `sealed`. It reads them again after each stage. The broad gate is the command the `Broad gate` key of the worktree's `config.json` holds: the daemon runs it in the worktree with no terminal, on a worktree that holds no change outside the work item's directory, and where it exits with 0 and the head and the tree stand as they stood, appends one run block to `trail/gate.md` and commits it. At every other end it writes and commits nothing, and the chain is `stopped`. What the command printed is kept for a `readGateOutput`, the last of it, and a `stopGate` ends the command. The seal is a fresh sealer session whose prompt names the commit the gate passed on, and whose answer is its run's section of the guarantee: the daemon puts into the section's verdict block who built the work, who judged it, the judging model and its own version, appends the section to `guarantee.md` and commits it. A `sealed` verdict rests the chain, a `withheld` one stops it with the reason, and the question of an `undecided` one is ruled on by the orchestrator as a stage's question is, or, from the third such verdict of one guarantee on, parks the work item with no ruling asked. It writes no verdict where the judging session is one of the sessions that built the work, where the session named no id or no model, and for a daemon given no version. Before a fix pass on the record of round 2 or a later round it asks the orchestrator whether the rounds are converging, records the answer as a decision in the work item's record, and stops the chain at a `no`. Where such a round is the ceiling of the rounds or a later one, it asks nothing and stops the chain. A `getSeal` after either stop runs that fix pass. A stage whose answer asks questions is followed by the orchestrator's judgment on them: each is recorded as a decision, or the work item is parked with it, and the chain is then `parked` until an `answerQuestions` leaves no question open, which starts it again. After a fix pass whose prompt held a reversed decision, that decision reads `applied` with the branch's head. Each call a stage's role's rule refused is a row of `trail/refusals.md`, committed with the stage's record. Where no directory of the worktree's records names the branch, it first makes one, `<root>/threads/<seconds>-<slug>/`, with a `routing.md` that names the branch, and commits that file alone. After a round it writes the session's answer, from its heading on, unchanged to `trail/rounds/round-<N>.md` and commits it, and after a fix pass it commits the record the crafter closed findings in, each commit with the person's git identity, the repository's hooks and the trailer `Seal-Routing:`, and nothing pushed. The commit that records a fix pass also carries the trailer `Seal-Built-By:` with the id the crafter's session named, where it named one, and a verdict block names each such session among the sessions that built the work. It writes and commits nothing of a stage whose session failed or was stopped, or whose record the pull request check would refuse, and the chain is then `stopped` with a sentence that says why. Each stage's session is stopped, and its process has exited, before the next stage starts. A chain goes on with no client connected. The daemon answers with `done` once the chain has started, before the `inbox` that carries it, and with an `error`, starting nothing and writing nothing, for a work item it does not list, an archived one, one being deleted and one whose folder is gone; while a chain of the work item is running; while a pane of it says it is working or a headless session of it is working; where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it; where the worktree holds a tracked file with a change no commit holds, or an untracked file, outside the work item's directory; where it holds no records root; where the `Broad gate` key of its `config.json` holds no command; where two directories name the branch; for a work item with no `baseCommit`; where the branch holds no commit after it; where the adapter cannot launch a role; and where the work item's record holds an open question.
   | { type: "getSeal"; requestId: number; workItemId: number }
+  // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs.
+  | { type: "stopGate"; requestId: number; workItemId: number }
+  // Asks for what the work item's newest broad gate printed, of a run that ended. The daemon answers with a `gateOutput`, and with an `error` for an id it lists no work item under and for a work item with no kept output: one no broad gate ran for, one whose newest gate still runs or was running when its daemon ended, and one whose newest gate's command printed nothing.
+  | { type: "readGateOutput"; requestId: number; workItemId: number }
   // Stops a headless session that is working: its run is stopped, and it is `failed`, with `stopped` set to `request`. A session that is not working is left as it is. The daemon answers with `done`, and with an `error` for an id it does not list.
   | { type: "stopHeadless"; requestId: number; id: number }
   // Answers one permission request of the work item's `permissions`, by its `id`: with `allow` true the call runs, and that one call alone, and with `allow` false the agent is told the person refused it. The daemon answers with `done`, before the `inbox` that carries the work item without the request, and with an `error` for a request that does not wait in that work item, which changes nothing.
@@ -624,6 +642,8 @@ export type ServerMessage =
   | { type: "workItemLoss"; requestId: number; id: number; loss: WorkItemLoss }
   // Answers a `readLedger`: the work item's entries in the order their stages ended, and how many lines of the ledger's file the daemon could not read as an entry, of any work item. A daemon of an earlier build answers a `readLedger` with nothing.
   | { type: "ledger"; requestId: number; workItemId: number; entries: LedgerEntry[]; unread: number }
+  // Answers a `readGateOutput`: the last characters of what the command of the work item's newest broad gate printed on its two streams, in the order they arrived, as many as the daemon keeps at most (`GATE_OUTPUT_CHARS` of `src/daemon/gate.ts`). `cut` says that the text is as long as that bound, so the command printed that many characters or more and the text may open after the output's start. The daemon keeps the text in its run folder, so a daemon started later answers the same. A daemon of an earlier build answers a `readGateOutput` with nothing.
+  | { type: "gateOutput"; requestId: number; workItemId: number; text: string; cut: boolean }
   // Answers a `planRecords` with what a setup of the repository `id` would do.
   | { type: "recordsPlan"; requestId: number; id: number; plan: RecordsPlan }
   // Answers an `ask` with the headless session it started.

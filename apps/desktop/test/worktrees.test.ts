@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, holdsCommit, mainCheckout, newCommits, pathsOfCommit, pathsOfCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, holdsCommit, mainCheckout, newCommits, pathsBetween, pathsOfCommit, pathsOfCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, trailerValues, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
@@ -989,32 +989,41 @@ describe("committing files of a worktree", () => {
     writeFileSync(join(folder, path), text);
   };
 
-  it("commits the paths given together and nothing else: one commit that holds them, with the subject and the trailer as its two paragraphs, under the person's identity, while a change staged beside them and one not staged stand as they stood", async () => {
+  it("commits the paths given together and nothing else: one commit that holds them, with the subject and the one trailer as its two paragraphs, under the person's identity, while a change staged beside them and one not staged stand as they stood", async () => {
     const { repo } = repository();
     write(repo, "seal/threads/1-x/trail/rounds/round-1.md", "# Review round 1: 1-x\n");
     write(repo, "seal/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
     write(repo, "staged.txt", "staged\n");
     git(repo, "add", "staged.txt");
     write(repo, "README.md", "changed and not staged\n");
-    await commitPaths(repo, "main", ["seal/threads/1-x/trail/rounds/round-1.md", "seal/threads/1-x/decisions.md"], "chore: record review round 1", TRAILER);
+    await commitPaths(repo, "main", ["seal/threads/1-x/trail/rounds/round-1.md", "seal/threads/1-x/decisions.md"], "chore: record review round 1", [TRAILER]);
     expect(commitsIn(repo)).toBe(2);
     expect(newest(repo)).toEqual({ subject: "chore: record review round 1", body: TRAILER, by: WHO, paths: ["seal/threads/1-x/decisions.md", "seal/threads/1-x/trail/rounds/round-1.md"] });
     expect(status(repo)).toEqual([" M README.md", "A  staged.txt"]);
+  });
+
+  it("writes two trailers as the two lines of the commit's second paragraph, in the order given, and git reads each back as a trailer by its key", async () => {
+    const { repo } = repository();
+    write(repo, "seal/threads/1-x/trail/rounds/round-1.md", "# Review round 1: 1-x\n");
+    await commitPaths(repo, "main", ["seal/threads/1-x/trail/rounds/round-1.md"], "chore: record the fix pass of round 1", [TRAILER, "Seal-Built-By: s-1"]);
+    expect(newest(repo)).toMatchObject({ subject: "chore: record the fix pass of round 1", body: `${TRAILER}\nSeal-Built-By: s-1` });
+    expect(git(repo, "log", "-1", "--format=%(trailers:key=Seal-Built-By,valueonly)").trim()).toBe("s-1");
+    expect(git(repo, "log", "-1", "--format=%(trailers:key=Seal-Routing,valueonly)").trim()).toBe(TRAILER.slice("Seal-Routing: ".length));
   });
 
   it("commits one path alone, and of two paths the one that differs from the newest commit; where none differs it commits nothing", async () => {
     const { repo } = repository();
     write(repo, "seal/threads/1-x/decisions.md", "one\n");
     write(repo, "seal/threads/1-x/routing.md", "routing\n");
-    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md"], "chore: record a word", TRAILER);
+    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md"], "chore: record a word", [TRAILER]);
     expect(newest(repo)).toMatchObject({ subject: "chore: record a word", body: TRAILER, paths: ["seal/threads/1-x/decisions.md"] });
     expect(status(repo)).toEqual(["?? seal/threads/1-x/routing.md"]);
 
-    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md", "seal/threads/1-x/routing.md"], "chore: declare the routing", TRAILER);
+    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md", "seal/threads/1-x/routing.md"], "chore: declare the routing", [TRAILER]);
     expect(commitsIn(repo)).toBe(3);
     expect(newest(repo)).toMatchObject({ subject: "chore: declare the routing", paths: ["seal/threads/1-x/routing.md"] });
 
-    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md", "seal/threads/1-x/routing.md"], "chore: nothing to carry", TRAILER);
+    await commitPaths(repo, "main", ["seal/threads/1-x/decisions.md", "seal/threads/1-x/routing.md"], "chore: nothing to carry", [TRAILER]);
     expect(commitsIn(repo)).toBe(3);
     expect(status(repo)).toEqual([]);
   });
@@ -1023,7 +1032,7 @@ describe("committing files of a worktree", () => {
     const { repo } = repository();
     write(repo, "a.md", "a\n");
     write(repo, "b.md", "b\n");
-    await expect(commitPaths(repo, "owlery/other", ["a.md", "b.md"], "chore: record", TRAILER)).rejects.toThrow("the worktree is not on the branch owlery/other");
+    await expect(commitPaths(repo, "owlery/other", ["a.md", "b.md"], "chore: record", [TRAILER])).rejects.toThrow("the worktree is not on the branch owlery/other");
     expect(commitsIn(repo)).toBe(1);
     expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
   });
@@ -1032,14 +1041,73 @@ describe("committing files of a worktree", () => {
     const { repo } = repository();
     write(repo, "a.md", "a\n");
     write(repo, "b.md", "b\n");
-    await expect(commitPaths(repo, "main", ["a.md", "no-such.md"], "chore: record", TRAILER)).rejects.toThrow("pathspec 'no-such.md' did not match any files");
+    await expect(commitPaths(repo, "main", ["a.md", "no-such.md"], "chore: record", [TRAILER])).rejects.toThrow("pathspec 'no-such.md' did not match any files");
     expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
 
     write(repo, ".git/hooks/pre-commit", "#!/bin/sh\necho 'the hook says no' >&2\nexit 1\n");
     chmodSync(join(repo, ".git", "hooks", "pre-commit"), 0o755);
-    await expect(commitPaths(repo, "main", ["a.md", "b.md"], "chore: record", TRAILER)).rejects.toThrow("the hook says no");
+    await expect(commitPaths(repo, "main", ["a.md", "b.md"], "chore: record", [TRAILER])).rejects.toThrow("the hook says no");
     expect(commitsIn(repo)).toBe(1);
     expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
+  });
+});
+
+describe("the values of a trailer between two commits", () => {
+  /** Commits one new file in the repository, each further word a paragraph of the message, and gives the commit. */
+  const committer = (repo: string) => (file: string, ...message: string[]): string => {
+    writeFileSync(join(repo, file), `${file}\n`);
+    git(repo, "add", file);
+    git(repo, "commit", "--quiet", ...message.flatMap((paragraph) => ["-m", paragraph]));
+    return git(repo, "rev-parse", "HEAD").trim();
+  };
+
+  it("gives each value of the trailer the commits after the first and up to the second carry, the oldest first and each once, and none of a commit outside them, of another key or of a message's first paragraph", async () => {
+    const { repo } = repository();
+    const commit = committer(repo);
+    const before = commit("a.txt", "chore: record a pass before the base", "Seal-Routing: 1-x\nSeal-Built-By: s-0");
+    commit("b.txt", "fix: end the greeting");
+    commit("c.txt", "chore: record the fix pass of round 1", "Seal-Routing: 1-x\nSeal-Built-By: s-1");
+    commit("d.txt", "chore: record review round 2", "Seal-Routing: 1-x");
+    commit("e.txt", "Seal-Built-By: s-subject", "A body that names Seal-Built-By: s-prose in a sentence.");
+    commit("f.txt", "chore: record the fix pass of round 2", "Seal-Routing: 1-x\nSeal-Built-By: s-2");
+    commit("f2.txt", "chore: record the fix pass of round 3", "Seal-Routing: 1-x\nSeal-Built-By: s-2");
+    const gate = commit("g.txt", "chore: record the fix pass of round 4", "Seal-Routing: 1-x\nSeal-Built-By: s-3");
+    commit("h.txt", "chore: record the fix pass of round 5", "Seal-Routing: 1-x\nSeal-Built-By: s-4");
+    expect(await trailerValues(repo, [before], gate, "Seal-Built-By")).toEqual(["s-1", "s-2", "s-3"]);
+    expect(await trailerValues(repo, [before], gate, "Seal-Routing")).toEqual(["1-x"]);
+    expect(await trailerValues(repo, [gate], gate, "Seal-Built-By")).toEqual([]);
+    await expect(trailerValues(repo, ["a".repeat(40)], gate, "Seal-Built-By")).rejects.toThrow();
+  });
+
+  it("reads no trailer of a commit that a merge brought onto the branch from another line", async () => {
+    const { repo } = repository();
+    const commit = committer(repo);
+    const base = commit("a.txt", "chore: the base");
+    git(repo, "checkout", "--quiet", "-b", "other");
+    commit("o.txt", "chore: record the fix pass of round 1", "Seal-Routing: 1-other\nSeal-Built-By: s-other");
+    git(repo, "checkout", "--quiet", "-");
+    commit("b.txt", "chore: record the fix pass of round 1", "Seal-Routing: 2-this\nSeal-Built-By: s-this");
+    git(repo, "merge", "--quiet", "--no-ff", "-m", "merge the other line", "other");
+    commit("c.txt", "chore: record the fix pass of round 2", "Seal-Routing: 2-this\nSeal-Built-By: s-later");
+    expect(await trailerValues(repo, [base], git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-this", "s-later"]);
+  });
+
+  it("reads no trailer of a commit that a branch named as outside holds and a fast-forward or a rebase put on the line", async () => {
+    const { repo } = repository();
+    const commit = committer(repo);
+    const base = commit("a.txt", "chore: the base");
+    git(repo, "branch", "rebased");
+    git(repo, "checkout", "--quiet", "-b", "release");
+    commit("o.txt", "fix: another work item's fix pass", "Seal-Routing: 1-other\nSeal-Built-By: s-other");
+    git(repo, "checkout", "--quiet", "-");
+    git(repo, "merge", "--quiet", "release");
+    commit("b.txt", "chore: record the fix pass of round 1", "Seal-Routing: 2-this\nSeal-Built-By: s-this");
+    expect(await trailerValues(repo, [base, "release"], git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-this"]);
+
+    git(repo, "checkout", "--quiet", "rebased");
+    commit("c.txt", "chore: record the fix pass of round 1", "Seal-Routing: 3-rebased\nSeal-Built-By: s-rebased");
+    git(repo, "rebase", "--quiet", "release");
+    expect(await trailerValues(repo, [base, "release"], git(repo, "rev-parse", "HEAD").trim(), "Seal-Built-By")).toEqual(["s-rebased"]);
   });
 });
 
@@ -1124,6 +1192,33 @@ describe("what a chain reads of a worktree", () => {
     const between = await diffBetween(repo, moved, head, false);
     expect(between.paths.sort()).toEqual(["a.txt", "on-main.txt", "sub/b c.txt"]);
     expect(between.text).toContain("-on-main.txt\n");
+  });
+
+  it("gives the paths at which the trees of two commits differ, whatever commits lie between them: a merge's own changes are among them, a moved file is both of its paths, a file a later commit took back is none, and it throws where a name is no commit", async () => {
+    const { repo } = repository();
+    const base = commitOf(repo, "HEAD");
+    git(repo, "checkout", "--quiet", "-b", "work");
+    commitFile(repo, "kept.txt");
+    commitFile(repo, "taken-back.txt");
+    git(repo, "rm", "--quiet", "taken-back.txt");
+    git(repo, "commit", "--quiet", "-m", "take it back");
+    git(repo, "mv", "README.md", "moved.md");
+    git(repo, "commit", "--quiet", "-m", "move the file");
+    git(repo, "checkout", "--quiet", "main");
+    commitFile(repo, "on-main.txt");
+    git(repo, "checkout", "--quiet", "work");
+    // A merge that changes a file of its own, which a walk of the commits leaves out.
+    git(repo, "merge", "--quiet", "--no-ff", "--no-commit", "main");
+    writeFileSync(join(repo, "in-the-merge.txt"), "changed by the merge alone\n");
+    git(repo, "add", "in-the-merge.txt");
+    git(repo, "commit", "--quiet", "-m", "merge main");
+    const head = commitOf(repo, "HEAD");
+    expect((await pathsBetween(repo, base, head)).sort()).toEqual(["README.md", "in-the-merge.txt", "kept.txt", "moved.md", "on-main.txt"]);
+    expect(await pathsOfCommits(repo, base, head)).not.toContain("in-the-merge.txt");
+    expect((await pathsBetween(repo, head, base)).sort()).toEqual(["README.md", "in-the-merge.txt", "kept.txt", "moved.md", "on-main.txt"]);
+    expect(await pathsBetween(repo, head, head)).toEqual([]);
+    await expect(pathsBetween(repo, "a".repeat(40), head)).rejects.toThrow();
+    await expect(pathsBetween(repo, base, "no-such-branch")).rejects.toThrow();
   });
 
   it("gives a file's text as a commit holds it, whatever the worktree and the commits after it hold, and the files that commit holds directly in a folder, and none of either where the commit holds none", async () => {

@@ -1,8 +1,10 @@
 // What the cases of a work item's chain share: a daemon on a temporary
 // repository with the records root, a client, the round records a fake
-// proofer answers with, the fix a fake crafter makes and the blocks a fake
-// orchestrator answers with. No case starts an agent: every stage runs on
-// the fake adapter.
+// proofer answers with, the fix a fake crafter makes, the blocks a fake
+// orchestrator answers with and the section a fake sealer answers with. No case starts an agent: every stage runs on
+// the fake adapter. The repository's broad gate is a stand-in command the
+// case names, `true` where it names none, and it runs with the suite's own
+// `PATH`, so no case runs a repository's check or asks a login shell.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
@@ -12,16 +14,20 @@ import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { MARKER } from "../src/daemon/records-place";
 import { createWorktree } from "../src/daemon/worktrees";
-import type { Chain, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
+import type { Chain, ClientMessage, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
-const TOKEN = "t".repeat(64);
+/** The token the cases' daemons take. */
+export const TOKEN = "t".repeat(64);
 
 /** The daemon's clock in the cases: a directory the daemon makes is named `1795388700-<slug>`. */
 export const NOW = 1_795_388_700_000;
 
 /** The day of the daemon's clock in the cases, as the machine's own time zone has it, which a routing the daemon writes is answered on. */
 export const TODAY = ((at: Date): string => `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`)(new Date(NOW));
+
+/** The version the cases' daemons are given, which a verdict block's `rules:` line names. */
+export const VERSION = "0.0.2";
 
 /** How long a case waits for a chain to come to a state: a chain is some tens of git commands, and the suite runs beside others. */
 const WAIT_MS = 20_000;
@@ -70,6 +76,11 @@ export async function client(url: string, cleanups: Cleanups) {
         const chain = workItem(id)?.chain;
         return chain?.state === state ? chain : undefined;
       }),
+    /** The first message that answers a request: the one the daemon sends with the request's id. */
+    asked: async (message: Extract<ClientMessage, { requestId: number }>): Promise<Extract<ServerMessage, { requestId: number }>> => {
+      socket.send(JSON.stringify(message));
+      return until(() => messages.find((m): m is Extract<ServerMessage, { requestId: number }> => "requestId" in m && m.requestId === message.requestId));
+    },
     /** The answer to a `getSeal` of the work item: `done`, or the error's sentence. */
     getSeal: async (id: number, requestId: number): Promise<string> => {
       socket.send(JSON.stringify({ type: "getSeal", requestId, workItemId: id }));
@@ -139,15 +150,17 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * from `main`, and its branch holds one commit after it, which adds
  * `feature.txt`. The work items stand in the run folder before the daemon
  * starts, so no pane is started for them. With `root: false` the repository
- * holds no records root.
+ * holds no records root. `gate` is the broad gate command its `config.json`
+ * names, `true` where none is given, and null for a `config.json` with no
+ * such key.
  */
-export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean } = {}) {
+export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
-  const { root = true, ...daemonOptions } = options;
+  const { root = true, gate = "true", ...daemonOptions } = options;
   if (root) {
     write(made.repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-    write(made.repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
+    write(made.repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", ...(gate === null ? {} : { "Broad gate": gate }) }, null, 2)}\n`);
     commitAll(made.repo, "chore: add the place for work records");
   }
   const runDir = join(made.base, "run");
@@ -169,6 +182,8 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
       runDir,
       worktreesRoot: made.root,
       now: () => NOW,
+      gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+      version: VERSION,
       ...daemonOptions,
       ...more,
     });
@@ -199,6 +214,13 @@ export function givenFix(prompt: string): { record: string; open: number[] } {
   return { record, open: [...open.matchAll(/\d+/gu)].map(([digits]) => Number(digits)) };
 }
 
+/** What a seal's prompt gave: the run, the section's heading and the verdict's target line's value. */
+export function givenSeal(prompt: string): { run: number; heading: string; target: string } {
+  const [, heading = ""] = /^- Your section's heading: `(.*)`$/mu.exec(prompt) ?? [];
+  const [, target = ""] = /^- Your verdict's target line: `target: (.*)`$/mu.exec(prompt) ?? [];
+  return { run: Number(/^## Run (\d+)$/u.exec(heading)?.[1] ?? "0"), heading, target };
+}
+
 /** The line a finding's section ends with before its close block. */
 const why = (finding: number): string => `Why it matters: finding ${String(finding)} leaves a sentence with no end.`;
 
@@ -221,6 +243,52 @@ export function roundRecord(heading: string, target: string, findings: number[] 
     ...findings.map(findingSection),
     ...(confirms.length === 0 ? [] : ["## Confirmations", "", ...confirms.flatMap((reference) => ["```seal", `confirms: ${reference}`, "```", "What holds: the full stop stands at `feature.txt:1`, read.", ""])]),
   ].join("\n");
+}
+
+/** The answer of the proofer that finds nothing: a round record with no finding. */
+export function clean(given: { heading: string; target: string }): string {
+  return roundRecord(given.heading, given.target);
+}
+
+/** A gate record as the daemon writes one: the heading, then one run block for each run, the oldest first, each as its head and the base's commit. */
+export function gateRecord(workItem: string, runs: readonly (readonly [head: string, base: string])[]): string {
+  return [`# Broad gate: ${workItem}\n`, ...runs.map(([at, base]) => ["```seal", `run: ${at} against ${base}`, "```", ""].join("\n"))].join("\n");
+}
+
+/** A run's section of a guarantee as `role-bundle/templates/records/sdd-guarantee.md` shapes it: the heading, the two tables, and one verdict block of the target line and the verdict, `sealed` where none is given. */
+export function sealSection(given: { heading: string; target: string }, verdict = "sealed"): string {
+  return [
+    given.heading,
+    "",
+    "### Claims checked by reading",
+    "",
+    "| Claim | Source | Read at | Result |",
+    "|---|---|---|---|",
+    "| The greeting ends with a full stop | `trail/rounds/round-1.md:9` | `feature.txt:1` | holds |",
+    "",
+    "### The parties",
+    "",
+    "| Party | Says | Agrees with | Disagrees with |",
+    "|---|---|---|---|",
+    "| the build | The branch adds a greeting | the last round | none |",
+    "",
+    "```seal",
+    `target: ${given.target}`,
+    `Verdict: ${verdict}`,
+    "```",
+    "",
+  ].join("\n");
+}
+
+/** A run's section with the daemon's lines in its verdict block, before the closing fence: who built the work, who judged it, the judging model and the rules. */
+export function sealedBy(section: string, builtBy: string, judgedBy: string, model = "fake"): string {
+  const closer = section.lastIndexOf("```\n");
+  return `${section.slice(0, closer)}built-by: ${builtBy}\njudged-by: ${judgedBy}\nmodel: ${model}\nrules: owlery ${VERSION}\n${section.slice(closer)}`;
+}
+
+/** A guarantee as the daemon writes one: the heading, then each section given, each below one blank line. */
+export function guaranteeRecord(workItem: string, sections: readonly string[]): string {
+  return [`# Guarantee: ${workItem}\n`, ...sections].join("\n");
 }
 
 /** A close block as a fix pass appends one. */
@@ -260,6 +328,8 @@ export interface Roles {
   crafterSays?: (prompt: string) => string;
   /** The orchestrator's answer to a judgment's prompt. Absent, the rounds are converging and each question is answered from the tree. */
   orchestrator?: (prompt: string) => string;
+  /** The sealer's answer to a seal's prompt. Absent, it is its run's section with the verdict `sealed`. */
+  sealer?: (given: { run: number; heading: string; target: string }, prompt: string) => string;
 }
 
 /** An `asks:` block as a stage's answer holds one. */
@@ -294,12 +364,13 @@ export function proofs(given: { round: number; heading: string; target: string }
   return given.round === 1 ? roundRecord(given.heading, given.target, [1]) : roundRecord(given.heading, given.target, [], [`round-${String(given.round - 1)}#1`]);
 }
 
-/** A fake adapter whose proofer, crafter and orchestrator act as the roles given, with every other option of the fake adapter. */
+/** A fake adapter whose proofer, crafter, orchestrator and sealer act as the roles given, with every other option of the fake adapter. */
 export function roles(given: Roles = {}, options: FakeAdapterOptions = {}): RoleAdapter {
   return fakeAdapter({
     pieces: (prompt, role) => {
       if (role?.role === "proofer") return [(given.proofer ?? proofs)(givenRound(prompt), prompt)];
       if (role?.role === "orchestrator") return [(given.orchestrator ?? judges)(prompt)];
+      if (role?.role === "sealer") return [given.sealer?.(givenSeal(prompt), prompt) ?? sealSection(givenSeal(prompt))];
       return [given.crafterSays?.(prompt) ?? "The fix pass is done."];
     },
     work: (cwd, prompt, role) => (role?.role === "crafter" ? (given.crafter ?? fixes)(cwd, prompt) : undefined),

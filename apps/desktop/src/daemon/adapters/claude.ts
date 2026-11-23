@@ -247,6 +247,19 @@ export function keyedLogin(line: string): boolean | undefined {
   return typeof record.apiKeySource === "string" && KEY_SOURCES.includes(record.apiKeySource);
 }
 
+/**
+ * Reads one line of the output stream for the session's own name: the id of
+ * the `init` line's `session_id` and the model of its `model`, null for an
+ * `init` line whose id is no string or an empty one, and nothing where it is
+ * another line. A model that is no string, or an empty one, is null.
+ */
+export function sessionOf(line: string): { id: string; model: string | null } | null | undefined {
+  const record = recordOf(line);
+  if (record?.type !== "system" || record.subtype !== "init") return undefined;
+  if (typeof record.session_id !== "string" || record.session_id === "") return null;
+  return { id: record.session_id, model: typeof record.model === "string" && record.model !== "" ? record.model : null };
+}
+
 /** A value of the stream as a number, and null where it is no number. */
 function numberOf(value: unknown): number | null {
   return typeof value === "number" ? value : null;
@@ -288,7 +301,8 @@ function usageOf(record: Record<string, unknown>, keyed: boolean): Usage | null 
  * `assistant` message, the `result` line with what the turn used, a request
  * to use a tool, and the withdrawal of one. Every other line is dropped, a
  * control line of another kind among them, and so is a line that is not
- * JSON. `held` is the tools a role launch named, and nothing for a launch
+ * JSON. The `init` line gives no event here: a run reports its `session`
+ * from `sessionOf`, once. `held` is the tools a role launch named, and nothing for a launch
  * that named none: a request for a tool outside them is reported as a call
  * of another kind, with no path. `keyed` is whether the session's login
  * names a key (`keyedLogin`), and false where nothing said so.
@@ -481,6 +495,9 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       // Whether the session's login names a key, as the first `init` line says, and nothing until that line: a result
       // that comes before any is marked as converted, and a later `init` line changes nothing.
       let keyed: boolean | undefined;
+      // The session's own id and its model, as the first `init` line names them, and nothing until that line. The listener
+      // hears them once, and a first `init` line that names no id leaves the session unnamed whatever a later one names.
+      let named: ReturnType<typeof sessionOf>;
       const lines = createInterface({ input: child.stdout });
       lines.on("line", (line) => {
         if (refused) return;
@@ -495,6 +512,10 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
           }
         }
         keyed ??= keyedLogin(line);
+        if (named === undefined) {
+          named = sessionOf(line);
+          if (named) listener({ type: "session", ...named });
+        }
         const control = controlRequestOf(line);
         if (control?.subtype === "can_use_tool") waiting.set(control.id, control.request.input);
         // The CLI waits for an answer to every request it makes, so one the adapter does not take is answered as an error.

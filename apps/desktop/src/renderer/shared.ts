@@ -118,8 +118,10 @@ const NO_SEAL = "No seal yet";
 /**
  * The seal's place: on a line a small disc, and in the preview and at the
  * foot of a view's right column the seal's own drawing, which the page's
- * style presses blank into the ground. No work item can be sealed yet, so
- * `data-seal` is `none` everywhere, and the place says so.
+ * style presses blank into the ground. The window lights no seal yet: a
+ * chain can rest sealed, and whether its seal still holds at the branch's
+ * head is not read. So `data-seal` is `none` everywhere, and the place says
+ * so.
  */
 export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
   const place = document.createElement("span");

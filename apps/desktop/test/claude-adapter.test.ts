@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RoleEvent, RoleRun } from "../src/daemon/adapters/adapter";
-import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, INITIALIZE_LINE, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, PERMISSION_CUT_MARK, PERMISSION_TEXT_CHARS, promptLine, roleCheck, versionNotice } from "../src/daemon/adapters/claude";
+import { claudeAdapter, claudeArgs, claudeEnv, ERROR_OUTPUT_CHARS, eventsForLine, INITIALIZE_LINE, KILL_AFTER_MS, LOOKUP_SCRIPT, lookupCommand, MIN_CLAUDE_VERSION, parseLookup, PERMISSION_CUT_MARK, PERMISSION_TEXT_CHARS, promptLine, roleCheck, sessionOf, versionNotice } from "../src/daemon/adapters/claude";
 import { agentOf, roleDocuments, rulesFileName, rulesHead, rulesText, toolsOf } from "../src/daemon/adapters/claude-roles";
 import { ROLE_STAGES, type RoleStage } from "../src/shared/protocol";
 
@@ -254,6 +254,26 @@ describe("the Claude adapter's run", () => {
     expect((await run(fakeShell(folder, early).env, "Q", folder)).at(-2)).toMatchObject({ type: "result", usage: { converted: true } });
     const twice = script(folder, "twice", [`echo '${unkeyed}'`, `echo '${keyed}'`, `echo '${result}'`, "cat > /dev/null", "exit 0"].join("\n"));
     expect((await run(fakeShell(folder, twice).env, "Q", folder)).at(-2)).toMatchObject({ type: "result", usage: { converted: true } });
+  });
+
+  it("reports the session's own id and its model once, before the session's first text, from the first init line of a launch with no role: a later init line names nothing, and a first one with no id leaves the session unnamed", async () => {
+    const folder = temporaryFolder();
+    const init = (fields: object): string => JSON.stringify({ type: "system", subtype: "init", ...fields });
+    const answer = '{"type":"assistant","message":{"content":[{"type":"text","text":"owl"}]}}';
+    const result = '{"type":"result","is_error":false,"result":"owl"}';
+    const printing = (name: string, lines: string[]): string => script(folder, name, [...lines.map((line) => `echo '${line}'`), "cat > /dev/null", "exit 0"].join("\n"));
+    const answered: RoleEvent[] = [
+      { type: "text", text: "owl" },
+      { type: "result", text: "owl", isError: false, usage: null },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ];
+
+    const named = printing("named", [init({ session_id: "s-1", model: "owl-large" }), init({ session_id: "s-2", model: "owl-small" }), answer, result]);
+    expect(await run(fakeShell(folder, named).env, "Q", folder)).toEqual([{ type: "session", id: "s-1", model: "owl-large" }, ...answered]);
+    const unnamed = printing("unnamed", [init({ model: "owl-large" }), init({ session_id: "s-2", model: "owl-small" }), answer, result]);
+    expect(await run(fakeShell(folder, unnamed).env, "Q", folder)).toEqual(answered);
+    const late = printing("late", [answer, init({ session_id: "s-1" }), result]);
+    expect((await run(fakeShell(folder, late).env, "Q", folder)).map((event) => event.type)).toEqual(["text", "session", "result", "exit"]);
   });
 
   it("asks the login shell with a pane's environment: none of what a package script or Electron gave the app, and no node_modules folder in PATH", async () => {
@@ -787,6 +807,17 @@ describe("the Claude adapter's role launch", () => {
     expect(events.at(-2)).toEqual({ type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted: false, models: [] } });
   });
 
+  it("reports the session of a role launch after the role's check passed it, and none of a launch the check refused", async () => {
+    const named = (agents: string[]): string => JSON.stringify({ type: "system", subtype: "init", agents, session_id: "s-9", model: "owl" });
+    const held = launch([named(["claude", "owlery:proofer"]), ANSWER, RESULT]);
+    expect((await run(claudeAdapter(held.env, { bundleDir: held.bundleDir, rulesDir: held.rulesDir }), held.folder, PROOFER)).events.slice(0, 2)).toEqual([
+      { type: "session", id: "s-9", model: "owl" },
+      { type: "text", text: "owl" },
+    ]);
+    const refused = launch([named(["claude"]), ANSWER, RESULT], "exec sleep 30");
+    expect((await run(claudeAdapter(refused.env, { bundleDir: refused.bundleDir, rulesDir: refused.rulesDir }), refused.folder, PROOFER)).events.map((event) => event.type)).toEqual(["result", "exit"]);
+  });
+
   it("reads the first line of a role launch once: a later line that lists no agent fails nothing", async () => {
     const { folder, env, bundleDir, rulesDir } = launch([INIT, '{"type":"system","subtype":"init","agents":[]}', ANSWER, RESULT]);
     const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
@@ -1016,7 +1047,21 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
     expect(used.map((block) => [block.name, block.input?.file_path])).toEqual([["Read", "/app/dist/bundle/templates/records/sdd-round.md"]]);
   });
 
-  it("goes on as a role launch's run: the adapter reports its text and its result, and fails nothing; the result carries what the turn used, its cost marked as converted because the init line of the subscription login names no key", async () => {
+  it("names the session in its init line and in no other: the id and the model the recording's first line holds", () => {
+    expect(lines.map((line) => sessionOf(line))).toEqual([{ id: "00000000-0000-4000-8000-000000000001", model: "claude-opus-5-5" }, ...lines.slice(1).map(() => undefined)]);
+    // Every line of the recording holds the id, and only the init line is read for it.
+    expect(lines.filter((line) => line.includes('"session_id":"00000000-0000-4000-8000-000000000001"')).length).toBeGreaterThan(1);
+  });
+
+  it("reads an init line for the session: an id that is no string, or an empty one, names no session, and a model that is no string, or an empty one, is none", () => {
+    const init = (fields: object): string => JSON.stringify({ type: "system", subtype: "init", ...fields });
+    expect(sessionOf(init({ session_id: "s-1", model: "owl" }))).toEqual({ id: "s-1", model: "owl" });
+    for (const model of [undefined, null, 7, ""]) expect(sessionOf(init({ session_id: "s-1", model })), String(model)).toEqual({ id: "s-1", model: null });
+    for (const id of [undefined, null, 7, ""]) expect(sessionOf(init({ session_id: id, model: "owl" })), String(id)).toBeNull();
+    for (const line of ["", "not json", "[]", '{"type":"system","subtype":"status","session_id":"s-1"}', '{"type":"assistant","session_id":"s-1"}', '{"type":"result","session_id":"s-1"}']) expect(sessionOf(line), line).toBeUndefined();
+  });
+
+  it("goes on as a role launch's run: the adapter reports the session first, with the id and the model of the init line, then its text and its result, and fails nothing; the result carries what the turn used, its cost marked as converted because the init line of the subscription login names no key", async () => {
     const folder = temporaryFolder();
     const cli = script(folder, "cli", `cat '${fixture}'`);
     const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
@@ -1029,7 +1074,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
         })
         .catch(reject);
     });
-    expect(events).toEqual([...lines.flatMap((line) => eventsForLine(line)), { type: "exit", exitCode: 0, errorOutput: "" }]);
+    expect(events).toEqual([{ type: "session", id: "00000000-0000-4000-8000-000000000001", model: "claude-opus-5-5" }, ...lines.flatMap((line) => eventsForLine(line)), { type: "exit", exitCode: 0, errorOutput: "" }]);
     expect(lines[0]).toContain('"apiKeySource":"none"');
     expect(events.at(-2)).toMatchObject({
       type: "result",

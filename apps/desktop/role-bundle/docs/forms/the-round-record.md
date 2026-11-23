@@ -48,8 +48,8 @@ claim is one of absence.
 **A later round re-runs an `executed` line rather than re-deriving the
 claim.** Where it weighs an earlier finding, it runs the commands the line
 names again. A probe the line names was deleted under the agent contract's
-probe rule, so the round writes it again from its `## Probes` row. The sealer weighs no finding: a finding's verdict is the
-check's to read (`agents/sealer.md` step 3).
+probe rule, so the round writes it again from its `## Probes` row. The sealer runs no line again: it reads each `fixed` finding's claim
+against the tree (`agents/sealer.md` step 2).
 check: tests/text/test_review_axes.py
 
 **The fix pass appends one close block per finding and edits nothing else in the file.** The block stands in the finding's section, after its paste-ready fix, and holds its `verdict:` line, with the commit for `fixed`, and its `answer:` line: what was done, why the finding does not hold, or where it went. Where its fix went to a path the finding's `location:` does not name, the close block carries a `location:` line naming it, and its answer says so. The finding's own block is the proofer's and is never edited.

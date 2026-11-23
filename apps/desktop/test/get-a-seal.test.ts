@@ -3,15 +3,25 @@
 // place for work records. The login shell is a script that names a script
 // CLI, so no real `claude` runs: the stand-in writes its process id and
 // sleeps, so the round it is launched for runs until a second client of the
-// daemon stops its session. The page's `Notification` is replaced by a
-// recorder, so nothing reaches the system's notifications.
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// daemon stops its session. Once the file `answers` stands beside it, the
+// stand-in answers a round's prompt with a record that holds no finding, so
+// the chain goes on to the repository's broad gate, a command that fails
+// and, while the file `gate-holds` stands, sleeps first. The page's
+// `Notification` is replaced by a recorder, so nothing reaches the system's
+// notifications.
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MARKER } from "../src/daemon/records-place";
 import type { ClientMessage, ServerMessage, WorkItem } from "../src/shared/protocol";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { commitFile, git, temporaryRepository } from "./repositories";
+
+/** The line the repository's broad gate prints before it fails. */
+const PRINTED = "FAIL test/view.test.ts: 1 case failed";
+
+/** The repository's broad gate command: it sleeps while the file `gate-holds` stands in the folder, then prints a line and exits with 1. */
+const GATE = (base: string): string => `if [ -e '${join(base, "gate-holds")}' ]; then sleep 30; fi; echo '${PRINTED}'; exit 1`;
 
 describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
   let app: BuiltApp;
@@ -54,10 +64,25 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
     // The place for work records stands on the branch the work item is cut from.
     mkdirSync(join(made.repo, "seal"));
     writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+    // A chain starts only where the records name a broad gate command. The command prints a line and exits with 1, after a sleep while the file `gate-holds` stands.
+    writeFileSync(join(made.repo, "seal", "config.json"), `${JSON.stringify({ "Broad gate": GATE(made.base) })}\n`);
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon also runs the CLI at its start, to read its version: that run prints one and is no session.
-    const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\necho $$ > '${join(made.base, "cli-pid")}'\nexec sleep 60`);
+    // Without the file `answers` a session sleeps. With it, the stand-in reads the handshake and the prompt, names its session and the proofer's agent as the CLI's first line does, and answers with the round's record: the heading and the target line the prompt gave, and no finding.
+    const cli = script(
+      "cli",
+      [
+        `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
+        `if [ ! -e '${join(made.base, "answers")}' ]; then echo $$ > '${join(made.base, "cli-pid")}'; exec sleep 60; fi`,
+        "read -r handshake",
+        "read -r prompt",
+        "heading=$(printf '%s' \"$prompt\" | sed -n 's/.*- Your record.s heading: `\\([^`]*\\)`.*/\\1/p')",
+        "target=$(printf '%s' \"$prompt\" | sed -n 's/.*- Your record.s target line: `target: \\([^`]*\\)`.*/\\1/p')",
+        `printf '%s\\n' '{"type":"system","subtype":"init","session_id":"stand-in-1","model":"stand-in","agents":["owlery:proofer"]}'`,
+        `printf '{"type":"result","result":"%s\\\\n\\\\n\`\`\`seal\\\\ntarget: %s\\\\n\`\`\`\\\\n\\\\n## Findings\\\\n","is_error":false}\\n' "$heading" "$target"`,
+      ].join("\n"),
+    );
     // The login shell: it names the stand-in, and a pane it starts ends at once.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
@@ -158,6 +183,78 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
       expect(await foot()).toEqual({ button: "Get a seal", hidden: false, disabled: false, says: stopped, refusal: "" });
       // No record of the round was committed: the branch holds the person's commit and the routing the first start declared.
       expect(git(workItem.worktree, "log", "--format=%s", `${workItem.baseCommit ?? ""}..HEAD`).trim().split("\n")).toEqual(["chore: declare the work item's routing", "add feature.txt"]);
+    } finally {
+      second.close();
+    }
+  });
+
+  it('lists the broad gate first under "Ask" once the round leaves nothing open: at work with its command and "Stop", which ends the command, and after a run that failed with the failed mark, the reason and "Show output", which draws what the command printed under the line, while the sealer\'s place waits with "Gate failed" and the work item\'s line waits with the chain\'s sentence in its second row', async () => {
+    /** The gate's line as a person reads it: its command, its state's class and word, what its icon says, the reason under it, its buttons and what stands under it of the command's output. */
+    const gateLine = (): Promise<{ first: boolean; head: string; command: string; state: string; icon: string; says: string; buttons: string[]; printed: string | null } | null> =>
+      app.evaluate(`(() => {
+        const li = document.querySelector("#headless li.gate");
+        if (!li) return null;
+        const state = li.querySelector(".row > .state:not(.state-icon)");
+        return {
+          first: li === document.querySelector("#headless li"),
+          head: li.querySelector(".prompt").textContent,
+          command: li.querySelector(".prompt .command").textContent,
+          state: [...state.classList].filter((name) => name !== "state").join(" ") + ":" + state.textContent,
+          icon: li.querySelector(".state-icon").getAttribute("aria-label"),
+          says: li.querySelector(".answer").textContent,
+          buttons: [...li.querySelectorAll("button")].map((b) => b.textContent),
+          printed: li.querySelector(".error-output")?.textContent ?? null,
+        };
+      })()`);
+    /** The sealer's place of the approval line in the view's right column: its mark's class, its note, and the lines under the places. */
+    const sealer = (): Promise<{ waiting: boolean; note: string; under: string[] }> =>
+      app.evaluate(`(() => { const place = document.querySelector('#view-detail section.approval .place[data-role="sealer"]'); return { waiting: place.querySelector(".state-icon").classList.contains("waiting"), note: place.querySelector(".note").textContent, under: [...document.querySelectorAll("#view-detail section.approval .under")].map((line) => line.textContent) }; })()`);
+    const command = GATE(made.base);
+    const second = await client();
+    try {
+      const workItem = second.alpha();
+      // The view of Alpha in front, whatever screen the case before left there.
+      await app.click(`#repositories button[data-work-item="${workItem.id}"]`);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha"`, "the view of Alpha");
+      if (git(workItem.worktree, "rev-list", "--count", `${workItem.baseCommit ?? ""}..HEAD`).trim() === "0") commitFile(workItem.worktree, "feature.txt");
+      // From here the stand-in answers a round with no finding, and the gate's command sleeps before it fails.
+      writeFileSync(join(made.base, "answers"), "");
+      writeFileSync(join(made.base, "gate-holds"), "");
+      await app.click("#get-seal");
+      await app.until(`document.querySelector("#headless li.gate .state.working")`, "the broad gate's line at work", 30_000);
+      expect(await gateLine()).toEqual({ first: true, head: `Broad gate ${command}`, command, state: "working:working", icon: "working", says: "", buttons: ["Stop"], printed: null });
+      expect((await foot()).says).toBe("The broad gate is running.");
+
+      // "Stop" ends the command: the gate failed, nothing it printed is kept, and the chain stopped.
+      await app.click(`#headless li.gate button[data-answer="gate:stop"]`);
+      const stopped = "The broad gate failed: the command was stopped at a request before it ended.";
+      await app.until(`document.getElementById("seal-says").textContent === ${JSON.stringify(stopped)}`, "the sentence of the gate that was stopped", 20_000);
+      expect(await gateLine()).toEqual({ first: true, head: `Broad gate ${command}`, command, state: "failed:failed", icon: "failed", says: "The command was stopped at a request before it ended.", buttons: [], printed: null });
+
+      // A second press runs the gate again and no round, and the command now prints its line and exits with 1.
+      rmSync(join(made.base, "gate-holds"));
+      await app.click("#get-seal");
+      const failed = "The broad gate failed: the command exited with code 1.";
+      await app.until(`document.getElementById("seal-says").textContent === ${JSON.stringify(failed)}`, "the sentence of the gate that failed", 20_000);
+      expect(await gateLine()).toEqual({ first: true, head: `Broad gate ${command}`, command, state: "failed:failed", icon: "failed", says: "The command exited with code 1.", buttons: ["Show output"], printed: null });
+      expect(second.alpha().chain?.stages.map(({ kind, state }) => [kind, state]).slice(-3)).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "failed"]]);
+      // A gate that failed is no failure of the sealer: its place waits, and the gate's reason stands under the places.
+      expect(await sealer()).toEqual({ waiting: true, note: "Gate failed", under: ["Sealer: The command exited with code 1."] });
+
+      // "Show output" draws what the command printed under the line, and the line stays as it was.
+      await app.click(`#headless li.gate button[data-answer="gate:output"]`);
+      await app.until(`document.querySelector("#headless li.gate .error-output")`, "what the command printed, under the gate's line");
+      expect(await gateLine()).toEqual({ first: true, head: `Broad gate ${command}`, command, state: "failed:failed", icon: "failed", says: "The command exited with code 1.", buttons: ["Show output"], printed: `${PRINTED}\n` });
+      expect(await app.evaluate(`document.querySelector("#headless li.gate .output-note")`)).toBeNull();
+
+      // The work item's line waits, with the chain's sentence in its second row.
+      const line = `#inbox-lines button[data-work-item="${workItem.id}"]`;
+      await app.click("#nav-inbox");
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('${line} .says')?.textContent === ${JSON.stringify(failed)}`, "the chain's sentence in the line's second row");
+      expect(await app.evaluate(`document.querySelector('${line} .state-icon').classList.contains("waiting")`)).toBe(true);
+      // The round's record is committed, and no run of the gate is.
+      expect(git(workItem.worktree, "log", "--format=%s", "-1").trim()).toBe("chore: record review round 1");
+      expect(existsSync(join(workItem.worktree, "seal", "threads", git(workItem.worktree, "ls-tree", "--name-only", "HEAD", "seal/threads/").trim().split("/").at(-1) ?? "", "trail", "gate.md"))).toBe(false);
     } finally {
       second.close();
     }

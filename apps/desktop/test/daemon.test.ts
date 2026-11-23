@@ -4186,6 +4186,8 @@ describe("the commit of a person's word", () => {
     const { c, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
     const a = workItems[0]!;
     const directory = withDirectory(a, "1795388700-renamed");
+    // A chain starts only on a branch whose records name a broad gate command.
+    writeFileSync(join(a.worktree, "seal", "config.json"), '{ "Broad gate": "true" }\n');
     git(a.worktree, "add", "--all");
     git(a.worktree, "commit", "--quiet", "-m", "chore: add the records and declare the routing");
     const stood = readFileSync(join(directory, "routing.md"), "utf8");
@@ -4732,6 +4734,21 @@ describe("headless sessions", () => {
     // The result closes the answer: the text that arrives after it changes nothing.
     await pause(100);
     expect(told(c).map((h) => h.answer)).toEqual(["", "Let me look. ", "Let me look. An owl.", "An owl."]);
+  });
+
+  it("keeps the id and the model a session's adapter reports on its own record of the session, and sends neither in any message: not with the session, not in the ledger, and not in the lists of a client that connects later", async () => {
+    const { daemon: d, url, c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ session: () => ({ id: "s-kept-7f3", model: "owl-judge-9" }) }) });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role: { role: "sealer", stage: "seal" } });
+    const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+    // The record is the daemon's own and no message reads it, so the case reads the field: the seal's stage writes both values into the verdict block.
+    const kept = (d as unknown as { headless: Map<number, { named: { id: string; model: string | null } | null }> }).headless.get(headless.id)?.named;
+    expect(kept).toEqual({ id: "s-kept-7f3", model: "owl-judge-9" });
+    c.send({ type: "readLedger", requestId: 2, workItemId: workItem.id });
+    expect((await c.message("ledger")).entries).toHaveLength(1);
+    const late = await client(url);
+    expect((await late.message("ready")).headless.map((each) => each.id)).toEqual([headless.id]);
+    const sent = JSON.stringify([...c.messages, ...late.messages]);
+    for (const word of ["s-kept-7f3", "owl-judge-9"]) expect(sent, word).not.toContain(word);
   });
 
   it("says a session failed, with the adapter's message, where the adapter does not start", async () => {

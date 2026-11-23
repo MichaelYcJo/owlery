@@ -9,6 +9,8 @@ import type { RoleStage, Usage } from "../../shared/protocol";
 export type PermissionAction = "read" | "write" | "run" | "other";
 
 export type RoleEvent =
+  // The session's own id, as its agent names it, and the model that answers, or null where the agent named none. Reported once at most, before the session's first `text`, and never by a session whose agent names no id. The id holds no white space and no comma.
+  | { type: "session"; id: string; model: string | null }
   // A piece of the agent's answer, in order.
   | { type: "text"; text: string }
   // The end of the turn: the whole answer, or the error's text where `isError`; what the turn used, and null where the agent reported neither a cost nor a model's tokens.

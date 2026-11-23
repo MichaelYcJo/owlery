@@ -33,9 +33,12 @@ export interface FakeAdapterOptions {
   notice?: string;
   /** What the turn used, for the prompt and the role the session was started with, if any, on the result of a session that succeeds. Without it, and on the result of a session told to fail, the result carries no usage. */
   usage?: (prompt: string, role?: RoleStage) => Usage | null;
+  /** The id and the model a session reports as its own, for the prompt and the role it was started with, if any. Without it each session reports the id `fake-<n>`, counted from 1 in each adapter, and the model `fake`. */
+  session?: (prompt: string, role?: RoleStage) => { id: string; model: string | null };
 }
 
 export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
+  let sessions = 0;
   return {
     name: "fake",
     features: options.features ?? ["role-tools", "permission-requests"],
@@ -45,19 +48,23 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
       const asks = options.asks?.(prompt, role) ?? [];
       const pieces = options.pieces?.(prompt, role) ?? [role ? `As the ${role.role} at the stage ${role.stage}, you asked: "${prompt}"` : `You asked: "${prompt}"`];
       const errorOutput = options.errorOutput ?? "";
+      sessions += 1;
+      const named = options.session?.(prompt, role) ?? { id: `fake-${String(sessions)}`, model: "fake" };
       let stopped = false;
       let timer: NodeJS.Timeout | undefined;
       // Each event on a later turn of the event loop, as a process's output arrives. A stop leaves the wait unsettled, so nothing follows it.
-      const report = (event: RoleEvent): Promise<void> =>
+      const report = (event: RoleEvent, delayMs = options.delayMs ?? 0): Promise<void> =>
         new Promise((resolve) => {
           timer = setTimeout(() => {
             listener(event);
             resolve();
-          }, options.delayMs ?? 0);
+          }, delayMs);
         });
       // The requests the session waits on, by their ids, each with what takes the line its answer adds to the text.
       const waiting = new Map<string, (line: string) => void>();
       const session = async (): Promise<void> => {
+        // The session says who it is first, as an agent's first line does, and with no wait: `delayMs` is the wait before each event of the turn.
+        await report({ type: "session", ...named }, 0);
         const lines: Promise<string>[] = [];
         for (const [index, { tool, action, path, text, withdraw }] of asks.entries()) {
           const id = `ask-${index + 1}`;

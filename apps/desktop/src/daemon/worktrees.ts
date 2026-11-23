@@ -876,8 +876,9 @@ export async function whyNoCommit(worktree: string, branch: string): Promise<str
 /**
  * Commits the files of a worktree at the paths given, one or more, together
  * and nothing else, on the branch named and on no other: `git add` of those
- * paths, then one `git commit` that names them, with the subject and the
- * trailer as its two paragraphs. Before the `git add` it throws the reason
+ * paths, then one `git commit` that names them, with the subject as its
+ * first paragraph and the trailers, one or more, as the lines of its second,
+ * in the order given. Before the `git add` it throws the reason
  * `whyNoCommit` gives, with nothing staged and nothing committed. Git runs
  * with the person's identity and the repository's hooks, as the setup of the
  * records place commits (`records-place.ts#setUpRecords`): no option skips a
@@ -889,7 +890,7 @@ export async function whyNoCommit(worktree: string, branch: string): Promise<str
  * for a path that names no file as well, and every path is first taken out
  * of the index again, so each file stands written and not staged.
  */
-export async function commitPaths(worktree: string, branch: string, paths: readonly [string, ...string[]], subject: string, trailer: string): Promise<void> {
+export async function commitPaths(worktree: string, branch: string, paths: readonly [string, ...string[]], subject: string, trailers: readonly [string, ...string[]]): Promise<void> {
   const run = (args: string[]) => gitIn(worktree, args);
   const why = await whyNoCommit(worktree, branch);
   if (why !== null) throw new Error(why);
@@ -901,7 +902,7 @@ export async function commitPaths(worktree: string, branch: string, paths: reado
   if (added.failed) return refused(added.said);
   // Git exits 0 where the index holds each path as the branch's newest commit does: an earlier commit carried the files as they stand.
   if (!(await run(["diff", "--cached", "--quiet", "--", ...paths])).failed) return;
-  const committed = await run(["commit", "-m", subject, "-m", trailer, "--", ...paths]);
+  const committed = await run(["commit", "-m", subject, "-m", trailers.join("\n"), "--", ...paths]);
   if (committed.failed) return refused(committed.said);
 }
 
@@ -967,6 +968,36 @@ export async function pathsOfCommit(worktree: string, commit: string): Promise<s
 /** The paths the commits that `to` holds and `from` does not changed, each once, a merge's own changes left out. It throws git's words where either names no commit. */
 export async function pathsOfCommits(worktree: string, from: string, to: string): Promise<string[]> {
   return nulPaths(await git(worktree, ["log", "--format=", "--name-only", "-z", `${from}..${to}`], BRANCH_OUTPUT_BYTES));
+}
+
+/**
+ * The values of one trailer in the commits of `to`'s own line that no name
+ * of `outside` holds: the commits `git log --first-parent` walks from `to`,
+ * less each commit that a name of `outside` names or holds, the oldest
+ * commit's first and each value once. With a work item's base commit and
+ * its base branch as `outside`, a commit of the base is none of them,
+ * whether a merge, a fast-forward or a rebase put it on the branch, so it
+ * adds no other work item's trailer. A commit that only another name holds,
+ * a remote's branch that runs ahead of the base named for one, is read
+ * where it stands on the line. What git reads as a trailer of that key in a
+ * commit's message counts, so a line of a message's first paragraph and a
+ * sentence that names the key are none. It throws git's words where a name
+ * names no commit.
+ */
+export async function trailerValues(worktree: string, outside: readonly string[], to: string, key: string): Promise<string[]> {
+  const printed = await git(worktree, ["log", "--first-parent", "--reverse", `--format=%(trailers:key=${key},valueonly)`, to, ...outside.map((name) => `^${name}`)], BRANCH_OUTPUT_BYTES);
+  return [...new Set(printed.split("\n").map((line) => line.trim()).filter((line) => line !== ""))];
+}
+
+/**
+ * The paths at which the trees of two commits differ, each once: what
+ * `git diff --name-only` prints for the two, with a file that was moved as
+ * both of its paths. It walks no commit between them, so a merge's own
+ * changes are among the paths and a change that a later commit took back is
+ * not. It throws git's words where either names no commit.
+ */
+export async function pathsBetween(worktree: string, from: string, to: string): Promise<string[]> {
+  return nulPaths(await git(worktree, ["diff", "--name-only", "--no-renames", "-z", from, to], BRANCH_OUTPUT_BYTES));
 }
 
 /**
