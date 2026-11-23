@@ -1,5 +1,7 @@
 # Implementation Plan: 1795342001-progress-through-roles
 
+To fold before phase 3's spawn: phase 2's hand-back names `docs/architecture.md:253` (and its Korean edition), whose row of `--mcp-config` gives "updating the approval line" as an example of the app's tools reached through MCP, while this work draws the line from the records and no MCP tool.
+
 ## Technical context
 
 The tree as read at `b6cd259`.
