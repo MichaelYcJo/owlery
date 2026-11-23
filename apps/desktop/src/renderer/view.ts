@@ -196,21 +196,26 @@ function pullRequestLine(workItem: WorkItem, pane: AgentState | null): { state: 
 
 /**
  * What the seal the branch's head holds gives a work item's line where
- * nothing says more (`saysMoreThanTheBranch`) and its pull request did not
- * merge: a broken seal waits, "Seal broken", ahead of an open or closed
- * pull request, since the work item needs a new seal; a seal that holds
- * finishes, "Sealed", where the work item holds no pull request, which
- * otherwise gives the line its own words. Null for no seal, a seal the
- * daemon has not read, and a daemon of an earlier build, which sends none.
+ * nothing says more (`saysMoreThanTheBranch`): a broken seal waits, "Seal
+ * broken", since the work item needs a new seal, and a seal that holds
+ * finishes, "Sealed". Null for no seal, a seal the daemon has not read, and
+ * a daemon of an earlier build, which sends none. It is read after the
+ * pull request (`branchLine`).
  */
 function sealLine(workItem: WorkItem, pane: AgentState | null): { state: AgentState; text: string } | null {
   const seal = workItem.seal;
-  if (!seal || saysMoreThanTheBranch(workItem, pane) || mergedWorkItem(workItem)) return null;
-  if (seal.state === "broken") return { state: "waiting", text: SEAL_BROKEN };
-  return pullRequestOf(workItem) === null ? { state: "finished", text: SEALED_LINE } : null;
+  if (!seal || saysMoreThanTheBranch(workItem, pane)) return null;
+  return seal.state === "broken" ? { state: "waiting", text: SEAL_BROKEN } : { state: "finished", text: SEALED_LINE };
 }
 
-/** What the branch's head gives a work item's line where nothing says more: its pull request's state and words (`pullRequestLine`), or its seal's (`sealLine`), and which of the two gives them. */
+/**
+ * What the branch's head gives a work item's line where nothing says more,
+ * and which of the two gives it: its pull request's state and words
+ * (`pullRequestLine`), and otherwise its seal's (`sealLine`). So a merged
+ * pull request says more than a broken seal, a broken seal more than an
+ * open or closed pull request, and any pull request more than a seal that
+ * holds.
+ */
 function branchLine(workItem: WorkItem, pane: AgentState | null): { says: "pull-request" | "seal"; state: AgentState; text: string } | null {
   const pulled = pullRequestLine(workItem, pane);
   if (pulled) return { says: "pull-request", ...pulled };
