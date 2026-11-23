@@ -77,7 +77,7 @@ import {
 } from "./chain";
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
-import { GITHUB_LIMIT_MS, type GitHubCli, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withSealSection } from "./github";
+import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -237,6 +237,10 @@ export interface DaemonOptions {
   gh?: readonly [string, ...string[]];
   /** How long one call of `gh`, and the push of a branch, may run before the daemon ends it; `GITHUB_LIMIT_MS` of `github.ts` when absent. */
   githubLimitMs?: number;
+  /** How long the watch waits between two reads of an open pull request while its checks run, or while GitHub's head is not the commit the stage pushed; `PR_POLL_MS` of `github.ts` when absent. */
+  prPollMs?: number;
+  /** How long the watch waits between two reads of any other open pull request, and after a read that failed; `PR_REST_POLL_MS` of `github.ts` when absent. */
+  prRestPollMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -371,6 +375,11 @@ export class Daemon {
   private commitsReadAt = 0;
   // The read of the counts under way, which a hello that arrives meanwhile waits on.
   private readingCommits: Promise<void> | undefined;
+  // When the watch next reads each work item's open pull request, by the work item's id, on the system's clock. A pull request with no time here is read at the watch's next turn.
+  private readonly pullRequestDue = new Map<number, number>();
+  private watchTimer: NodeJS.Timeout | undefined;
+  // The watch's reads under way: one turn of reads runs at a time.
+  private watching: Promise<void> | undefined;
   private closed = false;
 
   constructor(private readonly options: DaemonOptions) {
@@ -600,6 +609,7 @@ export class Daemon {
     this.closed = true;
     this.closing();
     clearTimeout(this.commitTimer);
+    clearTimeout(this.watchTimer);
     clearTimeout(this.idleTimer);
     for (const session of this.sessions.values()) {
       clearTimeout(session.silentStart);
@@ -653,6 +663,9 @@ export class Daemon {
         this.checkIdle();
         // A notice that stands is read again as a window connects, so it goes once the person did what it asks. The daemon outlives the app for days, and a notice read once would stay.
         if (this.agentNotice !== null) void this.readAgentNotice();
+        // Each open pull request is read again at a hello, which is when a person looks.
+        this.pullRequestDue.clear();
+        this.scheduleWatch();
         void this.greet(socket, early);
         return;
       }
@@ -2176,6 +2189,8 @@ export class Daemon {
       if (!this.closed) {
         this.settleHold();
         this.checkIdle();
+        // The watch passes over a work item while its chain runs.
+        this.scheduleWatch();
       }
     }
   }
@@ -2555,7 +2570,7 @@ export class Daemon {
     const command = readRecordsPlace(worktree).broadGate ?? "";
     if (command.trim() === "") throw notRun(`the worktree's config.json names no command under "Broad gate"`);
     if (baseCommit === null) throw notRun("the work item records no commit its branch was cut at, so the run's record has no base to name");
-    const env = this.options.gateEnv ?? gateEnvironment(process.env, await (this.gatePath ??= loginPath(process.env)));
+    const env = await this.commandEnvironment();
     // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
     if (this.closed) throw new ChainStop("the daemon closed");
     const gone = this.whyNoRun(item.id);
@@ -2655,7 +2670,7 @@ export class Daemon {
       // An open pull request that already carries the head: the chain says that it is open.
       return destination === OPEN_PULL_REQUEST && item.pullRequest?.state === "open" ? pullRequestOpenSays(item.pullRequest.number) : null;
     }
-    const env = this.options.gateEnv ?? gateEnvironment(process.env, await (this.gatePath ??= loginPath(process.env)));
+    const env = await this.commandEnvironment();
     // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
     if (this.closed) throw new ChainStop("the daemon closed");
     const gone = this.whyNoRun(item.id);
@@ -2669,9 +2684,7 @@ export class Daemon {
     let failure: string | null = null;
     let says = "";
     try {
-      const found = this.options.gh ?? findOnPath("gh", env.PATH);
-      if (found === null) throw new Error("no gh stands on the PATH of the login shell, so Owlery cannot open the pull request; GitHub's CLI is at https://cli.github.com");
-      const cli: GitHubCli = { gh: typeof found === "string" ? [found] : found, env: ghEnvironment(env), cwd: worktree, limitMs: this.options.githubLimitMs ?? GITHUB_LIMIT_MS };
+      const cli = this.githubCli(env, worktree, "open");
       const head = await worktreeHead(worktree);
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
       const target = await pushTarget(worktree, baseBranch);
@@ -2698,10 +2711,11 @@ export class Daemon {
         url = open.url;
       }
       const viewed = await viewPullRequest(cli, url);
-      // The checks are read by the watch, which reads the pull request again.
-      const pullRequest: PullRequest = { ...viewed, pushed: head, checks: "none", list: [], listCount: 0, readAt: now(), failure: null };
+      const pullRequest: PullRequest = { ...viewed, pushed: head, readAt: now(), failure: null };
       if (this.closed) throw new ChainStop("the daemon closed");
       this.store.setWorkItem(item.id, { pullRequest });
+      // GitHub lists the checks a push starts some seconds after it, so the watch reads the pull request again after the shorter wait, whatever this read gave.
+      this.pullRequestDue.set(item.id, Date.now() + (this.options.prPollMs ?? PR_POLL_MS));
       says = open === undefined ? pullRequestOpenSays(viewed.number) : pullRequestCarriesSays(viewed.number, step.at);
     } catch (error) {
       if (this.closed) throw new ChainStop("the daemon closed");
@@ -2714,6 +2728,18 @@ export class Daemon {
     if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
     if (failure !== null) throw new StageStopped(stoppedSays("pull-request", step.round, failure));
     return says;
+  }
+
+  /** The environment a broad gate's command, the person's `gh` and the push run with: the `gateEnv` option, or a pane's with the `PATH` of the person's interactive login shell, which is asked once in the daemon's life (`gate.ts#gateEnvironment`). */
+  private async commandEnvironment(): Promise<Record<string, string>> {
+    return this.options.gateEnv ?? gateEnvironment(process.env, await (this.gatePath ??= loginPath(process.env)));
+  }
+
+  /** The person's `gh` in a worktree, run with the environment given: the `gh` option, or the first `gh` on that environment's `PATH`. It throws, with the second half of a sentence that says what Owlery cannot do without it, where none stands there. */
+  private githubCli(env: Record<string, string>, worktree: string, does: "open" | "read"): GitHubCli {
+    const found = this.options.gh ?? findOnPath("gh", env.PATH);
+    if (found === null) throw new Error(`no gh stands on the PATH of the login shell, so Owlery cannot ${does} the pull request; GitHub's CLI is at https://cli.github.com`);
+    return { gh: typeof found === "string" ? [found] : found, env: ghEnvironment(env), cwd: worktree, limitMs: this.options.githubLimitMs ?? GITHUB_LIMIT_MS };
   }
 
   /** The file a pull request's body is written to for `gh`, readable by the user alone, with what removes it: in the run folder, or in a folder of its own in the system's temporary folder for a daemon given no run folder. */
@@ -2872,6 +2898,74 @@ export class Daemon {
       if (this.clients.size === 0) return;
       void this.readCommitsNow();
     }, wait);
+  }
+
+  /**
+   * Arranges the watch's next turn, at the earliest time one of the watched
+   * pull requests is due (`watched`), where no turn is arranged or under way.
+   * The turns follow one another while a client is connected, and the hello
+   * of the next client to connect starts them again. A daemon that closed,
+   * or that has no client, arranges none, and nothing the watch does holds
+   * the daemon or the Mac.
+   */
+  private scheduleWatch(): void {
+    if (this.closed || this.watching || this.clients.size === 0) return;
+    clearTimeout(this.watchTimer);
+    this.watchTimer = undefined;
+    const watched = this.watched();
+    if (watched.length === 0) return;
+    const next = Math.min(...watched.map(({ item }) => this.pullRequestDue.get(item.id) ?? 0));
+    this.watchTimer = setTimeout(() => {
+      this.watchTimer = undefined;
+      // Nobody is told what the watch reads while no client is connected.
+      if (this.clients.size === 0 || this.closed) return;
+      const due = this.watched().filter(({ item }) => (this.pullRequestDue.get(item.id) ?? 0) <= Date.now());
+      const turn = Promise.all(due.map((held) => this.readPullRequest(held))).then((changed) => {
+        if (changed.includes(true)) this.broadcastInbox();
+      });
+      this.watching = turn.finally(() => {
+        this.watching = undefined;
+        this.scheduleWatch();
+      });
+    }, Math.max(0, next - Date.now()));
+  }
+
+  /** The work items whose pull request the watch reads: each that is not archived, whose stored pull request is open, and whose chain does not run, since its pull request stage stores a newer one. */
+  private watched(): Held[] {
+    return this.store.workItems().filter(({ item }) => item.archivedAt === null && item.pullRequest?.state === "open" && !this.chains.has(item.id));
+  }
+
+  /**
+   * Reads a work item's open pull request again from GitHub, with one call
+   * of the person's `gh` (`github.ts#viewPullRequest`), and stores what it
+   * gives with the commit the stage pushed. The next read is due after
+   * `prPollMs` while the checks are pending or GitHub's head is not the
+   * pushed commit, and after `prRestPollMs` otherwise. Where the call fails
+   * or its answer does not read, the stored pull request keeps what the
+   * last read gave, its `failure` holds the sentence that says why, and the
+   * next read is due after `prRestPollMs`. A work item that left the watch
+   * while `gh` was asked, or whose pull request the stage replaced, keeps
+   * what it holds. It answers whether the stored pull request changed in
+   * more than the time of its read.
+   */
+  private async readPullRequest({ item }: Held): Promise<boolean> {
+    const before = item.pullRequest;
+    if (before === null) return false;
+    const now = this.options.now ?? Date.now;
+    let read: PullRequest;
+    let wait: number;
+    try {
+      const viewed = await viewPullRequest(this.githubCli(await this.commandEnvironment(), item.worktree, "read"), before.url);
+      read = { ...before, ...viewed, readAt: now(), failure: null };
+      wait = read.checks === "pending" || read.head !== read.pushed ? (this.options.prPollMs ?? PR_POLL_MS) : (this.options.prRestPollMs ?? PR_REST_POLL_MS);
+    } catch (error) {
+      read = { ...before, failure: (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "") };
+      wait = this.options.prRestPollMs ?? PR_REST_POLL_MS;
+    }
+    if (this.closed || !this.watched().some((held) => held.item.id === item.id && held.item.pullRequest === before)) return false;
+    this.pullRequestDue.set(item.id, Date.now() + wait);
+    this.store.setWorkItem(item.id, { pullRequest: read });
+    return JSON.stringify({ ...read, readAt: 0 }) !== JSON.stringify({ ...before, readAt: 0 });
   }
 
   /** Reads the counts now, or gives the read under way: one read runs at a time. */

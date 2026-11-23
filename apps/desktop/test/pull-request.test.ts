@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { OPEN_PULL_REQUEST, pullRequestOwed } from "../src/daemon/chain";
-import { BODY_LIMIT, SECTION_CLOSE, SECTION_OPEN, bodyRecords, openPullRequests, pullRequestBody, pullRequestTitle, pushTarget, withSealSection } from "../src/daemon/github";
+import { BODY_LIMIT, CHECKS_KEPT, SECTION_CLOSE, SECTION_OPEN, bodyRecords, checksOf, openPullRequests, pullRequestBody, pullRequestTitle, pushTarget, withSealSection } from "../src/daemon/github";
 import { type Cleanups, bareRemote, commitAll, write } from "./chain-run";
 import type { PullRequest } from "../src/shared/protocol";
 import { git, runs, temporaryClone, temporaryRepository } from "./repositories";
@@ -271,5 +271,54 @@ describe("the seal section of a body a person may have edited", () => {
     expect(refused([SECTION_OPEN, "x"].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
     expect(refused([SECTION_CLOSE, "x", SECTION_OPEN].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
     expect(refused(["x", SECTION_CLOSE].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
+  });
+});
+
+describe("the checks of a pull request, as gh pr view's statusCheckRollup gives them", () => {
+  const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "seal" });
+  const context = (name: string, state: string) => ({ __typename: "StatusContext", context: name, state, targetUrl: `https://ci.example/${name}` });
+
+  it("reads a check run as pending until it completes, then passed for success, neutral and skipped, and failed for every other conclusion", () => {
+    for (const status of ["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"]) expect(checksOf([run("build", status)]).list, status).toEqual([{ name: "build", state: "pending", link: "https://github.com/owner/project/runs/build" }]);
+    for (const conclusion of ["SUCCESS", "NEUTRAL", "SKIPPED"]) expect(checksOf([run("build", "COMPLETED", conclusion)]).list[0]?.state, conclusion).toBe("passed");
+    for (const conclusion of ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE", null]) expect(checksOf([run("build", "COMPLETED", conclusion)]).list[0]?.state, String(conclusion)).toBe("failed");
+  });
+
+  it("reads a status context as pending for pending and expected, passed for success, and failed for every other state, named by its context", () => {
+    for (const state of ["PENDING", "EXPECTED"]) expect(checksOf([context("ci/lint", state)]).list, state).toEqual([{ name: "ci/lint", state: "pending", link: "https://ci.example/ci/lint" }]);
+    expect(checksOf([context("ci/lint", "SUCCESS")]).list[0]?.state).toBe("passed");
+    for (const state of ["FAILURE", "ERROR", "SOMETHING_NEW"]) expect(checksOf([context("ci/lint", state)]).list[0]?.state, state).toBe("failed");
+  });
+
+  it("gives the pull request no check for an empty list, failed where one check failed, pending where none failed and one is pending, and passed otherwise", () => {
+    expect(checksOf([])).toEqual({ checks: "none", list: [], listCount: 0 });
+    expect(checksOf([run("a", "COMPLETED", "SUCCESS"), context("b", "SUCCESS")]).checks).toBe("passed");
+    expect(checksOf([run("a", "COMPLETED", "SUCCESS"), run("b", "IN_PROGRESS")]).checks).toBe("pending");
+    expect(checksOf([run("a", "IN_PROGRESS"), context("b", "FAILURE"), run("c", "COMPLETED", "SUCCESS")]).checks).toBe("failed");
+  });
+
+  it("keeps an entry it cannot read as a failed check named by its place in the list, with no link, and reads the others", () => {
+    const read = checksOf([run("build", "COMPLETED", "SUCCESS"), "a line", null, { __typename: "CheckRun", status: "COMPLETED", conclusion: "SUCCESS" }, { __typename: "StatusContext", context: "ci/x" }, { __typename: "Something", name: "x" }]);
+    expect(read.list).toEqual([
+      { name: "Check 2", state: "failed", link: null },
+      { name: "Check 3", state: "failed", link: null },
+      { name: "Check 4", state: "failed", link: null },
+      { name: "Check 5", state: "failed", link: null },
+      { name: "Check 6", state: "failed", link: null },
+      { name: "build", state: "passed", link: "https://github.com/owner/project/runs/build" },
+    ]);
+    expect(read.checks).toBe("failed");
+    // A link that is not text is none.
+    expect(checksOf([{ ...run("build", "COMPLETED", "SUCCESS"), detailsUrl: 3 }]).list).toEqual([{ name: "build", state: "passed", link: null }]);
+  });
+
+  it(`keeps ${String(CHECKS_KEPT)} checks at most and counts them all, the failed ones first and the pending ones next, each kind in the order GitHub lists them`, () => {
+    expect(CHECKS_KEPT).toBe(50);
+    const rollup = [...Array.from({ length: 60 }, (_, index) => run(`passed-${String(index)}`, "COMPLETED", "SUCCESS")), run("pending-1", "IN_PROGRESS"), context("failed-1", "FAILURE"), run("failed-2", "COMPLETED", "FAILURE")];
+    const read = checksOf(rollup);
+    expect(read.listCount).toBe(63);
+    expect(read.list).toHaveLength(50);
+    expect(read.list.slice(0, 4).map(({ name }) => name)).toEqual(["failed-1", "failed-2", "pending-1", "passed-0"]);
+    expect(read.list.at(-1)?.name).toBe("passed-46");
   });
 });

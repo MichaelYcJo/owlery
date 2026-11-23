@@ -75,6 +75,7 @@ import {
   notificationFor,
   notificationOpens,
   placeWords,
+  pullRequestNotifications,
   paneChoices,
   paneInFront,
   paneKey,
@@ -139,7 +140,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -3845,5 +3846,103 @@ describe("registered", () => {
     expect(registered("/r/docs/", [PROJECT, docs], [PROJECT, docs])).toBe(docs);
     expect(registered("/r/docs/vendor/inner", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
     expect(registered("/r/docs-old", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
+  });
+});
+
+describe("a work item's pull request", () => {
+  const HEAD = "3f2a9c1e5b7d9f01a2c4e6f8091b3d5f7a9c1e3b";
+  const URL = "https://github.com/owner/project/pull/12";
+  const pullRequest = (fields: Partial<PullRequest> = {}): PullRequest => ({ number: 12, url: URL, state: "open", head: HEAD, pushed: HEAD, checks: "none", list: [], listCount: 0, readAt: 1, failure: null, ...fields });
+  const BUILD_FAILED = { name: "build", state: "failed", link: "https://github.com/owner/project/runs/2" } as const;
+  const SEAL_PASSED = { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
+  const with_ = (fields: Partial<PullRequest>): WorkItem => ({ ...LOGIN, pullRequest: pullRequest(fields) });
+  const PENDING = with_({ checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: null }], listCount: 1 });
+  const PASSED = with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, SEAL_PASSED], listCount: 3 });
+  const OPEN = with_({});
+  const MERGED = with_({ state: "merged", checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const CLOSED = with_({ state: "closed" });
+  const SEALED: Chain = { state: "sealed", says: "Pull request #12 is open.", since: 5, stages: [] };
+
+  it("gives the line the state of the pull request's checks where no pane and no chain says more: working while they run, waiting where one failed, finished where they passed or there are none, and finished for a merged and a closed pull request", () => {
+    expect([PENDING, FAILED, PASSED, OPEN, MERGED, CLOSED].map((workItem) => inboxLine(workItem, [], KINDS).state)).toEqual(["working", "waiting", "finished", "finished", "finished", "finished"]);
+    // A finished pane and a sealed chain say no more than the pull request.
+    expect(inboxLine({ ...FAILED, chain: SEALED }, [session(2, { state: "finished" })], KINDS).state).toBe("waiting");
+    const entries = workItemEntries([PENDING, { ...FAILED, id: 2 }, { ...PASSED, id: 3 }], [], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 needs you, 1 working, 1 finished");
+    // The finished pane's time is not the time the check failed, and the daemon reads none, so the line says no age.
+    expect(lineSince({ ...FAILED, chain: SEALED }, session(2, { state: "finished", stateSince: 40 }))).toBeNull();
+    expect(lineSince(LOGIN, session(2, { state: "finished", stateSince: 40 }))).toBe(40);
+    expect(lineSince(FAILED, session(2, { state: "working", stateSince: 50 }))).toBe(50);
+  });
+
+  it("says the result in the line's second row, and names the first failed check", () => {
+    const said = (workItem: WorkItem) => lineText({ ...workItem, commits: [{ hash: "a".repeat(40), subject: "feat: greet", at: 1, added: null, removed: null } as CommitInfo] }, undefined, false);
+    expect([PENDING, FAILED, PASSED, OPEN, MERGED, CLOSED].map((workItem) => said(workItem))).toEqual([
+      { says: "pull-request", text: "Checks running" },
+      { says: "pull-request", text: "Check failed: build" },
+      { says: "pull-request", text: "Checks passed" },
+      { says: "pull-request", text: "Pull request open" },
+      { says: "pull-request", text: "Merged" },
+      { says: "pull-request", text: "Closed" },
+    ]);
+    // A search shows the branch, as it does on every line.
+    expect(lineText(FAILED, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
+    // A work item without a pull request says what it said before.
+    expect(lineText({ ...LOGIN, chain: SEALED }, undefined, false)).toEqual({ says: "branch", text: LOGIN.branch });
+  });
+
+  it("leaves the line to a pane that works or waits, to a running or stopped chain, to a park and to a call that waits for the person", () => {
+    const working = session(2, { state: "working", stateText: "Running the tests" });
+    const waiting = session(2, { state: "waiting", stateText: "May I run the tests?" });
+    expect(inboxLine(PASSED, [working], KINDS).state).toBe("working");
+    expect(lineText(PASSED, working, false)).toEqual({ says: "state", text: "Running the tests" });
+    expect(inboxLine(PASSED, [waiting], KINDS).state).toBe("waiting");
+    const stage: ChainStage = { kind: "pull-request", round: 1, state: "working", failure: null, startedAt: 1, endedAt: null, headlessId: null, refusals: 0, gate: null };
+    const running = { ...FAILED, chain: { state: "running", says: "The pull request stage is running.", since: 1, stages: [stage] } satisfies Chain };
+    expect(inboxLine(running, [], KINDS).state).toBe("working");
+    expect(lineText(running, undefined, false)).toEqual({ says: "stage", text: "Pull request" });
+    const stopped = { ...PASSED, chain: { state: "stopped", says: "The pull request stage failed: gh pr list exited with code 4.", since: 1, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
+    expect(inboxLine(stopped, [], KINDS).state).toBe("waiting");
+    expect(lineText(stopped, undefined, false)).toEqual({ says: "chain", text: "The pull request stage failed: gh pr list exited with code 4." });
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    expect(inboxLine({ ...PASSED, questions: [asked] }, [], KINDS).state).toBe("waiting");
+    expect(lineText({ ...PASSED, questions: [asked] }, undefined, false).says).toBe("question");
+    const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 };
+    expect(lineText({ ...PASSED, permissions: [ask] }, undefined, false).says).toBe("permission");
+  });
+
+  it("notifies of a work item whose pull request makes its line begin to wait or finish, once, and of none that is muted, in front, or whose line a pane or a chain gives", () => {
+    const toldOf = (workItem: WorkItem, body: string) => ({ workItemId: workItem.id, title: workItem.title, body });
+    expect(pullRequestNotifications([PENDING], [FAILED], [], KINDS, undefined)).toEqual([toldOf(FAILED, "Needs you")]);
+    expect(pullRequestNotifications([PENDING], [PASSED], [], KINDS, undefined)).toEqual([toldOf(PASSED, "Finished")]);
+    expect(pullRequestNotifications([PASSED], [MERGED], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([LOGIN], [OPEN], [], KINDS, undefined)).toEqual([toldOf(OPEN, "Finished")]);
+    // Nothing changed, the line begins to work, or the checks fail again.
+    expect(pullRequestNotifications([FAILED], [FAILED], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PASSED], [PENDING], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([FAILED], [{ ...FAILED, pullRequest: { ...pullRequest({ checks: "failed", list: [{ name: "lint", state: "failed", link: null }], listCount: 1 }) } }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [{ ...FAILED, muted: true }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [FAILED], [], KINDS, FAILED.id)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [FAILED], [session(2, { state: "working" })], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [{ ...FAILED, chain: { ...SEALED, state: "running" } }], [], KINDS, undefined)).toEqual([]);
+  });
+
+  it("takes a merged pull request's decisions off the line's mark, the summary and the filter of the decisions, and the view still lists both", () => {
+    const decision = (id: number, fields: Partial<Decision> = {}): Decision => ({ id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1.", by: null, state: "decided", reversal: null, landed: null, since: 2000, ...fields });
+    const decisions = [decision(1), decision(2, { state: "reversed", reversal: "main에서 시작해 주세요", since: 3000 })];
+    const merged = { ...MERGED, decisions };
+    const open = { ...PASSED, decisions };
+    expect(decisionMark(merged, null)).toBe("");
+    expect(decisionMark(open, null)).toBe("1 decision without asking, 1 reversed");
+    const look: Look = { at: 1000, sessions: [], workItems: [MERGED] };
+    expect(changesSince(look, [merged], [], KINDS)).toEqual([]);
+    expect(changesSince({ ...look, workItems: [PASSED] }, [open], [], KINDS).map((change) => change.decided)).toEqual([2]);
+    const filtered = (workItem: WorkItem) => matchWorkItems(workItemEntries([workItem], [], KINDS), "", "decided").map((entry) => entry.workItem.id);
+    expect(filtered(merged)).toEqual([]);
+    expect(filtered(open)).toEqual([1]);
+    expect(decisionLines(merged, 4000).map((line) => line.id)).toEqual([2, 1]);
+    // A closed pull request takes nothing off.
+    expect(decisionMark({ ...CLOSED, decisions }, null)).toBe("1 decision without asking, 1 reversed");
   });
 });

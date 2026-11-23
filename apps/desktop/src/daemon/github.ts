@@ -1,9 +1,11 @@
-// The pull request stage's reach to GitHub: the remote the sealed branch is
-// pushed to with the person's git, the calls of the person's `gh` that list,
-// open, edit and read a pull request, and the body composed from the records
-// the branch's head commit holds, which opens with the seal section. This
-// module reads no stored state and writes none: `Daemon#runPullRequest`
-// stores what it gives. Owlery reads and stores no token, and calls `gh` for
+// The reach to GitHub of the pull request stage and of the watch: the remote
+// the sealed branch is pushed to with the person's git, the calls of the
+// person's `gh` that list, open, edit and read a pull request, the body
+// composed from the records the branch's head commit holds, which opens with
+// the seal section, and the pull request's checks read into three states.
+// This module reads no stored state and writes none: `Daemon#runPullRequest`
+// and `Daemon#readPullRequest` store what it gives, and the daemon arranges
+// when the watch reads. Owlery reads and stores no token, and calls `gh` for
 // nothing else: it writes no review and merges nothing (docs/architecture.md,
 // "Code runs the order, the orchestrator judges").
 //
@@ -23,6 +25,15 @@ import { baseRef, fileAt, filesAt, remoteOf } from "./worktrees";
 
 /** How long one call of `gh`, and the push, may run before the daemon ends it, where the options name no time. */
 export const GITHUB_LIMIT_MS = 60_000;
+
+/** How long the watch waits between two reads of an open pull request while its checks run, or while GitHub's head is not the commit the stage pushed, where the options name no time. */
+export const PR_POLL_MS = 30_000;
+
+/** How long the watch waits between two reads of any other open pull request, and after a read that failed, where the options name no time. */
+export const PR_REST_POLL_MS = 5 * 60_000;
+
+/** How many of a pull request's checks the daemon keeps and sends. */
+export const CHECKS_KEPT = 50;
 
 /** How long a pull request's body may be, in UTF-16 code units, as GitHub counts a body's characters. */
 export const BODY_LIMIT = 65_536;
@@ -274,17 +285,66 @@ export async function editPullRequest(cli: GitHubCli, url: string, bodyFile: str
   await pr(cli, "edit", [url, "--body-file", bodyFile]);
 }
 
-/** What `gh pr view` gives of a pull request that the stage stores: its number, its address, its state and its head. */
-export type Viewed = Pick<PullRequest, "number" | "url" | "state" | "head">;
+/** What `gh pr view` gives of a pull request that the stage and the watch store: its number, its address, its state, its head and its checks. */
+export type Viewed = Pick<PullRequest, "number" | "url" | "state" | "head" | "checks" | "list" | "listCount">;
 
 const STATES: Record<string, PullRequest["state"]> = { OPEN: "open", MERGED: "merged", CLOSED: "closed" };
 
-/** Reads a pull request by its address, through `gh pr view`. It throws where the call fails or its answer does not read. */
+/** Reads a pull request by its address, through `gh pr view`. It throws where the call fails or its answer does not read, a `statusCheckRollup` that is no list among it. */
 export async function viewPullRequest(cli: GitHubCli, url: string): Promise<Viewed> {
   const value = json(await pr(cli, "view", [url, "--json", VIEW_FIELDS]));
   const state = isRecord(value) && typeof value.state === "string" ? STATES[value.state] : undefined;
-  if (!isRecord(value) || typeof value.number !== "number" || typeof value.url !== "string" || typeof value.headRefOid !== "string" || state === undefined) throw new Error("gh pr view printed no pull request Owlery reads");
-  return { number: value.number, url: value.url, state, head: value.headRefOid };
+  if (!isRecord(value) || typeof value.number !== "number" || typeof value.url !== "string" || typeof value.headRefOid !== "string" || state === undefined || !Array.isArray(value.statusCheckRollup)) throw new Error("gh pr view printed no pull request Owlery reads");
+  return { number: value.number, url: value.url, state, head: value.headRefOid, ...checksOf(value.statusCheckRollup) };
+}
+
+/** The conclusions of a completed check run that pass it. */
+const PASSING_CONCLUSIONS: ReadonlySet<unknown> = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
+
+/** The states of a status context that is still pending. */
+const PENDING_CONTEXTS: ReadonlySet<unknown> = new Set(["PENDING", "EXPECTED"]);
+
+/** A text value, or null where the value is none. */
+const textOr = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+/**
+ * One entry of a `statusCheckRollup` as a check, `place` being its place in
+ * the list from 1. A `CheckRun` is named by its `name` and links to its
+ * `detailsUrl`; it is pending until its `status` is `COMPLETED`, then passed
+ * for the conclusions `SUCCESS`, `NEUTRAL` and `SKIPPED`, and failed for
+ * every other. A `StatusContext` is named by its `context` and links to its
+ * `targetUrl`; it is pending for the state `PENDING` or `EXPECTED`, passed
+ * for `SUCCESS`, and failed for every other. An entry that is neither, or
+ * lacks its name or its status or state, is a failed check named by its
+ * place, with no link.
+ */
+function checkOf(entry: unknown, place: number): PullRequestCheck {
+  if (isRecord(entry) && entry.__typename === "CheckRun" && typeof entry.name === "string" && typeof entry.status === "string") {
+    return { name: entry.name, state: entry.status !== "COMPLETED" ? "pending" : PASSING_CONCLUSIONS.has(entry.conclusion) ? "passed" : "failed", link: textOr(entry.detailsUrl) };
+  }
+  if (isRecord(entry) && entry.__typename === "StatusContext" && typeof entry.context === "string" && typeof entry.state === "string") {
+    return { name: entry.context, state: PENDING_CONTEXTS.has(entry.state) ? "pending" : entry.state === "SUCCESS" ? "passed" : "failed", link: textOr(entry.targetUrl) };
+  }
+  return { name: `Check ${String(place)}`, state: "failed", link: null };
+}
+
+/** The order the kept checks are listed in: the failed ones first, so the first the line names is among the kept, then the pending ones. */
+const LISTED_FIRST: Record<PullRequestCheck["state"], number> = { failed: 0, pending: 1, passed: 2 };
+
+/**
+ * A pull request's checks, as `gh pr view` gives them in its
+ * `statusCheckRollup`: each entry read by `checkOf`, the result `none`
+ * where the list is empty, `failed` where one check failed, `pending` where
+ * none failed and one is pending, and `passed` otherwise. `CHECKS_KEPT` of
+ * them are kept, the failed ones first and the pending ones next, each kind
+ * in the order GitHub lists them, with the count of them all.
+ */
+export function checksOf(rollup: readonly unknown[]): Pick<PullRequest, "checks" | "list" | "listCount"> {
+  const all = rollup.map((entry, index) => checkOf(entry, index + 1));
+  const has = (state: PullRequestCheck["state"]): boolean => all.some((check) => check.state === state);
+  const checks = all.length === 0 ? "none" : has("failed") ? "failed" : has("pending") ? "pending" : "passed";
+  const list = all.map((check, index) => ({ check, index })).sort((a, b) => LISTED_FIRST[a.check.state] - LISTED_FIRST[b.check.state] || a.index - b.index);
+  return { checks, list: list.slice(0, CHECKS_KEPT).map(({ check }) => check), listCount: all.length };
 }
 
 // ---------------------------------------------------------------------------

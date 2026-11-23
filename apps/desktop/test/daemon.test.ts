@@ -17,8 +17,10 @@ import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
+import { PULL_REQUEST_URL, ghStandIn } from "./chain-run";
+import { VIEW_FIELDS } from "../src/daemon/github";
 
 const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
@@ -6335,5 +6337,131 @@ describe("keeping the Mac awake", () => {
     expect(seen.held).toBe(1);
     expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
     expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the choice of when to keep the Mac awake was not written: /)]);
+  });
+});
+
+// Each case's daemon reads a stored pull request through a stand-in for gh, so no case reaches GitHub.
+describe("the watch of an open pull request", () => {
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const VIEW = ["pr", "view", PULL_REQUEST_URL, "--json", VIEW_FIELDS];
+  const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "seal" });
+
+  /**
+   * A daemon whose store holds one work item with an open pull request
+   * the stage pushed at the branch's head, a stand-in for gh, a counting
+   * holder of the Mac, a read every 100 milliseconds while the checks run
+   * and every minute otherwise, and no client.
+   */
+  async function watched(options: Partial<DaemonOptions> = {}, item: Record<string, unknown> = {}) {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const place = await createWorktree({ folder: made.repo, title: "Watched", root: made.root });
+    const at = git(place.worktree, "rev-parse", "HEAD").trim();
+    const stored: PullRequest = { number: 1, url: PULL_REQUEST_URL, state: "open", head: at, pushed: at, checks: "none", list: [], listCount: 0, readAt: 1, failure: null };
+    const workItem = { id: 1, title: "Watched", branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch ?? null, pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: stored, ...item };
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify([{ id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems: [workItem] }]));
+    const gh = ghStandIn(cleanups, made.base);
+    const seen = { held: 0 };
+    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, gh: gh.gh, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, prPollMs: 100, prRestPollMs: 60_000, now: () => 7, holdAwake: () => (seen.held++, { release: () => undefined }), ...options });
+    /** What gh pr view answers for this pull request, with its checks and anything else given. */
+    const answer = (rollup: unknown[], more: Record<string, unknown> = {}) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }) });
+    return { d, url, gh, seen, at, stored, answer };
+  }
+
+  /** The work item's pull request as the newest `ready` or `inbox` a client got lists it. */
+  const pullRequestIn = (c: Awaited<ReturnType<typeof client>>): PullRequest | null | undefined => {
+    const newest = c.messages.filter((m) => m.type === "ready" || m.type === "inbox").at(-1) as Extract<ServerMessage, { type: "inbox" }> | undefined;
+    return newest?.workItems[0]?.pullRequest;
+  };
+
+  it("reads the pull request at a client's hello and again while its checks run, with one call of gh and no agent, and holds neither the Mac nor a session for it", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    const c = await client(w.url);
+    const pending = await c.until(() => (pullRequestIn(c)?.checks === "pending" ? pullRequestIn(c) : undefined));
+    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: "https://github.com/owner/project/runs/Owlery seal" }], listCount: 1, readAt: 7 });
+    expect(w.gh.calls()[0]).toEqual(VIEW);
+    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")]);
+    const passed = await c.until(() => (pullRequestIn(c)?.checks === "passed" ? pullRequestIn(c) : undefined));
+    expect(passed?.list).toEqual([{ name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" }]);
+    // Each read is the one call, and none started a session or held the Mac.
+    for (const call of w.gh.calls()) expect(call).toEqual(VIEW);
+    expect(c.messages.some((m) => m.type === "headless")).toBe(false);
+    expect((await c.message("ready")).headless).toEqual([]);
+    expect(w.seen.held).toBe(0);
+    // The checks passed at the pushed commit, so the next read waits a minute.
+    const calls = w.gh.calls().length;
+    await pause(500);
+    expect(w.gh.calls()).toHaveLength(calls);
+  });
+
+  it("reads again soon while GitHub's head is not the commit the stage pushed, though the checks passed", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")], { headRefOid: "e".repeat(40) });
+    const c = await client(w.url);
+    await c.until(() => (w.gh.calls().length >= 3 ? true : undefined));
+    expect(pullRequestIn(c)).toMatchObject({ head: "e".repeat(40), pushed: w.at, checks: "passed" });
+  });
+
+  it("lists a failed check with its address, and gives the pull request the failed result", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")]);
+    const c = await client(w.url);
+    const failed = await c.until(() => (pullRequestIn(c)?.checks === "failed" ? pullRequestIn(c) : undefined));
+    expect(failed?.list).toEqual([
+      { name: "build", state: "failed", link: "https://github.com/owner/project/runs/build" },
+      { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" },
+    ]);
+  });
+
+  it("reads a merged and a closed pull request no more", async () => {
+    for (const [state, as] of [["MERGED", "merged"], ["CLOSED", "closed"]] as const) {
+      const w = await watched();
+      w.answer([run("Owlery seal", "IN_PROGRESS")], { state, mergedAt: state === "MERGED" ? "2026-11-23T10:00:00Z" : null });
+      const c = await client(w.url);
+      await c.until(() => (pullRequestIn(c)?.state === as ? true : undefined));
+      await pause(500);
+      expect(w.gh.calls(), state).toHaveLength(1);
+    }
+  });
+
+  it("keeps what the last read gave where gh fails, with one sentence that holds gh's first line, reads again after the longer wait, and clears the sentence at a read that succeeds", async () => {
+    const w = await watched({ prRestPollMs: 700 });
+    w.gh.answer("view", { err: "\nHTTP 502: Bad Gateway (https://api.github.com/graphql)\nmore\n", exit: 1 });
+    const c = await client(w.url);
+    const failed = await c.until(() => (pullRequestIn(c)?.failure ? pullRequestIn(c) : undefined));
+    expect(failed).toEqual({ ...w.stored, failure: "gh pr view exited with code 1: HTTP 502: Bad Gateway (https://api.github.com/graphql)" });
+    // Not after 100 milliseconds, as while checks run.
+    await pause(300);
+    expect(w.gh.calls()).toHaveLength(1);
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    const read = await c.until(() => (pullRequestIn(c)?.failure === null ? pullRequestIn(c) : undefined));
+    expect(read).toMatchObject({ checks: "pending", failure: null, readAt: 7 });
+    expect(w.gh.calls()).toHaveLength(2);
+    // An answer that does not read is a failed read too.
+    w.gh.answer("view", { out: "not json\n" });
+    expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
+  });
+
+  it("calls gh for no work item while no client is connected, nor once its client left, nor for an archived work item", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    await pause(400);
+    expect(w.gh.calls()).toHaveLength(0);
+    const c = await client(w.url);
+    await c.until(() => (w.gh.calls().length >= 2 ? true : undefined));
+    c.socket.close();
+    await pause(300);
+    const calls = w.gh.calls().length;
+    await pause(400);
+    expect(w.gh.calls()).toHaveLength(calls);
+    const archived = await watched({}, { archivedAt: 5 });
+    archived.answer([run("Owlery seal", "IN_PROGRESS")]);
+    const other = await client(archived.url);
+    await other.message("ready");
+    await pause(400);
+    expect(archived.gh.calls()).toHaveLength(0);
   });
 });

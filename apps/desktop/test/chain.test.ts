@@ -2881,6 +2881,25 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(kinds(chain).slice(-4)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
   });
 
+  it("stores the checks its read of the pull request gives, and the watch reads the pull request again a short wait after the stage, though it listed no check, since GitHub lists the checks a push starts only later", async () => {
+    const rollup = (status: string, conclusion: string | null = null) => [{ __typename: "CheckRun", name: "Owlery seal", status, conclusion, detailsUrl: "https://github.com/owner/project/runs/1", workflowName: "seal" }];
+    const viewed = (at: string, status: string, conclusion: string | null = null) => ({ out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup(status, conclusion) }) });
+    const queued = await standing(cleanups, ["Queued work"], { roleAdapter: roles({ proofer: clean }) });
+    queued.gh.answer("view", viewed("a".repeat(40), "QUEUED"));
+    expect(await queued.c.getSeal(queued.workItems[0]!.id, 1)).toBe("done");
+    await queued.c.chain(queued.workItems[0]!.id, "sealed");
+    expect(queued.c.workItem(queued.workItems[0]!.id)?.pullRequest).toMatchObject({ checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: "https://github.com/owner/project/runs/1" }], listCount: 1 });
+    // The stand-in's own answer lists no check, at the head the stage pushed.
+    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), prPollMs: 300 });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "sealed");
+    expect(c.workItem(a.id)?.pullRequest).toMatchObject({ checks: "none", head: head(a.worktree), pushed: head(a.worktree) });
+    gh.answer("view", viewed(head(a.worktree), "COMPLETED", "SUCCESS"));
+    await c.until(() => (c.workItem(a.id)?.pullRequest?.checks === "passed" ? true : undefined));
+    expect(gh.calls().map((call) => call.slice(0, 2).join(" "))).toEqual(["pr list", "pr create", "pr view", "pr view"]);
+  });
+
   it("runs no stage and calls no gh where the stored pull request was pushed at the branch's head", async () => {
     const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;

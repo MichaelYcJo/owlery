@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -108,7 +108,7 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 export interface InboxLine {
   title: string;
   branch: string;
-  /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request gives (`pullRequestLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
@@ -142,6 +142,46 @@ function runningStage(workItem: WorkItem): ChainStage | null {
   return chain?.state === "running" && newest?.state === "working" ? newest : null;
 }
 
+/** A work item's pull request, as the daemon last read it: the one the daemon sends, or null for a daemon of an earlier build, which sends no such field. */
+function pullRequestOf(workItem: WorkItem): PullRequest | null {
+  return (workItem.pullRequest as PullRequest | null | undefined) ?? null;
+}
+
+/** Whether a work item's pull request merged, which takes its decisions off its line, the summary and the filter of the decisions, as an archive does. */
+function mergedWorkItem(workItem: WorkItem): boolean {
+  return pullRequestOf(workItem)?.state === "merged";
+}
+
+/**
+ * The state and the words a pull request gives a line: a merged one and a
+ * closed one finish, as "Merged" and "Closed"; an open one works while its
+ * checks run, "Checks running", waits where one failed, "Check failed:"
+ * with the first failed check's name, and finishes where they passed,
+ * "Checks passed", or where it has none, "Pull request open".
+ */
+function pullRequestSays(pullRequest: PullRequest): { state: AgentState; text: string } {
+  if (pullRequest.state !== "open") return { state: "finished", text: pullRequest.state === "merged" ? "Merged" : "Closed" };
+  if (pullRequest.checks === "pending") return { state: "working", text: "Checks running" };
+  if (pullRequest.checks === "failed") return { state: "waiting", text: `Check failed: ${pullRequest.list.find((check) => check.state === "failed")?.name ?? ""}` };
+  return { state: "finished", text: pullRequest.checks === "passed" ? "Checks passed" : "Pull request open" };
+}
+
+/**
+ * What a work item's pull request gives its line where nothing says more,
+ * `pane` being the state of the pane the line reads: the state and the words
+ * of `pullRequestSays`. Null where the work item has no pull request, where
+ * it is parked with questions, where a headless session waits for the person
+ * to allow a call, where its chain runs or stopped, and where its pane works
+ * or waits. A finished pane and a chain that rests say no more than the pull
+ * request.
+ */
+function pullRequestLine(workItem: WorkItem, pane: AgentState | null): { state: AgentState; text: string } | null {
+  const pullRequest = pullRequestOf(workItem);
+  const chain = chainOf(workItem)?.state;
+  if (pullRequest === null || parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "running" || chain === "stopped" || pane === "working" || pane === "waiting") return null;
+  return pullRequestSays(pullRequest);
+}
+
 /**
  * The questions a work item is parked with, while it is parked: the
  * questions of its record that have no answer, in the order of the file.
@@ -163,7 +203,9 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
  * state and is passed over, because nothing will change that state again.
  * A work item whose chain is running is at work whatever that pane says,
  * but where the pane waits for the person: the pane of the session that
- * built the branch stays finished while the rounds run.
+ * built the branch stays finished while the rounds run. Where none of
+ * these says more and the pane neither works nor waits, the line takes the
+ * state its pull request gives (`pullRequestLine`).
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
@@ -173,7 +215,7 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : pane,
+    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : (pullRequestLine(workItem, pane)?.state ?? pane),
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
@@ -187,15 +229,18 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
  * the daemon's clock. Otherwise, where the work item's chain runs a stage
  * and the pane the line reads, `session`, does not wait for the person, the
  * time that stage started at. Otherwise the time of that pane's state. Null
- * where none gives one, and for a work item whose chain is between two
- * stages and alone says that it works: its pane's time is that of another
- * state.
+ * where none gives one, for a work item whose chain is between two stages
+ * and alone says that it works, and for one whose pull request gives the
+ * line its state (`pullRequestLine`): its pane's time is that of another
+ * state, and the daemon reads no time at which the checks began to run,
+ * failed or passed.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
   const parked = parkedWith(workItem) ?? [];
   const asks = permissionsOf(workItem);
   const chain = chainOf(workItem);
   if (parked.length === 0 && asks.length === 0 && chain?.state !== "stopped") {
+    if (pullRequestLine(workItem, session?.state ?? null)) return null;
     if (chain?.state === "running" && session?.state !== "waiting") {
       const stage = runningStage(workItem);
       if (stage) return stage.startedAt;
@@ -302,9 +347,12 @@ function lookedAt(workItem: WorkItem, look: Look | null): WorkItem | undefined {
  * no look is recorded the person has seen none. A reversal waits while its
  * decision's state is `reversed`, whatever the look holds. A decision that
  * is `applied` or `carried` is in neither count. Nothing where both counts
- * are zero. No decision changes the line's state or its group.
+ * are zero, and nothing for a work item whose pull request merged, whose
+ * view still lists every decision. No decision changes the line's state or
+ * its group.
  */
 export function decisionMark(workItem: WorkItem, look: Look | null): string {
+  if (mergedWorkItem(workItem)) return "";
   const before = lookedAt(workItem, look);
   const seen = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
   const unseen = decisionsOf(workItem).filter((decision) => decision.state === "decided" && !seen.has(decision.id)).length;
@@ -657,6 +705,31 @@ export function chainNotifications(before: readonly WorkItem[], workItems: reado
     .map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }));
 }
 
+/**
+ * The notifications for the work items whose pull request made their lines
+ * begin to wait or finish since the window's lists were `before`: one for
+ * each of `workItems` whose line takes its state from its pull request
+ * (`pullRequestLine`, with the pane of `sessions` the line reads), where
+ * that state is waiting or finished and is not the state the work item's
+ * pull request gave in `before`, the work items and the archived ones the
+ * window held. A pull request that opens is one that finishes. It is titled
+ * with the work item's title and says what a pane's notification says.
+ * None is given for a work item whose notifications are muted, nor for
+ * `inFront`, the work item whose view is in front of a focused window. An
+ * archived work item is not among `workItems`, so none is given for one.
+ */
+export function pullRequestNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  return workItems
+    .filter((workItem) => !workItem.muted && workItem.id !== inFront)
+    .flatMap((workItem) => {
+      const line = pullRequestLine(workItem, lineSession(workItem, sessions, paneKinds)?.state ?? null);
+      if (line === null || line.state === "working") return [];
+      const earlier = before.find((item) => item.id === workItem.id);
+      const was = earlier ? pullRequestOf(earlier) : null;
+      return was !== null && pullRequestSays(was).state === line.state ? [] : [{ workItemId: workItem.id, title: workItem.title, body: stateHeading(line.state) }];
+    });
+}
+
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
 export function repoNameOf(workItem: WorkItem): string {
   return (workItem.repoName as string | undefined) ?? workItem.repo.split("/").filter(Boolean).at(-1) ?? workItem.repo;
@@ -985,12 +1058,13 @@ export function filterChoices(): { value: StateFilter; label: string }[] {
  * line is in the state chosen. Where the decisions are chosen, the filter
  * leaves the work items that hold a decision whose state is `decided` or
  * `reversed`, whatever their lines' states: one the person may reverse, or
- * a reversal no stage has taken in.
+ * a reversal no stage has taken in. A work item whose pull request merged
+ * is not among them.
  */
 export function matchWorkItems<E extends { workItem: WorkItem; line: InboxLine }>(entries: readonly E[], query: string, state: StateFilter): E[] {
   return entries.filter(({ workItem, line }) => {
     if (state === "decided") {
-      if (!decisionsOf(workItem).some((decision) => decision.state === "decided" || decision.state === "reversed")) return false;
+      if (mergedWorkItem(workItem) || !decisionsOf(workItem).some((decision) => decision.state === "decided" || decision.state === "reversed")) return false;
     } else if (state !== "all" && (line.state ?? "none") !== state) return false;
     return query === "" || [workItem.title, workItem.branch, repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
   });
@@ -1045,7 +1119,8 @@ function madeWithoutAsking(decided: number): string {
  * not hold. A park and its answer both change the line's state. A decision
  * is told from the look's by its id, so one the look holds adds nothing,
  * reversed since or not, and a look written before the decisions holds none.
- * A change's sentence ends with how many such decisions the work item holds.
+ * A change's sentence ends with how many such decisions the work item holds,
+ * and a work item whose pull request merged holds none.
  * A count the daemon gave on one side alone says nothing of a change. Each
  * side is read through `inboxLine` with its own sessions, and no session of
  * one is matched to a session of the other: a session's id starts again with
@@ -1057,7 +1132,8 @@ export function changesSince(look: Look, workItems: readonly WorkItem[], session
     const said = [line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
     const before = look.workItems.find((item) => item.id === workItem.id);
     const looked = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
-    const decided = decisionsOf(workItem).filter((decision) => !looked.has(decision.id)).length;
+    // A merge takes the work item's decisions off the summary, as an archive does.
+    const decided = mergedWorkItem(workItem) ? 0 : decisionsOf(workItem).filter((decision) => !looked.has(decision.id)).length;
     if (!before) {
       said.push("New since you were last here.");
     } else {
@@ -1232,11 +1308,13 @@ export function choiceNote(question: AskedQuestion): string {
  * labels of its choices, followed by how many more questions it asks, as
  * in "Which
  * library formats the dates? date-fns · dayjs (and 1 more question)";
- * otherwise what the agent's state carried, otherwise the newest commit's
+ * otherwise, where the work item's pull request gives the line its state,
+ * its words (`pullRequestLine`), as in "Checks running" and "Check failed:
+ * build"; otherwise what the agent's state carried, otherwise the newest commit's
  * subject, otherwise the branch. While a search is typed it is the branch,
  * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "stage" | "state" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "stage" | "state" | "pull-request" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const asks = searching ? [] : permissionsOf(workItem);
@@ -1249,6 +1327,8 @@ export function lineText(workItem: WorkItem, session: SessionInfo | undefined, s
   const asked = searching ? [] : askedBy(session);
   const first = asked[0];
   if (first) return { says: "state", text: `${first.asks}${first.options.length > 0 ? ` ${first.options.map(({ label }) => label).join(" · ")}` : ""}${moreQuestions(asked.length - 1)}` };
+  const pulled = searching ? null : pullRequestLine(workItem, session?.state ?? null);
+  if (pulled) return { says: "pull-request", text: pulled.text };
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];
