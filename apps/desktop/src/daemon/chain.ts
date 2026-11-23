@@ -642,7 +642,7 @@ export function undecidedAsk(run: number, question: string): Ask {
   return { asks: question, grounds: `The sealer asked it in place of a verdict, in run ${String(run)} of ${GUARANTEE_FILE}.`, options: [], default: null };
 }
 
-/** The question of a sealer's `undecided` verdict that parks the work item with no ruling asked: its grounds also say that the guarantee holds more such verdicts than the daemon asks a ruling for. */
+/** The question of a sealer's `undecided` verdict that parks the work item with no ruling asked: its grounds also say that the guarantee already holds as many such verdicts as the daemon asks a ruling for. */
 export function undecidedParked(ask: Ask, ceiling: number): Ask {
   return { ...ask, grounds: `${ask.grounds} The guarantee already holds ${ceiling === 1 ? "one verdict" : `${String(ceiling)} verdicts`} that asked, and Owlery asks the orchestrator for a ruling on no more than that.` };
 }

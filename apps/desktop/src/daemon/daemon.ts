@@ -2416,7 +2416,9 @@ export class Daemon {
    * (`seal-records.ts#sectionOf`), puts its own lines into the section's
    * verdict block, appends the section to `guarantee.md` as the head holds
    * the file (`seal-records.ts#guaranteeText`) and commits it, with the
-   * rows of the calls the sealer's rule refused, where each of these holds:
+   * rows of the calls the sealer's rule refused, and with the work item's
+   * record of decisions where a word of the person's changed it during the
+   * seal, which leaves the gate owed again, where each of these holds:
    * the answer's first line that opens a run's section is this run's
    * heading, the reader refuses no line of the section, it holds one
    * verdict block, whose `target:` line is the prompt's and which holds

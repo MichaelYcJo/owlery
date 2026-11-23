@@ -2652,22 +2652,41 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(givenSeal(started[3]?.prompt ?? "")).toEqual({ run: 2, heading: "## Run 2", target: `${answered} against main` });
   });
 
-  it("asks no ruling past the ceiling of undecided verdicts: where the guarantee holds as many such verdicts as the ceiling, the next one's question parks the work item in the commit that carries the verdict, and no orchestrator is started", async () => {
-    const sealer = (given: Given): string => sealSection(given, `undecided question: Does run ${String(given.run)} read the frame as the build does?`);
+  it("asks no ruling past the ceiling of undecided verdicts, and counts the undecided ones alone: a verdict that withheld is none of them, and where the guarantee holds as many undecided verdicts as the ceiling, the next one's question parks the work item in the commit that carries the verdict, with no orchestrator started", async () => {
+    const sealer = (given: Given): string => sealSection(given, given.run === 1 ? "withheld reason: the changelog is missing" : `undecided question: Does run ${String(given.run)} read the frame as the build does?`);
     const { adapter, started } = noted(roles({ proofer: clean, sealer }));
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, undecidedCeiling: 1 });
     const a = workItems[0]!;
     expect(await c.getSeal(a.id, 1)).toBe("done");
-    const parked = await c.chain(a.id, "parked");
-    // The first question was ruled on, which owed the gate and the seal again, and the second parked with no ruling.
-    expect(stagesOf(parked)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["ruling", "finished"], ["gate", "finished"], ["seal", "finished"]]);
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "orchestrator", "sealer"]);
+    await c.chain(a.id, "stopped");
+    const parked = await again(c, a.id, 2, "parked");
+    // The withheld verdict stopped the chain. The first question after it was ruled on, which owed the gate and the seal again, and the second parked with no ruling.
+    expect(stagesOf(parked)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["seal", "finished"], ["ruling", "finished"], ["gate", "finished"], ["seal", "finished"]]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "sealer", "orchestrator", "sealer"]);
     expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...SEAL_COMMIT, paths: [DECISIONS, GUARANTEE] });
     expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8"))).toMatchObject({
       decisions: [{ id: 1, kind: "answered", by: "orchestrator" }],
-      questions: [{ id: 2, asks: "Does run 2 read the frame as the build does?", grounds: "The sealer asked it in place of a verdict, in run 2 of guarantee.md. The guarantee already holds one verdict that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "sealer", state: { is: "open" } }],
+      questions: [{ id: 2, asks: "Does run 3 read the frame as the build does?", grounds: "The sealer asked it in place of a verdict, in run 3 of guarantee.md. The guarantee already holds one verdict that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "sealer", state: { is: "open" } }],
     });
     expect(status(a.worktree)).toEqual([]);
+  });
+
+  it("counts no verdict but one a commit holds, and builds the guarantee on the file as the head holds it: a seal the worktree holds and no commit does leaves the seal owed, and is not committed with the daemon's section", async () => {
+    let withholds = true;
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean, sealer: (given) => sealSection(given, withholds ? "withheld reason: the changelog is missing" : "sealed") }) });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "stopped");
+    const committed = guaranteeAt(a.worktree) ?? "";
+    const target = `${git(a.worktree, "rev-parse", "HEAD~2").trim()} against main`;
+    // A seal of the gate's commit that the person wrote by hand, in the worktree alone.
+    writeFileSync(join(a.worktree, GUARANTEE), `${committed}\n${sealedBy(sealSection({ heading: "## Run 2", target }), "the session", "by-hand")}`);
+    withholds = false;
+    const sealed = await again(c, a.id, 2, "sealed");
+    expect(stagesOf(sealed)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["seal", "finished"]]);
+    const now = guaranteeAt(a.worktree);
+    expect(now).toBe(`${committed}\n${sealedBy(sealSection({ heading: "## Run 2", target }), "the session", "fake-3")}`);
+    expect([readFileSync(join(a.worktree, GUARANTEE), "utf8"), status(a.worktree)]).toEqual([now, []]);
   });
 
   it("asks a ruling for the first two undecided verdicts of a guarantee where the daemon's options name no ceiling, and parks the third's question with none", async () => {
