@@ -6,7 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DECISION_BLOCK, QUESTION_BLOCK, ROUND_RECORD, RUN_BLOCK, VERDICT_BLOCK, assemble, field, read, type BlocksRead } from "../src/daemon/record-blocks";
+import { ASK_BLOCK, CONVERGENCE_BLOCK, DECISION_BLOCK, QUESTION_BLOCK, ROUND_RECORD, RULING_BLOCK, RUN_BLOCK, VERDICT_BLOCK, assemble, field, read, type BlocksRead } from "../src/daemon/record-blocks";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
 
@@ -240,6 +240,55 @@ describe("the reader of a seal block", () => {
     const twice = read([...question.slice(0, 8), "default: `no`", ...question.slice(8)].join("\n"), [DECISION_BLOCK, QUESTION_BLOCK]);
     expect(twice.blocks).toEqual([]);
     expect(twice.refusals).toEqual([{ line: 9, why: "a second `default:` line: a question block holds one", block: 1 }]);
+  });
+
+  describe("the kinds a stage's answer holds", () => {
+    const block = (...lines: string[]): string => [`${F}seal`, ...lines, F, ""].join("\n");
+    const refusal = (text: string, kinds: Parameters<typeof read>[1]): string => read(text, kinds).refusals.map(({ line, why }) => `${String(line)}: ${why}`).join("; ");
+
+    it("reads a stage's question: what it asks and its grounds, any number of options each with a label and what it implies, and at most one default that names an option", () => {
+      const got = read(block("asks: May the pass push the branch to `origin`?", "grounds: No document grants it.", "option: `yes` The branch is pushed.", "option: `no`", "default: `no`"), [ASK_BLOCK]);
+      expect(got.refusals).toEqual([]);
+      expect(got.blocks.map((each) => [each.kind.name, field(each, "asks:")?.value, field(each, "grounds:")?.value, field(each, "default:")?.groups.label])).toEqual([["question", "May the pass push the branch to `origin`?", "No document grants it.", "no"]]);
+      expect(got.blocks[0]?.fields.get("option:")?.map((option) => [option.groups.label, option.groups.implies])).toEqual([["yes", "The branch is pushed."], ["no", undefined]]);
+      expect(read(block("asks: May it?", "grounds: None."), [ASK_BLOCK]).blocks).toHaveLength(1);
+    });
+
+    it("refuses a question with no grounds, with a field of a record's question, with two options of one label and with a default that names no option", () => {
+      expect(refusal(block("asks: May it?"), [ASK_BLOCK])).toBe("1: the question block holds no `grounds:` line, and it holds one");
+      expect(refusal(block("asks: May it?", "grounds: None.", "state: open"), [ASK_BLOCK])).toBe("4: `state: open` is no field of a question block, which takes `asks:`, `grounds:`, `option:` and `default:`, each written `<key>: <value>`");
+      expect(refusal(block("asks: May it?", "grounds: None.", "option: `a` One.", "option: `a` Two."), [ASK_BLOCK])).toBe("1: two `option:` lines hold the label `a`: a question block holds each label once");
+      expect(refusal(block("asks: May it?", "grounds: None.", "option: `a` One.", "default: `b`"), [ASK_BLOCK])).toBe("1: `default:` names `b`, and no `option:` line of the block holds that label");
+      // A record's question opens with its id, so an answer's reader takes it for none of its own.
+      expect(read(block("question: 1", "asks: May it?", "grounds: None.", "state: open"), [ASK_BLOCK]).blocks).toEqual([]);
+    });
+
+    it("reads the judgment of convergence as yes or no with its grounds, and refuses another word, a judgment with no grounds and a second line of either key", () => {
+      const got = read(`${block("converging: yes", "grounds: Each round found less.")}\n${block("converging: no", "grounds: Round 3 reopened a fix.")}`, [CONVERGENCE_BLOCK]);
+      expect(got.refusals).toEqual([]);
+      expect(got.blocks.map((each) => [each.kind.name, field(each, "converging:")?.groups.converging, field(each, "grounds:")?.value])).toEqual([["judgment", "yes", "Each round found less."], ["judgment", "no", "Round 3 reopened a fix."]]);
+      expect(refusal(block("converging: Yes", "grounds: It is."), [CONVERGENCE_BLOCK])).toBe("2: `converging: Yes` does not read whole as `converging: <value>`: it is `yes` or `no`");
+      expect(refusal(block("converging: yes"), [CONVERGENCE_BLOCK])).toBe("1: the judgment block holds no `grounds:` line, and it holds one");
+      expect(refusal(block("converging: yes", "converging: no", "grounds: Both."), [CONVERGENCE_BLOCK])).toBe("3: a second `converging:` line: a judgment block holds one");
+    });
+
+    it("reads a ruling as the question's number and one of four words, with what was decided for every word but park, and refuses a park that decides, a decision that says nothing, and another word", () => {
+      const text = ["default", "scope", "answered"].map((word, index) => block(`rules: ${String(index + 1)} ${word}`, "decided: It stays.", "grounds: The frame.")).join("\n");
+      const got = read(`${text}\n${block("rules: 4 park", "grounds: A credential.")}`, [RULING_BLOCK]);
+      expect(got.refusals).toEqual([]);
+      expect(got.blocks.map((each) => [each.kind.name, field(each, "rules:")?.groups.question, field(each, "rules:")?.groups.ruling, field(each, "decided:")?.value])).toEqual([
+        ["ruling", "1", "default", "It stays."],
+        ["ruling", "2", "scope", "It stays."],
+        ["ruling", "3", "answered", "It stays."],
+        ["ruling", "4", "park", undefined],
+      ]);
+      expect(refusal(block("rules: 1 park", "decided: Wait.", "grounds: A credential."), [RULING_BLOCK])).toBe("1: the ruling block parks its question and holds a `decided:` line: a park decides nothing");
+      expect(refusal(block("rules: 1 answered", "grounds: The frame."), [RULING_BLOCK])).toBe("1: the ruling block holds no `decided:` line, and every ruling but `park` says what was decided");
+      expect(refusal(block("rules: 1 route", "decided: Go.", "grounds: The frame."), [RULING_BLOCK])).toBe(
+        "2: `rules: 1 route` does not read whole as `rules: <value>`: it is `<question> <ruling>`: the question's number, a whole number from 1 with no leading zero and at most 15 digits, and one of `default`, `scope`, `answered` and `park`",
+      );
+      expect(refusal(block("rules: 0 park", "grounds: A credential."), [RULING_BLOCK])).toContain("2: `rules: 0 park` does not read whole");
+    });
   });
 
   it("says of a refusal which block it refused, by the line of the block's opener, and of a refusal outside every block that it refused none", () => {

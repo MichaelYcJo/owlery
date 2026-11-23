@@ -429,6 +429,19 @@ export const DECISION_BLOCK = kind(
   },
 );
 
+const OPTION_SPEC = spec(`${LABEL}(?: (?<implies>${TEXT}))?`, "any number", "an option is its label between two backticks, holding no backtick, then optionally a space and what the option implies");
+const DEFAULT_SPEC = spec(LABEL, "at most one", "a default is an option's label between two backticks");
+
+/** What is wrong with a block's `option:` and `default:` lines, or null: each label stands once, and the default names one of them. */
+function brokenOptions(block: Block): string | null {
+  const labels = (block.fields.get("option:") ?? []).map((option) => option.groups.label ?? "");
+  const twice = labels.find((label, at) => labels.indexOf(label) !== at);
+  if (twice !== undefined) return `two \`option:\` lines hold the label \`${twice}\`: a ${block.kind.name} block holds each label once`;
+  const fallback = field(block, "default:")?.groups.label;
+  if (fallback !== undefined && !labels.includes(fallback)) return `\`default:\` names \`${fallback}\`, and no \`option:\` line of the block holds that label`;
+  return null;
+}
+
 /** A question a work item is parked with. */
 export const QUESTION_BLOCK = kind(
   "question",
@@ -437,8 +450,8 @@ export const QUESTION_BLOCK = kind(
     ["asks:", spec(TEXT, "one", TEXT_SAYS)],
     ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
     ["by:", spec(TEXT, "at most one", TEXT_SAYS)],
-    ["option:", spec(`${LABEL}(?: (?<implies>${TEXT}))?`, "any number", "an option is its label between two backticks, holding no backtick, then optionally a space and what the option implies")],
-    ["default:", spec(LABEL, "at most one", "a default is an option's label between two backticks")],
+    ["option:", OPTION_SPEC],
+    ["default:", DEFAULT_SPEC],
     ["state:", spec("open|answered", "one", "a question's state is `open` or `answered`")],
     ["answer:", spec(TEXT, "at most one", TEXT_SAYS)],
   ],
@@ -447,11 +460,44 @@ export const QUESTION_BLOCK = kind(
     const answer = field(block, "answer:");
     if (state === "answered" && answer === undefined) return "the question block's state is `answered` and it holds no `answer:` line";
     if (state !== "answered" && answer !== undefined) return "the question block holds an `answer:` line and its state is `open`: an open question holds none";
-    const labels = (block.fields.get("option:") ?? []).map((option) => option.groups.label ?? "");
-    const twice = labels.find((label, at) => labels.indexOf(label) !== at);
-    if (twice !== undefined) return `two \`option:\` lines hold the label \`${twice}\`: a question block holds each label once`;
-    const fallback = field(block, "default:")?.groups.label;
-    if (fallback !== undefined && !labels.includes(fallback)) return `\`default:\` names \`${fallback}\`, and no \`option:\` line of the block holds that label`;
+    return brokenOptions(block);
+  },
+);
+
+// The kinds a stage's answer holds. Each is read in an answer and written to
+// no record, so the pull request check spells none of them.
+
+/** A question a stage of a chain asks in its answer: the daemon has it decided from the code and the policy, or parks the work item with it. */
+export const ASK_BLOCK = kind(
+  "question",
+  [
+    ["asks:", spec(TEXT, "one", TEXT_SAYS)],
+    ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
+    ["option:", OPTION_SPEC],
+    ["default:", DEFAULT_SPEC],
+  ],
+  brokenOptions,
+);
+
+/** The orchestrator's judgment of whether a work item's review rounds are converging. */
+export const CONVERGENCE_BLOCK = kind("judgment", [
+  ["converging:", spec("(?<converging>yes|no)", "one", "it is `yes` or `no`")],
+  ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
+]);
+
+/** The orchestrator's ruling on one question of a stage: a decision of one of three kinds, or a park. */
+export const RULING_BLOCK = kind(
+  "ruling",
+  [
+    ["rules:", spec(`(?<question>${ID}) (?<ruling>default|scope|answered|park)`, "one", `it is \`<question> <ruling>\`: the question's number, ${ID_SAYS}, and one of \`default\`, \`scope\`, \`answered\` and \`park\``)],
+    ["decided:", spec(TEXT, "at most one", TEXT_SAYS)],
+    ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
+  ],
+  (block) => {
+    const parks = field(block, "rules:")?.groups.ruling === "park";
+    const decided = field(block, "decided:");
+    if (parks && decided !== undefined) return "the ruling block parks its question and holds a `decided:` line: a park decides nothing";
+    if (!parks && decided === undefined) return "the ruling block holds no `decided:` line, and every ruling but `park` says what was decided";
     return null;
   },
 );
