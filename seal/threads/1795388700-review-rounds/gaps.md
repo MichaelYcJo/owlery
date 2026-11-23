@@ -51,8 +51,6 @@ A stage that fails before it commits writes no row of `trail/refusals.md`. The r
 
 A question a stage asked is lost where the judgment on it fails. The questions stand in the stage's answer and in no record, and the judgment runs once, after the stage's commit. Where the orchestrator's answer rules on no question, or its session fails, the chain stops, and the person's next start runs the step the records owe with no judgment on those questions. The asking stage's answer is still listed with its headless session, among the newest 50 that ended.
 
-A chain cut between a judgment on a question and the judgment of convergence it owed runs its fix pass unjudged at the person's next start. Both judgments are stored as a `judgment` of the round, so the last stored stage reads as an answered judgment of convergence. `chain.ts#gateBefore` says so at its head. Telling the two apart needs a field of `ChainStage`, which `frame/design.md` *Data & interfaces* does not give it.
-
 Nothing reads whether a fix pass took a reversal in. The daemon writes each reversed decision of the pass's prompt `applied` with the head the pass left, as *Scope* item 12 states, where the crafter made no commit too. A verifying round follows only where a commit after the last target changed a path outside the work item's directory.
 
 A decision the orchestrator makes on a stage's question is recorded without the question. `decisions.md` holds what was decided and its grounds, and `apps/desktop/role-bundle/agents/orchestrator.md` tells the orchestrator to write a line that stands without the question. The question itself stays in the asking stage's answer.

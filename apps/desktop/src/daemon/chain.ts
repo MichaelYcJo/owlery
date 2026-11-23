@@ -63,6 +63,7 @@ export class StageStopped extends Error {}
 export function stageName(kind: ChainStageKind, round: number): string {
   if (kind === "round") return `Review round ${String(round)}`;
   if (kind === "fix-pass") return `The fix pass of round ${String(round)}`;
+  if (kind === "ruling") return `The ruling after round ${String(round)}`;
   return `The judgment after round ${String(round)}`;
 }
 
@@ -186,7 +187,7 @@ export function stepOwed(standing: Standing): Step {
 /** What a chain does before a fix pass: nothing, the orchestrator's judgment of whether the rounds are converging, or a stop at the ceiling of its rounds. */
 export type Gate = "none" | "judgment" | "ceiling";
 
-/** The stages at the end of a chain's that belong to the round's record: every stage after the round's own, where each is a fix pass or a judgment of that round. */
+/** The stages at the end of a chain's that belong to the round's record: every stage after the round's own, where each is a fix pass, a judgment or a ruling of that round. */
 function sinceRound(stages: readonly ChainStage[], round: number): ChainStage[] {
   let from = stages.length;
   while (from > 0 && stages[from - 1]?.round === round && stages[from - 1]?.kind !== "round") from -= 1;
@@ -217,9 +218,9 @@ export function passedBefore(stages: readonly ChainStage[], round: number): bool
  *   nothing. The person read its answer and started the chain again.
  * - Otherwise the orchestrator's judgment.
  *
- * A judgment on a stage's question is stored as a judgment of its round
- * too, so a chain cut between such a judgment and the judgment of
- * convergence it owed runs its fix pass unjudged at the person's next start.
+ * A ruling on a stage's questions is a stage of its own kind, so a chain
+ * that stopped between such a ruling and the judgment of convergence it
+ * owed is asked for that judgment at the person's next start.
  */
 export function gateBefore({ round, open }: { round: number; open: readonly number[] }, stages: readonly ChainStage[], ceiling: number, run: { judged: boolean; first: boolean }): Gate {
   if (open.length === 0 || passedBefore(stages, round)) return "none";
@@ -580,7 +581,7 @@ export interface StageRefusals {
 /** What a call does, as a row of the refusals says it. */
 const CALL_DOES: Record<PermissionAction, string> = { read: "reads a file", write: "writes a file", run: "runs a command", other: "something else" };
 
-/** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`. */
+/** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`, `ruling 2`. */
 function stageCell(kind: ChainStageKind, round: number): string {
   return `${kind === "fix-pass" ? "fix pass" : kind} ${String(round)}`;
 }

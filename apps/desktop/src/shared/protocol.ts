@@ -295,9 +295,10 @@ export interface WorkItem {
 
 /**
  * The kinds of stage a work item's chain runs, each one role session: a
- * review round, a fix pass, and a judgment of the orchestrator's.
+ * review round, a fix pass, the orchestrator's judgment of whether the
+ * rounds are converging, and its ruling on the questions a stage asked.
  */
-export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment"] as const;
+export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling"] as const;
 
 /** One of `CHAIN_STAGE_KINDS`. */
 export type ChainStageKind = (typeof CHAIN_STAGE_KINDS)[number];
@@ -305,7 +306,7 @@ export type ChainStageKind = (typeof CHAIN_STAGE_KINDS)[number];
 /** One stage a chain ran or is running. */
 export interface ChainStage {
   kind: ChainStageKind;
-  /** The round a round is, the round a fix pass answers, or the round a judgment follows. */
+  /** The round a round is, the round a fix pass answers, or the round a judgment or a ruling follows. */
   round: number;
   /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. */
   state: "working" | "finished" | "failed";
@@ -322,8 +323,8 @@ export interface ChainStage {
 
 /**
  * What the daemon runs for one work item after a `getSeal`: its review
- * rounds, its fix passes and the orchestrator's judgments, one stage at a
- * time. Which stage is next is read
+ * rounds, its fix passes and the orchestrator's judgments and rulings, one
+ * stage at a time. Which stage is next is read
  * from the work item's committed records at each step, and this is what a
  * window shows of the run.
  */

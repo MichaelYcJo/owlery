@@ -2235,12 +2235,14 @@ export class Daemon {
    * the work item with the questions the orchestrator parked, in one
    * `Daemon#park` with the asking role as who asks, and commits the record
    * of decisions. An answer that does not rule on each question once fails
-   * the stage, and nothing is recorded.
+   * the stage, and nothing is recorded. The stage is stored as a `ruling`,
+   * so `chain.ts#gateBefore` reads a stored `judgment` as the judgment of
+   * convergence alone.
    */
   private async runRuling({ item }: Held, directory: string, inside: string, asked: "round" | "fix-pass", round: number, by: "proofer" | "crafter", asks: Ask[]): Promise<void> {
     const record = join(directory, RECORD_FILE);
     const prompt = rulingPrompt({ round, directory: inside, by, asked, asks, decisions: existsSync(record) });
-    await this.runStage(item.id, "judgment", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
+    await this.runStage(item.id, "ruling", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
       const rulings = rulingsOf(answer, asks.length);
       const unwritten = new ChainStop("its rulings were not written into the work item's record of decisions");
       const parked: { asks: string; grounds: string; options: { label: string; implies: string }[]; default: string | null }[] = [];
