@@ -493,8 +493,8 @@
       dialog h3.work-item { margin-bottom: var(--space-3); }
       /* The dialog of the records place: a file the setup would write is read whole, in the letters a file is read in, and a long one scrolls inside its own box. */
       #records-dialog { width: min(720px, 92vw); }
-      /* Its buttons stay at its foot while a plan longer than the window scrolls above them, on the dialog's own ground, which also covers the dialog's padding under them. */
-      #records-dialog .row.end { position: sticky; bottom: 0; padding-top: var(--space-4); background: var(--ground-raised); box-shadow: 0 var(--space-7) 0 var(--ground-raised); }
+      /* Its buttons stay at its foot while a plan longer than the window scrolls above them. The row reaches into the dialog's padding under it, on the dialog's own ground, so what scrolls shows above the row and not under it, and the buttons keep the padding's distance from the dialog's edge. */
+      #records-dialog .row.end { position: sticky; bottom: calc(-1 * var(--space-7)); margin-bottom: calc(-1 * var(--space-7)); padding: var(--space-4) 0 var(--space-7); background: var(--ground-raised); }
       #records-files pre { max-height: 180px; margin: 0 0 var(--space-5); padding: var(--space-3) var(--space-4); overflow: auto; border-radius: var(--radius-card); background: var(--ground-raised); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); user-select: text; }
       #records-files .path { display: block; margin-bottom: var(--space-2); }
       #records-gate-says { margin-top: calc(-1 * var(--space-3)); font-size: var(--size-second); }
