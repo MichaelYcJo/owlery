@@ -2115,10 +2115,13 @@ export class Daemon {
    * Runs a work item's chain from where its records stand until it rests:
    * before each stage it reads the step the records owe (`chain.ts#stepOwed`)
    * and runs that stage, the broad gate (`runGate`) and the seal (`runSeal`)
-   * among them, and it rests `parked` or `sealed` where the records owe
-   * none. Before it rests `sealed` it runs the pull request stage where
-   * that is owed (`runPullRequest`), and rests with that stage's sentence
-   * once it ended well. A sealer's `withheld` verdict stops the chain with its reason.
+   * among them. It rests `parked` where the records hold an open question,
+   * and `rested` where they owe no stage, the step `sealed`. Before it rests
+   * `rested` it runs the pull request stage where that is owed
+   * (`runPullRequest`), and rests with that stage's sentence once it ended
+   * well. No state of the chain says whether a seal holds: `WorkItem.seal`
+   * does, read from the branch's head. A sealer's `withheld` verdict stops
+   * the chain with its reason.
    * Before a fix pass it reads what the chain owes first
    * (`chain.ts#gateBefore`): the orchestrator's judgment of whether the
    * rounds are converging, whose `no` stops the chain, or a stop at the
@@ -2161,8 +2164,8 @@ export class Daemon {
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
-        // A sealed chain owes the pull request stage where its routing sends the work to one and the stored pull request does not carry the head.
-        if (step.is === "sealed") return rest("sealed", (await this.runPullRequest(held, directory, standing, step)) ?? sealedSays(step.round, step.at));
+        // The step `sealed` owes the pull request stage where the routing sends the work to one and the stored pull request does not carry the head.
+        if (step.is === "sealed") return rest("rested", (await this.runPullRequest(held, directory, standing, step)) ?? sealedSays(step.round, step.at));
         if (step.is === "gate") await this.runGate(held, directory, standing, step.round);
         else if (step.is === "seal") {
           const withheld = await this.runSeal(held, directory, standing, step);
@@ -2488,7 +2491,7 @@ export class Daemon {
    * a fast-forward or a rebase put it on the branch.
    *
    * The verdict decides what follows. `sealed`: nothing here, and the order
-   * then reads the chain as sealed. `withheld`: it gives the reason, which
+   * then reads the step `sealed`. `withheld`: it gives the reason, which
    * stops the chain. `undecided`: the question is a stage's question, and
    * the orchestrator is asked for a ruling on it (`runRuling`), for the
    * first verdicts of the guarantee that read `undecided`, as many as the
@@ -2637,7 +2640,7 @@ export class Daemon {
   }
 
   /**
-   * Runs the pull request stage of a sealed chain where it is owed
+   * Runs the pull request stage at the step `sealed` where it is owed
    * (`chain.ts#pullRequestOwed`): the `Destination` row of the work item's
    * `routing.md` at the branch's head, and the pull request the daemon
    * stores, decide it. Where no stage is owed it gives the sentence of the

@@ -12,13 +12,13 @@
 // no built app.
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received, RECEIVER } from "./korean-pane";
-import { type Cleanups, client, commitSeal, standing } from "./chain-run";
+import { type Cleanups, clean, client, commitSeal, roles, standing } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 /** The title `openReceiverPane` gives the work item it creates. */
@@ -221,11 +221,15 @@ describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
-  it("sends, from a second daemon started on the same run folder, the seal of a sealed work item and of a broken one as the first daemon read them: the same states, the same commits and the same sentence", async () => {
-    const stood = await standing(cleanups, ["Sealed work", "Broken work"], { commitPollMs: 50 });
+  it("sends, from a second daemon started on the same run folder, the seal of a sealed work item and of a broken one as the first daemon read them: the same states, the same commits and the same sentence, and no file of the run folder names either state", async () => {
+    // The titles name neither state, since a work item's title, branch and folder stand in the run folder.
+    const stood = await standing(cleanups, ["First work", "Second work"], { commitPollMs: 50, roleAdapter: roles({ proofer: clean }) });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
-    const sealedAt = commitSeal(a.worktree, { workItem: "1795396351-sealed-work", branch: a.branch, base: a.baseCommit });
-    const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-broken-work", branch: b.branch, base: b.baseCommit });
+    // The first is sealed by its chain, whose routing sends the work to a pull request, so the chain the store keeps rests with the pull request's sentence.
+    expect(await stood.c.getSeal(a.id, 1)).toBe("done");
+    expect((await stood.c.chain(a.id, "rested")).says).toBe("Pull request #1 is open.");
+    const sealedAt = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-second-work", branch: b.branch, base: b.baseCommit });
     writeFileSync(join(b.worktree, "feature.txt"), "A greeting, changed after the seal\n");
     git(b.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
     const seals = (c: typeof stood.c) => () => {
@@ -238,6 +242,10 @@ describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
       { state: "broken", commit: brokenAt, why: `\`feature.txt\` changed after the sealed commit \`${brokenAt.slice(0, 7)}\`.` },
     ]);
     await stood.d.close();
+    // The daemon stores neither state: what the second daemon sends, it read again from the repository.
+    const files = (readdirSync(stood.runDir, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[]).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name));
+    expect(files.map((file) => relative(stood.runDir, file))).toContain("repositories.json");
+    expect(files.flatMap((file) => (/\b(?:sealed|broken)\b/iu.test(readFileSync(file, "utf8")) ? [relative(stood.runDir, file)] : []))).toEqual([]);
 
     const c = await client((await stood.start()).url, cleanups);
     await c.message("ready");

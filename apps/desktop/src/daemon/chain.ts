@@ -17,7 +17,7 @@
 // whether the gate holds at the branch's head. Where it holds the chain owes
 // the seal, a sealer's session on the gate's commit (`Daemon#runSeal`), until
 // the newest verdict block of the work item's guarantee seals that commit.
-// A sealed chain then owes the pull request stage where the work item's
+// The step `sealed` then owes the pull request stage where the work item's
 // routing sends it to a pull request and the pull request the daemon stores
 // does not carry the branch's head (`pullRequestOwed`): no step of the order,
 // since what GitHub holds is no record. `Daemon#runPullRequest` runs it, and
@@ -122,17 +122,17 @@ export const READING_SAYS = "Owlery is reading the work item's records.";
 /** The sentence of a chain that waits for the person's answers. */
 export const PARKED_SAYS = "The chain waits for the answers to the work item's open questions.";
 
-/** The sentence of a chain that rests sealed: the commit the sealer sealed, which the broad gate passed on, and the last round. */
+/** The sentence of a chain that rests at the step `sealed` with no pull request stage owed: the commit the sealer sealed, which the broad gate passed on, and the last round. It says what that run ended with, and stays after a later commit breaks the seal. */
 export function sealedSays(round: number, commit: string): string {
   return `The sealer sealed ${commit.slice(0, 7)}, after round ${String(round)}.`;
 }
 
-/** The sentence of a chain that rests sealed after the pull request stage opened its pull request. */
+/** The sentence of a chain that rests after the pull request stage opened its pull request. */
 export function pullRequestOpenSays(number: number): string {
   return `Pull request #${String(number)} is open.`;
 }
 
-/** The sentence of a chain that rests sealed after the pull request stage gave an open pull request the seal of the commit given. */
+/** The sentence of a chain that rests after the pull request stage gave an open pull request the seal of the commit given. */
 export function pullRequestCarriesSays(number: number, commit: string): string {
   return `Pull request #${String(number)} carries the seal at ${commit.slice(0, 7)}.`;
 }
@@ -141,7 +141,7 @@ export function pullRequestCarriesSays(number: number, commit: string): string {
 export const OPEN_PULL_REQUEST = "open the pull request";
 
 /**
- * Whether a sealed chain owes the pull request stage: the work item's
+ * Whether the step `sealed` owes the pull request stage: the work item's
  * `routing.md` at the branch's head answers `Destination` with
  * `OPEN_PULL_REQUEST`, and the pull request the daemon stores for the work
  * item is none, is `closed`, or is `open` and was last pushed at a commit
@@ -295,7 +295,7 @@ export function gateHolds(standing: Pick<Standing, "gateCommit" | "sinceGate" | 
  * - The newest verdict block of the guarantee is no seal of the gate's
  *   commit: none stands, it reads `withheld` or `undecided`, or it names
  *   another commit. The seal, on the gate's commit.
- * - Otherwise the chain is sealed at the gate's commit.
+ * - Otherwise the step is `sealed`, at the gate's commit.
  *
  * So no seal is asked for a commit other than the one the gate passed on,
  * and none while a decision stands `reversed` or a commit is unread.
@@ -1000,12 +1000,13 @@ function isChainStage(value: unknown): value is WrittenStage {
  * its state has no `since`, and its stages are as a file holds them. A build
  * before the seal rested a chain `reviewed` once its broad gate held, with
  * the head it rested at as `reviewedAt`, and wrote that field, null, on
- * every other chain.
+ * every other chain. An earlier build of this release rested a chain
+ * `sealed` where it now rests `rested`.
  */
-export type WrittenChain = Omit<Chain, "since" | "stages" | "state"> & { state: Chain["state"] | "reviewed"; reviewedAt?: string | null; since?: number; stages: WrittenStage[] };
+export type WrittenChain = Omit<Chain, "since" | "stages" | "state"> & { state: Chain["state"] | "sealed" | "reviewed"; reviewedAt?: string | null; since?: number; stages: WrittenStage[] };
 
-/** The states a chain's file may hold: this build's, and `reviewed`, which a build before the seal wrote. */
-const WRITTEN_STATES: readonly string[] = ["running", "parked", "stopped", "sealed", "reviewed"];
+/** The states a chain's file may hold: this build's, and `sealed` and `reviewed`, which earlier builds wrote. */
+const WRITTEN_STATES: readonly string[] = ["running", "parked", "stopped", "rested", "sealed", "reviewed"];
 
 /**
  * Whether a value is a chain as the store writes one, or as an earlier
@@ -1030,12 +1031,14 @@ export function isChain(value: unknown): value is WrittenChain {
  * gate where it was written with none. A chain written with no `since`
  * takes the end of its newest stage, the start of that stage where it did
  * not end, and 0 where it holds no stage. A chain an earlier build stored
- * `reviewed` is no chain of this build, and is read as none: the state said
- * that nothing was owed, and a seal now is, which the next `getSeal` reads
- * from the records.
+ * `reviewed` or `sealed` is no chain of this build, and is read as none.
+ * `reviewed` said that nothing was owed, and a seal now is. `sealed` said
+ * that the branch was sealed, and stayed so after a later commit broke the
+ * seal, which `WorkItem.seal` now says from the branch's head. The next
+ * `getSeal` reads the step owed from the records.
  */
 export function chainOf(chain: WrittenChain): Chain | null {
-  if (chain.state === "reviewed") return null;
+  if (chain.state === "reviewed" || chain.state === "sealed") return null;
   const newest = chain.stages.at(-1);
   return {
     state: chain.state,
@@ -1052,7 +1055,7 @@ export const DAEMON_ENDED = "the daemon ended while the stage ran";
  * A chain as the store reads it at the daemon's start: only the fields of a
  * chain, each stage naming no headless session, since the next daemon gives
  * that session's id to another. A chain an earlier build stored `reviewed`
- * is read as none (`chainOf`). A chain stored `running` is read as
+ * or `sealed` is read as none (`chainOf`). A chain stored `running` is read as
  * `stopped`: its stage's session ended with the daemon that started it, and
  * nothing starts a stage but a `getSeal`. Its sentence says that the daemon
  * ended while the stage ran, the stage that was working is `failed`, and

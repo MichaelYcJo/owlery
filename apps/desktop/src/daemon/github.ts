@@ -432,9 +432,16 @@ export async function bodyRecords(worktree: string, head: string, directory: str
   };
 }
 
-/** The seal section of a body: the two marker lines around a heading, one sentence that names the record, and the newest verdict block as the record holds it. */
+/**
+ * The seal section of a body: the two marker lines around a heading, the
+ * sentence that names the record and says that the seal binds the commit it
+ * names, and the newest verdict block as the record holds it. The sentence
+ * stays true after a later push breaks the seal, since the check `Owlery
+ * seal` says whether the seal holds at the head, and no stage rewrites the
+ * body until a new seal is given.
+ */
 export function sealSection(records: Pick<BodyRecords, "directory" | "block">): string {
-  return [SECTION_OPEN, "## Owlery seal", "", `The newest verdict of \`${under(records.directory, "guarantee.md")}\`, as this pull request's head commit holds it:`, "", ...records.block, SECTION_CLOSE].join("\n");
+  return [SECTION_OPEN, "## Owlery seal", "", `The newest verdict of \`${under(records.directory, "guarantee.md")}\`. A seal binds the commit it names, and the check \`Owlery seal\` says whether it holds at this pull request's head commit:`, "", ...records.block, SECTION_CLOSE].join("\n");
 }
 
 /**

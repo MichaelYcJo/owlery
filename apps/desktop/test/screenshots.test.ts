@@ -465,7 +465,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitFile(finished.worktree, "export.ts");
     await getSeal(finished.id);
     const ofFinished = async (): Promise<WorkItem | undefined> => (await listed()).workItems.find((workItem) => workItem.id === finished.id);
-    for (let deadline = Date.now() + 30_000, now = await ofFinished(); now?.chain?.state !== "sealed" || now.pullRequest?.checks !== "passed"; now = await ofFinished()) {
+    for (let deadline = Date.now() + 30_000, now = await ofFinished(); now?.chain?.state !== "rested" || now.pullRequest?.checks !== "passed"; now = await ofFinished()) {
       if (now?.chain?.state === "stopped" || now?.chain?.state === "parked" || Date.now() >= deadline) throw new Error(`the chain of ${FINISHED} opened no pull request whose checks passed: ${JSON.stringify({ chain: now?.chain, pullRequest: now?.pullRequest })}`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

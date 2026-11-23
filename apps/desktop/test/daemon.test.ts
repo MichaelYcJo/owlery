@@ -19,7 +19,7 @@ import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
-import { commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
+import { client as chainClient, commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
 import { VIEW_FIELDS } from "../src/daemon/github";
 
 const TOKEN = "t".repeat(64);
@@ -4152,6 +4152,31 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     const seal = await broken(c, a.id);
     expect([seal?.commit, seal?.why?.length]).toEqual([gate, 2000]);
     expect(seal?.why).toMatch(new RegExp(`^The records at the head do not read: the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: \`target: x+$`, "u"));
+  });
+
+  it("sends no seal for a work item whose head holds none, though a pane of it prints `Verdict: sealed` and its stored chain rests", async () => {
+    const stood = await standing(cleanups, ["Sealed work"], { commitPollMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf 'Verdict: sealed\\n'; sleep 30"], env: {} }) });
+    const a = stood.workItems[0]!;
+    // The records of a chain that has a gate's run and no guarantee, and a stored chain that rests, which the store's file is given.
+    commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit, seal: false });
+    expect((await stood.c.asked({ type: "setWorkItem", requestId: 9, id: a.id, pinned: true })).type).toBe("done");
+    await stood.d.close();
+    const file = join(stood.runDir, "repositories.json");
+    const stored = JSON.parse(readFileSync(file, "utf8")) as { repositories: { workItems: { id: number; chain?: unknown }[] }[] };
+    Object.assign(stored.repositories[0]?.workItems.find(({ id }) => id === a.id) ?? {}, { chain: { state: "rested", says: "The sealer sealed ccccccc, after round 1.", since: 3, stages: [] } });
+    writeFileSync(file, JSON.stringify(stored));
+    const c = await chainClient((await stood.start()).url, cleanups);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: a.id });
+    const { session } = await c.message("started");
+    await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes("Verdict: sealed")) ? true : undefined));
+    // The read of the branch has run once it lists the commits of the records, and the chain still rests.
+    const read = await c.until(() => {
+      const item = c.workItem(a.id);
+      return item?.commits?.some(({ subject }) => subject === "chore: record the broad gate's run") ? item : undefined;
+    });
+    expect(read.chain).toMatchObject({ state: "rested" });
+    expect(read.seal).toBeNull();
   });
 });
 
