@@ -264,6 +264,8 @@ export interface WorkItem {
   baseBranch: string | null;
   /** How many commits the branch holds that `baseBranch` does not hold, or null where no base branch is recorded, that branch is gone, or the daemon has read none. A remote's branch is counted as the person's clone holds it, so the count moves at a fetch. A base merged into the branch adds none of its own, and a branch its base took is ahead by none. */
   aheadOfBase: number | null;
+  /** How many commits `baseBranch` holds that the branch does not hold, or null where `aheadOfBase` is null. It is counted with `aheadOfBase`, against the base as the person's clone holds it, so it moves at a fetch and no remote is asked. A base merged into the branch leaves it behind by none. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  behindBase: number | null;
   /** How many commits the branch holds after `baseCommit`, the base's own among them once the base was merged in, or null where the daemon has read none. */
   newCommits: number | null;
   /** The commits the branch holds after `baseCommit`, newest first, 20 at most, or null where the daemon has read none. */
@@ -319,6 +321,17 @@ export interface SessionInfo {
   stateText: string | null;
   /** The name of the tool the event that began `state` asks for. Null where the event named none, and where no event began the state. */
   stateTool: string | null;
+  /** The questions the event that began `state` asks the person in the agent's own pane, each with the choices the agent offers, and each of their texts 2000 characters at most. Null where that event asked none, and where no event began the state. A daemon of a build before it sends no such field, which a client reads as null. */
+  stateQuestions: AskedQuestion[] | null;
+}
+
+/** One question an agent asks the person in its own pane, with the choices it offers. */
+export interface AskedQuestion {
+  asks: string;
+  /** The choices in the agent's order, each with what the agent says it leads to, which may be empty. It may hold none. */
+  options: { label: string; implies: string }[];
+  /** True where the person may choose more than one. */
+  multiple: boolean;
 }
 
 /**

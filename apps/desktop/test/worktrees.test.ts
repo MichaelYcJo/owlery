@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, createWorktree, fetchBase, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, createWorktree, fetchBase, mainCheckout, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
@@ -826,58 +826,65 @@ describe("what a branch holds since its base", () => {
     expect({ files: changes.files, added: changes.added, removed: changes.removed, listed: changes.list.length }).toEqual({ files: 1500, added: 1500, removed: 0, listed: 50 });
   });
 
-  it("counts how many commits a head holds that its base branch does not: its own and a merge of the base, and not the commits the base gained", async () => {
+  it("counts how many commits a head holds that its base branch does not, and how many the base holds that the head does not: a merge of the base counts as the head's own, and the base's commits it took count no longer behind", async () => {
     const made = await cut("Ahead");
-    expect(await aheadOf(made.repo, "main", await made.head())).toBe(0);
+    const distance = async () => await baseDistance(made.repo, "main", await made.head());
+    expect(await distance()).toEqual({ ahead: 0, behind: 0 });
     writeFileSync(join(made.worktree, "own.txt"), "own\n");
     commitAll(made.worktree, "add own");
-    expect(await aheadOf(made.repo, "main", await made.head())).toBe(1);
+    expect(await distance()).toEqual({ ahead: 1, behind: 0 });
     writeFileSync(join(made.repo, "README.md"), "a repository\nof owls\n");
     commitAll(made.repo, "say more");
     commitAll(made.repo, "and more");
-    expect(await aheadOf(made.repo, "main", await made.head())).toBe(1);
+    expect(await distance()).toEqual({ ahead: 1, behind: 2 });
     git(made.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
     // Four commits since the cut, two of them the base's own.
     expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(4);
-    expect(await aheadOf(made.repo, "main", await made.head())).toBe(2);
-    // The base takes the branch, and the branch is ahead by none.
+    expect(await distance()).toEqual({ ahead: 2, behind: 0 });
+    // The base takes the branch, and the branch is ahead by none and behind by none.
     git(made.repo, "merge", "--quiet", "--ff-only", made.branch);
-    expect(await aheadOf(made.repo, "main", await made.head())).toBe(0);
+    expect(await distance()).toEqual({ ahead: 0, behind: 0 });
     expect(await newCommits(made.repo, made.branch, made.baseCommit)).toBe(4);
   });
 
-  it("counts against a remote's branch as the clone holds it, so a fetch moves the count, gives none once a fetch pruned the branch, and reads a base's name as the local branch where one bears it", async () => {
+  it("counts against a remote's branch as the clone holds it, so a fetch moves both counts, gives none once a fetch pruned the branch, and reads a base's name as the local branch where one bears it", async () => {
     const { repo, origin, root } = clone();
     const made = await createWorktree({ folder: repo, title: "Ahead of the remote", root });
     expect(made.baseBranch).toBe("origin/main");
     commitFile(made.worktree, "own.txt");
     const head = (await branchHead(made.repo, made.branch))!;
-    expect(await aheadOf(repo, "origin/main", head)).toBe(1);
+    expect(await baseDistance(repo, "origin/main", head)).toEqual({ ahead: 1, behind: 0 });
     // The remote's main takes the commit, and the count moves only once the clone fetches.
     git(origin, "pull", "--quiet", "--ff-only", repo, made.branch);
-    expect(await aheadOf(repo, "origin/main", head)).toBe(1);
+    expect(await baseDistance(repo, "origin/main", head)).toEqual({ ahead: 1, behind: 0 });
     git(repo, "fetch", "--quiet", "origin");
-    expect(await aheadOf(repo, "origin/main", head)).toBe(0);
+    expect(await baseDistance(repo, "origin/main", head)).toEqual({ ahead: 0, behind: 0 });
+    // The remote's main gains a commit the branch does not hold, and the branch is behind it only once the clone fetches.
+    commitFile(origin, "theirs.txt");
+    expect(await baseDistance(repo, "origin/main", head)).toEqual({ ahead: 0, behind: 0 });
+    git(repo, "fetch", "--quiet", "origin");
+    expect(await baseDistance(repo, "origin/main", head)).toEqual({ ahead: 0, behind: 1 });
     // The local main never moved, and a base named `main` is still read as it.
-    expect(await aheadOf(repo, "main", head)).toBe(1);
+    expect(await baseDistance(repo, "main", head)).toEqual({ ahead: 1, behind: 0 });
     git(origin, "checkout", "--quiet", "-b", "renamed");
     git(origin, "branch", "--quiet", "-D", "main");
     git(repo, "fetch", "--quiet", "--prune", "origin");
-    expect(await aheadOf(repo, "origin/main", head)).toBeNull();
+    expect(await baseDistance(repo, "origin/main", head)).toBeNull();
     // A remote's HEAD entry is no base.
     git(repo, "remote", "set-head", "origin", "renamed");
-    expect(commitOf(repo, "refs/remotes/origin/HEAD")).toBe(head);
-    expect(await aheadOf(repo, "origin/HEAD", `${head}~1`)).toBeNull();
+    expect(commitOf(repo, "refs/remotes/origin/HEAD")).toBe(commitOf(repo, "refs/remotes/origin/renamed"));
+    expect(await baseDistance(repo, "origin/HEAD", `${head}~1`)).toBeNull();
     // A local branch of a remote's branch's name is the one a base's name reads.
     git(repo, "branch", "--quiet", "origin/renamed", made.baseCommit);
-    expect(await aheadOf(repo, "origin/renamed", head)).toBe(1);
+    expect(await baseDistance(repo, "origin/renamed", head)).toEqual({ ahead: 1, behind: 0 });
   });
 
-  it("gives no count of commits ahead where the base branch is gone, or the repository is", async () => {
+  it("gives no count of commits ahead or behind where the base branch is gone, the head is no commit, or the repository is gone", async () => {
     const made = await cut("Ahead of none");
     const head = await made.head();
-    expect(await aheadOf(made.repo, "never-cut", head)).toBeNull();
-    expect(await aheadOf(join(made.base, "missing"), "main", head)).toBeNull();
+    expect(await baseDistance(made.repo, "never-cut", head)).toBeNull();
+    expect(await baseDistance(made.repo, "main", "0".repeat(40))).toBeNull();
+    expect(await baseDistance(join(made.base, "missing"), "main", head)).toBeNull();
   });
 
   it("lists 50 files of a branch that changed more, beside the count and the lines of all of them", async () => {

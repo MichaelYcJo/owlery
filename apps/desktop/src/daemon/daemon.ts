@@ -20,7 +20,7 @@ import { type Held, RepositoryStore, type StoredRepository } from "./repositorie
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, aheadOf, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, whyNoCommit, worktreesRoot } from "./worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitAlone, createWorktree, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, whyNoCommit, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, and of each text it writes into a work item's record. */
 const STATE_TEXT_CHARS = 2000;
@@ -215,8 +215,8 @@ export class Daemon {
   private changing: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
-  // How many commits each work item's branch was last read to hold that its base branch does not, by the work item's id.
-  private readonly aheadCounts = new Map<number, number | null>();
+  // How far each work item's branch was last read to be from its base branch, by the work item's id: the commits it holds that the base does not, and the commits the base holds that it does not.
+  private readonly aheadCounts = new Map<number, { ahead: number; behind: number } | null>();
   // The last commit of a person's word that was asked for in each worktree, by the worktree: it ends once every one before it has, so two commits of one worktree never run git at once.
   private readonly wordCommits = new Map<string, Promise<void>>();
   // The last word of a person that was taken for each worktree, by the worktree: it ends once git has said where the worktree stands and the word is written or refused, after every one before it, so the words of one worktree are written in the order they came.
@@ -276,9 +276,11 @@ export class Daemon {
   /**
    * Delivers an agent's event for a pane to every client, as a neutral event,
    * and keeps the state it leaves the pane's session in, with the time the
-   * state began and what the event that began it said. An event that leaves
-   * the state as it was changes none of them. Any event ends the pane's
-   * silent start, an event the daemon maps to no neutral one among them.
+   * state began and what the event that began it said, the questions it asks
+   * the person among it. An event that asks a question leaves the session
+   * waiting. An event that leaves the state as it was changes none of them.
+   * Any event ends the pane's silent start, an event the daemon maps to no
+   * neutral one among them.
    */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const session = this.sessions.get(paneId);
@@ -288,13 +290,14 @@ export class Daemon {
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });
     if (!session || !this.reportsState(session.info.kind)) return;
-    const state = agentStateAfter(event);
-    if (state === session.info.state) return;
     const said = agentSaid(hookName, payload);
+    const state = agentStateAfter(event, said.questions !== null);
+    if (state === session.info.state) return;
     session.info.state = state;
     session.info.stateSince = state === null ? null : (this.options.now ?? Date.now)();
     session.info.stateText = cutText(said.text);
     session.info.stateTool = said.tool;
+    session.info.stateQuestions = said.questions && said.questions.map(({ asks, options, multiple }) => ({ asks: cutText(asks), options: options.map(({ label, implies }) => ({ label: cutText(label), implies: cutText(implies) })), multiple }));
     this.broadcastInbox();
   }
 
@@ -578,7 +581,7 @@ export class Daemon {
             this.readRecords(stored.repository);
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.item.id, 0);
-            if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, 0);
+            if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
             this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
             // The setup pane starts first, and the answer carries the pane the creation named.
             this.startSetup(socket, message, stored.item.id, place.worktree, setup);
@@ -1420,7 +1423,7 @@ export class Daemon {
     });
     let exited = (): void => {};
     const session: Session = {
-      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null },
+      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
       terminal,
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,
@@ -1583,7 +1586,8 @@ export class Daemon {
       repoId: repository.id,
       repo: repository.folder,
       repoName: repository.name ?? basename(repository.folder),
-      aheadOfBase: this.aheadCounts.get(item.id) ?? null,
+      aheadOfBase: this.aheadCounts.get(item.id)?.ahead ?? null,
+      behindBase: this.aheadCounts.get(item.id)?.behind ?? null,
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
@@ -1772,7 +1776,8 @@ export class Daemon {
   /**
    * Reads one work item's new commits from git, and answers whether a count
    * changed or its branch's head moved. How far a branch is ahead of its
-   * base branch is counted at every read, since the base moves by itself. The
+   * base branch and behind it is counted at every read, since the base moves
+   * by itself, and a base that moved while the head stayed is a change. The
    * commits and the changed files are read only where the head is another
    * commit than the one they were last read at.
    */
@@ -1789,9 +1794,10 @@ export class Daemon {
       this.commitCounts.set(item.id, count);
       changed = true;
     }
-    const ahead = item.baseBranch === null || head === null ? null : await aheadOf(repo, item.baseBranch, head);
-    if (ahead !== (this.aheadCounts.get(item.id) ?? null)) {
-      this.aheadCounts.set(item.id, ahead);
+    const distance = item.baseBranch === null || head === null ? null : await baseDistance(repo, item.baseBranch, head);
+    const known = this.aheadCounts.get(item.id) ?? null;
+    if (distance?.ahead !== known?.ahead || distance?.behind !== known?.behind) {
+      this.aheadCounts.set(item.id, distance);
       changed = true;
     }
     if (head === (this.branches.get(item.id)?.head ?? null)) return changed;
