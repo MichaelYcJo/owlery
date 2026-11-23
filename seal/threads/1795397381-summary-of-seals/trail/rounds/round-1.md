@@ -34,6 +34,11 @@ The fix, in sentences, since the git command to hold is not verified here. In `b
 const heldSeal = heldGit(cleanups, made.root, `[ "$(pwd -P)" = '${fourth.worktree}' ] && [ "$1" = show ]`); // NAME NOT IN TREE: `cleanups` in this file, and which command the seal's read runs in that folder, are unverified
 ```
 
+```seal
+verdict: fixed 6c491a7
+answer: The command held is the daemon's first read of a seal, `git show <head>:<directory>/guarantee.md` run in the work item's worktree (read: `apps/desktop/src/daemon/seal-state.ts#sealAt` calls `worktrees.ts#fileAt`, whose `git` runs with the worktree as its folder; no other `git show` runs at the daemon's start). `test/decisions-and-questions.test.ts` now gives the file its own `cleanups`, which `afterAll` runs, and puts `heldGit` on `made.base` with the paste-ready test before `BuiltApp.start`. The first case waits until the held command has arrived, then reads "1 needs you. 1 decision made without asking.", the lines Beta and Alpha, the sidebar's "2 new" and Delta's title not strong. After `release()` it waits for "1 sealed, 1 needs you. 1 decision made without asking." and reads the summary still in front, Delta's line first, "3 new" and Delta's title strong. Executed through `seal mutate` after the commit, each alone so its failing line was read: the join taken off `takeLists` failed at line 168, the wait for the sentence with the seal; the join deferred past `showSidebar` with the summary drawn again failed at line 171 on "2 new" for "3 new"; `shared.ts#changedSince` reading the load's two ids alone failed at line 172 on the strong title. `gaps.md` row 13 now reads closed and names the case. `trail/phases/phase-3.md:39` stays as phase 3 wrote it, since a fix pass writes no phase record (plugin `skills/implement/fix-pass.md` *The close blocks, last*) and that line states what phase 3's starts did, which is still true; the claim that a case needs a start that can set `readyWaitMs` stood in `gaps.md` alone, and is gone from it. The fix does not depart from the frame: scenario 13 is still one start of this file.
+```
+
 ### 2. The summary's hint says Enter opens the first that needs you, while Enter opens a later line
 
 ```seal
@@ -68,6 +73,12 @@ The fix gives each label its own hint, and the pin follows it. Under "Open the f
     const answer = (opens: number) => ({ main: { label: "Answer the first question", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first question." });
 ```
 
+```seal
+verdict: fixed f71886c
+location: `seal/threads/1795397381-summary-of-seals/changelog.md:10`
+answer: `view.ts#summaryControls` gives "Enter opens the first question." under "Answer the first question" and keeps "Enter opens the first that needs you." under "Open the first that needs you", and its docstring says the hint names the line Enter opens. The pin at `view.test.ts:3265` takes the new hint; executed, it failed against the old code on the hint alone, and `seal mutate` swapping each label's hint for the other's was red at `view.test.ts:3266` and `:3274`. The bullet of `changelog.md:10`, a path the finding does not name, now says which hint goes with which label. The screenshot run was executed again through the lock (48 files, the case passed) and `5f48725` commits the six summary files; read, each shows "Answer the first question" with "Enter opens the first question.". The six links of `pr.md:20-25` still name `278a1a4`, and moving them to `5f487258d49ec89c3709fcabbe5855373f65d91d` is the orchestrator's, since no crafter writes `pr.md` (plugin `skills/code-review/orchestration.md` *Where a fix pass or a fold changes a sentence that `pr.md` quotes*). Departure from the frame: `frame/design.md` *Data & interfaces*, its table of the window's words, holds no row for the hint, so the new hint is a word the frame does not list, and the fold is the orchestrator's.
+```
+
 ### 3. The changelog says a merged work item's summary line says "Merged", and it says "Finished."
 
 ```seal
@@ -84,12 +95,21 @@ Grounds: `changelog.md:8` says "The line says "Merged", as in the inbox." A summ
 - **A seal that broke after the work item's pull request merged is no change of its own.** It opens no summary, and where another change lists the work item, its sentence says "Finished." and holds no word of the seal. Its seal still shows as broken, as on its line in the inbox.
 ```
 
+```seal
+verdict: fixed bbfab3c
+answer: The bullet is rewritten in the fix pass's own words, because two sentences of the paste-ready fix do not hold against the code. "It opens no summary" fails because a seal breaks only by a commit, and the commit raises the count of new commits, which `view.ts#changeOf` counts as a change wherever both sides carry a count. "Its sentence says "Finished."" fails where a pane that works or waits gives the line another state, since the sentence opens with `STATE_IN_CHANGE[line.state]`. The bullet now says the break is no change of its own, that where the work item changed otherwise, as by that commit, its sentence opens with its state, such as "Finished.", and says nothing of the seal, and that its seal still shows as broken, as on its inbox line (read: `view.ts:1267-1287`, `summary.ts:74`, `list.ts:155`).
+```
+
 ### 4. `pr.md` sends a line whose agent waits to the wrong label
 
 ```seal
 severity: should
 location: `seal/threads/1795397381-summary-of-seals/pr.md:10`
 evidence: read `apps/desktop/src/renderer/view.ts:1398-1400`, `seal/threads/1795397381-summary-of-seals/changelog.md:10`
+```
+```seal
+verdict: fixed f907dd5
+answer: The orchestrator rewrote the sentence of `pr.md` in place, since no crafter writes it: "Answer the first question" now opens the first line that waits on a question, a call to allow or its agent's own question, as `view.ts:1398-1400` gives (read). The same commit moves the six screenshot links to `5f48725`, which holds the summary screenshots finding 2's fix took again.
 ```
 
 Why it matters: the pull request's body states a behaviour the code does not have, and a reviewer of the pull request reads it as the rule.
@@ -114,6 +134,11 @@ Grounds: the rewritten bullet says "wherever the daemon sends a work item whose 
 
 ```markdown
 - **For a client of the daemon:** wherever the daemon sends a work item whose branch it has read since it started, the work item carries `seal`: `null`, or `state` (`sealed` or `broken`), `commit` (the sealed commit) and `why` (the sentence of a broken seal, `null` where the seal holds). A work item whose branch the daemon has not read since it started carries no `seal`, and a client reads its absence as no seal, as a client of an earlier build does. A chain's `state` is `running`, `parked`, `stopped` or `rested`. `rested` says that the chain's run ended and owes no stage, and `sealed` is gone. No message is added.
+```
+
+```seal
+verdict: fixed bbfab3c
+answer: The paste-ready bullet is applied: "and in the last look" is taken out of #44's bullet, which now agrees with `last-look.ts:209` and with this work's `changelog.md:13`, the one place that states what the look keeps of `seal`. The class was searched by sample: `git grep` over every `seal/threads/*/changelog.md`, `docs` and `apps/desktop/src` for a sentence that has the last look carry `seal` found no other; the hit in `seal/threads/1795388700-review-rounds/changelog.md:16` is of `chain`, and stands.
 ```
 
 ## Confirmations
