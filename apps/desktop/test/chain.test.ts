@@ -1948,6 +1948,13 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     // The gate holds at the head: only its own record follows its commit.
     expect((await again(c, a.id, 4, "reviewed")).stages).toEqual(chain.stages);
     expect(commitsAfterMain(a.worktree)).toEqual(commits);
+    // A commit that the next one takes back leaves the tree the gate passed on: the two trees are compared, and no commit between them is walked.
+    write(a.worktree, `${DIRECTORY}/scratch.md`, "A note the person takes back.\n");
+    commitAll(a.worktree, "docs: note the work");
+    rmSync(join(a.worktree, DIRECTORY, "scratch.md"));
+    commitAll(a.worktree, "docs: take the note back");
+    expect((await again(c, a.id, 41, "reviewed")).stages).toEqual(chain.stages);
+    expect(subjects(a.worktree).slice(-2)).toEqual(["docs: note the work", "docs: take the note back"]);
 
     write(a.worktree, `${DIRECTORY}/notes.md`, "A note of the person's.\n");
     const noted = commitAll(a.worktree, "docs: note the work");
@@ -2032,6 +2039,23 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     expect(existsSync(join(a.worktree, GATE_PATH))).toBe(false);
     expect(subjects(a.worktree)).toEqual(TO_ROUND_1);
     expect(await gateEntries(c, a.id, 2)).toMatchObject([{ state: "failed", stopped: "limit" }]);
+  });
+
+  it("keeps what first stopped a command as what ended it: a stopGate that arrives after the time limit, while the command that ignores the signal is still being ended, changes neither the chain's sentence nor the run's entry of the ledger", async () => {
+    const out = outside();
+    const gate = `trap '' TERM; ${SLEEPS}`;
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, gateEnv: env({ OUT: out }), gateLimitMs: 300, roleAdapter: roles({ proofer: clean }) });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    const pids = await pidsIn(out);
+    // The limit has passed, and the daemon kills the command's group two seconds after it.
+    await new Promise((r) => setTimeout(r, 700));
+    expect((await c.asked({ type: "stopGate", requestId: 2, workItemId: a.id })).type).toBe("done");
+    const chain = await c.chain(a.id, "stopped");
+    expect(chain.says).toBe("The broad gate failed: the command reached its time limit and was stopped.");
+    expect(chain.stages.at(-1)).toMatchObject({ kind: "gate", state: "failed", gate: { exitCode: null } });
+    expect(await gateEntries(c, a.id, 3)).toMatchObject([{ state: "failed", stopped: "limit" }]);
+    expect(await untilGone(pids, 5_000)).toEqual([]);
   });
 
   it("writes no record where the tree moved under a command that exited with 0: one that edited a tracked file, one that left an untracked file, and one during which a commit landed on the branch, each with a sentence that names the path or the two commits", async () => {

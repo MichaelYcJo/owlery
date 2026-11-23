@@ -596,7 +596,7 @@ export type ClientMessage =
   | { type: "getSeal"; requestId: number; workItemId: number }
   // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs.
   | { type: "stopGate"; requestId: number; workItemId: number }
-  // Asks for what the work item's newest broad gate printed, of a run that ended. The daemon answers with a `gateOutput`, and with an `error` for an id it lists no work item under and for a work item with no kept output: one whose gate has not ended since the daemon started it, and one whose command printed nothing.
+  // Asks for what the work item's newest broad gate printed, of a run that ended. The daemon answers with a `gateOutput`, and with an `error` for an id it lists no work item under and for a work item with no kept output: one no broad gate ran for, one whose newest gate still runs or was running when its daemon ended, and one whose newest gate's command printed nothing.
   | { type: "readGateOutput"; requestId: number; workItemId: number }
   // Stops a headless session that is working: its run is stopped, and it is `failed`, with `stopped` set to `request`. A session that is not working is left as it is. The daemon answers with `done`, and with an `error` for an id it does not list.
   | { type: "stopHeadless"; requestId: number; id: number }
