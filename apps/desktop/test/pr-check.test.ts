@@ -364,6 +364,13 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     await unread([...sealSection(...made.block)].reverse().join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
     await unread(sealSection(...made.block).slice(0, -1).join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
     await unread(null, "the event payload holds no `pull_request.body`");
+
+    // A declaration that does not read judges no work item, so the section has no record to be compared with.
+    write(made.repo, "seal/threads/1-x/routing.md", "# Routing: 1-x\n\nNo table.\n");
+    commitAll(made.repo, "chore: break the declaration", "1-x");
+    const unjudged = await run(made, { body: sealSection(...made.block).join("\n") });
+    expect(unjudged.output).toContain("not read: the pull request's body, since no declaration of this pull request reads, so no seal section of it is compared with `guarantee.md`");
+    expect(unjudged.output).not.toContain("the pull request's body, line");
   });
 
   it("posts its verdict with --post as the check `Owlery seal` on the payload's head commit, one request a run: success titled with the sealed commit, failure where the head has no seal or other records are refused, neutral for a draft that would be refused, success for a pull request that declares no work item, and failure where the check could not run; the job's exit stays the check's", async () => {
