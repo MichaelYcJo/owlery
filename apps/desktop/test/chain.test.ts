@@ -2966,6 +2966,23 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(create.gh.calls().map((call) => call[1])).toEqual(["list", "create", "list", "create", "view"]);
   });
 
+  it("stops the stage, pushes nothing and calls no gh where the worktree's head moved after the records were read", async () => {
+    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+    const a = stood.workItems[0]!;
+    // The seal's stage reads routing.md first, and the pull request stage second: the second read waits until the case has committed.
+    const seen = join(stood.made.base, "routing-read");
+    const held = heldGit(cleanups, stood.made.base, `[ "$1" = show ] && case "$2" in *routing.md) if [ -e '${seen}' ]; then true; else touch '${seen}'; false; fi ;; *) false ;; esac`);
+    expect(await stood.c.getSeal(a.id, 1)).toBe("done");
+    await stood.c.until(() => (held.waiting() ? true : undefined));
+    const sealed = head(a.worktree);
+    write(a.worktree, "late.txt", "A commit that lands while the stage reads.\n");
+    held.release();
+    const moved = commitAll(a.worktree, "feat: land late");
+    const chain = await stood.c.chain(a.id, "stopped");
+    expect(chain.says).toBe(`The pull request stage failed: the worktree's head moved from ${sealed.slice(0, 7)} to ${moved.slice(0, 7)} while Owlery read the records.`);
+    expect([stood.gh.calls(), branchesOf(stood.remote)]).toEqual([[], []]);
+  });
+
   it("finds gh on the PATH of the broad gate's environment where the daemon's options name none", async () => {
     const made = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
     await made.d.close();
