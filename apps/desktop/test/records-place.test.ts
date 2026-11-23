@@ -792,7 +792,7 @@ describe("the records place", () => {
     expect(status(fresh)).toBe("");
   });
 
-  it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, and runs a script that stands under pr-check/", () => {
+  it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `Owlery seal` with the run's token", () => {
     const text = workflowText(VERSION);
     expect(text).toContain("\nname: seal\n");
     expect(text).toContain("\njobs:\n  seal:\n");
@@ -802,8 +802,11 @@ describe("the records place", () => {
     const script = /python3 "\$RUNNER_TEMP\/owlery\/(pr-check\/[^"]+)"/.exec(text)?.[1];
     expect(script).toBe("pr-check/skills/code-review/scripts/chain_check.py");
     expect(existsSync(join(PR_CHECK, "..", script ?? "missing"))).toBe(true);
-    expect(text).toContain('--baseline "origin/${{ github.base_ref }}"');
+    expect(text).toContain('--baseline "origin/${{ github.base_ref }}" \\\n            --post\n');
     expect(text).toContain("fetch-depth: 0");
+    // The job may read the code and write a check, and nothing else; its step is handed the run's token.
+    expect(text).toContain("\npermissions:\n  contents: read\n  checks: write\n\n");
+    expect(text).toContain("        env:\n          GITHUB_TOKEN: ${{ github.token }}\n");
     // The marker the root's README opens with is the one the taken check tells a root by.
     expect(readFileSync(join(PR_CHECK, "lib", "optin.py"), "utf8")).toContain(`\nMARKER = ${JSON.stringify(MARKER)}\n`);
   });

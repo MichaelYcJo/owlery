@@ -234,7 +234,7 @@ async function branchOfHead(folder: string): Promise<string | null> {
  * ref among them, and where the repository is gone. Git is given the name
  * only inside a full ref.
  */
-async function baseRef(repo: string, base: string): Promise<string | null> {
+export async function baseRef(repo: string, base: string): Promise<string | null> {
   const local = `refs/heads/${base}`;
   const remote = `refs/remotes/${base}`;
   let refs: string;
@@ -345,7 +345,7 @@ function askRemote(repo: string, remote: string, branch: string, waitMs: number,
  * the base's name, the longest such name where several do. Null where no
  * remote's name opens it.
  */
-async function remoteOf(repo: string, base: string): Promise<{ remote: string; branch: string } | null> {
+export async function remoteOf(repo: string, base: string): Promise<{ remote: string; branch: string } | null> {
   const names = await git(repo, ["remote"]).then((printed) => printed.split("\n"), () => []);
   const remote = names.filter((name) => name !== "" && base.startsWith(`${name}/`)).sort((a, b) => b.length - a.length)[0];
   return remote === undefined ? null : { remote, branch: base.slice(remote.length + 1) };

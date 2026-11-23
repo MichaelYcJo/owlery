@@ -75,6 +75,8 @@ import {
   notificationFor,
   notificationOpens,
   placeWords,
+  pullRequestFacts,
+  pullRequestNotifications,
   paneChoices,
   paneInFront,
   paneKey,
@@ -139,7 +141,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -167,6 +169,7 @@ const LOGIN: WorkItem = {
   unread: [],
   setup: null,
   chain: null,
+  pullRequest: null,
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
@@ -1532,6 +1535,8 @@ describe("a work item's chain", () => {
     // The broad gate is no role's session, so its words name no role, and the seal is the sealer's.
     expect(lineText(runs({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }), finished, false)).toEqual({ says: "stage", text: "Broad gate" });
     expect(lineText(runs({ kind: "seal" }), finished, false)).toEqual({ says: "stage", text: "Sealer, verdict" });
+    // The pull request stage is no role's session either, and runs after the seal.
+    expect(lineText(runs({ kind: "pull-request", headlessId: null }), finished, false)).toEqual({ says: "stage", text: "Pull request" });
     // A line that waits keeps saying what it waits on while the stage runs.
     expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
     expect(lineText({ ...RUNNING, permissions: [BASH] }, finished, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
@@ -3813,6 +3818,21 @@ describe("the dialog of the records place", () => {
     expect([refused.blocked, refused.files, refused.submit.enabled]).toEqual(["no repository 1", [], false]);
   });
 
+  it("tells an administrator how to make the seal check required, where the workflow is Owlery's, in a plan and in a repository that holds every part, and says that AgenticSeal's hygiene.yml posts no such check", () => {
+    const REQUIRED = "The workflow posts its verdict as the check `Owlery seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `Owlery seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `Owlery seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
+    const HYGIENE = "AgenticSeal's `hygiene.yml` posts no `Owlery seal` check, so GitHub offers none to require. Owlery changes no setting of the repository on GitHub.";
+    expect(recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test").required).toBe(REQUIRED);
+    const owlery = recordsDialog({ ...PROJECT, records: { root: "seal", check: ".github/workflows/owlery-seal.yml", broadGate: "make check" } }, kept(PLAN, "seal/README.md", "seal/config.json", ".github/workflows/owlery-seal.yml"), "", "");
+    expect([owlery.holds.length, owlery.required]).toEqual([3, REQUIRED]);
+    const files = [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }];
+    const hygiene = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, { ...PLAN, files }, "", "");
+    expect([hygiene.holds.length, hygiene.required]).toEqual([3, HYGIENE]);
+    // A plan that writes AgenticSeal's root beside a kept hygiene.yml says the same of that workflow.
+    expect(recordsDialog(PROJECT, { ...PLAN, files: [{ path: "seal/README.md", text: "# x\n" }, { path: "seal/config.json", text: "{}\n" }, { path: ".github/workflows/hygiene.yml", text: null }] }, "pnpm test", "pnpm test").required).toBe(HYGIENE);
+    // Until the daemon answers, where it refused the plan, and where a plan names no workflow, nothing is said of a check.
+    expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required, recordsDialog(PROJECT, { ...PLAN, files: PLAN.files.slice(0, 2) }, "pnpm test", "pnpm test").required]).toEqual(["", "", ""]);
+  });
+
   it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
     const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
     expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
@@ -3842,5 +3862,130 @@ describe("registered", () => {
     expect(registered("/r/docs/", [PROJECT, docs], [PROJECT, docs])).toBe(docs);
     expect(registered("/r/docs/vendor/inner", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
     expect(registered("/r/docs-old", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
+  });
+});
+
+describe("a work item's pull request", () => {
+  const HEAD = "3f2a9c1e5b7d9f01a2c4e6f8091b3d5f7a9c1e3b";
+  const URL = "https://github.com/owner/project/pull/12";
+  const pullRequest = (fields: Partial<PullRequest> = {}): PullRequest => ({ number: 12, url: URL, state: "open", head: HEAD, pushed: HEAD, checks: "none", list: [], listCount: 0, readAt: 1, failure: null, ...fields });
+  const BUILD_FAILED = { name: "build", state: "failed", link: "https://github.com/owner/project/runs/2" } as const;
+  const SEAL_PASSED = { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
+  const with_ = (fields: Partial<PullRequest>): WorkItem => ({ ...LOGIN, pullRequest: pullRequest(fields) });
+  const PENDING = with_({ checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: null }], listCount: 1 });
+  const PASSED = with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, SEAL_PASSED], listCount: 3 });
+  const OPEN = with_({});
+  const MERGED = with_({ state: "merged", checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const CLOSED = with_({ state: "closed" });
+  const SEALED: Chain = { state: "sealed", says: "Pull request #12 is open.", since: 5, stages: [] };
+
+  it("gives the line the state of the pull request's checks where no pane and no chain says more: working while they run, waiting where one failed, finished where they passed or there are none, and finished for a merged and a closed pull request", () => {
+    expect([PENDING, FAILED, PASSED, OPEN, MERGED, CLOSED].map((workItem) => inboxLine(workItem, [], KINDS).state)).toEqual(["working", "waiting", "finished", "finished", "finished", "finished"]);
+    // A finished pane and a sealed chain say no more than the pull request.
+    expect(inboxLine({ ...FAILED, chain: SEALED }, [session(2, { state: "finished" })], KINDS).state).toBe("waiting");
+    const entries = workItemEntries([PENDING, { ...FAILED, id: 2 }, { ...PASSED, id: 3 }], [], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 needs you, 1 working, 1 finished");
+    // The finished pane's time is not the time the check failed, and the daemon reads none, so the line says no age.
+    expect(lineSince({ ...FAILED, chain: SEALED }, session(2, { state: "finished", stateSince: 40 }))).toBeNull();
+    expect(lineSince(LOGIN, session(2, { state: "finished", stateSince: 40 }))).toBe(40);
+    expect(lineSince(FAILED, session(2, { state: "working", stateSince: 50 }))).toBe(50);
+  });
+
+  it("says the result in the line's second row, and names the first failed check", () => {
+    const said = (workItem: WorkItem) => lineText({ ...workItem, commits: [{ hash: "a".repeat(40), subject: "feat: greet", at: 1, added: null, removed: null } as CommitInfo] }, undefined, false);
+    expect([PENDING, FAILED, PASSED, OPEN, MERGED, CLOSED].map((workItem) => said(workItem))).toEqual([
+      { says: "pull-request", text: "Checks running" },
+      { says: "pull-request", text: "Check failed: build" },
+      { says: "pull-request", text: "Checks passed" },
+      { says: "pull-request", text: "Pull request open" },
+      { says: "pull-request", text: "Merged" },
+      { says: "pull-request", text: "Closed" },
+    ]);
+    // The first failed check is named, wherever it stands in the list.
+    expect(said(with_({ checks: "failed", list: [SEAL_PASSED, BUILD_FAILED], listCount: 2 })).text).toBe("Check failed: build");
+    // A search shows the branch, as it does on every line.
+    expect(lineText(FAILED, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
+    // A work item without a pull request says what it said before.
+    expect(lineText({ ...LOGIN, chain: SEALED }, undefined, false)).toEqual({ says: "branch", text: LOGIN.branch });
+  });
+
+  it("lists in the view the pull request's number with its address, its state, the result of its checks, each check with its mark, its state's word and its address, how many more checks there are, and why the last read failed", () => {
+    const passed = { name: "Owlery seal", mark: "finished", words: "Passed", link: SEAL_PASSED.link };
+    expect(pullRequestFacts(PASSED)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks passed", rows: [passed], foot: "", failure: "" });
+    expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "Owlery seal", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
+    // The checks in the order the daemon keeps them, the failed ones first.
+    expect(pullRequestFacts(FAILED)).toMatchObject({ checks: "2 checks failed", rows: [{ name: "build", mark: "failed", words: "Failed", link: BUILD_FAILED.link }, { name: "lint", mark: "failed", words: "Failed", link: null }, passed] });
+    expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, SEAL_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");
+    expect(pullRequestFacts(OPEN)).toMatchObject({ checks: "No checks", rows: [] });
+    expect([MERGED, CLOSED].map((workItem) => pullRequestFacts(workItem)?.state)).toEqual(["Merged", "Closed"]);
+    // GitHub listed more checks than the daemon keeps.
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 4 }))?.foot).toBe("3 more checks");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 2 }))?.foot).toBe("1 more check");
+    // A read that failed keeps the facts of the read before it, and the view says so under the rows.
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1, failure: "gh pr view exited with code 1: HTTP 502" }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view exited with code 1: HTTP 502.");
+    expect(pullRequestFacts(with_({ failure: "gh pr view printed no pull request Owlery reads." }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view printed no pull request Owlery reads.");
+    // A work item without a pull request, and one of a daemon of an earlier build, which sends no such field, list none.
+    expect(pullRequestFacts(LOGIN)).toBeNull();
+    const { pullRequest: _, ...earlier } = LOGIN;
+    expect(pullRequestFacts(earlier as WorkItem)).toBeNull();
+  });
+
+  it("leaves the line to a pane that works or waits, to a running or stopped chain, to a park and to a call that waits for the person", () => {
+    const working = session(2, { state: "working", stateText: "Running the tests" });
+    const waiting = session(2, { state: "waiting", stateText: "May I run the tests?" });
+    expect(inboxLine(PASSED, [working], KINDS).state).toBe("working");
+    expect(lineText(PASSED, working, false)).toEqual({ says: "state", text: "Running the tests" });
+    expect(inboxLine(PASSED, [waiting], KINDS).state).toBe("waiting");
+    const stage: ChainStage = { kind: "pull-request", round: 1, state: "working", failure: null, startedAt: 1, endedAt: null, headlessId: null, refusals: 0, gate: null };
+    const running = { ...FAILED, chain: { state: "running", says: "The pull request stage is running.", since: 1, stages: [stage] } satisfies Chain };
+    expect(inboxLine(running, [], KINDS).state).toBe("working");
+    expect(lineText(running, undefined, false)).toEqual({ says: "stage", text: "Pull request" });
+    const stopped = { ...PASSED, chain: { state: "stopped", says: "The pull request stage failed: gh pr list exited with code 4.", since: 1, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
+    expect(inboxLine(stopped, [], KINDS).state).toBe("waiting");
+    expect(lineText(stopped, undefined, false)).toEqual({ says: "chain", text: "The pull request stage failed: gh pr list exited with code 4." });
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    expect(inboxLine({ ...PASSED, questions: [asked] }, [], KINDS).state).toBe("waiting");
+    expect(lineText({ ...PASSED, questions: [asked] }, undefined, false).says).toBe("question");
+    const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 };
+    expect(lineText({ ...PASSED, permissions: [ask] }, undefined, false).says).toBe("permission");
+  });
+
+  it("notifies of a work item whose pull request makes its line begin to wait or finish, once, and of none that is muted, in front, or whose line a pane or a chain gives", () => {
+    const toldOf = (workItem: WorkItem, body: string) => ({ workItemId: workItem.id, title: workItem.title, body });
+    expect(pullRequestNotifications([PENDING], [FAILED], [], KINDS, undefined)).toEqual([toldOf(FAILED, "Needs you")]);
+    expect(pullRequestNotifications([PENDING], [PASSED], [], KINDS, undefined)).toEqual([toldOf(PASSED, "Finished")]);
+    expect(pullRequestNotifications([PASSED], [MERGED], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([LOGIN], [OPEN], [], KINDS, undefined)).toEqual([toldOf(OPEN, "Finished")]);
+    // Nothing changed, the line begins to work, or the checks fail again.
+    expect(pullRequestNotifications([FAILED], [FAILED], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PASSED], [PENDING], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([FAILED], [{ ...FAILED, pullRequest: { ...pullRequest({ checks: "failed", list: [{ name: "lint", state: "failed", link: null }], listCount: 1 }) } }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [{ ...FAILED, muted: true }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [FAILED], [], KINDS, FAILED.id)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [FAILED], [session(2, { state: "working" })], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [{ ...FAILED, chain: { ...SEALED, state: "running" } }], [], KINDS, undefined)).toEqual([]);
+    // A park, a call that waits and a stopped chain each raise their own notification, and the pull request none.
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 };
+    for (const more of [{ questions: [asked] }, { permissions: [ask] }, { chain: { ...SEALED, state: "stopped" as const, says: "The pull request stage failed: x." } }]) expect(pullRequestNotifications([PENDING], [{ ...FAILED, ...more }], [], KINDS, undefined), Object.keys(more)[0]).toEqual([]);
+  });
+
+  it("takes a merged pull request's decisions off the line's mark, the summary and the filter of the decisions, and the view still lists both", () => {
+    const decision = (id: number, fields: Partial<Decision> = {}): Decision => ({ id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1.", by: null, state: "decided", reversal: null, landed: null, since: 2000, ...fields });
+    const decisions = [decision(1), decision(2, { state: "reversed", reversal: "main에서 시작해 주세요", since: 3000 })];
+    const merged = { ...MERGED, decisions };
+    const open = { ...PASSED, decisions };
+    expect(decisionMark(merged, null)).toBe("");
+    expect(decisionMark(open, null)).toBe("1 decision without asking, 1 reversed");
+    const look: Look = { at: 1000, sessions: [], workItems: [MERGED] };
+    expect(changesSince(look, [merged], [], KINDS)).toEqual([]);
+    expect(changesSince({ ...look, workItems: [PASSED] }, [open], [], KINDS).map((change) => change.decided)).toEqual([2]);
+    const filtered = (workItem: WorkItem) => matchWorkItems(workItemEntries([workItem], [], KINDS), "", "decided").map((entry) => entry.workItem.id);
+    expect(filtered(merged)).toEqual([]);
+    expect(filtered(open)).toEqual([1]);
+    expect(decisionLines(merged, 4000).map((line) => line.id)).toEqual([2, 1]);
+    // A closed pull request takes nothing off.
+    expect(decisionMark({ ...CLOSED, decisions }, null)).toBe("1 decision without asking, 1 reversed");
   });
 });

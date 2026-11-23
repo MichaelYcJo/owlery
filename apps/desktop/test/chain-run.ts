@@ -4,8 +4,10 @@
 // orchestrator answers with and the section a fake sealer answers with. No case starts an agent: every stage runs on
 // the fake adapter. The repository's broad gate is a stand-in command the
 // case names, `true` where it names none, and it runs with the suite's own
-// `PATH`, so no case runs a repository's check or asks a login shell.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// `PATH`, so no case runs a repository's check or asks a login shell. The
+// repository's remote is a bare repository in the case's temporary folder,
+// and `gh` is a stand-in the case writes, so no case reaches GitHub.
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
@@ -114,6 +116,113 @@ export function heldGit(cleanups: Cleanups, base: string, when: string): { relea
   return { release, waiting: () => existsSync(arrived) };
 }
 
+/** What the stand-in for `gh` answers one kind of call with: what it prints on each stream and its exit code, or that it never exits, and with `stubborn` that it also ignores the signal to end. */
+export interface GhAnswer {
+  out?: string;
+  err?: string;
+  exit?: number;
+  hangs?: boolean;
+  stubborn?: boolean;
+}
+
+/** The four calls Owlery makes of `gh`, each a `pr` subcommand. */
+export const GH_CALLS = ["list", "create", "edit", "view"] as const;
+
+/** A stand-in for the person's `gh`, as `ghStandIn` makes one. */
+export interface GhStandIn {
+  /** The command a daemon's `gh` option names. */
+  gh: [string];
+  /** Each call's arguments, in the order the calls came. It throws where a call was none of `pr list`, `pr create`, `pr edit` and `pr view`. */
+  calls: () => string[][];
+  /** The text of the file each call's `--body-file` named, read when the call came, and null for a call that named none. */
+  bodies: () => (string | null)[];
+  /** The values of `GH_PROMPT_DISABLED` and `NO_COLOR` each call ran with, joined by a space. */
+  environments: () => string[];
+  /** Has every later call of the kind answer so. */
+  answer: (call: (typeof GH_CALLS)[number], answer: GhAnswer) => void;
+}
+
+/** The address the stand-in for `gh` gives the pull request it opens or views where the case set no answer. */
+export const PULL_REQUEST_URL = "https://github.com/owner/project/pull/1";
+
+/**
+ * A stand-in for the person's `gh`, in a folder under `base`: a shell script
+ * that notes each call's arguments and the text of the file its
+ * `--body-file` names, and answers from the files `answer` writes. Where the
+ * case set no answer, `pr list` lists no pull request, `pr create` and `pr
+ * edit` print the address `PULL_REQUEST_URL`, and `pr view` answers that
+ * pull request open, with the worktree's head as its head and no check. A
+ * call that is none of the four is answered with exit 97 and noted, and the
+ * case's cleanup then fails: Owlery writes no review and merges nothing.
+ */
+export function ghStandIn(cleanups: Cleanups, base: string): GhStandIn {
+  const folder = join(base, `gh-${String(cleanups.length)}`);
+  mkdirSync(folder);
+  const script = join(folder, "gh");
+  const view = `{"number":1,"url":"${PULL_REQUEST_URL}","state":"OPEN","isDraft":false,"headRefOid":"%s","mergedAt":null,"statusCheckRollup":[]}`;
+  writeFileSync(
+    script,
+    [
+      "#!/bin/sh",
+      `d='${folder}'`,
+      // The watch calls gh for several pull requests at once, so a call takes its number under a lock, and the count names it once its arguments are noted.
+      'until mkdir "$d/lock" 2>/dev/null; do sleep 0.01; done',
+      'n=$(($(cat "$d/count" 2>/dev/null || echo 0) + 1))',
+      'printf \'%s\\n\' "$@" > "$d/call-$n"',
+      'printf \'%s %s\' "$GH_PROMPT_DISABLED" "$NO_COLOR" > "$d/env-$n"',
+      'echo "$n" > "$d/count"',
+      'rmdir "$d/lock"',
+      'prev=""',
+      'for arg in "$@"; do if [ "$prev" = "--body-file" ]; then cat "$arg" > "$d/body-$n"; fi; prev=$arg; done',
+      'case "$1 $2" in "pr list"|"pr create"|"pr edit"|"pr view") ;; *) exit 97 ;; esac',
+      'a="$d/answer-$2"',
+      'if [ -e "$a.stubborn" ]; then trap "" TERM; exec sleep 30; fi',
+      'if [ -e "$a.hangs" ]; then exec sleep 30; fi',
+      'if [ -e "$a.err" ]; then cat "$a.err" >&2; fi',
+      'if [ -e "$a.out" ]; then cat "$a.out"',
+      'elif [ "$2" = list ]; then echo "[]"',
+      `elif [ "$2" = view ]; then printf '${view}\\n' "$(git rev-parse HEAD)"`,
+      `else echo '${PULL_REQUEST_URL}'`,
+      "fi",
+      'exit "$(cat "$a.exit" 2>/dev/null || echo 0)"',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  const count = (): number => (existsSync(join(folder, "count")) ? Number(readFileSync(join(folder, "count"), "utf8").trim()) : 0);
+  const noted = (): string[][] => Array.from({ length: count() }, (_, index) => readFileSync(join(folder, `call-${String(index + 1)}`), "utf8").replace(/\n$/u, "").split("\n"));
+  const calls = (): string[][] => {
+    const all = noted();
+    const other = all.find(([pr, call]) => pr !== "pr" || !(GH_CALLS as readonly string[]).includes(call ?? ""));
+    if (other !== undefined) throw new Error(`gh was called with ${other.join(" ")}, which is none of pr list, pr create, pr edit and pr view`);
+    return all;
+  };
+  cleanups.push(() => void calls());
+  return {
+    gh: [script],
+    calls,
+    environments: () => Array.from({ length: count() }, (_, index) => readFileSync(join(folder, `env-${String(index + 1)}`), "utf8")),
+    bodies: () => Array.from({ length: count() }, (_, index) => (existsSync(join(folder, `body-${String(index + 1)}`)) ? readFileSync(join(folder, `body-${String(index + 1)}`), "utf8") : null)),
+    answer: (call, answer) => {
+      const at = join(folder, `answer-${call}`);
+      for (const end of ["out", "err", "exit", "hangs", "stubborn"]) rmSync(`${at}.${end}`, { force: true });
+      if (answer.out !== undefined) writeFileSync(`${at}.out`, answer.out);
+      if (answer.err !== undefined) writeFileSync(`${at}.err`, answer.err);
+      if (answer.exit !== undefined) writeFileSync(`${at}.exit`, String(answer.exit));
+      if (answer.hangs === true) writeFileSync(`${at}.hangs`, "");
+      if (answer.stubborn === true) writeFileSync(`${at}.stubborn`, "");
+    },
+  };
+}
+
+/** Makes a bare repository in the folder `base` and adds it to the repository as the remote of the name given, `origin` where none is. Gives the bare repository's folder. */
+export function bareRemote(base: string, repo: string, name = "origin"): string {
+  const bare = join(base, `${name}.git`);
+  git(base, "init", "--quiet", "--bare", bare);
+  git(repo, "remote", "add", name, bare);
+  return bare;
+}
+
 /** Writes a file in a folder, with the folders above it. */
 export function write(folder: string, path: string, text: string): void {
   mkdirSync(dirname(join(folder, path)), { recursive: true });
@@ -152,7 +261,10 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * starts, so no pane is started for them. With `root: false` the repository
  * holds no records root. `gate` is the broad gate command its `config.json`
  * names, `true` where none is given, and null for a `config.json` with no
- * such key.
+ * such key. Once the work items stand, the repository gets a bare
+ * repository as its remote `origin`, and the daemon is given a stand-in for
+ * `gh` (`ghStandIn`), so a chain that ends sealed pushes there and opens its
+ * pull request at the stand-in.
  */
 export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null } = {}) {
   const made = temporaryRepository();
@@ -173,6 +285,8 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
     workItems.push({ id: index + 1, title, createdAt: 1, ...place });
   }
   writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));
+  const remote = bareRemote(made.base, made.repo);
+  const gh = ghStandIn(cleanups, made.base);
   const start = async (more: Partial<DaemonOptions> = {}) => {
     const d = new Daemon({
       token: TOKEN,
@@ -184,6 +298,7 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
       now: () => NOW,
       gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
       version: VERSION,
+      gh: gh.gh,
       ...daemonOptions,
       ...more,
     });
@@ -194,7 +309,7 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
   const { d, url } = await start();
   const c = await client(url, cleanups);
   await c.message("ready");
-  return { made, runDir, d, url, c, workItems, start };
+  return { made, runDir, d, url, c, workItems, start, remote, gh };
 }
 
 // ---------------------------------------------------------------------------

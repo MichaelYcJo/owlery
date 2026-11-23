@@ -17,6 +17,11 @@
 // whether the gate holds at the branch's head. Where it holds the chain owes
 // the seal, a sealer's session on the gate's commit (`Daemon#runSeal`), until
 // the newest verdict block of the work item's guarantee seals that commit.
+// A sealed chain then owes the pull request stage where the work item's
+// routing sends it to a pull request and the pull request the daemon stores
+// does not carry the branch's head (`pullRequestOwed`): no step of the order,
+// since what GitHub holds is no record. `Daemon#runPullRequest` runs it, and
+// commits nothing, so the seal it carries stands.
 //
 // The order is code and two things are the orchestrator agent's: whether the
 // rounds are converging, asked before a fix pass on the record of round 2 or
@@ -24,7 +29,7 @@
 // from the code and the policy, or whether it parks the work item. A sealer's
 // `undecided` verdict is such a question.
 import { join, relative } from "node:path";
-import type { Chain, ChainStage, ChainStageKind, GateRun, RoleStage } from "../shared/protocol";
+import type { Chain, ChainStage, ChainStageKind, GateRun, PullRequest, RoleStage } from "../shared/protocol";
 import { CHAIN_STAGE_KINDS } from "../shared/protocol";
 import type { PermissionAction } from "./adapters/adapter";
 import { RECORD_FILE, readDecisionRecord } from "./decision-record";
@@ -90,10 +95,11 @@ export class ChainStop extends Error {}
 /** A stage that failed: its message is the chain's whole sentence, which names the stage and says why. */
 export class StageStopped extends Error {}
 
-/** What a stage is called in a sentence. The broad gate and the seal are named without their round: a chain runs each after its rounds. */
+/** What a stage is called in a sentence. The broad gate, the seal and the pull request stage are named without their round: a chain runs each after its rounds. */
 export function stageName(kind: ChainStageKind, round: number): string {
   if (kind === "gate") return "The broad gate";
   if (kind === "seal") return "The sealer's session";
+  if (kind === "pull-request") return "The pull request stage";
   if (kind === "round") return `Review round ${String(round)}`;
   if (kind === "fix-pass") return `The fix pass of round ${String(round)}`;
   if (kind === "ruling") return `The ruling after round ${String(round)}`;
@@ -119,6 +125,34 @@ export const PARKED_SAYS = "The chain waits for the answers to the work item's o
 /** The sentence of a chain that rests sealed: the commit the sealer sealed, which the broad gate passed on, and the last round. */
 export function sealedSays(round: number, commit: string): string {
   return `The sealer sealed ${commit.slice(0, 7)}, after round ${String(round)}.`;
+}
+
+/** The sentence of a chain that rests sealed after the pull request stage opened its pull request. */
+export function pullRequestOpenSays(number: number): string {
+  return `Pull request #${String(number)} is open.`;
+}
+
+/** The sentence of a chain that rests sealed after the pull request stage gave an open pull request the seal of the commit given. */
+export function pullRequestCarriesSays(number: number, commit: string): string {
+  return `Pull request #${String(number)} carries the seal at ${commit.slice(0, 7)}.`;
+}
+
+/** The `Destination` answer of a `routing.md` that sends the work to a pull request, as `pr-check/lib/routing.py#OPEN_PR` spells it. */
+export const OPEN_PULL_REQUEST = "open the pull request";
+
+/**
+ * Whether a sealed chain owes the pull request stage: the work item's
+ * `routing.md` at the branch's head answers `Destination` with
+ * `OPEN_PULL_REQUEST`, and the pull request the daemon stores for the work
+ * item is none, is `closed`, or is `open` and was last pushed at a commit
+ * that is not the branch's head. A `merged` one owes nothing. It reads no
+ * record but the answer given, and what GitHub holds is the stored pull
+ * request's: `stepOwed` stays a function of the records and git.
+ */
+export function pullRequestOwed(destination: string | null, stored: PullRequest | null, head: string): boolean {
+  if (destination !== OPEN_PULL_REQUEST) return false;
+  if (stored === null || stored.state === "closed") return true;
+  return stored.state === "open" && stored.pushed !== head;
 }
 
 /** The sentence of a chain a sealer's `withheld` verdict stopped: the verdict's reason, as the sealer wrote it, ended with one full stop. */
@@ -426,7 +460,7 @@ export function routingText(workItem: string, branch: string, date: string): str
     "| Axis | Answer |",
     "|---|---|",
     "| Review | through the review chain |",
-    "| Destination | open the pull request |",
+    `| Destination | ${OPEN_PULL_REQUEST} |`,
     "| Planning | the session |",
     "| Implementation | the session |",
     `| Branch | ${branch} |`,

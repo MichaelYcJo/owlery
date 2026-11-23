@@ -7,9 +7,8 @@ An item is a line `- <kind>`, then one field per line indented two spaces,
 fields into values. The no-change block, `- nothing` with its one optional
 field `why`, is the item a section that holds nothing writes alone:
 `nothing_block` reads it, and `unread_block` names a first line that opens
-like it and is not it. `lib/gaps.py` reads a closing memo's
-`## Not verified` with them, and `skills/settle/scripts/rule_changes.py` a
-design's `## Rule changes`.
+like it and is not it. `skills/settle/scripts/rule_changes.py` reads a
+design's `## Rule changes` with them.
 
 Standard library only, and Python 3.9 syntax, as every module under `lib/`.
 """

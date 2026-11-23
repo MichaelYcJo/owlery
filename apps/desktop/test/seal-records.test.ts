@@ -60,12 +60,12 @@ describe("the text of a gate record", () => {
 });
 
 describe("the reader of a gate record", () => {
-  it("gives each run in the file's order, the newest last, with its commit, its base and the line of its block", () => {
+  it("gives each run in the file's order, the newest last, with its commit, its base and the lines of its block's opener and closer", () => {
     const text = gateText(gateText(null, "1-x", { head: HEAD, base: BASE }), "1-x", { head: LATER, base: BASE });
     expect(readGate(text)).toEqual({
       runs: [
-        { commit: HEAD, base: BASE, line: 3 },
-        { commit: LATER, base: BASE, line: 7 },
+        { commit: HEAD, base: BASE, line: 3, end: 5 },
+        { commit: LATER, base: BASE, line: 7, end: 9 },
       ],
       refusals: [],
       notices: [],

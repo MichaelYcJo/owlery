@@ -27,9 +27,9 @@ and commits it.
    worktree, at the commit your prompt's target line names, and your prompt
    carries the paths the reviewed commits changed and their diff.
 3. Read the work item's directory your prompt names: `routing.md`,
-   `frame/design.md`, `frame/plan.md`, `frame/questions.md`, `gaps.md`,
-   `changelog.md`, `pr.md` and, where one stands, `pr.<lang>.md`, each whole
-   at the target, then
+   `frame/design.md`, `frame/plan.md`, `frame/questions.md`, `gaps.md` and
+   `changelog.md`, and, where one stands, `pr.md` and `pr.<lang>.md`, each
+   whole at the target, then
    `trail/phases/`, and every earlier `trail/rounds/round-*.md` for its
    coordinates. Where your prompt names `decisions.md`, read it whole and
    hold to each decision and each answer it records.

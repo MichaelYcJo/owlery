@@ -4,7 +4,8 @@
 // answers there, and the decisions made for it without asking among it,
 // above the "Ask" section, where the calls its headless sessions ask the
 // person to allow are answered, and the seal's place with "Get a seal",
-// which starts the work item's chain. The pool of terminal screens the window holds lives here, and so
+// which starts the work item's chain, with the work item's pull request
+// under it. The pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -40,6 +41,7 @@ import {
   type PaneMenuAct,
   paneTabs,
   pathCandidates,
+  pullRequestFacts,
   pathTarget,
   recentKept,
   refusedSeal,
@@ -94,6 +96,8 @@ let questionsDrawn: string | undefined;
 let askDrawn: string | undefined;
 // The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
 let answersRequest: number | undefined;
+// The address of the pull request the view shows, which a press of its row opens.
+let pullRequestUrl: string | undefined;
 // The request a press of "Get a seal" is waiting on, with its work item: the button stays off until the daemon answers.
 let sealRequest: { requestId: number; workItemId: number } | undefined;
 // What the window last read of a broad gate's output (./view, `GateOutput`), which stands under the line of the run it was read of.
@@ -150,6 +154,8 @@ const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
 const getSeal = byId<HTMLButtonElement>("get-seal");
 const sealSays = byId("seal-says");
 const sealRefusal = byId("seal-refusal");
+const pullRequestSection = byId("view-pull-request");
+const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
@@ -902,6 +908,47 @@ function showSeal(workItem: WorkItem): void {
   sealRefusal.textContent = button.refusal;
 }
 
+/**
+ * Draws the view's work item's pull request under the seal's place (./view,
+ * `pullRequestFacts`), or hides the section where it has none: its number
+ * and its state on a row that opens it, the result of its checks, a row for
+ * each check, which opens the check where GitHub gave it an address, how
+ * many more checks GitHub listed, and why the last read failed. Each address
+ * goes to the main process, which opens an `http` or `https` one alone, and
+ * none in an app started in the background.
+ */
+function showPullRequest(workItem: WorkItem): void {
+  const facts = pullRequestFacts(workItem);
+  pullRequestSection.hidden = facts === null;
+  pullRequestUrl = facts?.url;
+  if (facts === null) {
+    pullRequestList.replaceChildren();
+    return;
+  }
+  byId("pull-request-number").textContent = facts.head;
+  byId("pull-request-state").textContent = facts.state;
+  byId("pull-request-open").title = `Open ${facts.head} on GitHub`;
+  byId("pull-request-checks").textContent = facts.checks;
+  pullRequestList.replaceChildren(
+    ...facts.rows.map(({ name, mark, words, link }) => {
+      const item = document.createElement("li");
+      const check = document.createElement(link === null ? "div" : "button");
+      check.className = "row check";
+      // A check's name is plain text, never markup.
+      check.append(headlessIcon(mark, words), part("name", name), part(`words state ${mark}`, words));
+      if (link !== null) {
+        (check as HTMLButtonElement).type = "button";
+        check.title = `Open the check ${name} on GitHub`;
+        check.addEventListener("click", () => void window.owlery.openLink(link));
+      }
+      item.append(check);
+      return item;
+    }),
+  );
+  byId("pull-request-more").textContent = facts.foot;
+  byId("pull-request-failure").textContent = facts.failure;
+}
+
 /** Asks the daemon to start the chain of the work item whose view is on screen, as a press of "Get a seal" does. The daemon answers `done` once the chain has started, and the `inbox` that follows carries it. */
 function askSeal(): void {
   const workItem = viewed();
@@ -1026,6 +1073,7 @@ export function showView(): void {
   );
   showQuestions(workItem);
   showSeal(workItem);
+  showPullRequest(workItem);
   viewDetail.replaceChildren(...detail(entry, 0, { reverse: (decisionId) => reverseDecision(workItem.id, decisionId), runSetup: (command) => runSetup(workItem.id, command) }));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
@@ -1177,6 +1225,9 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   );
   byId("view-seal-place").replaceWith(sealPlace("view"));
   getSeal.addEventListener("click", askSeal);
+  byId("pull-request-open").addEventListener("click", () => {
+    if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
+  });
   askField.addEventListener("input", () => {
     const workItem = viewed();
     if (workItem) showAsk(workItem);

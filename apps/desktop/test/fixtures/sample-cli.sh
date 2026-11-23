@@ -9,7 +9,11 @@
 # work item the run parks are answered, so that chain passes its broad gate
 # and parks: its review round with a record that holds no finding, its seal
 # with a run's section whose verdict asks a question, and the ruling on that
-# question with a park. Every other review round's prompt is held, with
+# question with a park. So are the stages of the chain of the finished work
+# item, which passes its broad gate and is sealed, so the daemon opens its
+# pull request through the stand-in for `gh` (sample-gh/gh): its review
+# round with a record that holds no finding, and its seal with a run's
+# section whose verdict is `sealed`. Every other review round's prompt is held, with
 # nothing printed, so the round of a chain the run starts stays at work and
 # the screenshots show a stage that runs. Every other prompt fails at once,
 # so the view's screenshot shows a prompt that failed.
@@ -46,12 +50,17 @@ case "$prompt" in
     printf '%s\n' '{"type":"result","result":"```seal\nrules: 1 park\ngrounds: No document names the base of a hotfix, and the choice decides which release ships it.\n```\n","is_error":false}'
     exit 0
     ;;
+  *'of the sealer on the work item'*'add-an-export-of-the-history'*)
+    session sealer
+    printf '{"type":"result","result":"%s\\n\\n### Claims checked by reading\\n\\n| Claim | Source | Read at | Result |\\n|---|---|---|---|\\n| Round 1 left no finding | `trail/rounds/round-1.md` | `export.ts` | holds |\\n\\n### The parties\\n\\n| Party | Says | Agrees with | Disagrees with |\\n|---|---|---|---|\\n| the build | The branch adds the export of the history | round 1 | none |\\n\\n```seal\\n%s\\nVerdict: sealed\\n```\\n","is_error":false}\n' "$(given 'Your section.s heading')" "$(given 'Your verdict.s target line')"
+    exit 0
+    ;;
   *'of the sealer on the work item'*)
     session sealer
     printf '{"type":"result","result":"%s\\n\\n### Claims checked by reading\\n\\n| Claim | Source | Read at | Result |\\n|---|---|---|---|\\n| Round 1 left no finding | `trail/rounds/round-1.md` | `hotfix.ts` | holds |\\n\\n### The parties\\n\\n| Party | Says | Agrees with | Disagrees with |\\n|---|---|---|---|\\n| the build | The branch adds the hotfix | round 1 | none |\\n\\n```seal\\n%s\\nVerdict: undecided question: Which base does the hotfix merge into?\\n```\\n","is_error":false}\n' "$(given 'Your section.s heading')" "$(given 'Your verdict.s target line')"
     exit 0
     ;;
-  *'Review round '*'choose-the-base-of-the-hotfix'*)
+  *'Review round '*'choose-the-base-of-the-hotfix'*|*'Review round '*'add-an-export-of-the-history'*)
     session proofer
     printf '{"type":"result","result":"%s\\n\\n```seal\\n%s\\n```\\n\\n## Findings\\n","is_error":false}\n' "$(given 'Your record.s heading')" "$(given 'Your record.s target line')"
     exit 0

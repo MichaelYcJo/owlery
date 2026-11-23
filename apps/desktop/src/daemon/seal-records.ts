@@ -35,11 +35,12 @@ export interface RefusedLine {
   why: string;
 }
 
-/** One passed run of the broad gate: the commit it ran on, the base's commit, and the 1-based line of its block's opener. */
+/** One passed run of the broad gate: the commit it ran on, the base's commit, and the 1-based lines of its block's opener and closer. */
 export interface Run {
   commit: string;
   base: string;
   line: number;
+  end: number;
 }
 
 /** What a gate record holds: its runs in the file's order, the newest last, and each line the reader refuses. Nothing is decided on a notice. */
@@ -92,7 +93,7 @@ export function readGate(text: string): GateRecord {
   return {
     runs: got.blocks.map((block) => {
       const run = field(block, "run:");
-      return { commit: run?.groups.commit ?? "", base: run?.groups.base ?? "", line: block.line };
+      return { commit: run?.groups.commit ?? "", base: run?.groups.base ?? "", line: block.line, end: block.end };
     }),
     refusals: got.refusals.map(({ line, why }) => ({ line, why })),
     notices: got.notices,
