@@ -1,0 +1,342 @@
+# Design: 1795393338-broad-gate-and-sealer
+
+Issue #42: nothing runs the broad gate on the head commit or asks a sealer for a verdict.
+
+This frame keeps three words of `seal/threads/1795388700-review-rounds/frame/design.md` in the sense that frame gives them: the **chain**, a **stage** and the **step owed**. It adds five, each used in one sense. The **gate** is the stage in which the daemon runs the repository's broad gate command. The **gate's commit** is the commit that the newest run block of `trail/gate.md` names. The **closing records** are the files of the work item's directory that *Data & interfaces* lists under that name. The gate **holds at the head** where no path but a closing record differs between the gate's commit and the branch's head. A **seal** is a verdict block of `guarantee.md` that reads `sealed`.
+
+## Grounding
+
+The tree as read at `14ee70e`. Each row is labelled `read` where a file was opened and `executed` where a command gave the fact. #41's frame and code are read at `09aa902`, the head of `origin/feat/41-the-daemon-cannot-run-review-rounds`, where that work item's phase 1 is built and its phase 2 is not committed.
+
+| Policy clause | What it fixes for this work |
+|---|---|
+| `docs/product.md` *The seal* (read) | The sealer works after the rounds end and the broad gate passes, and binds its verdict to one commit. The seal is shown as tree, base, item, gate and rounds |
+| `docs/product.md` *The seal belongs to the product and looks the same everywhere* (read) | The seal record is a file of the person's repository. It says which commit was judged against which base, whether the gate passed on that commit, the count of rounds, the verdict, and who judged: the model and the version of the rules. It names the session that built the work and the session that judged it, and where the two are the same it is no seal. The judging session starts fresh and reads only files |
+| `docs/product.md` *File explorer and editor*, the item on edits made outside the app (read) | A test a person ran is no gate. The seal rests on the daemon's own run of the repository's command on that commit |
+| `docs/product.md` *What we promise* and `docs/architecture.md` *Code runs the order, the orchestrator judges* (read) | The order of the stages is daemon code. A question that arises in the run is first decided from the code and the policy and recorded as a decision made without asking. Only what they cannot answer and the session cannot give itself parks the one work item |
+| `docs/architecture.md` *What we take from AgenticSeal*, the rows of the invariants, of the record formats and of the scripts (read) | No seal without a broad gate at HEAD, held by the daemon's code and by the pull request check. The record formats are Owlery's, and they gain the party that built and the model and the version of the rules that judged. The daemon runs no Python and reads and writes the records in its own code |
+| `docs/architecture.md` *What changes because Owlery is not a plugin*, the row "Each party judges only its own subject", with the `change` that `seal/threads/1795338000-role-tools-and-permissions/frame/design.md` *Rule changes* states for it (read) | A sealer holds no tool that writes a file, and the daemon refuses each command of a sealer that asks for permission |
+| `docs/architecture.md` *Records are committed to the repository* and *State lives in three places* (read) | The gate's result and the verdict are committed in the work item's worktree. The broad gate command is the `Broad gate` key of the root's `config.json`. Progress, output and the ledger are the daemon's state |
+| `docs/architecture.md` *What a session survives*, the sentence "The id stays in the daemon", and *Rules that keep it portable* (read) | No message of this work carries a session's id, and no field names a vendor. The fake adapter runs every flow the Claude adapter runs |
+| `docs/architecture.md` *Memory design*, the row on the processes of finished stages (read) | The gate's process and the sealer's process are ended before the next stage starts |
+| `docs/design.md` *Components and their states*, *The voice of the window's words* and *A pull request that changes the window carries its screenshots* (read) | The forms the window's new parts take, their words, and the screenshots a change of the window owes |
+| `docs/roadmap.md` *Milestones* row 2 and *Releases and the tracker* (read) | This work is part of milestone 2 and merges into `release/v0.0.2` by squash. A work item that makes a bullet of an earlier changelog fragment of the release untrue rewrites that bullet |
+
+The unsettled designs' `## Rule changes` name none of the sections this work adds to. Executed: an `awk` over every `seal/threads/*/frame/design.md` at `14ee70e` printed each operation's `section:` line, and none reads *Code runs the order, the orchestrator judges* or *Records are committed to the repository*. One names *A pull request that changes the window carries its screenshots*, in `seal/threads/1795343000-background-window-unseen/frame/design.md`, and this work adds a paragraph of its own to that section. `docs/README.md` does not stand (executed: `ls docs/README.md`), so each `file:` below is a document of `docs/` read at this commit, and each has a `.ko.md` edition that carries the same operation. `seal/follow-up.md` does not stand (executed: `ls seal/follow-up.md`). No release holds a process change. Executed: `gh release view --json tagName,body` gave `v0.0.1` with no `Process changes` heading, and `grep -l 'Process changes' seal/threads/*/changelog.md` named no file.
+
+What earlier work items decided, which this frame does not argue again:
+
+| Record | What it fixes for this work |
+|---|---|
+| `seal/threads/1795388700-review-rounds/frame/design.md` *Scope* items 4, 6, 7, 11, 13, 14, 15, 17, 18, 20 and 25, and *Out of scope*, the item on the broad gate (read at `09aa902`) | The step owed is a function of the records and git. A stage's answer is its record, which the daemon reads, writes through `record-writer.ts` and commits with `commitPaths`. A stage's question goes to the orchestrator at `judgment`, whose ruling the daemon records with `Daemon#decided` or `Daemon#park`. A stage that fails stops its one chain. This work adds its kinds to `CHAIN_STAGE_KINDS` and its rows below the verifying round, and replaces the resting state `reviewed` |
+| `seal/threads/1795388700-review-rounds/frame/plan.md` *Alternatives considered* (read at `09aa902`) | A stage works in the work item's worktree, and its prompt carries the diff. The daemon stores no position. A stage's question is a `seal` block of its answer |
+| `seal/threads/1795338000-role-tools-and-permissions/frame/design.md` *Scope* items 1, 17 and 18 (read) | A sealer's grant is a proofer's: `role-grants.ts#GRANTS` gives it `writes: "nowhere"` and `runs: false`. One real proofer session showed a refused command, by a script the suite never runs. This work decides how a guarantee reaches the tree |
+| `seal/threads/1795329620-role-bundle/frame/design.md` *Scope* item 14 (read) | This work rewrites the sealer's texts of the role bundle |
+| `seal/threads/1795338001-records-place-and-pr-check/frame/design.md` *Scope* items 21, 22 and 25 (read) | The gate and the sealer write decision blocks and question blocks through `Daemon#decided` and `Daemon#park`. Whether a seal is given while a decision stands `reversed` is this work's to decide. This work rewords what the taken check prints for its stages |
+| `seal/threads/1795330500-no-question-holds-the-run/frame/design.md` *Scope*, the lines that name #42 (read) | A sealer's `undecided` verdict is a question a stage ends with. It is first decided from the code and the policy, and parks the work item only where they cannot answer it |
+| `seal/threads/1795341001-cost-per-stage/frame/design.md` *Scope* items 7 and 9 (read at `5233abf`) | `LedgerStage` names the gate, and this work calls `Ledger#add` for it. The sealer's session gets its entry with no call of this work |
+| `seal/threads/1795342001-progress-through-roles/frame/design.md` *Scope* items 2, 3 and 5, and `apps/desktop/src/daemon/chain-records.ts` (read at `64d859a`) | The daemon already reads the newest run block and the newest verdict block for the window, through `lastRun` and `lastVerdict`. The window's table gives each kind of stage its place, and does not compile with a kind that has no row |
+
+What the tree holds, at `14ee70e`:
+
+- **Nothing runs a gate or a sealer.** Read: `apps/desktop/src/daemon/records-place.ts#readRecordsPlace`, line 153, reads the `Broad gate` key for the window to show, and no code spawns the command. `protocol.ts#ROLE_STAGES` lists a sealer at `seal`, and only a client's `ask` launches one.
+- **The daemon reads the two kinds of block and writes neither.** Read: `record-blocks.ts` holds `VERDICT_BLOCK` and `RUN_BLOCK`, each spelt as `pr-check/lib/fields.py` spells it, and `assemble`. `test/record-blocks.test.ts` hands one set of fixtures to both readers.
+- **A command of the repository already runs in a pane, for a worktree's setup.** Read: `worktree-setup.ts` and `daemon.ts#startSetup` run `.worktreesetup` through `hooks.ts#setupPaneCommand`, the person's interactive login shell in a pseudo-terminal. `frame/plan.md` *Alternatives considered* weighs the gate against it.
+- **The daemon exits once it holds no client, no live pane and no working headless session.** Read: `daemon.ts#checkIdle`, line 1838. So what a failed gate printed is gone with the daemon unless it is written to a file.
+- **A role session's own id and its model reach the daemon in no event.** Read: `adapters/adapter.ts#RoleEvent` holds `text`, `result`, `exit`, `permission` and `permission-withdrawn`. Line 1 of `test/fixtures/claude-role-stream.jsonl`, the `init` line, carries `session_id` and `model`. Executed: `git grep -n -e 'session_id' 14ee70e -- apps/desktop/src` printed nothing.
+- **The daemon keeps no id of a pane's conversation.** Read: `daemon.ts#agentEvent` takes a hook's `tool_name` and its text and drops the rest. Issue #61, in release 0.0.4, keeps each terminal session's id with its work item (executed: `gh issue view 61`).
+- **The bundle's sealer still describes AgenticSeal's run.** Read: `apps/desktop/role-bundle/agents/sealer.md` has the sealer re-run a sample of claims, run `seal pr-body --check`, clone the repository and write `guarantee.md`. Executed: `git grep -n -e 'seal gate' -e 'seal pr-body' -e 'broad_gate' -e 'chain_check' -e 'Claims re-run' -e 'lib/fields.py' 14ee70e -- apps/desktop/role-bundle/agents/sealer.md apps/desktop/role-bundle/docs/forms/the-guarantee.md apps/desktop/role-bundle/templates/records/sdd-guarantee.md` printed `sealer.md` lines 6, 28, 39, 40, 55, 64 and 109, `the-guarantee.md` lines 18, 22, 26, 40, 54, 56 and 58, and `sdd-guarantee.md` line 3. *Scope* item 23 rewrites each of those files, and `## Removes` names what goes.
+- **No work item holds an issue.** Read: `protocol.ts#WorkItem` has no field for one. Picking an issue is milestone 3's (`docs/roadmap.md` *Milestones* row 3).
+- **This repository's own pull requests are checked by AgenticSeal's check, not by `pr-check/`.** Read: `.github/workflows/hygiene.yml` clones the plugin and runs its `chain_check.py`. A change to `pr-check/` changes what a connected repository's check reads, and nothing of the check on this repository's own pull requests.
+
+What the probe gave. It ran `pr-check/` of a `git clone --no-local` of this worktree at `14ee70e` against a repository made under the framer's scratch directory, under a payload that says the pull request is ready and holds no body. No real `claude` ran, and no check of this repository ran. Executed: `sh test_tmp_seal_records.sh`.
+
+- **With the rounds alone the check owes the gate's record and the guarantee.** It exited 1 and named `trail/gate.md` and `guarantee.md`, each as a file git does not carry.
+- **The record set this frame has the daemon write passes.** The branch held a run block that names the head `H` in a commit of its own, then a guarantee whose `target:` names `H` in the next commit. The check exited 0.
+- **The check's grammar refuses the lines this frame adds.** A verdict block that also held `built-by:`, `judged-by:`, `model:` and `rules:` was refused at its first new line: "`built-by: the session` is no field of a verdict block". So `pr-check/lib/fields.py` changes with `record-blocks.ts` (*Scope* item 18).
+- **The check refuses `trail/refusals.md` in the commit that carries the guarantee.** It exited 1: "the guarantee is behind HEAD: commit a958e088 after it touches `seal/threads/1-x/trail/refusals.md`, outside the closing records". So the closing records gain that file (*Scope* item 19).
+- **A decision committed after the gate's run breaks a guarantee whose target is the gate's commit, and not one whose target is the later head.** With `decisions.md` committed after the run, a `target:` of `H` exited 1 on `decisions.md`, and a `target:` of the commit that holds the decision exited 0. *Scope* item 2 has the gate run again in that case, and `frame/plan.md` *Alternatives considered* holds why.
+- **A `withheld` verdict fails a ready pull request.** It exited 1 at the `Verdict:` line.
+
+- **The reader the check uses parses this design's `## Rule changes`.** Executed: `python3 -B test_tmp_rule_changes.py`, which loads `pr-check/skills/settle/scripts/rule_changes.py` of the clone and calls `parse` on this file. It returned every operation of the section, no error and nothing unread. Each `section:` stands once as a heading of the file its operation names, and each `to` holds one check line.
+
+Two more searches this frame's cells state, each run at `14ee70e` (executed):
+
+- `git grep -n -e '"reviewed"' -e 'reviewedAt' 14ee70e -- apps/desktop/src` printed nothing, exit 1, and so did the same search over `apps/desktop/test`. #41's phase 2 adds both names, and this work removes them (`## Removes`).
+- `git grep -n -e 'session_id' 14ee70e -- apps/desktop/src ':!apps/desktop/src/daemon/adapters/claude.ts'` printed nothing, exit 1. The search can fail: a build that reads the vendor's field in the daemon or names it in the protocol prints that line.
+
+The ticket as handed over. The issue was read whole with `gh issue view 42 --json title,body,comments` on 2026-11-23 (executed). Its body is not folded. Its comments are the owner's, both of 2026-11-22. The first carries from #119 that this issue's stages are the callers of `Daemon#park` and `Daemon#decided`. The second corrects the first: a stage's question is first decided from the code and the policy and recorded with `Daemon#decided`, only what they cannot answer and the session cannot give itself parks the work item, and Owlery posts no question on a GitHub issue. *Scope* item 15 takes both in.
+
+Not shown by anything in this frame: a real sealer's session, and a real gate of a repository's own. The owner's rule of this run starts no real `claude`. `frame/questions.md` Q2 and Q3 name what the first real chain measures.
+
+## Scope
+
+### The order
+
+1. **The order's function gains the gate and the seal, and the resting state `reviewed` goes.** The rows below follow the row of the verifying round in the table of `seal/threads/1795388700-review-rounds/frame/design.md` *Scope* item 4, and they replace that table's last row. The first row that holds decides, as there.
+
+   | What the records and git say | The step owed |
+   |---|---|
+   | The gate does not hold at the head: `trail/gate.md` holds no run block, or a path that is no closing record differs between the gate's commit and the branch's head | The gate, on the branch's head |
+   | `guarantee.md` holds no verdict block, or its newest verdict block is no seal whose `target:` names the gate's commit | The seal, on the gate's commit |
+   | None of the above | The chain is `sealed` |
+
+   The rows above them are #41's. So a change outside the work item's directory owes a verifying round before a gate, and a decision that stands `reversed` owes its fix pass before a gate. No seal is given while a decision stands `reversed`.
+2. **Whether the gate holds is read from two trees, not from a walk of commits.** The daemon lists the paths that differ between the gate's commit and the branch's head, with `git diff --name-only`. The gate holds where each listed path is a closing record. So a merge commit, a decision's commit and an answer's commit after the gate's commit each owe the gate again.
+3. **A record the daemon cannot read stops the chain.** Where the reader refuses a line of `trail/gate.md` or of `guarantee.md`, the daemon appends nothing to that file and starts no stage that reads it. The chain stops with a sentence that names the file and the line.
+
+### The gate
+
+4. **The gate's command is the `Broad gate` key of the records root's `config.json` in the work item's worktree.** The daemon reads it with `records-place.ts#readRecordsPlace` when the gate starts, after the check of item 5, so the text it reads is the text the head commit holds. A `getSeal` is refused, among the refusals of #41's *Scope* item 1, where that key holds no command, so no round is spent on a branch that no gate can pass. A gate that finds no command stops the chain.
+5. **The gate runs on a clean worktree at the branch's head.** Before the run the daemon reads the head and holds the worktree to the rule of #41's *Scope* item 6: no tracked file with a change no commit holds, and no untracked file, outside the work item's directory. After the run it reads both again. Where the head moved, or such a change stands, no record is written, and the chain stops with a sentence that names the path or the two commits.
+6. **The daemon runs the command with no terminal, as a check on another machine runs it.** The command is passed whole to `/bin/sh -c`, in the worktree, as the leader of a process group of its own. Its input is closed, and its two output streams are pipes. Its environment is a pane's (`pty.ts#terminalEnv`) without `TERM` and `COLORTERM`, and with the `PATH` that the person's interactive login shell prints, asked of that shell once in the daemon's life, as `adapters/claude.ts#lookupCommand` asks it. No stage of the work item starts before the command's process has exited.
+7. **A run that exits with 0 is recorded and committed.** The daemon appends one run block, `run: <head> against <base commit>`, to `trail/gate.md` of the work item's directory, below what stands there, through `record-writer.ts`. `<base commit>` is the work item's `baseCommit`. It commits the file with the subject *Data & interfaces* gives and the trailer `Seal-Routing: <directory's name>`.
+8. **Any other end stops the chain and commits nothing.** The other ends are an exit with another code, a signal, the gate's time limit, a client's `stopGate`, and an archive, a delete or a removal of the work item. The stage is `failed`, and its sentence says the exit code or what ended the run. The work item's line then waits, with that sentence in its second row, by #41's *Scope* item 27. A later `getSeal` runs the step owed, which is the gate again unless the branch changed.
+9. **What the command printed stays within reach after the daemon ends.** The daemon keeps the last `GATE_OUTPUT_CHARS` characters of the two streams, in the order they arrived. When the run ends, whatever its result, it writes them to one file of its run folder for the work item, in place of the file an earlier run left. A daemon given no run folder keeps them in memory. A client reads them with `readGateOutput`. A delete of the work item removes the file.
+10. **The gate has a time limit and a stop.** The daemon ends the process group at `GATE_LIMIT_MS` from the start, and at a client's `stopGate`, with the signal and the wait that a role session's stop has. `frame/questions.md` Q2 holds the limit's value.
+11. **Only the daemon's own run counts.** No message of a client records a run, and the daemon reads no result but the exit of the process it started under item 6.
+12. **The gate has a ledger entry.** When the run ends the daemon calls `Ledger#add` with the stage `{ role: null, stage: "gate" }`, the run's two times, its state, what stopped it, and `usage` null.
+
+### The seal
+
+13. **The seal stage is a fresh sealer session that reads files only, in the work item's worktree.** The daemon launches a sealer at `seal` through the method every stage starts through, and resumes no conversation. The prompt holds the run's number and the work item's directory. It holds the `target:` line the verdict must carry, which is `<gate's commit> against <base>`, with `<base>` as round 1's target names it. It holds the paths the branch changed since its base, and their diff as far as `PROMPT_DIFF_CHARS` allows. It holds the paths of `routing.md`, of every round record, of `trail/gate.md`, of `decisions.md` where it stands, and of `frame/`, `trail/phases/` and `changelog.md` where each stands. It says that the work item names no issue.
+14. **A sealer's answer is its run's section of the guarantee.** When the session has finished, the daemon takes the answer from its first line that reads `## Run <N>` to its end, and reads it with `record-blocks.ts#read` and `VERDICT_BLOCK`. It writes and commits the section where every one of these holds:
+    - the heading names this run;
+    - the reader refuses no line;
+    - the section holds one verdict block;
+    - the block's `target:` line is the one the prompt gave;
+    - the block holds none of the daemon's lines (*Data & interfaces*, the verdict block);
+    - the session reported its id and a model (item 17);
+    - the daemon was given its version;
+    - the building sessions hold one name or more, and the judging session is none of them (item 16);
+    - the branch's head is the head the stage started at, and the worktree holds no change outside the work item's directory;
+    - the gate still holds at the head.
+
+    Where one does not hold, nothing is written, and the chain stops with a sentence that says which.
+15. **The daemon appends the section to `guarantee.md`, with its own lines inside the verdict block, and the verdict decides what follows.** The file opens with `# Guarantee: <directory's name>`, written at the first run. Each run's section is appended below the earlier ones. The daemon changes nothing of the section but the verdict block, where it puts its own lines before the closing fence. No earlier section is edited. The commit carries `guarantee.md` and, where the stage's role was refused a call, `trail/refusals.md`.
+    - **`sealed`:** the chain rests `sealed`.
+    - **`withheld`:** the chain stops, and its sentence holds the reason. The work item's line waits. A later `getSeal` on the same head runs the seal again, and the person's start is the word for it.
+    - **`undecided`:** the question is a stage's question. The daemon launches the orchestrator at `judgment` with it, as #41's *Scope* item 11 has it, and records the ruling: a decision with `Daemon#decided`, or a park with `Daemon#park` and `sealer` as `by`. It commits `decisions.md`. A decision leaves the gate owed again, by item 2, and the next sealer's prompt names `decisions.md`. A park leaves the chain `parked` until the answer. The daemon asks a ruling for the first `UNDECIDED_CEILING` verdicts of a guarantee that read `undecided`, and parks the question of every later one with no ruling asked. `frame/questions.md` Q1 holds the number.
+16. **The verdict block names who built and who judged, and a judge that built gives no verdict.** The building sessions are, first, the word `the session` where the `Implementation` row of `routing.md` reads so, and then the id of each fix pass's session. The daemon reads those ids from the trailer `Seal-Built-By:` of the commits between the work item's `baseCommit` and the gate's commit. It writes that trailer on the commit that records a fix pass, with the id the crafter's session reported. Where the judging session's id is one of those ids, the daemon writes no verdict block, whatever the verdict reads, and the chain stops with a sentence that says so.
+17. **An adapter reports a session's own id and its model.** `RoleEvent` gains `session`, reported once, before the session's first `text`. The Claude adapter fills it from the `init` line of the stream, and the vendor's field names stay in `adapters/claude.ts`. The fake adapter takes an option that gives the id and the model for a prompt and a role, and gives each session an id from a count of its own where the option is absent. The daemon keeps the two values on its own record of the headless session, and sends them in no message.
+
+### The records and the check
+
+18. **The verdict block gains the lines that say who built and who judged, in both readers.** `record-blocks.ts#VERDICT_BLOCK` and `pr-check/lib/fields.py#VERDICT_BLOCK` each gain the daemon's lines that *Data & interfaces* gives, each held at most once, so a block written before this work still reads. The fixtures of `test/record-blocks.test.ts` gain a block with those lines, a block with one of them written twice, and a block whose `built-by:` value does not match. Both readers return the same of each.
+19. **The closing records gain `trail/refusals.md`.** `pr-check/skills/code-review/scripts/chain_check.py#CLOSING_RECORDS` gains it, so the commit that carries a verdict may carry the rows of the calls the sealer's role was refused. `pr_body.py` reads the same constant.
+20. **The check refuses a verdict block whose judge is one of its builders.** In the guarantee arm, where the newest block holds `built-by:` and `judged-by:` and the second names one of the first's sessions, the check refuses the block at the `judged-by:` line. A block that holds neither line is read as before.
+21. **The check's sentences for the two arms say what Owlery does.** In `chain_check.py`, each sentence that the gate arm and the guarantee arm print and that names `seal gate`, the orchestrator's spawn or a template of AgenticSeal is rewritten in place: the daemon's gate writes the run on a passed run, and the sealer's stage appends the verdict. No other arm's sentence changes here.
+22. **One module gives the text of the two records.** A new module, `seal-records.ts`, gives the text of `trail/gate.md` with a run appended and the text of `guarantee.md` with a run's section appended, and reads every verdict block of a guarantee. It reads no file and writes none: the chain reads through `repository-file.ts` and writes through `record-writer.ts`. Where `chain-records.ts` stands in the branch, the newest run and the newest verdict are read through its `lastRun` and `lastVerdict`, and `seal-records.ts` holds no second reader of either (`frame/plan.md` *Overlap with the release*).
+
+### The roles
+
+23. **The bundle's texts for the sealer say what the daemon's chain does.** In `agents/sealer.md`, `docs/forms/the-guarantee.md`, `templates/records/sdd-guarantee.md` and `README.md` of `apps/desktop/role-bundle/`, the crafter rewrites in place each sentence the chain makes untrue. The texts then say these things:
+    - The sealer works in the work item's worktree, on the commit the prompt names. It runs no command and writes no file.
+    - Its answer is its run's section, in the template's form: the heading `## Run <N>`, the table of the claims it checked by reading, the table of the parties, and one verdict block that holds `target:` and `Verdict:` and no other line.
+    - It checks each `fixed` finding's claim against the tree, each decision of `decisions.md` against the tree, each `## Removes` row and each phase record where a frame stands, and the parties against each other.
+    - The daemon holds what the earlier text gave the sealer to check with a command: that the gate holds at the audited commit.
+    - A question for the person is the verdict `undecided`, with the question.
+
+    The form's check lines that name a file this repository does not hold go. `## Removes` names what goes.
+24. **The run that showed a proofer's refused command can be made for a sealer.** The case of `test/role-session.test.ts` that asks a role session to append to a file takes the pair from its script, and `apps/desktop/package.json` gains the script `role:refusal:sealer` beside `role:refusal`. The suite runs neither. `frame/questions.md` Q3 names who makes the run.
+
+### The protocol and the window
+
+25. **The protocol carries the two stages.** `CHAIN_STAGE_KINDS` gains `gate` and `seal`. `Chain.state` loses `reviewed` and gains `sealed`, and `Chain.reviewedAt` goes. A `ChainStage` of the kind `gate` holds its run: the command, the exit code, and whether output is kept. `ClientMessage` gains `stopGate` and `readGateOutput`, and `ServerMessage` gains `gateOutput`. *Data & interfaces* gives each.
+26. **The work item's view lists the chain's newest gate under "Ask".** The line is drawn in the form of a headless session's line: the mark and the word of its state, the command, and the stage's sentence where it failed. While the gate runs the line offers "Stop", which sends `stopGate`. Where output is kept the line offers a button that sends `readGateOutput` and draws the answer's text under the line, whole and wrapped in the fixed-width face, as a failed session's error output is drawn.
+27. **The approval line and the line of the inbox read the two kinds.** In the table of `view.ts` that gives each kind of stage its place, which #46 adds, `gate` and `seal` are the sealer's. A gate that failed marks the sealer's place as waiting, with the stage's sentence under the line, as the third *Done when* line of issue #46 asks. A sealer's session that failed marks the place as failed. The line of the inbox names a running gate and a running seal in short. *Data & interfaces* gives the words.
+28. **The pull request carries the screenshots of the changed view, and the scene holds a gate.** The parked work item of the screenshot run carries a chain whose gate passed, so the view of the parked work item shows the gate's line under "Ask". The crafter runs `pnpm run screenshots` in `apps/desktop` and commits the files under this work item's `screenshots/`.
+29. **The changelog says what ships, and #41's bullet is made true.** This work writes its `changelog.md`. Where the fragment of `seal/threads/1795388700-review-rounds/` says that the chain rests once the rounds settle, the crafter rewrites that bullet in this pull request.
+
+### Out of scope
+
+- **The pull request, its body and `pr.md`.** #43 opens the pull request after the seal. Whatever #43 commits before the seal's target, it commits before the gate, since only the closing records follow the gate's commit (`frame/plan.md` *Overlap with the release*).
+- **Whether a seal still holds at the branch's head, a broken seal, a lit seal and "Get a new seal".** #44 reads the seal's commit against the head. This work's order already owes a round, a gate and a seal after a later commit.
+- **A fix pass that follows a `withheld` verdict by itself.** A `withheld` reason names a claim, its party and a coordinate, and the party may be a record, the design or the build. Who fixes it is a judgment the policy leaves to the orchestrator agent, and the fix pass's form is bound to a round record's findings (#41's *Scope* item 7). In "Get a seal" the builder is the person, who reads the reason on the line. Milestone 3 brings the framer's and the crafter's stages (#56).
+- **The id of a building session the person drove.** The daemon keeps no id of a pane's conversation until #61. The record names that session `the session`, as `routing.md` does (`docs/architecture.md` *Build order*).
+- **The issue's text in the sealer's prompt.** No work item holds an issue before milestone 3.
+- **A real sealer and a real gate of a repository's own.** No case and no probe of this work starts a real `claude`. `frame/questions.md` Q2 and Q3 hold what they measure.
+- **The cost of a gate.** The gate is no agent's turn, so its ledger entry holds no usage.
+- **A signature on the seal record.** `docs/product.md` *Open decisions*, the row "Signing the seal record".
+- **The check's other arms.** The body arm and its sentences are #43's.
+
+### Where each line of the issue's *Done when* lands
+
+| The issue's line | Scope items |
+|---|---|
+| When the rounds end, the daemon runs the repository's broad gate command on the branch's head commit and commits the result as a record. Tests a person ran do not count | 1, 2, 4, 5, 6, 7 and 11 |
+| A failed gate stops the chain, and the work item's inbox line says so with the command's output within reach | 8, 9, 10, 26 and 27 |
+| After a passed gate the daemon launches a sealer session that starts fresh and reads only files, and the sealer's record carries the fields of `docs/product.md` *The seal*, with the verdict | 13, 14, 15 and 23, and the table of *Data & interfaces* that says where each field is read |
+| The seal record names the session that built the work and the session that judged it, with the judging model and the rules version. Where the two sessions are the same, no seal is written | 16, 17, 18 and 20 |
+| No seal is written for a commit other than the one the gate passed on | 1, 2 and 14 |
+| The sealer session has no tool that edits source, shown by the run of #39 holding here | 24, and scenario 12 |
+| The test suite covers a passed gate, a failed gate and a sealer that refuses | Scenarios 1, 4 and 9 |
+
+## User scenarios & acceptance *(mandatory)*
+
+Every case runs through the fake adapter, on a temporary repository whose `config.json` names a gate command of the case's own, such as `true` or `exit 3`. `gate.test.ts` and `seal-records.test.ts` are new files of `apps/desktop/test/`. `chain.test.ts` and `get-a-seal.test.ts` are #41's. The crafter shows each new case red before it is planted (contract rule 15).
+
+| Scenario | Given / When / Then | Verifiable how |
+|---|---|---|
+| 1. A passed gate and a seal | Given a work item whose branch holds one commit after its base, and a gate command that exits 0. When a client sends `getSeal`, the fake proofer answers round 1 with no finding, and the fake sealer answers run 1 with `Verdict: sealed`. Then the branch holds, after the commit of `round-1.md`, the commit of `trail/gate.md` and the commit of `guarantee.md`, each with the trailer. The run block names the head the gate started at and the work item's `baseCommit`. The verdict block's `target:` names the same commit, and the block holds the daemon's lines. The chain is `sealed`, and a second `getSeal` starts no stage | A case of `test/chain.test.ts` |
+| 2. The records are what the check reads | Given the repository scenario 1 leaves. When `chain_check.py --baseline main` runs under a payload that says ready and holds no body. Then it exits 0 | A case of `test/pr-check.test.ts` |
+| 3. The gate runs on the head, with no terminal | Given a gate command that prints its working directory, the output of `git rev-parse HEAD`, and whether its input and its output are terminals. Then the kept output names the worktree and the head, and says that neither is a terminal | A case of `test/gate.test.ts` |
+| 4. A failed gate | Given a gate command that prints a line and exits 3. Then no `trail/gate.md` is written and no commit is made, the chain is `stopped`, its sentence says the exit code 3, the gate's stage is `failed`, `readGateOutput` answers the printed line, and a second daemon on the same run folder answers the same. A second work item's chain goes on. When a client sends `getSeal` again. Then the gate runs again, and no round runs | A case of `test/chain.test.ts` |
+| 5. The gate is stopped, or reaches its limit | Given a gate command that starts a child and sleeps. When a client sends `stopGate`, and in a second case when the limit passes. Then the command's process and its child have exited, the chain is `stopped`, the sentence says what ended the run, and nothing is committed | Two cases of `test/chain.test.ts`, and the end of the process group in `test/gate.test.ts` |
+| 6. The tree moved under the gate | Given a gate command that edits a tracked file, one that leaves an untracked file, and one during which a commit lands on the branch. Then no record is written, and the sentence names the path or the two commits | Cases of `test/chain.test.ts` |
+| 7. No gate command | Given a `config.json` with no `Broad gate` key, and one whose value is empty. When a client sends `getSeal`. Then the answer is an `error` that names the key, and no session starts | A case of `test/chain.test.ts` |
+| 8. Only the daemon's run counts, on the head | Given a worktree whose `trail/gate.md` holds a run block that names an earlier commit, and a later commit that changes a source file and that a round has read. Then the step owed is the gate. Given a run block that names the head. Then the step owed is the seal. Given a decision committed after the gate's commit. Then the step owed is the gate. Given a seal whose `target:` names a commit other than the gate's. Then the step owed is the seal | Cases of the order's function, row by row, in `test/chain.test.ts` |
+| 9. A sealer that refuses | Given a fake sealer that answers `Verdict: withheld reason: <reason>`. Then `guarantee.md` is committed with that block and the daemon's lines, the chain is `stopped`, its sentence holds the reason, and no stage follows. When a client sends `getSeal` again on the same head. Then a second sealer runs, and its section stands below the first, which is unchanged | A case of `test/chain.test.ts` |
+| 10. The same session built and judged | Given a chain with one fix pass, whose fake crafter reported the id `s-1`, and a fake sealer that reports `s-1`. Then no verdict block is written, nothing is committed at the seal, and the chain stops with a sentence that says the judging session built the work. Given a sealer that reports `s-2`. Then the block's `built-by:` reads `the session, s-1` and its `judged-by:` reads `s-2` | Two cases of `test/chain.test.ts` |
+| 11. A verdict the daemon does not write | Given a sealer's answer with a `target:` other than the prompt's, one with two verdict blocks, one that holds a `judged-by:` line, one with a line the reader refuses, and one with no `## Run 1` heading. Given also a session that reported no id, a daemon given no version, a `routing.md` whose `Implementation` row reads `crafter` on a branch with no fix pass, and a branch whose head moved during the seal. Then nothing is written, and the chain stops with a sentence that says which | Cases of `test/chain.test.ts` and of `test/seal-records.test.ts` |
+| 12. A sealer holds no tool that edits source | Given a seal stage whose fake sealer asks to write a file inside the worktree and to run a command. Then both are refused by the sealer's grant, the stage's `refusals` is 2, `trail/refusals.md` holds two rows in the commit that carries the guarantee, and the check of scenario 2 still exits 0. The Claude adapter's arguments for a sealer name `Read,Glob,Grep,Bash` and no tool that writes | A case of `test/chain.test.ts`, and the case of `test/claude-adapter.test.ts` over every pair, which stands at `14ee70e` |
+| 13. An undecided verdict is decided or parks | Given a fake sealer that answers `Verdict: undecided question: <question>`. When the fake orchestrator rules a decision. Then `guarantee.md` and `decisions.md` are committed, the gate runs again on the new head, and the second sealer's prompt names `decisions.md`. When it rules a park. Then `decisions.md` holds one `open` question by `sealer`, the chain is `parked`, and an `answerQuestions` runs the gate and then the seal | Two cases of `test/chain.test.ts` |
+| 14. The ceiling of undecided verdicts | Given a daemon whose ceiling is 1, and a `guarantee.md` that holds one block that reads `undecided`. When the sealer answers `undecided` again. Then no judgment is asked, and the question is parked | A case of `test/chain.test.ts` |
+| 15. The process is ended before the next stage | Given scenario 1's chain, through an adapter and a gate that note each start and each exit. Then the gate's process has exited before the sealer's `start`, and the sealer's `exit` comes before the chain rests | A case of `test/chain.test.ts` |
+| 16. The gate's ledger entry | Given scenario 1 and scenario 4. Then `readLedger` answers, for each, one entry whose stage is the gate, `finished` in the first and `failed` in the second, with `usage` null, and in the first one more entry for the sealer's session | A case of `test/chain.test.ts` |
+| 17. The adapters report the session | Given the lines of `test/fixtures/claude-role-stream.jsonl`. Then the first event is a `session` with the fixture's id and model. Given a fake adapter with the option. Then its sessions report what the option gives, and two sessions without it report two ids. No message the daemon sends holds the id | Cases of `test/claude-adapter.test.ts`, `test/fake-adapter.test.ts` and `test/daemon.test.ts`. `git grep -n -e 'session_id' -- apps/desktop/src ':!apps/desktop/src/daemon/adapters/claude.ts'` prints nothing. The pathspec names `apps/desktop/src` alone, so the search reads no file of this work item's directory |
+| 18. Both readers read the new lines alike | Given the fixtures of *Scope* item 18. Then the daemon's reader and the check's return the same blocks, refusals and notices | The first case of `test/record-blocks.test.ts` |
+| 19. The check refuses a judge that built | Given a guarantee whose newest block holds `built-by: the session, s-1` and `judged-by: s-1`. Then the check exits 1 at that line. Given `judged-by: s-2`. Then it exits 0 | A case of `test/pr-check.test.ts` |
+| 20. A record the daemon cannot read | Given a `trail/gate.md` with a line the reader refuses, and a `guarantee.md` with one. When a client sends `getSeal`. Then the file is left as it is, the chain stops, and the sentence names the file and the line | Cases of `test/chain.test.ts` |
+| 21. A chain an earlier build stored | Given a run folder whose stored chain has the state `reviewed`. When a daemon starts on it. Then the work item's chain is null, and a `getSeal` runs the step the records owe | A case of `test/chain.test.ts` |
+| 22. The gate in the window | Given the built app, started once through `BuiltApp.start` in the background, a stand-in for the CLI that answers round 1 with no finding, and a gate command that prints a line and exits 1. When the case presses "Get a seal". Then the view lists the gate under "Ask" with the failed mark and the command, the work item's line has the waiting state and the chain's sentence in its second row, and after the case presses the line's output button the printed line stands under it | One case of `test/get-a-seal.test.ts`, in the start that file makes |
+| 23. The places and the inbox's words | Given a chain that runs a gate, one that runs a seal, one stopped at a failed gate and one stopped at a failed sealer's session. Then the sealer's place and the line's second row are as *Data & interfaces* gives them | Cases of `test/view.test.ts` |
+| 24. The bundle's sealer | Given the bundle. Then `agents/sealer.md`, `docs/forms/the-guarantee.md` and `templates/records/sdd-guarantee.md` name no command and no script, and the template's block holds `target:` and `Verdict:` alone | Cases of `test/role-bundle.test.ts`. `git grep -n -e 'seal gate' -e 'seal pr-body' -e 'broad_gate' -e 'chain_check' -e 'Claims re-run' -e 'lib/fields.py' -- apps/desktop/role-bundle/agents/sealer.md apps/desktop/role-bundle/docs/forms/the-guarantee.md apps/desktop/role-bundle/templates/records/sdd-guarantee.md` prints nothing. *Grounding* lists what it prints at `14ee70e`, each a line *Scope* item 23 rewrites. The pathspec names those files alone |
+| 25. The screenshots | Given the change of the view. Then the committed screenshots show the gate's line in the view of the parked work item, in each theme and appearance the run makes | `pnpm run screenshots`, and the review reads the files against `docs/design.md` |
+
+## Data & interfaces
+
+**The closing records** of a work item's directory: `trail/gate.md`, `guarantee.md` and `trail/refusals.md`.
+
+**Where each field of `docs/product.md` *The seal* is read.** The verdict block gains only what no other committed record holds.
+
+| Field | Where it is read |
+|---|---|
+| tree | The commit of the newest verdict block's `target:`, and the `Branch` row of `routing.md` |
+| base | The base of the same `target:` line |
+| item | The work item's directory, which the guarantee's first heading names |
+| gate | The newest run block of `trail/gate.md`. A seal's target is that commit (*Scope* item 1) |
+| rounds | The round records of `trail/rounds/` at the sealed commit |
+| who built, who judged, the model, the rules | The daemon's lines of the verdict block, below |
+
+**The verdict block**, in `record-blocks.ts` and in `pr-check/lib/fields.py`. The keys `target:`, `original:` and `Verdict:` stand at `14ee70e`. The daemon's lines are the keys the daemon writes, and each reader holds each of them at most once.
+
+| Key | Value | Written by |
+|---|---|---|
+| `target:` | `<sha> against <base>` | the sealer, as the prompt gave it |
+| `original:` | as it stands | nobody in Owlery's chain |
+| `Verdict:` | `sealed`, `withheld reason: <reason>` or `undecided question: <question>` | the sealer |
+| `built-by:` | One name or more, joined by a comma and a space. A name is `the session` or a session's id, which holds no white space and no comma | the daemon |
+| `judged-by:` | One session's id | the daemon |
+| `model:` | The judging model's name, as its adapter reports it | the daemon |
+| `rules:` | `owlery <version>`, with the version the daemon was given | the daemon |
+
+A verdict block as the daemon commits it, with ids as a case's fake adapter gives them:
+
+````
+```seal
+target: 3f2a9c1e against main
+Verdict: sealed
+built-by: the session, s-1
+judged-by: s-2
+model: fake
+rules: owlery 0.0.2
+```
+````
+
+**The files the daemon writes in a work item's directory.**
+
+- `trail/gate.md`: the heading `# Broad gate: <directory's name>`, written at the first passed run, then one run block for each passed run, the newest last.
+- `guarantee.md`: the heading `# Guarantee: <directory's name>`, then one section for each run of the sealer, the newest last, each as `apps/desktop/role-bundle/templates/records/sdd-guarantee.md` shapes it.
+- `trail/refusals.md` and `decisions.md`: as #41 and `decision-record.ts` write them. In the first, a seal stage is written as `seal 1`.
+
+**The trailer.** The commit that records a fix pass carries `Seal-Built-By: <session's id>` below `Seal-Routing:`. `worktrees.ts#commitPaths` takes the trailers a commit carries.
+
+**The subjects of the daemon's commits**, each followed by its trailers: `chore: record the broad gate's run`; `chore: record the sealer's verdict`; `chore: record the orchestrator's ruling on the sealer's question`.
+
+**`apps/desktop/src/shared/protocol.ts`.** No field names a vendor, and none holds a session's id.
+
+- `CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "gate", "seal"] as const`.
+- `Chain.state: "running" | "parked" | "stopped" | "sealed"`. `Chain.reviewedAt` goes. The store reads a stored chain whose state is none of these as no chain, as it reads a file of an earlier build.
+- `ChainStage.round` of a gate or a seal is the last round recorded. `ChainStage.gate: GateRun | null`, null for every kind but `gate`.
+- `GateRun`: `command: string`, 2,000 characters of it at most; `exitCode: number | null`, null while it runs and where no process exited; `output: boolean`, whether a `readGateOutput` has text to answer with.
+- `ClientMessage` gains `{ type: "stopGate"; requestId: number; workItemId: number }`, answered with `done`, and with an `error` where no gate of the work item runs.
+- `ClientMessage` gains `{ type: "readGateOutput"; requestId: number; workItemId: number }`.
+- `ServerMessage` gains `{ type: "gateOutput"; requestId: number; workItemId: number; text: string; cut: boolean }`, where `cut` says the run printed more than is kept. An id the daemon lists no work item under, and a work item with no kept output, are answered with an `error`.
+
+**`apps/desktop/src/daemon/`.**
+
+- `gate.ts`, new: it runs one command as *Scope* item 6 states, keeps its output, ends its process group, and gives the exit. It reads no record. It holds the constants `GATE_LIMIT_MS` and `GATE_OUTPUT_CHARS`. The daemon's options gain `gateLimitMs`, and `gateEnv`, the environment a case gives in place of the one item 6 builds.
+- `seal-records.ts`, new: *Scope* item 22.
+- `chain.ts`: the rows of *Scope* item 1, the gate's and the seal's stages, the sealer's prompt, the reading of its answer, and `UNDECIDED_CEILING`. The daemon's options gain `undecidedCeiling`.
+- `record-blocks.ts`: the daemon's lines of the verdict block.
+- `adapters/adapter.ts`: `RoleEvent` gains `{ type: "session"; id: string; model: string | null }`. `adapters/claude.ts` and `adapters/fake.ts`: *Scope* item 17. `FakeAdapterOptions` gains `session?: (prompt: string, role?: RoleStage) => { id: string; model: string | null }`.
+- `worktrees.ts`: `commitPaths` takes a list of trailers.
+- The run folder gains `gate-output/<work item's id>.txt`, readable by the user alone, written whole.
+
+**`pr-check/`.** `lib/fields.py`: the daemon's lines, each `AT_MOST_ONE`. `skills/code-review/scripts/chain_check.py`: `CLOSING_RECORDS`, the refusal of *Scope* item 20, and the sentences of item 21.
+
+**The words of the window.** A state is two words at most, by `docs/design.md` *The voice of the window's words*.
+
+| Where | Words |
+|---|---|
+| The sealer's place while a gate runs | The working mark, the note "Broad gate", and the label "Broad gate, 4 min" |
+| The sealer's place after a gate failed | The waiting mark, the note "Gate failed", and the stage's sentence under the line |
+| The sealer's place while a seal runs | The working mark, the note "Judging", and the label "Judging, 4 min" |
+| The sealer's place after the sealer's session failed | The failed mark, the note "Failed", and the stage's sentence under the line |
+| The second row of a line of the inbox while a gate runs | "Broad gate" |
+| The second row of a line of the inbox while a seal runs | "Sealer, verdict" |
+| The gate's line under "Ask" | The words "Broad gate" and the command, the state's word as a headless session's line says it, "Stop" while it runs, and "Show output" where output is kept |
+
+The chain's sentences are the build's to word, in the voice of that section. `frame/questions.md` Q4 leaves their wording and the place of the two buttons to the build. Two of them, as this frame reads them: "The broad gate failed with exit code 3." and "The sealer withheld its verdict: `<reason>`".
+
+## Rule changes
+
+- add
+  file: docs/architecture.md
+  section: Code runs the order, the orchestrator judges
+  to: **After the rounds settle, the daemon runs the repository's broad gate on the branch's head commit and asks a sealer for a verdict on that commit, and a seal names no commit but the one the gate passed on.** The gate is the `Broad gate` command of the records root's `config.json` as that commit holds it. The daemon runs it in the work item's worktree with no terminal, as a check on another machine runs it. Only the exit of the daemon's own run counts, so a test a person ran is no gate. A run that passes is committed as a run block of `trail/gate.md`. A run that fails stops the chain and commits nothing, and what the command printed stays in the daemon's run folder, where the work item's view reads it. The sealer is a fresh role session that reads files only, and its answer is its verdict. A `sealed` verdict rests the chain. A `withheld` verdict stops it, with the reason on the work item's line. The question of an `undecided` verdict is first decided from the code and the policy by the orchestrator agent, and parks the work item only where they cannot answer it. A commit after the gate's commit that changes more than the closing records owes the gate again, and a change outside the work item's records owes a round first.
+    check: apps/desktop/test/chain.test.ts apps/desktop/test/gate.test.ts
+- add
+  file: docs/architecture.ko.md
+  section: 순서는 코드가, 판단은 orchestrator가
+  to: **리뷰 회차가 끝나면 데몬은 브랜치의 head 커밋에서 저장소의 전체 검사를 돌리고 그 커밋에 대한 판정을 sealer에게 묻습니다. 인장은 전체 검사가 통과한 그 커밋 말고는 어떤 커밋도 가리키지 않습니다.** 전체 검사는 기록 뿌리의 `config.json`에 있는 `Broad gate` 명령이고, 그 커밋에 담긴 값을 씁니다. 데몬은 이 명령을 작업의 워크트리에서 터미널 없이 돌리고, 이것은 다른 컴퓨터의 검사가 명령을 돌리는 방식과 같습니다. 데몬이 직접 돌린 실행의 종료 코드만 결과로 치므로, 사람이 돌린 테스트는 전체 검사가 아닙니다. 통과한 실행은 `trail/gate.md`의 실행 블록으로 커밋합니다. 실패한 실행은 체인을 멈추고 아무것도 커밋하지 않으며, 명령이 출력한 내용은 데몬의 실행 폴더에 남아 작업 화면이 거기서 읽습니다. sealer는 파일만 읽는 새 역할 세션이고, 그 답이 곧 판정입니다. `sealed` 판정이면 체인은 거기서 쉽니다. `withheld` 판정이면 체인이 멈추고, 그 까닭이 작업의 줄에 나옵니다. `undecided` 판정의 질문은 orchestrator 에이전트가 먼저 코드와 정책으로 정하고, 그것으로 답할 수 없을 때만 작업을 멈춰 둡니다. 전체 검사가 통과한 커밋 뒤에 마감 기록 말고 다른 것을 바꾼 커밋이 오면 전체 검사를 다시 돌려야 하고, 작업의 기록 밖을 바꾼 커밋이면 그 앞에 회차가 먼저 와야 합니다.
+    check: apps/desktop/test/chain.test.ts apps/desktop/test/gate.test.ts
+- add
+  file: docs/architecture.md
+  section: Records are committed to the repository
+  to: **The seal record is the newest verdict block of `guarantee.md`, and it names who built the work and who judged it.** The block holds the sealed commit and its base, the verdict, each session that built the work, the session that judged it, the judging model and the version of the rules. The sealed commit is the commit of the newest run of `trail/gate.md`, and the round records at that commit are its rounds. The daemon writes the lines on who built and who judged, and the sealer writes the verdict. A building session that a person drove is named `the session`, as the work item's `routing.md` names it, until the daemon keeps that session's id. A fix pass's session is named by its id, which the commit that records the pass carries in a trailer. Where the judging session is one of the building sessions, the daemon writes no verdict, and the pull request check refuses such a block. Only the closing records follow the sealed commit: `trail/gate.md`, `guarantee.md` and `trail/refusals.md`.
+    check: apps/desktop/test/chain.test.ts apps/desktop/test/seal-records.test.ts apps/desktop/test/record-blocks.test.ts apps/desktop/test/pr-check.test.ts
+- add
+  file: docs/architecture.ko.md
+  section: 기록은 저장소에 커밋합니다
+  to: **인장 기록은 `guarantee.md`의 가장 새 판정 블록이고, 누가 만들었고 누가 판정했는지를 밝힙니다.** 블록에는 인장이 찍힌 커밋과 그 기준, 판정, 작업을 만든 세션 하나하나, 판정한 세션, 판정한 모델, 규칙의 버전이 있습니다. 인장이 찍힌 커밋은 `trail/gate.md`의 가장 새 실행이 가리키는 커밋이고, 그 커밋에 있는 회차 기록이 그 인장의 회차입니다. 누가 만들었고 누가 판정했는지를 적는 줄은 데몬이 쓰고, 판정은 sealer가 씁니다. 사람이 직접 몬 세션이 만든 부분은 작업의 `routing.md`가 부르는 대로 `the session`이라고 적고, 데몬이 그 세션의 id를 보관하게 되면 id로 적습니다. 수정 단계의 세션은 id로 적고, 그 id는 그 단계를 기록하는 커밋의 트레일러에 있습니다. 판정한 세션이 만든 세션 가운데 하나이면 데몬은 판정을 쓰지 않고, PR의 검사는 그런 블록을 거절합니다. 인장이 찍힌 커밋 뒤에는 마감 기록인 `trail/gate.md`, `guarantee.md`, `trail/refusals.md`만 올 수 있습니다.
+    check: apps/desktop/test/chain.test.ts apps/desktop/test/seal-records.test.ts apps/desktop/test/record-blocks.test.ts apps/desktop/test/pr-check.test.ts
+- add
+  file: docs/design.md
+  section: A pull request that changes the window carries its screenshots
+  to: **The parked work item of the screenshot run carries a chain whose broad gate passed.** The view of the parked work item lists that gate under "Ask", with the finished mark, the gate's command and the button that shows what the command printed.
+    check: apps/desktop/test/screenshots.test.ts
+- add
+  file: docs/design.ko.md
+  section: 창을 바꾸는 PR은 스크린샷을 싣습니다
+  to: **스크린샷 실행에서 질문 때문에 멈춰 둔 작업은 전체 검사가 통과한 체인을 가집니다.** 그 작업의 화면은 "Ask" 아래에 그 전체 검사를 올리고, 끝난 상태의 표시, 검사 명령, 명령이 출력한 내용을 보여 주는 단추를 함께 보입니다.
+    check: apps/desktop/test/screenshots.test.ts
+
+## Removes
+
+This work adds mechanisms: two stages of the chain, the daemon's lines of the verdict block, one trailer and one refusal of the check. No earlier mechanism of the tree ran a gate, asked a sealer or named a session, so none of those is taken out in return. What goes is the resting state the two stages replace, and the sealer's steps that the daemon's code now holds or that no sealer of Owlery can take.
+
+| Removes | Coordinate | Where it lands, or why it can go |
+|---|---|---|
+| The resting state of a chain whose rounds settled, and the commit it settled at | `apps/desktop/src/shared/protocol.ts#Chain`, the state `reviewed` and the field `reviewedAt`, which #41's phase 2 adds | The chain goes on to the gate. Its rest is `sealed`, and the sealed commit is read from the records (*Scope* items 1 and 25). After the build `git grep -n -e '"reviewed"' -e 'reviewedAt' -- apps/desktop/src` prints nothing. The pathspec names `apps/desktop/src` alone: the case of scenario 21 in `apps/desktop/test/chain.test.ts` names the state, as a value an earlier build stored |
+| The step that has the sealer read `trail/gate.md` and run `git log` over the commits after its run | `apps/desktop/role-bundle/agents/sealer.md` *Order of work* step 1 | The daemon starts a sealer only where the gate holds at the head, and writes no verdict where it no longer holds (*Scope* items 1 and 14) |
+| The step that has the sealer run `seal pr-body --check` and read the pull request's body, and the parties that name that body | `apps/desktop/role-bundle/agents/sealer.md` *Order of work* step 2, from its first sentence to "and you read it as no party", and the mentions of the pull request body in steps 2 and 4 | No body stands before the seal in Owlery's order. #43 frames the body |
+| The re-run of a sample of `executed` and `seen red` claims, and the rules on how it is run | `apps/desktop/role-bundle/agents/sealer.md` *Order of work* step 3, its first sentence, and the rules *A `seen red` is re-run against the code before the change* and *Name the command before you run it, and show the check can fail* | A sealer's command that asks is refused, so a sealer checks a claim by reading (*Scope* item 23). Nothing takes the re-run's place until a role can execute in a place of its own (`seal/threads/1795338000-role-tools-and-permissions/frame/design.md` *Scope* item 19) |
+| The resolving of the base by the sealer, and the comparison with an original | `apps/desktop/role-bundle/agents/sealer.md` *Job*, from "The base arrives as a plain branch name" to the section's end, and *Order of work* step 5, from "Where git carries `seal/parity.json`" to the step's end | The prompt gives the `target:` line whole. The bundle holds no `skills/legacy-parity/` |
+| The sentences that have the sealer write `guarantee.md` and the orchestrator commit it | `apps/desktop/role-bundle/agents/sealer.md` *Job*, the sentence that opens "Under rule 6", and *Never*, the first item | The sealer's answer is its section, and the daemon writes and commits it (*Scope* items 14 and 15) |
+| The table of the claims re-run, and the template's `original:` line | `apps/desktop/role-bundle/templates/records/sdd-guarantee.md` | The table of the claims checked by reading, in the run's section |
+| The paragraphs on the pull request's body and on the seal mark, and the check lines that name AgenticSeal's tests | `apps/desktop/role-bundle/docs/forms/the-guarantee.md`, the paragraphs that open "The pull request body opens with" and "A pull request body carries the seal mark", and each line that opens `check: tests/` | #43 frames the body and the mark. The named test files are not in this repository |
+| The check's sentences that name `seal gate` and the orchestrator's spawn | `pr-check/skills/code-review/scripts/chain_check.py#broad_gate`, `#NO_RUN_BLOCK`, `#guarantee` and `#NO_VERDICT_BLOCK` | The same places, saying what the daemon's gate and the sealer's stage write (*Scope* item 21) |
+
+Framed 2026-11-23 by framer, before the build.
