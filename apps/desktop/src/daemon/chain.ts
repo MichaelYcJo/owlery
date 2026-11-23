@@ -657,7 +657,7 @@ export function roundRecordOf(answer: string, given: { round: number; workItem: 
   for (const reference of named) {
     const said = `its record names \`round-${String(reference.round)}${reference.finding === null ? "" : `#${String(reference.finding)}`}\` at line ${String(reference.line)}`;
     if (given.earlier.length === 0) throw new ChainStop(`${said}, and the first record names no earlier round: what it confirms is prose`);
-    const holder = given.earlier.find((each) => each.round === reference.round && each.round < given.round);
+    const holder = given.earlier.find((each) => each.round === reference.round);
     if (holder === undefined) throw new ChainStop(`${said}, which is not an earlier record of this work item`);
     if (reference.finding !== null && !holder.findings.some((finding) => finding.number === reference.finding)) throw new ChainStop(`${said}, and ${roundFile(reference.round)} holds no finding ${String(reference.finding)}`);
   }
