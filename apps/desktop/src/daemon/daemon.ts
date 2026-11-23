@@ -11,7 +11,7 @@ import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { CHAIN_STAGES_KEPT, ChainStop, StageStopped, PARKED_SAYS, READING_SAYS, ROUNDS_FOLDER, type Standing, type StagePrompt, type Step, chainStoppedSays, fixPassPrompt, fixPassRecord, fixedCommitsHeld, inFolder, leftOpen, leftReversed, promptText, reviewedSays, roundFile, roundPrompt, roundRecordOf, routingText, runningSays, standingOf, stepOwed, stoppedSays } from "./chain";
-import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, declaredBranch, readDecisionRecord, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
+import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -1198,29 +1198,27 @@ export class Daemon {
     }
   }
 
-  /** The worktree of the work item a request names; where it has none to run in, the request is answered with an error. */
-  private worktreeFor(socket: WebSocket, requestId: number, workItemId: number): string | undefined {
+  /** Why nothing starts in a work item now, a pane, a headless session and a stage of a chain alike, or null where one can. */
+  private whyNoRun(workItemId: number): string | null {
     const workItem = this.store.workItem(workItemId)?.item;
-    if (!workItem) {
-      this.send(socket, { type: "error", requestId, message: `no work item ${String(workItemId)}` });
-      return undefined;
-    }
+    if (!workItem) return `no work item ${String(workItemId)}`;
     // Nothing runs in an archived work item, nor in one an archive is ending the sessions of.
-    if (workItem.archivedAt !== null || this.archiving.has(workItem.id)) {
-      this.send(socket, { type: "error", requestId, message: `work item ${workItem.id} is archived, restore it first` });
-      return undefined;
-    }
+    if (workItem.archivedAt !== null || this.archiving.has(workItem.id)) return `work item ${workItem.id} is archived, restore it first`;
     // Nor in one a delete is under way for: git is about to remove its folder.
-    if (this.deleting.has(workItem.id)) {
-      this.send(socket, { type: "error", requestId, message: `work item ${workItem.id} is being deleted` });
-      return undefined;
-    }
+    if (this.deleting.has(workItem.id)) return `work item ${workItem.id} is being deleted`;
     // A person can remove a worktree's folder by hand, and a process cannot start in it.
-    if (!existsSync(workItem.worktree)) {
-      this.send(socket, { type: "error", requestId, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
+    if (!existsSync(workItem.worktree)) return `the folder of work item ${workItem.id} is gone: ${workItem.worktree}`;
+    return null;
+  }
+
+  /** The worktree of the work item a request names; where it has none to run in (`whyNoRun`), the request is answered with an error. */
+  private worktreeFor(socket: WebSocket, requestId: number, workItemId: number): string | undefined {
+    const why = this.whyNoRun(workItemId);
+    if (why !== null) {
+      this.send(socket, { type: "error", requestId, message: why });
       return undefined;
     }
-    return workItem.worktree;
+    return this.store.workItem(workItemId)?.item.worktree;
   }
 
   /** The base a person chose for the new work items of the repository a folder names, or null where the daemon keeps no such repository or the person chose none. */
@@ -1815,7 +1813,8 @@ export class Daemon {
    * untracked file, outside the work item's directory, and anywhere where
    * the work item has no directory yet; the work item records no base
    * commit; its branch holds no commit after it; the adapter cannot launch a
-   * role; the work item's record cannot be read, or holds an open question.
+   * role; the work item's record holds an open question. It throws where
+   * the record stands and cannot be read (`repository-file.ts#repositoryFileText`).
    * It writes nothing and starts nothing.
    */
   private async whyNoChain(workItemId: number): Promise<string | null> {
@@ -1839,24 +1838,8 @@ export class Daemon {
     if (ahead === 0) return "The branch holds no commit after its base, so a round has nothing to read.";
     const lacks = ROLE_FEATURES.filter((feature) => !this.options.roleAdapter.features.includes(feature));
     if (lacks.length > 0) return `the ${this.options.roleAdapter.name} adapter cannot launch a role: it does not declare ${lacks.join(" and ")}`;
-    if (directory !== undefined) {
-      try {
-        const text = repositoryFileText(join(directory, RECORD_FILE));
-        if (text !== null && readDecisionRecord(text).questions.some((question) => question.state.is === "open")) return "The work item waits for the answers to its open questions. Answer them first.";
-      } catch (error) {
-        return `The work item's record of decisions cannot be read: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    }
-    return null;
-  }
-
-  /** Why no stage of a chain starts in a work item now, as the half of a sentence that says why, or null where one can: the daemon keeps it no longer, it is archived or being archived, it is being deleted, or its folder is gone. */
-  private whyNoStage(workItemId: number): string | null {
-    const item = this.store.workItem(workItemId)?.item;
-    if (!item) return "the daemon no longer keeps the work item";
-    if (item.archivedAt !== null || this.archiving.has(workItemId)) return "the work item was archived";
-    if (this.deleting.has(workItemId)) return "the work item is being deleted";
-    if (!existsSync(item.worktree)) return `the work item's folder is gone: ${item.worktree}`;
+    const record = directory === undefined ? null : repositoryFileText(join(directory, RECORD_FILE));
+    if (record !== null && readDecisionRecord(record).questions.some((question) => question.state.is === "open")) return "The work item waits for the answers to its open questions. Answer them first.";
     return null;
   }
 
@@ -1888,7 +1871,8 @@ export class Daemon {
     try {
       for (;;) {
         if (this.closed) return;
-        const gone = this.whyNoStage(workItemId);
+        // No stage starts where no pane and no headless session would: the work item was archived, is being deleted or lost its folder since the last stage.
+        const gone = this.whyNoRun(workItemId);
         if (gone !== null) throw new ChainStop(gone);
         const held = this.store.workItem(workItemId);
         if (!held) return;
@@ -1926,9 +1910,10 @@ export class Daemon {
    * (`chain.ts#routingText`) through the writer of a work item's records and
    * commits that file alone, so the first round's target holds it. It throws
    * a `ChainStop` where two directories name the branch, where the worktree
-   * holds no records root, where the new directory's name is taken, where
-   * the branch's name cannot stand in a routing's row, and what the writer
-   * and the commit throw.
+   * holds no records root, where the new directory's name is taken, and
+   * what the writer and the commit throw. A directory whose routing does not
+   * read as naming the branch, as for a branch's name with a `|` in it, is
+   * found by no later step, and the chain then stops on the taken name.
    */
   private async chainDirectory({ item }: Held): Promise<string> {
     const { worktree, branch } = item;
@@ -1946,7 +1931,6 @@ export class Daemon {
     const at = new Date(now);
     // The day as the person's own clock has it, which is the day they pressed the button.
     const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`);
-    if (declaredBranch(text) !== branch) throw new ChainStop(`the branch's name, ${branch}, cannot stand in a row of a routing`);
     await this.chainCommit(item, directory, [file], "chore: declare the work item's routing", () => writeRecordFile(worktree, file, text));
     return directory;
   }
@@ -2073,12 +2057,7 @@ export class Daemon {
     await this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, worktree, prompt, async () => {
       const head = await worktreeHead(worktree);
       await this.noChangeOutside(worktree, directory);
-      let left: string | null;
-      try {
-        left = repositoryFileText(file);
-      } catch (error) {
-        throw new ChainStop(`${relative(worktree, file)} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      const left = repositoryFileText(file);
       if (left === null) throw new ChainStop(`the round record no longer stands at ${relative(worktree, file)}`);
       const { closes, open } = fixPassRecord(committed, left);
       await fixedCommitsHeld(worktree, closes, head, target);

@@ -2,7 +2,7 @@
 // repository with the records root, a client, the round records a fake
 // proofer answers with and the fix a fake crafter makes. No case starts an
 // agent: every stage runs on the fake adapter.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
@@ -76,6 +76,30 @@ export async function client(url: string, cleanups: Cleanups) {
       return answer.type === "error" ? answer.message : "done";
     },
   };
+}
+
+/**
+ * Puts a `git` before the real one on the path the daemon runs git from: a
+ * command `when` holds for, a test of the shell over git's arguments, waits
+ * until `release`, and every other runs at once. The case's own git goes
+ * through it too, until `release`. `waiting` says whether a held command has
+ * arrived.
+ */
+export function heldGit(cleanups: Cleanups, base: string, when: string): { release: () => void; waiting: () => boolean } {
+  const bin = join(base, `held-bin-${String(cleanups.length)}`);
+  const released = join(bin, "released");
+  const arrived = join(bin, "arrived");
+  const path = process.env.PATH ?? "";
+  mkdirSync(bin);
+  // A held command also ends its wait once this script is gone, with the temporary folder of a case that failed before its release.
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nif ${when}; then touch '${arrived}'; while [ ! -e '${released}' ] && [ -e "$0" ]; do sleep 0.02; done; fi\nPATH='${path}' exec git "$@"\n`, { mode: 0o755 });
+  process.env.PATH = `${bin}:${path}`;
+  const release = (): void => {
+    writeFileSync(released, "");
+    process.env.PATH = path;
+  };
+  cleanups.push(release);
+  return { release, waiting: () => existsSync(arrived) };
 }
 
 /** Writes a file in a folder, with the folders above it. */

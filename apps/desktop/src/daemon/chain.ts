@@ -175,9 +175,10 @@ function firstRefusal(record: RoundRecord, what: string): string | null {
  * commits after the last record's target changed. A round record that only
  * the worktree holds is not read: a round reads a committed tree, and the
  * next round reads what a commit holds. It throws a `ChainStop` where a
- * round record the head holds does not read whole or names no target, where
- * its target names no commit, and where the record of decisions cannot be
- * read.
+ * round record the head holds does not read whole or names no target, and
+ * where its target names no commit, and what
+ * `repository-file.ts#repositoryFileText` throws where the record of
+ * decisions stands and cannot be read.
  */
 export async function standingOf(worktree: string, directory: string, head: string, base: string): Promise<Standing> {
   const from = (path: string): string => relative(worktree, path);
@@ -195,13 +196,8 @@ export async function standingOf(worktree: string, directory: string, head: stri
     if (record.target === null) throw new ChainStop(`${path} holds no round block`);
     rounds.push({ round, target: record.target, findings: record.findings });
   }
-  let decisions: ReturnType<typeof readDecisionRecord> | null = null;
-  try {
-    const text = repositoryFileText(join(directory, RECORD_FILE));
-    if (text !== null) decisions = readDecisionRecord(text);
-  } catch (error) {
-    throw new ChainStop(`${join(from(directory), RECORD_FILE)} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  const text = repositoryFileText(join(directory, RECORD_FILE));
+  const decisions = text === null ? null : readDecisionRecord(text);
   const last = rounds.at(-1);
   let changed: string[] = [];
   if (last !== undefined) {
