@@ -10,8 +10,54 @@ import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/ad
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
-import { CHAIN_STAGES_KEPT, ChainStop, StageStopped, PARKED_SAYS, READING_SAYS, ROUNDS_FOLDER, type Standing, type StagePrompt, type Step, chainStoppedSays, fixPassPrompt, fixPassRecord, fixedCommitsHeld, inFolder, leftOpen, leftReversed, promptText, reviewedSays, roundFile, roundPrompt, roundRecordOf, routingText, runningSays, standingOf, stepOwed, stoppedSays } from "./chain";
-import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
+import {
+  type Ask,
+  CHAIN_STAGES_KEPT,
+  ChainStop,
+  ORCHESTRATOR,
+  PARKED_SAYS,
+  READING_SAYS,
+  REFUSALS_FILE,
+  ROUNDS_CEILING,
+  ROUNDS_FOLDER,
+  type RefusedCall,
+  type StagePrompt,
+  type StageRefusals,
+  StageStopped,
+  type Standing,
+  type Step,
+  asksOf,
+  ceilingSays,
+  chainStoppedSays,
+  convergenceDecided,
+  convergenceOf,
+  convergencePrompt,
+  fixPassPrompt,
+  fixPassRecord,
+  fixedCommitsHeld,
+  gateBefore,
+  inFolder,
+  leftOpen,
+  leftOpenAgain,
+  notConvergingSays,
+  notResumedSays,
+  parkedGrounds,
+  passedBefore,
+  promptText,
+  refusalsText,
+  reviewedSays,
+  roundFile,
+  roundPrompt,
+  roundRecordOf,
+  routingText,
+  rulingPrompt,
+  rulingsOf,
+  runningSays,
+  standingOf,
+  stepOwed,
+  stoppedSays,
+} from "./chain";
+import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -146,6 +192,8 @@ export interface DaemonOptions {
   headlessLimitMs?: number;
   /** How many of the headless sessions that ended the daemon keeps, apart from the ones still working; `HEADLESS_KEPT` when absent. */
   keptHeadless?: number;
+  /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer; `ROUNDS_CEILING` of `chain.ts` when absent. */
+  roundsCeiling?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -179,8 +227,8 @@ interface HeadlessSession {
   ended: Promise<void>;
   /** Settles `ended`. */
   end: () => void;
-  /** How many calls of the session its role's rule refused. */
-  refusals: number;
+  /** The calls of the session its role's rule refused, in their order: each one's tool, what it does and the rule's name. */
+  refusals: RefusedCall[];
   /** The wait for the session's time limit. Its end and the daemon's close each cancel it. */
   limit: NodeJS.Timeout | undefined;
   /** The requests the session waits for the person to answer, by the ids its adapter gave them. They live in memory alone, as the session does, and end with it. */
@@ -853,6 +901,8 @@ export class Daemon {
             // The answer first, so the client that asked knows its request was carried out when the inbox carries the answers.
             this.send(socket, { type: "done", requestId: message.requestId });
             this.broadcastInbox();
+            // The answers left the record with no open question, so a chain they parked runs the step it owes. Its start waits where a `getSeal`'s does.
+            if (this.store.workItem(workItemId)?.item.chain?.state === "parked") this.changing = this.changing.then(() => this.resumeChain(workItemId));
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -1107,17 +1157,7 @@ export class Daemon {
             // Nothing runs in a work item the daemon does not list, nor in an archived one, nor in one being deleted.
             const worktree = this.worktreeFor(socket, message.requestId, workItemId);
             if (worktree === undefined) return;
-            // A person's word that is being written or committed in the worktree lands first, so the round's target holds it.
-            await this.words.get(worktree);
-            await this.wordCommits.get(worktree);
-            const why = await this.whyNoChain(workItemId);
-            if (why !== null) throw new Error(why);
-            const held = this.store.workItem(workItemId);
-            if (!held) throw new Error(`no work item ${String(workItemId)}`);
-            // The stages of the starts before this one stay: the chain goes on from the records, and they say what ran.
-            this.store.setWorkItem(workItemId, { chain: { state: "running", says: READING_SAYS, reviewedAt: null, stages: held.item.chain?.stages ?? [] } });
-            // The run begins in a later turn, after the answer and the inbox below.
-            this.chains.set(workItemId, Promise.resolve().then(() => this.runChain(workItemId)));
+            await this.beginChain(workItemId, worktree, true);
             // The answer first, so the client that asked knows its request was carried out when the inbox carries the chain.
             this.send(socket, { type: "done", requestId: message.requestId });
             this.broadcastInbox();
@@ -1382,7 +1422,7 @@ export class Daemon {
         const verdict = verdictOn(info.role, event, cwd);
         if (verdict.answer === "allow") session.run?.answer(event.id, { allow: true });
         else if (verdict.answer === "refuse") {
-          session.refusals += 1;
+          session.refusals.push({ tool: event.tool, action: event.action, rule: verdict.rule });
           session.run?.answer(event.id, { allow: false, reason: verdict.reason });
         } else {
           // The person's to answer: the call is held, and the request goes out with its work item. The session's limit runs on meanwhile.
@@ -1448,7 +1488,7 @@ export class Daemon {
       started: Promise.resolve(undefined),
       ended,
       end,
-      refusals: 0,
+      refusals: [],
       limit: undefined,
       asks: new Map(),
     };
@@ -1804,6 +1844,50 @@ export class Daemon {
   }
 
   /**
+   * Starts a work item's chain in its worktree, where `whyNoChain` gives no
+   * reason against it, and throws that reason, with nothing started, where
+   * it gives one. A person's word that is being written or committed in the
+   * worktree lands first, so the first round's target holds it. The chain is
+   * stored `running` with the stages of the starts before this one, which
+   * say what ran, and its run begins in a later turn of the daemon's thread,
+   * after the caller has answered. `byPerson` says that a person's `getSeal`
+   * made the start, which a chain stopped by the orchestrator's judgment or
+   * at the ceiling of its rounds takes as the answer (`chain.ts#gateBefore`).
+   */
+  private async beginChain(workItemId: number, worktree: string, byPerson: boolean): Promise<void> {
+    await this.words.get(worktree);
+    await this.wordCommits.get(worktree);
+    const why = await this.whyNoChain(workItemId);
+    if (why !== null) throw new Error(why);
+    const held = this.store.workItem(workItemId);
+    if (!held) throw new Error(`no work item ${String(workItemId)}`);
+    this.store.setWorkItem(workItemId, { chain: { state: "running", says: READING_SAYS, reviewedAt: null, stages: held.item.chain?.stages ?? [] } });
+    this.chains.set(workItemId, Promise.resolve().then(() => this.runChain(workItemId, byPerson)));
+  }
+
+  /**
+   * Starts a parked chain again once the person's answers left the work
+   * item's record with no open question: the chain runs the step its records
+   * owe. Where nothing can start in the work item, or the start is refused
+   * as a `getSeal`'s would be, the chain is `stopped` with a sentence that
+   * says why, and a later `getSeal` starts it. A chain that is no longer
+   * parked is left as it is.
+   */
+  private async resumeChain(workItemId: number): Promise<void> {
+    const parked = this.store.workItem(workItemId)?.item;
+    if (parked?.chain?.state !== "parked") return;
+    try {
+      const gone = this.whyNoRun(workItemId);
+      if (gone !== null) throw new Error(gone);
+      await this.beginChain(workItemId, parked.worktree, false);
+      this.broadcastInbox();
+    } catch (error) {
+      const chain = this.store.workItem(workItemId)?.item.chain;
+      if (chain) this.chainSet(workItemId, { ...chain, state: "stopped", says: notResumedSays(error instanceof Error ? error.message : String(error)) });
+    }
+  }
+
+  /**
    * Why a chain cannot start for a work item `worktreeFor` gave a worktree
    * of, as a sentence a window shows as it is, or null where it can. The
    * first of these that holds is the reason: a chain of the work item is
@@ -1857,17 +1941,27 @@ export class Daemon {
    * Runs a work item's chain from where its records stand until it rests:
    * before each stage it reads the step the records owe (`chain.ts#stepOwed`)
    * and runs that stage, and it rests `parked` or `reviewed` where the
-   * records owe none. Whatever stops a stage, and whatever the reads between
+   * records owe none. Before a fix pass it reads what the chain owes first
+   * (`chain.ts#gateBefore`): the orchestrator's judgment of whether the
+   * rounds are converging, whose `no` stops the chain, or a stop at the
+   * ceiling of its rounds. A stage whose answer asks questions is followed
+   * by the orchestrator's judgment on them, which decides each or parks the
+   * work item. Whatever stops a stage, and whatever the reads between
    * two stages throw, leaves the chain `stopped` with a sentence that says
    * why, and nothing of another work item is started, stopped or refused. A
    * daemon that closes ends the run at its next step and stores nothing, so
    * the chain stays stored `running`, which the next daemon reads as stopped.
+   * `byPerson` says that a person's `getSeal` started the run.
    */
-  private async runChain(workItemId: number): Promise<void> {
+  private async runChain(workItemId: number, byPerson: boolean): Promise<void> {
     const rest = (state: Chain["state"], says: string, reviewedAt: string | null = null): void => {
       const chain = this.store.workItem(workItemId)?.item.chain;
       if (chain) this.chainSet(workItemId, { ...chain, state, says, reviewedAt });
     };
+    const ceiling = this.options.roundsCeiling ?? ROUNDS_CEILING;
+    // Whether the step is the first of a start a person made, and the round this run's judgment of convergence was answered yes after.
+    let first = byPerson;
+    let judged: number | null = null;
     try {
       for (;;) {
         if (this.closed) return;
@@ -1886,8 +1980,23 @@ export class Daemon {
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
         if (step.is === "reviewed") return rest("reviewed", reviewedSays(step.round, step.at), step.at);
-        if (step.is === "round") await this.runRound(held, directory, standing, step);
-        else await this.runFixPass(held, directory, standing, step);
+        if (step.is === "round") {
+          const asks = await this.runRound(held, directory, standing, step);
+          if (asks.length > 0) await this.runRuling(held, directory, standing.directory, "round", step.round, "proofer", asks);
+        } else {
+          const stages = this.store.workItem(workItemId)?.item.chain?.stages ?? [];
+          const gate = gateBefore(step, stages, ceiling, { judged: judged === step.round, first });
+          if (gate === "ceiling") return rest("stopped", ceilingSays(step.round, ceiling));
+          if (gate === "judgment") {
+            if (!(await this.runConvergence(held, directory, standing, step.round))) return rest("stopped", notConvergingSays(step.round));
+            // The judgment's commit moved the branch's head, so the fix pass starts from the records as they now stand.
+            judged = step.round;
+          } else {
+            const asks = await this.runFixPass(held, directory, standing, step, passedBefore(stages, step.round));
+            if (asks.length > 0) await this.runRuling(held, directory, standing.directory, "fix-pass", step.round, "crafter", asks);
+          }
+        }
+        first = false;
       }
     } catch (error) {
       if (this.closed) return;
@@ -1931,31 +2040,35 @@ export class Daemon {
     const at = new Date(now);
     // The day as the person's own clock has it, which is the day they pressed the button.
     const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`);
-    await this.chainCommit(item, directory, [file], "chore: declare the work item's routing", () => writeRecordFile(worktree, file, text));
+    await this.chainCommit(item, directory, [file], "chore: declare the work item's routing", { write: () => writeRecordFile(worktree, file, text) });
     return directory;
   }
 
   /**
    * Makes one commit of a chain in a work item's worktree, after every
-   * commit that was asked for there before it: it runs `write`, then
-   * commits the files given, each a file of the work item's directory, and
-   * the work item's record of decisions where one stands, together and
-   * nothing else (`worktrees.ts#commitPaths`), with the subject given and
-   * the trailer `Seal-Routing:` that names the directory. It throws a
-   * `ChainStop` with what the writer refused, or with git's first words
-   * where the commit failed, a hook's refusal among them: the files then
-   * stand written and not committed.
+   * commit that was asked for there before it: it runs `write`, appends
+   * one row to `trail/refusals.md` for each call the stage's role's rule
+   * refused (`chain.ts#refusalsText`), then commits the files given, each a
+   * file of the work item's directory, with the work item's record of
+   * decisions and its refusals where each stands, together and nothing else
+   * (`worktrees.ts#commitPaths`), with the subject given and the trailer
+   * `Seal-Routing:` that names the directory. It throws a `ChainStop` with
+   * what a write refused, or with git's first words where the commit
+   * failed, a hook's refusal among them: the files then stand written and
+   * not committed.
    */
-  private chainCommit(item: Held["item"], directory: string, files: readonly [string, ...string[]], subject: string, write: () => void = () => {}): Promise<void> {
+  private chainCommit(item: Held["item"], directory: string, files: readonly [string, ...string[]], subject: string, stage: { write?: () => void; refused?: StageRefusals } = {}): Promise<void> {
     const { worktree, branch } = item;
     return this.inWorktree(worktree, async () => {
+      const record = join(directory, RECORD_FILE);
+      const refusals = join(directory, REFUSALS_FILE);
       try {
-        write();
+        stage.write?.();
+        if (stage.refused !== undefined && stage.refused.calls.length > 0) writeRecordFile(worktree, refusals, refusalsText(repositoryFileText(refusals), basename(directory), stage.refused));
       } catch (error) {
         throw new ChainStop(error instanceof Error ? error.message : String(error));
       }
-      const record = join(directory, RECORD_FILE);
-      const [first, ...others] = [...files, ...(existsSync(record) ? [record] : [])].map((file) => relative(worktree, file));
+      const [first, ...others] = [...new Set([...files, ...[record, refusals].filter((file) => existsSync(file))])].map((file) => relative(worktree, file));
       try {
         await commitPaths(worktree, branch, [first ?? "", ...others], subject, `Seal-Routing: ${basename(directory)}`);
       } catch (error) {
@@ -1977,13 +2090,16 @@ export class Daemon {
    * the work item's worktree, listed with the chain as its newest stage.
    * When the session is no longer working, the stage's run is stopped and
    * its process has exited before anything else of the chain happens in the
-   * worktree. `after` is then given a finished session's answer, and takes
-   * and commits what the stage left. The stage is `finished` where it did,
-   * and `failed`, with why, where the session failed or was stopped or
+   * worktree. `after` is then given a finished session's answer and the
+   * calls its role's rule refused, takes and commits what the stage left,
+   * and what it gives is what this gives. The stage is `finished` where it
+   * did, and `failed`, with why, where the session failed or was stopped or
    * `after` threw; a failed stage throws a `StageStopped` with the chain's
-   * sentence. A daemon that closed meanwhile throws too, and stores nothing.
+   * sentence, and its refused calls are counted on the stage and written to
+   * no record. A daemon that closed meanwhile throws too, and stores
+   * nothing.
    */
-  private async runStage(workItemId: number, kind: ChainStageKind, round: number, role: RoleStage, worktree: string, prompt: StagePrompt, after: (answer: string) => Promise<void>): Promise<void> {
+  private async runStage<T>(workItemId: number, kind: ChainStageKind, round: number, role: RoleStage, worktree: string, prompt: StagePrompt, after: (answer: string, refused: StageRefusals) => Promise<T>): Promise<T> {
     const before = this.store.workItem(workItemId)?.item.chain;
     if (!before) throw new ChainStop("the daemon no longer keeps the work item");
     const session = this.beginHeadless(workItemId, { shown: prompt.shown, given: promptText(prompt) }, role, worktree);
@@ -1994,19 +2110,21 @@ export class Daemon {
     await (await session.started)?.stop();
     if (this.closed) throw new ChainStop("the daemon closed");
     let failure: string | null = null;
+    let left: { gave: T } | undefined;
     if (session.info.state !== "finished") failure = session.info.error ?? "the session failed";
     else {
       try {
-        await after(session.info.answer);
+        left = { gave: await after(session.info.answer, { kind, round, role: role.role, calls: session.refusals }) };
       } catch (error) {
         if (this.closed) throw error;
         failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
       }
     }
-    const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt: (this.options.now ?? Date.now)(), refusals: session.refusals };
+    const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt: (this.options.now ?? Date.now)(), refusals: session.refusals.length };
     const chain = this.store.workItem(workItemId)?.item.chain;
     if (chain) this.chainSet(workItemId, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
-    if (failure !== null) throw new StageStopped(stoppedSays(kind, round, failure));
+    if (left === undefined) throw new StageStopped(stoppedSays(kind, round, failure ?? "the session failed"));
+    return left.gave;
   }
 
   /**
@@ -2017,21 +2135,26 @@ export class Daemon {
    * to `trail/rounds/round-<N>.md` and commits it, where the worktree's head
    * is still the round's target and the worktree holds no change outside the
    * work item's directory. Where one of those does not hold, no record is
-   * written and the stage fails with a sentence that says which.
+   * written and the stage fails with a sentence that says which. It gives
+   * the questions the answer asks above its record (`chain.ts#asksOf`), and
+   * an `asks:` block the reader refuses fails the stage as well.
    */
-  private async runRound({ item }: Held, directory: string, standing: Standing, step: Extract<Step, { is: "round" }>): Promise<void> {
+  private async runRound({ item }: Held, directory: string, standing: Standing, step: Extract<Step, { is: "round" }>): Promise<Ask[]> {
     const { worktree } = item;
     // Round 1 reads the branch from where it left its base, and a verifying round the commits after the last target.
     const base = step.from === null ? ((item.baseBranch !== null && (await commitNamed(worktree, item.baseBranch)) !== null ? item.baseBranch : item.baseCommit) ?? standing.head) : step.from;
     const { paths, text } = await diffBetween(worktree, base, standing.head, step.from === null);
     const prompt = roundPrompt({ round: step.round, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(directory, RECORD_FILE)), paths, diff: text });
     const file = join(directory, ROUNDS_FOLDER, roundFile(step.round));
-    await this.runStage(item.id, "round", step.round, { role: "proofer", stage: "round" }, worktree, prompt, async (answer) => {
+    return this.runStage(item.id, "round", step.round, { role: "proofer", stage: "round" }, worktree, prompt, async (answer, refused) => {
       const record = roundRecordOf(answer, { round: step.round, workItem: basename(directory), target: step.target, before: step.from === null ? null : (standing.rounds.at(-1) ?? null) });
+      // The record's reader refused a record that holds an `asks:` block, so each question stands above the record's heading.
+      const asks = asksOf(answer);
       const head = await worktreeHead(worktree);
       if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the round, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the round read another tree than its target`);
       await this.noChangeOutside(worktree, directory);
-      await this.chainCommit(item, directory, [file], `chore: record review round ${String(step.round)}`, () => writeRecordFile(worktree, file, record));
+      await this.chainCommit(item, directory, [file], `chore: record review round ${String(step.round)}`, { write: () => writeRecordFile(worktree, file, record), refused });
+      return asks;
     });
   }
 
@@ -2044,26 +2167,87 @@ export class Daemon {
    * by close blocks alone, the reader refuses no line, each `fixed <commit>`
    * names a commit the branch's head holds and the round's target does not,
    * and the worktree holds no change outside the work item's directory.
-   * Where one does not hold, nothing is committed. A pass that leaves a
-   * finding open, or a reversal standing, fails after the record's commit,
-   * and each failure says which.
+   * Where one does not hold, nothing is committed. The record's commit
+   * carries each decision the prompt gave as reversed, written `applied`
+   * with the branch's head after the pass. It gives the questions the
+   * answer asks (`chain.ts#asksOf`). A pass that leaves a finding open and
+   * asks nothing fails after the record's commit, and so does a second pass
+   * on one record (`second`) that leaves one open, whatever it asks.
    */
-  private async runFixPass({ item }: Held, directory: string, standing: Standing, step: Extract<Step, { is: "fix-pass" }>): Promise<void> {
+  private async runFixPass(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "fix-pass" }>, second: boolean): Promise<Ask[]> {
+    const { item } = held;
     const { worktree } = item;
     const file = join(directory, ROUNDS_FOLDER, roundFile(step.round));
     const target = standing.rounds.at(-1)?.target.commit ?? standing.head;
     const committed = (await fileAt(worktree, standing.head, relative(worktree, file))) ?? "";
     const prompt = fixPassPrompt({ round: step.round, directory: standing.directory, open: step.open, reversals: step.reversals });
-    await this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, worktree, prompt, async () => {
+    return this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, worktree, prompt, async (answer, refused) => {
+      const asks = asksOf(answer);
       const head = await worktreeHead(worktree);
       await this.noChangeOutside(worktree, directory);
       const left = repositoryFileText(file);
       if (left === null) throw new ChainStop(`the round record no longer stands at ${relative(worktree, file)}`);
       const { closes, open } = fixPassRecord(committed, left);
       await fixedCommitsHeld(worktree, closes, head, target);
-      await this.chainCommit(item, directory, [file], `chore: record the fix pass of round ${String(step.round)}`);
-      if (open.length > 0) throw new ChainStop(leftOpen(open));
-      if (step.reversals.length > 0) throw new ChainStop(leftReversed(step.reversals));
+      // Each reversal the pass was given is taken in at the head the pass left, which the next round reads.
+      const applied = (): void => {
+        if (step.reversals.length === 0) return;
+        writeRecord(worktree, directory, (text) => step.reversals.reduce((next, reversal) => withApplied(next, reversal.id, head), text));
+        this.readRecord(held);
+        this.flushTimes();
+      };
+      await this.chainCommit(item, directory, [file], `chore: record the fix pass of round ${String(step.round)}`, { write: applied, refused });
+      if (open.length > 0 && second) throw new ChainStop(leftOpenAgain(open));
+      if (open.length > 0 && asks.length === 0) throw new ChainStop(leftOpen(open));
+      return asks;
+    });
+  }
+
+  /**
+   * Asks the orchestrator whether the rounds are converging, after a round
+   * of 2 or later that left a finding open (`chain.ts#convergencePrompt`).
+   * Its answer's one `converging:` block is the judgment: the daemon
+   * records it as a decision of the kind `route` made by `orchestrator`
+   * (`Daemon#decided`), commits the record of decisions, and gives whether
+   * the answer was yes. An answer that holds no such block, or more than
+   * one, fails the stage, and nothing is recorded.
+   */
+  private async runConvergence({ item }: Held, directory: string, standing: Standing, round: number): Promise<boolean> {
+    const record = join(directory, RECORD_FILE);
+    const prompt = convergencePrompt({ round, directory: standing.directory, rounds: standing.rounds.map((each) => each.round), decisions: existsSync(record) });
+    return this.runStage(item.id, "judgment", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
+      const { converging, grounds } = convergenceOf(answer);
+      if (this.decided(item.id, { kind: "route", says: convergenceDecided(round, converging), grounds, by: ORCHESTRATOR.role }) === undefined) throw new ChainStop("its judgment was not written into the work item's record of decisions");
+      await this.chainCommit(item, directory, [record], `chore: record the orchestrator's judgment after round ${String(round)}`, { refused });
+      return converging;
+    });
+  }
+
+  /**
+   * Asks the orchestrator to rule on the questions a stage's answer asked
+   * (`chain.ts#rulingPrompt`), after that stage's record is committed. Its
+   * answer holds one `rules:` block for each question: the daemon records
+   * each decision with `Daemon#decided`, as made by `orchestrator`, parks
+   * the work item with the questions the orchestrator parked, in one
+   * `Daemon#park` with the asking role as who asks, and commits the record
+   * of decisions. An answer that does not rule on each question once fails
+   * the stage, and nothing is recorded.
+   */
+  private async runRuling({ item }: Held, directory: string, inside: string, asked: "round" | "fix-pass", round: number, by: "proofer" | "crafter", asks: Ask[]): Promise<void> {
+    const record = join(directory, RECORD_FILE);
+    const prompt = rulingPrompt({ round, directory: inside, by, asked, asks, decisions: existsSync(record) });
+    await this.runStage(item.id, "judgment", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
+      const rulings = rulingsOf(answer, asks.length);
+      const unwritten = new ChainStop("its rulings were not written into the work item's record of decisions");
+      const parked: { asks: string; grounds: string; options: { label: string; implies: string }[]; default: string | null }[] = [];
+      for (const [index, ruling] of rulings.entries()) {
+        const ask = asks[index];
+        if (ask === undefined) continue;
+        if (ruling.is === "park") parked.push({ ...ask, grounds: parkedGrounds(ask, ruling) });
+        else if (this.decided(item.id, { kind: ruling.is, says: ruling.decided, grounds: ruling.grounds, by: ORCHESTRATOR.role }) === undefined) throw unwritten;
+      }
+      if (parked.length > 0 && this.park(item.id, { by, questions: parked }) === undefined) throw unwritten;
+      await this.chainCommit(item, directory, [record], `chore: record the orchestrator's judgment after round ${String(round)}`, { refused });
     });
   }
 

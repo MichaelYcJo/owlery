@@ -249,12 +249,43 @@ export function fixes(cwd: string, prompt: string): void {
   for (const finding of open) closeFinding(cwd, record, finding, `fixed ${commit}`);
 }
 
-/** What each fake role of a chain does: the proofer's answer for a round, and the crafter's work in the worktree. */
+/** What each fake role of a chain does: the proofer's answer for a round, the crafter's work in the worktree and its answer, and the orchestrator's answer. */
 export interface Roles {
   /** The proofer's answer to a round's prompt. Absent, round 1 holds finding 1 and each later round confirms the findings of the round before it. */
   proofer?: (given: { round: number; heading: string; target: string }, prompt: string) => string;
   /** The crafter's work in the worktree. Absent, it commits a fix and closes each open finding. */
   crafter?: (cwd: string, prompt: string) => void | Promise<void>;
+  /** The crafter's answer. Absent, it says that the pass is done. */
+  crafterSays?: (prompt: string) => string;
+  /** The orchestrator's answer to a judgment's prompt. Absent, the rounds are converging and each question is answered from the tree. */
+  orchestrator?: (prompt: string) => string;
+}
+
+/** An `asks:` block as a stage's answer holds one. */
+export function askBlock(ask: { asks: string; grounds: string; options?: [label: string, implies: string][]; default?: string }): string {
+  return ["```seal", `asks: ${ask.asks}`, `grounds: ${ask.grounds}`, ...(ask.options ?? []).map(([label, implies]) => `option: \`${label}\`${implies === "" ? "" : ` ${implies}`}`), ...(ask.default === undefined ? [] : [`default: \`${ask.default}\``]), "```", ""].join("\n");
+}
+
+/** The orchestrator's judgment of convergence, as its answer holds one. */
+export function convergenceBlock(converging: "yes" | "no", grounds = "Round 2 confirms the fix of round 1, and its one finding is new."): string {
+  return ["```seal", `converging: ${converging}`, `grounds: ${grounds}`, "```", ""].join("\n");
+}
+
+/** The orchestrator's ruling on one question, as its answer holds one: a park where nothing was decided. */
+export function rulingBlock(question: number, ruling: "default" | "scope" | "answered" | "park", decided: string | null, grounds: string): string {
+  return ["```seal", `rules: ${String(question)} ${ruling}`, ...(decided === null ? [] : [`decided: ${decided}`]), `grounds: ${grounds}`, "```", ""].join("\n");
+}
+
+/** How many questions a judgment's prompt gives, and none for the judgment of convergence. */
+export function givenQuestions(prompt: string): number {
+  return [...prompt.matchAll(/^\d+\. /gmu)].length;
+}
+
+/** The answer of the orchestrator that sees the rounds converge and finds each question answered in the tree. */
+export function judges(prompt: string): string {
+  const questions = givenQuestions(prompt);
+  if (questions === 0) return `I read the records.\n\n${convergenceBlock("yes")}`;
+  return Array.from({ length: questions }, (_, index) => rulingBlock(index + 1, "answered", `The frame answers question ${String(index + 1)}.`, "Read in `frame/design.md`.")).join("\n");
 }
 
 /** The answer of the proofer that does its part: round 1 holds finding 1, and each later round confirms finding 1 of the round before it. */
@@ -262,10 +293,14 @@ export function proofs(given: { round: number; heading: string; target: string }
   return given.round === 1 ? roundRecord(given.heading, given.target, [1]) : roundRecord(given.heading, given.target, [], [`round-${String(given.round - 1)}#1`]);
 }
 
-/** A fake adapter whose proofer and crafter act as the roles given, with every other option of the fake adapter. */
+/** A fake adapter whose proofer, crafter and orchestrator act as the roles given, with every other option of the fake adapter. */
 export function roles(given: Roles = {}, options: FakeAdapterOptions = {}): RoleAdapter {
   return fakeAdapter({
-    pieces: (prompt, role) => (role?.role === "proofer" ? [(given.proofer ?? proofs)(givenRound(prompt), prompt)] : ["The fix pass is done."]),
+    pieces: (prompt, role) => {
+      if (role?.role === "proofer") return [(given.proofer ?? proofs)(givenRound(prompt), prompt)];
+      if (role?.role === "orchestrator") return [(given.orchestrator ?? judges)(prompt)];
+      return [given.crafterSays?.(prompt) ?? "The fix pass is done."];
+    },
     work: (cwd, prompt, role) => (role?.role === "crafter" ? (given.crafter ?? fixes)(cwd, prompt) : undefined),
     ...options,
   });

@@ -11,12 +11,19 @@
 // chain that failed, was stopped or was cut by the daemon's end starts again
 // from the records (docs/architecture.md, "Code runs the order, the
 // orchestrator judges").
+//
+// The order is code and two things are the orchestrator agent's: whether the
+// rounds are converging, asked before a fix pass on the record of round 2 or
+// a later round (`gateBefore`), and what a stage's question is decided as,
+// from the code and the policy, or whether it parks the work item.
 import { join, relative } from "node:path";
-import type { Chain, ChainStage, ChainStageKind } from "../shared/protocol";
+import type { Chain, ChainStage, ChainStageKind, RoleStage } from "../shared/protocol";
 import { CHAIN_STAGE_KINDS } from "../shared/protocol";
+import type { PermissionAction } from "./adapters/adapter";
 import { RECORD_FILE, readDecisionRecord } from "./decision-record";
-import { gfmLines, stripped } from "./record-blocks";
+import { ASK_BLOCK, CONVERGENCE_BLOCK, RULING_BLOCK, type Block, type Kind, field, gfmLines, read, stripped } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
+import type { RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
 import { commitNamed, fileAt, filesAt, holdsCommit, pathsOfCommits } from "./worktrees";
 
@@ -25,6 +32,12 @@ export const CHAIN_STAGES_KEPT = 50;
 
 /** How many characters of the reviewed commits' diff a round's prompt carries. A longer diff is cut there, and the prompt says so. */
 export const PROMPT_DIFF_CHARS = 200_000;
+
+/** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer, where the daemon's options name no other. It bounds the usage a chain spends with nobody watching. */
+export const ROUNDS_CEILING = 6;
+
+/** The file of a work item's directory that holds each call a role's rule refused. */
+export const REFUSALS_FILE = join("trail", "refusals.md");
 
 /** The folder of a work item's directory that holds its round records. */
 export const ROUNDS_FOLDER = join("trail", "rounds");
@@ -72,6 +85,21 @@ export const PARKED_SAYS = "The chain waits for the answers to the work item's o
 /** The sentence of a chain whose rounds settled. */
 export function reviewedSays(round: number, head: string): string {
   return `The review rounds settled at ${head.slice(0, 7)}, after round ${String(round)}.`;
+}
+
+/** The sentence of a chain the orchestrator's judgment stopped. */
+export function notConvergingSays(round: number): string {
+  return `The orchestrator judged after round ${String(round)} that the review rounds are not converging. "Get a seal" runs the fix pass of round ${String(round)} all the same.`;
+}
+
+/** The sentence of a chain that stopped at the ceiling of its rounds. */
+export function ceilingSays(round: number, ceiling: number): string {
+  return `Review round ${String(round)} left a finding open, and a chain stops for the person from round ${String(ceiling)} on. "Get a seal" runs the fix pass of round ${String(round)} and one more round.`;
+}
+
+/** The sentence of a parked chain that did not go on once its questions were answered: what refused the start, as a sentence of its own. */
+export function notResumedSays(why: string): string {
+  return `The chain did not go on after the answers. ${why.replace(/^[a-z]/u, (letter) => letter.toUpperCase()).replace(/\.*$/u, "")}.`;
 }
 
 /** The sentence of a chain that stopped outside a stage. */
@@ -153,6 +181,53 @@ export function stepOwed(standing: Standing): Step {
   const outside = standing.changed.some((path) => !inFolder(path, standing.directory));
   if (answered || outside) return { is: "round", round: last.round + 1, target: `${standing.head}, fixes ${last.target.commit}..${standing.head}`, from: last.target.commit };
   return { is: "reviewed", round: last.round, at: standing.head };
+}
+
+/** What a chain does before a fix pass: nothing, the orchestrator's judgment of whether the rounds are converging, or a stop at the ceiling of its rounds. */
+export type Gate = "none" | "judgment" | "ceiling";
+
+/** The stages at the end of a chain's that belong to the round's record: every stage after the round's own, where each is a fix pass or a judgment of that round. */
+function sinceRound(stages: readonly ChainStage[], round: number): ChainStage[] {
+  let from = stages.length;
+  while (from > 0 && stages[from - 1]?.round === round && stages[from - 1]?.kind !== "round") from -= 1;
+  return stages.slice(from);
+}
+
+/** Whether a fix pass on the round's record already finished, by the chain's stored stages: the pass now owed is a second one on that record, which follows a question that was decided or answered. */
+export function passedBefore(stages: readonly ChainStage[], round: number): boolean {
+  return sinceRound(stages, round).some((stage) => stage.kind === "fix-pass" && stage.state === "finished");
+}
+
+/**
+ * What a chain does before the fix pass on a round's record, from its
+ * stored stages and from its run: the first of these that holds decides.
+ *
+ * - The record holds no open finding: nothing. The pass takes in a reversal
+ *   alone, and the round left nothing to converge on.
+ * - A fix pass on that record already finished: nothing. The gate was passed
+ *   before that pass.
+ * - The round is the ceiling or a later one: the chain stops and asks no
+ *   judgment, but at the first step of a start a person's `getSeal` made,
+ *   whose start is the answer.
+ * - The round is round 1: nothing. No record yet shows whether a fix held.
+ * - This run asked the orchestrator after that round and was answered yes:
+ *   nothing.
+ * - The step is the first of a start a person's `getSeal` made, and the
+ *   chain's last stored stage is a judgment after that round that finished:
+ *   nothing. The person read its answer and started the chain again.
+ * - Otherwise the orchestrator's judgment.
+ *
+ * A judgment on a stage's question is stored as a judgment of its round
+ * too, so a chain cut between such a judgment and the judgment of
+ * convergence it owed runs its fix pass unjudged at the person's next start.
+ */
+export function gateBefore({ round, open }: { round: number; open: readonly number[] }, stages: readonly ChainStage[], ceiling: number, run: { judged: boolean; first: boolean }): Gate {
+  if (open.length === 0 || passedBefore(stages, round)) return "none";
+  if (round >= ceiling) return run.first ? "none" : "ceiling";
+  if (round < 2 || run.judged) return "none";
+  const last = stages.at(-1);
+  if (run.first && last?.kind === "judgment" && last.round === round && last.state === "finished") return "none";
+  return "judgment";
 }
 
 /** A list of numbers as a sentence names them: `2`, `2 and 3`, `2, 3 and 5`. */
@@ -320,8 +395,214 @@ export function fixPassPrompt(given: { round: number; directory: string; open: r
   return { shown, diff: "" };
 }
 
+/** The role and the stage the orchestrator is launched as. */
+export const ORCHESTRATOR: RoleStage = { role: "orchestrator", stage: "judgment" };
+
+/**
+ * The prompt of the judgment of convergence after a round: the round, the
+ * work item's directory, the path of every round record, the path of the
+ * record of decisions where one stands, and the form of the answer.
+ */
+export function convergencePrompt(given: { round: number; directory: string; rounds: readonly number[]; decisions: boolean }): StagePrompt {
+  const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
+  const shown = [
+    `The judgment after review round ${String(given.round)} of the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    "",
+    `- The work item's directory: \`${given.directory}\``,
+    `- The round records, the oldest first: ${given.rounds.map((round) => `\`${given.directory}/trail/rounds/${roundFile(round)}\``).join(", ")}`,
+    ...(given.decisions ? [`- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``] : []),
+    "",
+    `Round ${String(given.round)} left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one \`seal\` block, written so:`,
+    "",
+    "```seal",
+    "converging: <yes or no>",
+    "grounds: <why, on one line>",
+    "```",
+    "",
+    "Owlery records the answer as a decision made without asking. `yes` starts the fix pass, and `no` stops the chain for the person. Write no file and run no command: read the files of this folder.",
+    "",
+  ].join("\n");
+  return { shown, diff: "" };
+}
+
+/**
+ * The prompt of the judgment on the questions a stage asked: the round, the
+ * work item's directory, the path of the record of decisions where one
+ * stands, who asks and in which stage, each question under its number with
+ * its grounds, its options and its default, and the form of the answer.
+ */
+export function rulingPrompt(given: { round: number; directory: string; by: string; asked: ChainStageKind; asks: readonly Ask[]; decisions: boolean }): StagePrompt {
+  const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
+  const stage = stageName(given.asked, given.round).replace(/^[A-Z]/u, (letter) => letter.toLowerCase());
+  const shown = [
+    `The judgment after review round ${String(given.round)} of the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    "",
+    `- The work item's directory: \`${given.directory}\``,
+    ...(given.decisions ? [`- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``] : []),
+    `- Who asks: the ${given.by}, in ${stage}`,
+    "",
+    given.asks.length === 1 ? "Its question:" : "Its questions:",
+    "",
+    ...given.asks.flatMap((ask, index) => [
+      `${String(index + 1)}. ${ask.asks}`,
+      `   - Why the ${given.by} cannot answer it: ${ask.grounds}`,
+      ...ask.options.map((option) => `   - Option \`${option.label}\`${option.implies === "" ? "" : `: ${option.implies}`}`),
+      ...(ask.default === null ? [] : [`   - Its default: \`${ask.default}\``]),
+    ]),
+    "",
+    "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `seal` block for each question, written so:",
+    "",
+    "```seal",
+    "rules: <the question's number> <default, scope, answered or park>",
+    "decided: <what was decided, on one line; a park holds no such line>",
+    "grounds: <why, on one line>",
+    "```",
+    "",
+    "Owlery records each decision as one made without asking, and parks the work item with each question you park. Write no file and run no command: read the files of this folder.",
+    "",
+  ].join("\n");
+  return { shown, diff: "" };
+}
+
 // ---------------------------------------------------------------------------
 // The reading of a stage's answer.
+
+/** A question a stage asks in its answer. */
+export interface Ask {
+  asks: string;
+  grounds: string;
+  options: { label: string; implies: string }[];
+  default: string | null;
+}
+
+/** The orchestrator's ruling on one question: a decision of its kind, or a park. `question` is the question's number in the prompt, from 1. */
+export type Ruling = { question: number; is: "default" | "scope" | "answered"; decided: string; grounds: string } | { question: number; is: "park"; grounds: string };
+
+/**
+ * The blocks of one kind an answer holds, in its order. An answer is prose
+ * around its blocks, so what the reader says of the rest of it is not read:
+ * another `seal` block, a comment's line, a fence it cannot place. It throws
+ * a `ChainStop` where the reader refuses a block that opens as this kind
+ * does, with the line and the reader's reason.
+ */
+function blocksOf(answer: string, kind: Kind, what: string): Block[] {
+  const got = read(answer, [kind]);
+  const lines = gfmLines(answer);
+  const refused = got.refusals.find(({ block }) => {
+    const head = block === null ? "" : (lines[block] ?? "");
+    return head === kind.opener || head.startsWith(`${kind.opener} `);
+  });
+  if (refused !== undefined) throw new ChainStop(`the reader refuses line ${String(refused.line)} of ${what}: ${refused.why}`);
+  return got.blocks;
+}
+
+/**
+ * The questions a stage's answer asks, each an `asks:` block, in the
+ * answer's order. A question written in prose is none: it stays in the
+ * answer, which the work item's view shows. A proofer's stand above its
+ * record's heading: the record's reader refuses a record that holds one
+ * (`roundRecordOf`). It throws a `ChainStop` where the reader refuses an
+ * `asks:` block.
+ */
+export function asksOf(answer: string): Ask[] {
+  return blocksOf(answer, ASK_BLOCK, "its answer's question").map((block) => ({
+    asks: field(block, "asks:")?.value ?? "",
+    grounds: field(block, "grounds:")?.value ?? "",
+    options: (block.fields.get("option:") ?? []).map((option) => ({ label: option.groups.label ?? "", implies: option.groups.implies ?? "" })),
+    default: field(block, "default:")?.groups.label ?? null,
+  }));
+}
+
+/**
+ * The orchestrator's judgment of whether the rounds are converging, from
+ * its answer's one `converging:` block. It throws a `ChainStop` where the
+ * reader refuses such a block, and where the answer holds none or more than
+ * one.
+ */
+export function convergenceOf(answer: string): { converging: boolean; grounds: string } {
+  const blocks = blocksOf(answer, CONVERGENCE_BLOCK, "its judgment");
+  const [block] = blocks;
+  if (block === undefined) throw new ChainStop("its answer holds no judgment: no `seal` block of it opens with `converging:`");
+  if (blocks.length > 1) throw new ChainStop(`its answer holds ${String(blocks.length)} blocks that open with \`converging:\`, and a judgment is one`);
+  return { converging: field(block, "converging:")?.value === "yes", grounds: field(block, "grounds:")?.value ?? "" };
+}
+
+/**
+ * The orchestrator's rulings on the questions it was given, numbered from 1
+ * to `questions`, in the questions' order. It throws a `ChainStop` where the
+ * reader refuses a `rules:` block, where a ruling names a number that is no
+ * question's, where two name one question, and where a question has none.
+ */
+export function rulingsOf(answer: string, questions: number): Ruling[] {
+  const rulings = new Map<number, Ruling>();
+  for (const block of blocksOf(answer, RULING_BLOCK, "its ruling")) {
+    const { question: digits = "", ruling = "" } = field(block, "rules:")?.groups ?? {};
+    const question = Number(digits);
+    if (question > questions) throw new ChainStop(`its answer rules on question ${digits}, and it was given ${questions === 1 ? "one question" : `${String(questions)} questions`}`);
+    if (rulings.has(question)) throw new ChainStop(`its answer rules on question ${digits} twice`);
+    const grounds = field(block, "grounds:")?.value ?? "";
+    rulings.set(question, ruling === "park" ? { question, is: "park", grounds } : { question, is: ruling as "default" | "scope" | "answered", decided: field(block, "decided:")?.value ?? "", grounds });
+  }
+  const asked = Array.from({ length: questions }, (_, index) => index + 1);
+  const unruled = asked.filter((question) => !rulings.has(question));
+  if (unruled.length > 0) throw new ChainStop(`its answer holds no ruling on ${unruled.length === 1 ? "question" : "questions"} ${listed(unruled)}: no \`seal\` block of it opens with \`rules: ${String(unruled[0] ?? 0)} \``);
+  return asked.flatMap((question) => rulings.get(question) ?? []);
+}
+
+/** What the daemon records of the judgment of convergence, as a decision's text. */
+export function convergenceDecided(round: number, converging: boolean): string {
+  return converging ? `The review rounds are converging after round ${String(round)}, so the fix pass on its record runs.` : `The review rounds are not converging after round ${String(round)}, so the chain stops for the person.`;
+}
+
+/** The grounds of a question the orchestrator parked: the asking stage's own, then why the code and the policy do not answer it. */
+export function parkedGrounds(ask: Ask, ruling: Extract<Ruling, { is: "park" }>): string {
+  return `${ask.grounds} The code and the policy do not decide it: ${ruling.grounds}`;
+}
+
+// ---------------------------------------------------------------------------
+// The calls a role's rule refused.
+
+/** One call of a stage's session that its role's rule refused: the tool's name, what the call does and the rule's name, and nothing of the call's text. */
+export interface RefusedCall {
+  tool: string;
+  action: PermissionAction;
+  rule: RefusalRule;
+}
+
+/** The refused calls of one stage, with the stage and its role. */
+export interface StageRefusals {
+  kind: ChainStageKind;
+  round: number;
+  role: string;
+  calls: readonly RefusedCall[];
+}
+
+/** What a call does, as a row of the refusals says it. */
+const CALL_DOES: Record<PermissionAction, string> = { read: "reads a file", write: "writes a file", run: "runs a command", other: "something else" };
+
+/** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`. */
+function stageCell(kind: ChainStageKind, round: number): string {
+  return `${kind === "fix-pass" ? "fix pass" : kind} ${String(round)}`;
+}
+
+/** A tool's name as a table's cell holds it: on one line, with no `|` that would end the cell, and 100 characters of it at most. The name is the agent's own word for its tool. */
+function toolCell(tool: string): string {
+  return [...tool.replace(/\s+/gu, " ").replaceAll("|", "/").trim()].slice(0, 100).join("");
+}
+
+/**
+ * The text of a work item's `trail/refusals.md` with one row more for each
+ * call given, in their order: a heading and one table of the columns
+ * `Stage`, `Role`, `Tool`, `What the call does` and `Rule`. `before` is the
+ * file as it stands, or null where none does. No row holds the call's text,
+ * a path or a command.
+ */
+export function refusalsText(before: string | null, workItem: string, refused: StageRefusals): string {
+  const head = [`# Refused calls: ${workItem}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", ""].join("\n");
+  const stood = before ?? head;
+  const rows = refused.calls.map((call) => `| ${stageCell(refused.kind, refused.round)} | ${refused.role} | ${toolCell(call.tool)} | ${CALL_DOES[call.action]} | ${call.rule} |\n`);
+  return `${stood}${stood.endsWith("\n") ? "" : "\n"}${rows.join("")}`;
+}
 
 /** Every reference a record makes to an earlier finding: its `confirms:` lines, and each finding's `reopens:` and `regression:` lines. */
 function references(record: RoundRecord): Reference[] {
@@ -424,9 +705,9 @@ export function leftOpen(open: readonly number[]): string {
   return `it left ${open.length === 1 ? "finding" : "findings"} ${listed(open)} open and raised no question`;
 }
 
-/** What a fix pass that took in no reversal is stopped with: nothing writes a reversed decision `applied` yet, so the same pass would be owed again. */
-export function leftReversed(reversals: readonly Reversal[]): string {
-  return `${reversals.length === 1 ? "decision" : "decisions"} ${listed(reversals.map((reversal) => reversal.id))} still ${reversals.length === 1 ? "stands" : "stand"} reversed after it`;
+/** What a second fix pass on one record that leaves findings open is stopped with, whatever it asks: the pass before it left them open too, and its question was decided or answered. */
+export function leftOpenAgain(open: readonly number[]): string {
+  return `it left ${open.length === 1 ? "finding" : "findings"} ${listed(open)} open, as the fix pass before it on this record did`;
 }
 
 // ---------------------------------------------------------------------------

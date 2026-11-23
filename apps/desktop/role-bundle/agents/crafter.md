@@ -80,7 +80,10 @@ is a write you do not make.
     at most one `default:` line that names an option's label. The daemon
     has each question decided from the code and the policy, or parks the
     work item for the person. A pass that leaves a finding open and asks
-    nothing stops the work item's chain.
+    nothing stops the work item's chain. The pass that follows a decided
+    or an answered question on the same round record closes each finding
+    still open: where it leaves one open, the chain stops, whatever that
+    pass asks.
 
 ## Never
 

@@ -5,11 +5,35 @@ import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "no
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
-import { CHAIN_STAGES_KEPT, ChainStop, PROMPT_DIFF_CHARS, type RoundStanding, type Standing, chainRead, fixPassPrompt, fixPassRecord, isChain, promptText, roundPrompt, roundRecordOf, routingText, stepOwed } from "../src/daemon/chain";
-import { declaredBranch, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
+import {
+  CHAIN_STAGES_KEPT,
+  ChainStop,
+  PROMPT_DIFF_CHARS,
+  ROUNDS_CEILING,
+  type RoundStanding,
+  type Standing,
+  asksOf,
+  chainRead,
+  convergenceOf,
+  convergencePrompt,
+  fixPassPrompt,
+  fixPassRecord,
+  gateBefore,
+  isChain,
+  passedBefore,
+  promptText,
+  refusalsText,
+  roundPrompt,
+  roundRecordOf,
+  routingText,
+  rulingPrompt,
+  rulingsOf,
+  stepOwed,
+} from "../src/daemon/chain";
+import { declaredBranch, readDecisionRecord, withDecision, withQuestion } from "../src/daemon/decision-record";
 import { readRoundRecord } from "../src/daemon/round-record";
 import type { Chain, ChainStage } from "../src/shared/protocol";
-import { type Cleanups, NOW, TODAY, client, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, fixes, givenFix, givenRound, head, noted, proofs, roles, roundRecord, standing, status, write } from "./chain-run";
+import { type Cleanups, NOW, TODAY, askBlock, client, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, head, noted, proofs, roles, roundRecord, rulingBlock, standing, status, write } from "./chain-run";
 import { git } from "./repositories";
 
 const cleanups: Cleanups = [];
@@ -264,6 +288,246 @@ describe("a stage's prompt", () => {
   });
 });
 
+describe("what a chain does before a fix pass", () => {
+  const stage = (kind: ChainStage["kind"], round: number, state: ChainStage["state"] = "finished"): ChainStage => ({ kind, round, state, failure: null, startedAt: 1, endedAt: 2, headlessId: null, refusals: 0 });
+  const RUN = { judged: false, first: false };
+
+  it("asks no judgment before the fix pass of round 1, and the orchestrator's before the fix pass of round 2 and of each later round below the ceiling", () => {
+    expect(ROUNDS_CEILING).toBe(6);
+    expect(gateBefore({ round: 1, open: [1] }, [stage("round", 1)], 6, RUN)).toBe("none");
+    expect(gateBefore({ round: 1, open: [1] }, [], 6, RUN)).toBe("none");
+    expect(gateBefore({ round: 2, open: [1] }, [stage("round", 1), stage("fix-pass", 1), stage("round", 2)], 6, RUN)).toBe("judgment");
+    expect(gateBefore({ round: 5, open: [1] }, [stage("round", 5)], 6, RUN)).toBe("judgment");
+    // A daemon that holds no stage of the chain asks too: nothing says that anybody judged.
+    expect(gateBefore({ round: 2, open: [1] }, [], 6, RUN)).toBe("judgment");
+  });
+
+  it("asks nothing more once this run's judgment after that round was answered yes, and asks again where the judgment that was answered followed another round", () => {
+    const stages = [stage("round", 2), stage("judgment", 2)];
+    expect(gateBefore({ round: 2, open: [1] }, stages, 6, { judged: true, first: false })).toBe("none");
+    // A judgment the stages hold is not the answer by itself: one on a stage's question is stored as a judgment of its round too.
+    expect(gateBefore({ round: 2, open: [1] }, stages, 6, RUN)).toBe("judgment");
+  });
+
+  it("takes a person's start as the answer where the chain's last stage is a judgment after that round that finished, at the start's first step alone", () => {
+    const judged = [stage("round", 2), stage("judgment", 2)];
+    const first = { judged: false, first: true };
+    expect(gateBefore({ round: 2, open: [1] }, judged, 6, first)).toBe("none");
+    expect(gateBefore({ round: 2, open: [1] }, [stage("round", 2), stage("judgment", 2, "failed")], 6, first)).toBe("judgment");
+    expect(gateBefore({ round: 3, open: [1] }, [stage("round", 2), stage("judgment", 2), stage("fix-pass", 2), stage("round", 3)], 6, first)).toBe("judgment");
+    expect(gateBefore({ round: 3, open: [1] }, [stage("judgment", 2)], 6, first)).toBe("judgment");
+    expect(gateBefore({ round: 2, open: [1] }, [stage("round", 2)], 6, first)).toBe("judgment");
+    expect(gateBefore({ round: 2, open: [1] }, [], 6, first)).toBe("judgment");
+  });
+
+  it("stops at the ceiling and at each round after it with no judgment, whatever this run was answered, and goes on at the first step of a person's start", () => {
+    expect(gateBefore({ round: 6, open: [1] }, [stage("round", 6)], 6, RUN)).toBe("ceiling");
+    expect(gateBefore({ round: 7, open: [1] }, [stage("round", 7)], 6, RUN)).toBe("ceiling");
+    expect(gateBefore({ round: 6, open: [1] }, [stage("round", 6)], 6, { judged: true, first: false })).toBe("ceiling");
+    expect(gateBefore({ round: 6, open: [1] }, [stage("round", 6)], 6, { judged: false, first: true })).toBe("none");
+    expect(gateBefore({ round: 2, open: [1] }, [stage("round", 2)], 2, RUN)).toBe("ceiling");
+    // A ceiling of 1 stops the chain before its first fix pass.
+    expect(gateBefore({ round: 1, open: [1] }, [stage("round", 1)], 1, RUN)).toBe("ceiling");
+    expect(gateBefore({ round: 5, open: [1] }, [stage("round", 5)], 6, RUN)).toBe("judgment");
+  });
+
+  it("asks nothing and stops nothing before a fix pass on a record that holds no open finding, which takes in a reversal alone", () => {
+    expect(gateBefore({ round: 2, open: [] }, [stage("round", 2)], 6, RUN)).toBe("none");
+    expect(gateBefore({ round: 6, open: [] }, [stage("round", 6)], 6, RUN)).toBe("none");
+  });
+
+  it("asks nothing and stops nothing before a second fix pass on one record, which a fix pass that finished after the round's own stage makes it", () => {
+    const asked = [stage("round", 2), stage("judgment", 2), stage("fix-pass", 2), stage("judgment", 2)];
+    expect(passedBefore(asked, 2)).toBe(true);
+    expect(gateBefore({ round: 2, open: [1] }, asked, 6, RUN)).toBe("none");
+    expect(gateBefore({ round: 2, open: [1] }, asked, 2, RUN)).toBe("none");
+    // A pass that failed is none, and neither is the pass of an earlier round or of an earlier record of that number.
+    expect(passedBefore([stage("round", 2), stage("fix-pass", 2, "failed")], 2)).toBe(false);
+    expect(gateBefore({ round: 2, open: [1] }, [stage("round", 2), stage("fix-pass", 2, "failed")], 2, RUN)).toBe("ceiling");
+    expect(passedBefore([stage("round", 1), stage("fix-pass", 1), stage("round", 2)], 2)).toBe(false);
+    expect(passedBefore([stage("fix-pass", 2), stage("round", 2)], 2)).toBe(false);
+    expect(passedBefore([stage("fix-pass", 2), stage("judgment", 3)], 2)).toBe(false);
+    expect(passedBefore([], 2)).toBe(false);
+  });
+});
+
+describe("the questions a stage's answer asks", () => {
+  const BASE = askBlock({ asks: "Which base does the fix start from?", grounds: "No document names the base of a hotfix.", options: [["main", "The release's fixes are not in it."], ["release", ""]], default: "main" });
+  const FREE = askBlock({ asks: "May the pass change the protocol?", grounds: "The frame names no such change." });
+
+  it("are its asks blocks, in its order, each with its grounds, its options and its default, and none where it holds no such block", () => {
+    expect(asksOf(`The pass met two questions.\n\n${BASE}\nAnd one more.\n\n${FREE}`)).toEqual([
+      { asks: "Which base does the fix start from?", grounds: "No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release", implies: "" }], default: "main" },
+      { asks: "May the pass change the protocol?", grounds: "The frame names no such change.", options: [], default: null },
+    ]);
+    expect(asksOf("The fix pass is done. May it also change the protocol?")).toEqual([]);
+    expect(asksOf("")).toEqual([]);
+  });
+
+  it("are read past what else an answer holds: a block of another kind, a comment's line and a fence that never closes are no question and stop nothing", () => {
+    const answer = `<!-- a note -->\n\nI appended this block:\n\n${closeBlock("rejected")}\n${FREE}\n\`\`\`\nan open fence\n`;
+    expect(asksOf(answer).map(({ asks }) => asks)).toEqual(["May the pass change the protocol?"]);
+  });
+
+  it("stop the stage where the reader refuses an asks block, with the line and the reader's reason", () => {
+    const refused = (text: string): string => {
+      try {
+        asksOf(text);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ChainStop);
+        return (error as Error).message;
+      }
+      return "taken";
+    };
+    expect(refused("Prose.\n\n```seal\nasks: May it?\n```\n")).toBe("the reader refuses line 3 of its answer's question: the question block holds no `grounds:` line, and it holds one");
+    expect(refused("```seal\nasks: May it?\ngrounds: None.\noption: `a` One.\noption: `a` Two.\n```\n")).toBe("the reader refuses line 1 of its answer's question: two `option:` lines hold the label `a`: a question block holds each label once");
+    expect(refused("```seal\nasks: May it?\ngrounds: None.\noption: `a` One.\ndefault: `b`\n```\n")).toBe("the reader refuses line 1 of its answer's question: `default:` names `b`, and no `option:` line of the block holds that label");
+    expect(refused("```seal\nasks:\ngrounds: None.\n```\n")).toContain("the reader refuses line 2 of its answer's question: `asks:` does not read whole");
+  });
+
+  it("are a proofer's only above its record: a record that holds an asks block is one the record's reader refuses", () => {
+    const record = roundRecord(HEADING(1), `${HEAD} against main`, [1]);
+    const given = { round: 1, workItem: NAME, target: `${HEAD} against main`, before: null };
+    expect(roundRecordOf(`${FREE}\n${record}`, given)).toBe(record);
+    expect(() => roundRecordOf(`${record}\n${FREE}`, given)).toThrow(/^the reader refuses line 20 of its record: .*`asks: May the pass change the protocol\?` opens no `seal` block this record holds/u);
+  });
+});
+
+describe("the orchestrator's answer", () => {
+  const refused = (read: () => unknown): string => {
+    try {
+      read();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ChainStop);
+      return (error as Error).message;
+    }
+    return "taken";
+  };
+
+  it("is its judgment of convergence where it holds one block that reads yes or no, with its grounds, whatever stands around the block", () => {
+    expect(convergenceOf(`I read both records.\n\n${convergenceBlock("yes", "Each round found less.")}\nThat is all.\n`)).toEqual({ converging: true, grounds: "Each round found less." });
+    expect(convergenceOf(convergenceBlock("no", "Round 3 reopened round 1's finding."))).toEqual({ converging: false, grounds: "Round 3 reopened round 1's finding." });
+  });
+
+  it("is no judgment where it holds no such block or more than one, and where the reader refuses the block", () => {
+    expect(refused(() => convergenceOf("The rounds are converging: yes."))).toBe("its answer holds no judgment: no `seal` block of it opens with `converging:`");
+    expect(refused(() => convergenceOf(`${convergenceBlock("yes")}\n${convergenceBlock("no")}`))).toBe("its answer holds 2 blocks that open with `converging:`, and a judgment is one");
+    expect(refused(() => convergenceOf("```seal\nconverging: maybe\ngrounds: Unsure.\n```\n"))).toBe("the reader refuses line 2 of its judgment: `converging: maybe` does not read whole as `converging: <value>`: it is `yes` or `no`");
+    expect(refused(() => convergenceOf("```seal\nconverging: yes\n```\n"))).toBe("the reader refuses line 1 of its judgment: the judgment block holds no `grounds:` line, and it holds one");
+  });
+
+  it("is its rulings where it holds one for each question it was given: a decision of its kind with what was decided, or a park, each with its grounds, in the questions' order", () => {
+    const answer = `${rulingBlock(2, "park", null, "Only the person can approve a push.")}\nAnd the first:\n\n${rulingBlock(1, "default", "The fix starts from main.", "The question's default, and `docs/roadmap.md` names no other base.")}`;
+    expect(rulingsOf(answer, 2)).toEqual([
+      { question: 1, is: "default", decided: "The fix starts from main.", grounds: "The question's default, and `docs/roadmap.md` names no other base." },
+      { question: 2, is: "park", grounds: "Only the person can approve a push." },
+    ]);
+    expect(rulingsOf(rulingBlock(1, "scope", "The protocol stays as it is.", "The frame's scope names no such change."), 1).map((ruling) => ruling.is)).toEqual(["scope"]);
+    expect(rulingsOf(rulingBlock(1, "answered", "It may.", "Read in the frame."), 1).map((ruling) => ruling.is)).toEqual(["answered"]);
+  });
+
+  it("is no ruling where a question has none, where two rule on one, where one rules on a number that is no question's, and where the reader refuses a block", () => {
+    const one = rulingBlock(1, "answered", "It may.", "Read in the frame.");
+    expect(refused(() => rulingsOf(one, 2))).toBe("its answer holds no ruling on question 2: no `seal` block of it opens with `rules: 2 `");
+    expect(refused(() => rulingsOf("I would park both.", 2))).toBe("its answer holds no ruling on questions 1 and 2: no `seal` block of it opens with `rules: 1 `");
+    expect(refused(() => rulingsOf(`${one}\n${one}`, 1))).toBe("its answer rules on question 1 twice");
+    expect(refused(() => rulingsOf(`${one}\n${rulingBlock(2, "park", null, "A credential.")}`, 1))).toBe("its answer rules on question 2, and it was given one question");
+    expect(refused(() => rulingsOf(`${one}\n${rulingBlock(3, "park", null, "A credential.")}`, 2))).toBe("its answer rules on question 3, and it was given 2 questions");
+    expect(refused(() => rulingsOf("```seal\nrules: 1 park\ndecided: Wait.\ngrounds: A credential.\n```\n", 1))).toBe("the reader refuses line 1 of its ruling: the ruling block parks its question and holds a `decided:` line: a park decides nothing");
+    expect(refused(() => rulingsOf("```seal\nrules: 1 scope\ngrounds: The frame.\n```\n", 1))).toBe("the reader refuses line 1 of its ruling: the ruling block holds no `decided:` line, and every ruling but `park` says what was decided");
+    expect(refused(() => rulingsOf("```seal\nrules: 1 route\ndecided: Go on.\ngrounds: The frame.\n```\n", 1))).toContain("the reader refuses line 2 of its ruling: `rules: 1 route` does not read whole");
+  });
+});
+
+describe("a judgment's prompt", () => {
+  it("gives the judgment of convergence its round, the directory, every round record, the record of decisions where one stands, and the block its answer holds", () => {
+    const prompt = convergencePrompt({ round: 2, directory: DIRECTORY, rounds: [1, 2], decisions: true });
+    expect(prompt.shown.split("\n")).toEqual([
+      `The judgment after review round 2 of the work item \`${NAME}\`, in this folder, which is the work item's worktree.`,
+      "",
+      `- The work item's directory: \`${DIRECTORY}\``,
+      `- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\``,
+      `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
+      "",
+      "Round 2 left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one `seal` block, written so:",
+      "",
+      "```seal",
+      "converging: <yes or no>",
+      "grounds: <why, on one line>",
+      "```",
+      "",
+      "Owlery records the answer as a decision made without asking. `yes` starts the fix pass, and `no` stops the chain for the person. Write no file and run no command: read the files of this folder.",
+      "",
+    ]);
+    expect(prompt.diff).toBe("");
+    expect(convergencePrompt({ round: 3, directory: DIRECTORY, rounds: [1, 2, 3], decisions: false }).shown).not.toContain("decisions.md");
+    expect(givenQuestions(prompt.shown)).toBe(0);
+  });
+
+  it("gives the judgment on a stage's questions who asks and in which stage, each question under its number with its grounds, its options and its default, and the block its answer holds for each", () => {
+    const asks = [
+      { asks: "Which base does the fix start from?", grounds: "No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release", implies: "" }], default: "main" },
+      { asks: "May the pass change the protocol?", grounds: "The frame names no such change.", options: [], default: null },
+    ];
+    const prompt = rulingPrompt({ round: 1, directory: DIRECTORY, by: "crafter", asked: "fix-pass", asks, decisions: true });
+    expect(prompt.shown.split("\n")).toEqual([
+      `The judgment after review round 1 of the work item \`${NAME}\`, in this folder, which is the work item's worktree.`,
+      "",
+      `- The work item's directory: \`${DIRECTORY}\``,
+      `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
+      "- Who asks: the crafter, in the fix pass of round 1",
+      "",
+      "Its questions:",
+      "",
+      "1. Which base does the fix start from?",
+      "   - Why the crafter cannot answer it: No document names the base of a hotfix.",
+      "   - Option `main`: The release's fixes are not in it.",
+      "   - Option `release`",
+      "   - Its default: `main`",
+      "2. May the pass change the protocol?",
+      "   - Why the crafter cannot answer it: The frame names no such change.",
+      "",
+      "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `seal` block for each question, written so:",
+      "",
+      "```seal",
+      "rules: <the question's number> <default, scope, answered or park>",
+      "decided: <what was decided, on one line; a park holds no such line>",
+      "grounds: <why, on one line>",
+      "```",
+      "",
+      "Owlery records each decision as one made without asking, and parks the work item with each question you park. Write no file and run no command: read the files of this folder.",
+      "",
+    ]);
+    expect(prompt.diff).toBe("");
+    const one = rulingPrompt({ round: 2, directory: DIRECTORY, by: "proofer", asked: "round", asks: asks.slice(1), decisions: false }).shown;
+    expect(one).toContain("- Who asks: the proofer, in review round 2\n\nIts question:\n\n1. May the pass");
+    expect(one).not.toContain("decisions.md");
+    expect([givenQuestions(prompt.shown), givenQuestions(one)]).toEqual([2, 1]);
+  });
+});
+
+describe("the record of the calls a role's rule refused", () => {
+  const HEAD_LINES = [`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|"];
+
+  it("opens with a heading and one table, and holds one row for each call: the stage, the role, the tool, what the call does and the rule", () => {
+    const text = refusalsText(null, NAME, { kind: "round", round: 2, role: "proofer", calls: [{ tool: "Write", action: "write", rule: "no-write" }, { tool: "Bash", action: "run", rule: "no-command" }] });
+    expect(text.split("\n")).toEqual([...HEAD_LINES, "| round 2 | proofer | Write | writes a file | no-write |", "| round 2 | proofer | Bash | runs a command | no-command |", ""]);
+  });
+
+  it("adds the rows of a later stage below the ones the file holds, whether or not the file ends with a line end, and names a fix pass and a judgment by their rounds", () => {
+    const first = refusalsText(null, NAME, { kind: "fix-pass", round: 1, role: "crafter", calls: [{ tool: "Write", action: "write", rule: "outside-worktree" }] });
+    const second = refusalsText(first, NAME, { kind: "judgment", round: 2, role: "orchestrator", calls: [{ tool: "WebFetch", action: "other", rule: "other" }, { tool: "Read", action: "read", rule: "other" }] });
+    const rows = ["| fix pass 1 | crafter | Write | writes a file | outside-worktree |", "| judgment 2 | orchestrator | WebFetch | something else | other |", "| judgment 2 | orchestrator | Read | reads a file | other |"];
+    expect(second.split("\n")).toEqual([...HEAD_LINES, ...rows, ""]);
+    expect(refusalsText(first.trimEnd(), NAME, { kind: "judgment", round: 2, role: "orchestrator", calls: [{ tool: "WebFetch", action: "other", rule: "other" }, { tool: "Read", action: "read", rule: "other" }] })).toBe(second);
+  });
+
+  it("writes a tool's name on one line of one cell, 100 characters of it at most", () => {
+    const text = refusalsText(null, NAME, { kind: "round", round: 1, role: "proofer", calls: [{ tool: " mcp|a\nb\t c ", action: "other", rule: "other" }, { tool: "x".repeat(101), action: "other", rule: "other" }] });
+    expect(text.split("\n").slice(4)).toEqual(["| round 1 | proofer | mcp/a b c | something else | other |", `| round 1 | proofer | ${"x".repeat(100)} | something else | other |`, ""]);
+  });
+});
+
 describe("the routing a first start writes", () => {
   it("declares the branch through the review chain, names the session as planner and implementer, and holds no Automation row", () => {
     const text = routingText(NAME, "owlery/sealed-work", "2026-11-23");
@@ -467,15 +731,15 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     held.release();
     // The reversal stands written, and no commit of its own carried it.
     expect([commitsAfterMain(a.worktree).length, status(a.worktree)]).toEqual([before, [`?? ${directory}/decisions.md`]]);
-    // Round 1's commit carries the record of decisions with the round's record. The fix pass then stops the chain: nothing writes a reversal applied yet.
-    const chain = await c.chain(a.id, "stopped");
+    // Round 1's commit carries the record of decisions with the round's record, and the fix pass's commit the reversal it took in.
+    await c.chain(a.id, "reviewed");
     const commits = commitsAfterMain(a.worktree);
     expect(commits.find(({ subject }) => subject === "chore: record review round 1")).toEqual({ subject: "chore: record review round 1", body: "Seal-Routing: 1795388700-decided", paths: [`${directory}/decisions.md`, `${directory}/trail/rounds/round-1.md`] });
-    expect(commits.map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the routing by hand", "chore: record review round 1", "fix: end the greeting", "chore: record the fix pass of round 1"]);
-    expect(git(a.worktree, "show", `HEAD:${directory}/decisions.md`)).toContain("state: reversed\nreversal: Start from the release branch.\n");
+    expect(commits.map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the routing by hand", "chore: record review round 1", "fix: end the greeting", "chore: record the fix pass of round 1", "chore: record review round 2"]);
+    expect(git(a.worktree, "show", `HEAD~3:${directory}/decisions.md`)).toContain("state: reversed\nreversal: Start from the release branch.\n");
+    expect(commits.at(-2)?.paths).toEqual([`${directory}/decisions.md`, `${directory}/trail/rounds/round-1.md`]);
     expect(status(a.worktree)).toEqual([]);
-    expect(chain.says).toBe("The fix pass of round 1 failed: decision 1 still stands reversed after it.");
-    expect(chain.stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "failed"]]);
+    expect(git(a.worktree, "show", `HEAD:${directory}/decisions.md`)).toMatch(/\nstate: applied [0-9a-f]{40}\nreversal: Start from the release branch\.\n/u);
     // The record of decisions stood when round 1 started, so the round's prompt names it.
     expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.role?.role === "proofer" ? [m.headless.prompt] : []))[0]).toContain(`- The decisions and the answers to hold to: \`${directory}/decisions.md\`\n`);
   });
@@ -1016,21 +1280,312 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(one.after).toEqual(["fix: end the greeting", "chore: record the fix pass of round 1"]);
     });
 
-    it("gives the fix pass each decision the person reversed with the person's message, and stops after the pass while the reversal stands", async () => {
-      const { adapter, started } = noted(roles());
+    it("stops the chain where a second fix pass on one record leaves a finding open too, whatever it asks: the first pass's question was decided, and the second is asked nothing more", async () => {
+      const { adapter, started } = noted(roles({ crafter: () => undefined, crafterSays: () => `The pass needs a decision.\n\n${askBlock({ asks: "May the pass change the protocol?", grounds: "The frame names no such change." })}` }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const chain = await c.chain(a.id, "stopped");
+      expect(chain.says).toBe("The fix pass of round 1 failed: it left finding 1 open, as the fix pass before it on this record did.");
+      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["judgment", 1, "finished"], ["fix-pass", 1, "failed"]]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "orchestrator", "crafter"]);
+    });
+  });
+
+  describe("the orchestrator's judgments", () => {
+    /** A proofer whose round 2 and each later round up to `last` confirms the fix before it and holds a finding of its own, and whose round after `last` confirms and holds none. */
+    const findsUntil =
+      (last: number) =>
+      (given: { round: number; heading: string; target: string }): string =>
+        given.round === 1 ? proofs(given) : roundRecord(given.heading, given.target, given.round <= last ? [1] : [], [`round-${String(given.round - 1)}#1`]);
+    const DECISIONS = `${DIRECTORY}/decisions.md`;
+    const JUDGMENT = (round: number) => ({ subject: `chore: record the orchestrator's judgment after round ${String(round)}`, body: TRAILER, paths: [DECISIONS] });
+    const stagesOf = (chain: Chain): [string, number, string][] => chain.stages.map(({ kind, round, state }) => [kind, round, state]);
+    const recorded = (worktree: string) => readDecisionRecord(readFileSync(join(worktree, DECISIONS), "utf8"));
+
+    it("asks the orchestrator before the second fix pass and not before the first, records its yes as a route decision by orchestrator in a commit of the record of decisions, and goes on with the fix pass and round 3", async () => {
+      const { adapter, started } = noted(roles({ proofer: findsUntil(2), orchestrator: () => convergenceBlock("yes", "Round 2 confirms round 1's fix.") }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const chain = await c.chain(a.id, "reviewed");
+      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"]]);
+      expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "orchestrator", stage: "judgment" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }]);
+      expect(started[3]?.cwd).toBe(a.worktree);
+      expect(started[3]?.prompt).toContain(`- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\`\n`);
+      expect(recorded(a.worktree)).toMatchObject({
+        decisions: [{ id: 1, kind: "route", decided: "The review rounds are converging after round 2, so the fix pass on its record runs.", grounds: "Round 2 confirms round 1's fix.", by: "orchestrator", state: { is: "decided" } }],
+        questions: [],
+        refusals: [],
+      });
+      const commits = commitsAfterMain(a.worktree);
+      expect(commits.map(({ subject }) => subject)).toEqual([
+        "feat: greet",
+        "chore: declare the work item's routing",
+        "chore: record review round 1",
+        "fix: end the greeting",
+        "chore: record the fix pass of round 1",
+        "chore: record review round 2",
+        "chore: record the orchestrator's judgment after round 2",
+        "fix: end the greeting",
+        "chore: record the fix pass of round 2",
+        "chore: record review round 3",
+      ]);
+      expect(commits[6]).toEqual(JUDGMENT(2));
+      expect(status(a.worktree)).toEqual([]);
+      // The work item carries the decision, as every decision made without asking.
+      expect(c.workItem(a.id)?.decisions).toMatchObject([{ id: 1, kind: "route", by: "orchestrator", state: "decided" }]);
+      // The fix pass and the round after the judgment are given the record of decisions.
+      expect(started[4]?.prompt).toContain(`- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
+      expect(started[5]?.prompt).toContain(`- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
+    });
+
+    it("stops the chain at the orchestrator's no, with the decision recorded and committed and a sentence that says the rounds are not converging, and a second getSeal starts the fix pass with no second judgment", async () => {
+      const { adapter, started } = noted(roles({ proofer: findsUntil(2), orchestrator: () => convergenceBlock("no", "Round 2 found what round 1's fix broke.") }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const stopped = await c.chain(a.id, "stopped");
+      expect(stopped.says).toBe('The orchestrator judged after round 2 that the review rounds are not converging. "Get a seal" runs the fix pass of round 2 all the same.');
+      expect(stagesOf(stopped)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"]]);
+      expect(recorded(a.worktree).decisions).toMatchObject([{ kind: "route", decided: "The review rounds are not converging after round 2, so the chain stops for the person.", grounds: "Round 2 found what round 1's fix broke.", by: "orchestrator" }]);
+      expect(commitsAfterMain(a.worktree).at(-1)).toEqual(JUDGMENT(2));
+      expect(status(a.worktree)).toEqual([]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "proofer", "orchestrator"]);
+
+      expect(await c.getSeal(a.id, 2)).toBe("done");
+      const chain = await c.chain(a.id, "reviewed");
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "proofer", "orchestrator", "crafter", "proofer"]);
+      expect(stagesOf(chain).slice(4)).toEqual([["fix-pass", 2, "finished"], ["round", 3, "finished"]]);
+    });
+
+    it("asks the orchestrator again before each later fix pass, and again where its answer to the one before was no judgment: that stage fails with what its answer lacks, and nothing is recorded", async () => {
+      let answers = 0;
+      const orchestrator = (): string => ((answers += 1) === 1 ? "The rounds look fine to me." : convergenceBlock("yes"));
+      const { adapter, started } = noted(roles({ proofer: findsUntil(3), orchestrator }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const stopped = await c.chain(a.id, "stopped");
+      expect(stopped.says).toBe("The judgment after round 2 failed: its answer holds no judgment: no `seal` block of it opens with `converging:`.");
+      expect(stopped.stages.at(-1)).toMatchObject({ kind: "judgment", round: 2, state: "failed", failure: "its answer holds no judgment: no `seal` block of it opens with `converging:`" });
+      expect(existsSync(join(a.worktree, DECISIONS))).toBe(false);
+      // The person's start is no answer to a judgment that gave none, so the orchestrator is asked again, and after round 3 once more.
+      expect(await c.getSeal(a.id, 2)).toBe("done");
+      const chain = await c.chain(a.id, "reviewed");
+      expect(stagesOf(chain).slice(3)).toEqual([["judgment", 2, "failed"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["judgment", 3, "finished"], ["fix-pass", 3, "finished"], ["round", 4, "finished"]]);
+      expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "orchestrator", "crafter", "proofer"]);
+      expect(recorded(a.worktree).decisions.map(({ id, kind, decided }) => [id, kind, decided])).toEqual([
+        [1, "route", "The review rounds are converging after round 2, so the fix pass on its record runs."],
+        [2, "route", "The review rounds are converging after round 3, so the fix pass on its record runs."],
+      ]);
+    });
+
+    it("stops at the ceiling of the rounds with no judgment asked, runs one fix pass and one round more at a person's getSeal, and stops again where that round leaves a finding", async () => {
+      const { adapter, started } = noted(roles({ proofer: findsUntil(9) }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, roundsCeiling: 2 });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const stopped = await c.chain(a.id, "stopped");
+      expect(stopped.says).toBe('Review round 2 left a finding open, and a chain stops for the person from round 2 on. "Get a seal" runs the fix pass of round 2 and one more round.');
+      expect(stagesOf(stopped)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"]]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "proofer"]);
+      expect(existsSync(join(a.worktree, DECISIONS))).toBe(false);
+
+      expect(await c.getSeal(a.id, 2)).toBe("done");
+      const again = await c.until(() => {
+        const chain = c.workItem(a.id)?.chain;
+        return chain?.state === "stopped" && chain.stages.length === 5 ? chain : undefined;
+      });
+      expect(again.says).toBe('Review round 3 left a finding open, and a chain stops for the person from round 2 on. "Get a seal" runs the fix pass of round 3 and one more round.');
+      expect(stagesOf(again).slice(3)).toEqual([["fix-pass", 2, "finished"], ["round", 3, "finished"]]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "proofer", "crafter", "proofer"]);
+    });
+
+    it("has a crafter's two questions ruled on once the pass's record is committed: the one decided is a decision by orchestrator and the one parked an open question by crafter, both committed, the chain is parked and starts no stage, and the person's answer starts the fix pass on the same record", async () => {
+      const BASE = { asks: "Which base does the fix start from?", grounds: "No document names the base of a hotfix.", options: [["main", "The release's fixes are not in it."], ["release", "It merges late."]] as [string, string][], default: "main" };
+      const PUSH = { asks: "May the pass push the branch?", grounds: "A push needs an approval." };
+      let passes = 0;
+      const crafter = (cwd: string, prompt: string): void => {
+        if ((passes += 1) > 1) fixes(cwd, prompt);
+      };
+      // The fake reads a session's answer before its work, so the answers are counted apart from the passes.
+      let said = 0;
+      const crafterSays = (): string => ((said += 1) === 1 ? `The pass met two questions.\n\n${askBlock(BASE)}\n${askBlock(PUSH)}` : "The fix pass is done.");
+      const orchestrator = (prompt: string): string => {
+        expect(givenQuestions(prompt)).toBe(2);
+        return `${rulingBlock(1, "default", "The fix starts from main.", "The question's default.")}\n${rulingBlock(2, "park", null, "Only the person approves a push.")}`;
+      };
+      const { adapter, started } = noted(roles({ crafter, crafterSays, orchestrator }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const parked = await c.chain(a.id, "parked");
+      expect(parked.says).toBe("The chain waits for the answers to the work item's open questions.");
+      expect(stagesOf(parked)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["judgment", 1, "finished"]]);
+      expect(started[2]?.role).toEqual({ role: "orchestrator", stage: "judgment" });
+      expect(started[2]?.prompt).toContain("- Who asks: the crafter, in the fix pass of round 1\n\nIts questions:\n\n1. Which base does the fix start from?\n");
+      expect(started[2]?.prompt).toContain("   - Its default: `main`\n2. May the pass push the branch?\n");
+      expect(recorded(a.worktree)).toMatchObject({
+        decisions: [{ id: 1, kind: "default", decided: "The fix starts from main.", grounds: "The question's default.", by: "orchestrator", state: { is: "decided" } }],
+        questions: [{ id: 2, asks: PUSH.asks, grounds: "A push needs an approval. The code and the policy do not decide it: Only the person approves a push.", by: "crafter", options: [], default: null, state: { is: "open" } }],
+        refusals: [],
+      });
+      expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(2)).toEqual(["chore: record review round 1", "chore: record the orchestrator's judgment after round 1"]);
+      expect(commitsAfterMain(a.worktree).at(-1)).toEqual(JUDGMENT(1));
+      expect(status(a.worktree)).toEqual([]);
+      expect(c.workItem(a.id)?.questions).toMatchObject([{ id: 2, asks: PUSH.asks, by: "crafter", answer: null }]);
+      // A parked chain starts nothing by itself.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(started.length).toBe(3);
+      expect(c.workItem(a.id)?.chain?.state).toBe("parked");
+
+      c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "It may not." }] });
+      const chain = await c.chain(a.id, "reviewed");
+      expect(stagesOf(chain).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"]]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "orchestrator", "crafter", "proofer"]);
+      expect(started[3]?.prompt).toContain(`- The round record: \`${DIRECTORY}/trail/rounds/round-1.md\`\n- Its open findings: 1\n- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
+      // The person's answer was committed before the chain went on, so the pass read it in a committed record.
+      expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(4)).toEqual(["chore: record the person's answers", "fix: end the greeting", "chore: record the fix pass of round 1", "chore: record review round 2"]);
+      expect(recorded(a.worktree).questions).toMatchObject([{ id: 2, state: { is: "answered", answer: "It may not." } }]);
+    });
+
+    it("has a proofer's question ruled on before the fix pass, from the blocks above its record alone, and asks for the judgment of convergence all the same where the round is round 2: a judgment on a question is none of convergence", async () => {
+      const ASKS = askBlock({ asks: "Is the greeting's language in scope?", grounds: "The frame names no language." });
+      const proofer = (given: { round: number; heading: string; target: string }): string => (given.round === 2 ? `${ASKS}\n${findsUntil(2)(given)}` : findsUntil(2)(given));
+      const orchestrator = (prompt: string): string => (givenQuestions(prompt) === 0 ? convergenceBlock("yes") : rulingBlock(1, "scope", "The greeting stays in English.", "The frame's scope names no other language."));
+      const { adapter, started } = noted(roles({ proofer, orchestrator }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const chain = await c.chain(a.id, "reviewed");
+      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"]]);
+      expect(started[3]?.prompt).toContain("- Who asks: the proofer, in review round 2\n\nIts question:\n\n1. Is the greeting's language in scope?\n");
+      expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
+      expect(recorded(a.worktree).decisions.map(({ kind, decided, by }) => [kind, decided, by])).toEqual([
+        ["scope", "The greeting stays in English.", "orchestrator"],
+        ["route", "The review rounds are converging after round 2, so the fix pass on its record runs.", "orchestrator"],
+      ]);
+      // The record the daemon wrote is the answer from its heading on: the question above it is no part of it.
+      expect(readFileSync(recordAt(a.worktree, 2), "utf8").startsWith(`${HEADING(2)}\n`)).toBe(true);
+      expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(5, 8)).toEqual(["chore: record review round 2", "chore: record the orchestrator's judgment after round 2", "chore: record the orchestrator's judgment after round 2"]);
+    });
+
+    it("fails the stage whose asks block the reader refuses, and the judgment whose answer rules on no question: the chain stops with which, and nothing is parked or decided", async () => {
+      const broken = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: () => undefined, crafterSays: () => "```seal\nasks: May it?\n```\n" }) });
+      expect(await broken.c.getSeal(1, 1)).toBe("done");
+      expect((await broken.c.chain(1, "stopped")).says).toBe("The fix pass of round 1 failed: the reader refuses line 1 of its answer's question: the question block holds no `grounds:` line, and it holds one.");
+
+      const unruled = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: () => undefined, crafterSays: () => askBlock({ asks: "May it?", grounds: "No document says." }), orchestrator: () => "It may." }) });
+      expect(await unruled.c.getSeal(1, 1)).toBe("done");
+      const chain = await unruled.c.chain(1, "stopped");
+      expect(chain.says).toBe("The judgment after round 1 failed: its answer holds no ruling on question 1: no `seal` block of it opens with `rules: 1 `.");
+      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["judgment", 1, "failed"]]);
+      expect(existsSync(join(unruled.workItems[0]!.worktree, DECISIONS))).toBe(false);
+    });
+
+    it("goes on from a proofer's parked question as no person's start: the answer starts the chain, and the judgment of convergence that round 2 owes is asked before its fix pass", async () => {
+      const ASKS = askBlock({ asks: "May the branch be pushed for the review?", grounds: "A push needs an approval." });
+      const proofer = (given: { round: number; heading: string; target: string }): string => (given.round === 2 ? `${ASKS}\n${findsUntil(2)(given)}` : findsUntil(2)(given));
+      const orchestrator = (prompt: string): string => (givenQuestions(prompt) === 0 ? convergenceBlock("yes") : rulingBlock(1, "park", null, "Only the person approves a push."));
+      const { adapter, started } = noted(roles({ proofer, orchestrator }));
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const parked = await c.chain(a.id, "parked");
+      expect(stagesOf(parked)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"]]);
+      expect(recorded(a.worktree).questions).toMatchObject([{ id: 1, by: "proofer", state: { is: "open" } }]);
+      c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "It may not." }] });
+      const chain = await c.chain(a.id, "reviewed");
+      expect(stagesOf(chain).slice(4)).toEqual([["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"]]);
+      expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer"]);
+      expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
+    });
+
+    it("stops a parked chain that cannot go on once its question is answered, with what refuses the start, and a later getSeal starts it", async () => {
+      let passes = 0;
+      const crafter = (cwd: string, prompt: string): void => {
+        if ((passes += 1) > 1) fixes(cwd, prompt);
+      };
+      let said = 0;
+      const stood = await standing(cleanups, ["Sealed work"], {
+        roleAdapter: roles({ crafter, crafterSays: () => ((said += 1) === 1 ? askBlock({ asks: "May the pass push the branch?", grounds: "A push needs an approval." }) : "Done."), orchestrator: () => rulingBlock(1, "park", null, "Only the person approves a push.") }),
+      });
+      const a = stood.workItems[0]!;
+      expect(await stood.c.getSeal(a.id, 1)).toBe("done");
+      await stood.c.chain(a.id, "parked");
+      // A file no commit holds, outside the work item's directory: a round reads a committed tree.
+      write(a.worktree, "loose.txt", "loose\n");
+      stood.c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "It may not." }] });
+      const stopped = await stood.c.chain(a.id, "stopped");
+      expect(stopped.says).toBe("The chain did not go on after the answers. The worktree holds a change no commit holds, at loose.txt. A round reads a committed tree: commit the change or remove it first.");
+      expect(stopped.stages.length).toBe(3);
+      rmSync(join(a.worktree, "loose.txt"));
+      expect(await stood.c.getSeal(a.id, 3)).toBe("done");
+      expect(stagesOf(await stood.c.chain(a.id, "reviewed")).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"]]);
+    });
+
+    it("takes in a decision the person reversed: a getSeal on a reviewed chain starts a fix pass whose prompt holds the decision and the message, the decision reads applied with the head the pass left in the commit after the pass, and a verifying round follows", async () => {
+      const { adapter, started } = noted(roles({ proofer: (given) => (given.round < 3 ? proofs(given) : roundRecord(given.heading, given.target)) }));
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
       const a = stood.workItems[0]!;
-      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
-      const decided = withDecision(`# Decisions and questions: ${NAME}\n\n`, { kind: "default", decided: "Start from main.", grounds: "The default base.", by: "orchestrator" });
-      write(a.worktree, `${DIRECTORY}/decisions.md`, withReversal(decided, 1, "Start from the release branch."));
-      const target = commitAll(a.worktree, "chore: declare the work item's routing");
-      write(a.worktree, `${DIRECTORY}/trail/rounds/round-1.md`, roundRecord(HEADING(1), `${target} against main`));
-      commitAll(a.worktree, "chore: record review round 1");
       expect(await stood.c.getSeal(a.id, 1)).toBe("done");
-      const chain = await stood.c.chain(a.id, "stopped");
-      expect(started.map(({ role }) => role?.role)).toEqual(["crafter"]);
-      expect(started[0]?.prompt).toContain('- Its open findings: none\n- The decisions the person reversed, each to take in:\n  - decision 1, "Start from main.": the person says "Start from the release branch."\n');
-      expect(chain.says).toBe("The fix pass of round 1 failed: decision 1 still stands reversed after it.");
+      await stood.c.chain(a.id, "reviewed");
+      expect(stood.d.decided(a.id, { kind: "default", says: "Start from main.", grounds: "The default base.", by: "orchestrator" })).toMatchObject({ id: 1 });
+      stood.c.send({ type: "reverseDecision", requestId: 2, workItemId: a.id, decisionId: 1, message: "Start from the release branch." });
+      await stood.c.message("done", (m) => m.requestId === 2);
+
+      expect(await stood.c.getSeal(a.id, 3)).toBe("done");
+      const chain = await stood.c.until(() => {
+        const found = stood.c.workItem(a.id)?.chain;
+        return found?.state === "reviewed" && found.stages.length === 5 ? found : undefined;
+      });
+      expect(stagesOf(chain).slice(3)).toEqual([["fix-pass", 2, "finished"], ["round", 3, "finished"]]);
+      expect(started[3]?.prompt).toContain('- Its open findings: none\n- The decisions the person reversed, each to take in:\n  - decision 1, "Start from main.": the person says "Start from the release branch."\n');
+      const commits = commitsAfterMain(a.worktree);
+      expect(commits.slice(-4)).toEqual([
+        { subject: "chore: record the person's reversal of decision 1", body: TRAILER, paths: [DECISIONS] },
+        { subject: "fix: end the greeting", body: "", paths: ["feature.txt"] },
+        { subject: "chore: record the fix pass of round 2", body: TRAILER, paths: [DECISIONS] },
+        { subject: "chore: record review round 3", body: TRAILER, paths: [`${DIRECTORY}/trail/rounds/round-3.md`] },
+      ]);
+      const [fix, pass] = git(a.worktree, "log", "--format=%H", "-3").trim().split("\n").reverse() as [string, string, string];
+      expect(git(a.worktree, "show", `${pass}:${DECISIONS}`)).toContain(`state: applied ${fix}\nreversal: Start from the release branch.\n`);
+      expect(recorded(a.worktree).decisions).toMatchObject([{ id: 1, state: { is: "applied", commit: fix, message: "Start from the release branch." } }]);
+      expect(stood.c.workItem(a.id)?.decisions).toMatchObject([{ id: 1, state: "applied", landed: fix }]);
+      expect(status(a.worktree)).toEqual([]);
+    });
+
+    it("keeps each call a role's rule refused with its stage and in the work item's records: a proofer's write and its command are both refused, the round counts two, and trail/refusals.md holds a row for each with the tool and the rule and no text of the call, committed with the stage's record", async () => {
+      const refusedCalls = (_prompt: string, role?: { role: string }) => {
+        if (role?.role === "proofer") return [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "rm -rf build" }];
+        return role?.role === "crafter" ? [{ tool: "Write", action: "write" as const, path: "../outside.txt", text: "../outside.txt" }, { tool: "WebFetch", action: "other" as const, path: null, text: '{"url":"https://example.com/owl"}' }] : [];
+      };
+      let rounds = 0;
+      const proofer = (given: { round: number; heading: string; target: string }): string => ((rounds += 1), proofs(given));
+      // Only round 1 and the fix pass ask: round 2 asks for nothing.
+      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer }, { asks: (prompt, role) => (rounds > 0 && role?.role === "proofer" ? [] : refusedCalls(prompt, role)) }) });
+      const a = workItems[0]!;
+      expect(await c.getSeal(a.id, 1)).toBe("done");
+      const chain = await c.chain(a.id, "reviewed");
+      expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 2], ["fix-pass", 2], ["round", 0]]);
+      const refusals = `${DIRECTORY}/trail/refusals.md`;
+      const head = [`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|"];
+      const rows = ["| round 1 | proofer | Write | writes a file | no-write |", "| round 1 | proofer | Bash | runs a command | no-command |", "| fix pass 1 | crafter | Write | writes a file | outside-worktree |", "| fix pass 1 | crafter | WebFetch | something else | other |"];
+      const text = readFileSync(join(a.worktree, refusals), "utf8");
+      expect(text.split("\n")).toEqual([...head, ...rows, ""]);
+      for (const called of ["notes.md", "rm -rf", "outside.txt", "example.com"]) expect(text, called).not.toContain(called);
+      const record = (round: number): string => `${DIRECTORY}/trail/rounds/round-${String(round)}.md`;
+      expect(commitsAfterMain(a.worktree).slice(2)).toEqual([
+        { subject: "chore: record review round 1", body: TRAILER, paths: [record(1), refusals].sort() },
+        { subject: "fix: end the greeting", body: "", paths: ["feature.txt"] },
+        { subject: "chore: record the fix pass of round 1", body: TRAILER, paths: [record(1), refusals].sort() },
+        { subject: "chore: record review round 2", body: TRAILER, paths: [record(2)] },
+      ]);
+      const [first] = git(a.worktree, "log", "--reverse", "--format=%H", "--", refusals).trim().split("\n");
+      expect(git(a.worktree, "show", `${first ?? ""}:${refusals}`).split("\n")).toEqual([...head, ...rows.slice(0, 2), ""]);
+      expect(status(a.worktree)).toEqual([]);
+      expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
     });
   });
 
