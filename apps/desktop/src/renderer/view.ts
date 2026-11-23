@@ -1405,8 +1405,9 @@ function waitsOnAnAnswer(workItem: WorkItem, session: SessionInfo | undefined): 
  * order given, whose work item waits on an open question, a call to allow
  * or a pane that waits, as "Answer the first question", and where none
  * does, the first that waits for another reason, as a broken seal, a stopped
- * chain or a failed check, as "Open the first that needs you". Otherwise
- * the inbox is the main control and the only one.
+ * chain or a failed check, as "Open the first that needs you". The hint
+ * names the line Enter opens, which may stand after a line that waits for
+ * another reason. Otherwise the inbox is the main control and the only one.
  */
 export function summaryControls(changes: readonly { workItem: WorkItem; line: InboxLine; session: SessionInfo | undefined }[]): SummaryControls {
   const inbox = { label: "Open the inbox", opens: "inbox" as const };
@@ -1414,7 +1415,9 @@ export function summaryControls(changes: readonly { workItem: WorkItem; line: In
   const answers = waiting.find((change) => waitsOnAnAnswer(change.workItem, change.session));
   const waits = answers ?? waiting[0];
   if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
-  return { main: { label: answers ? "Answer the first question" : "Open the first that needs you", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
+  return answers
+    ? { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first question." }
+    : { main: { label: "Open the first that needs you", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
 }
 
 /** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */

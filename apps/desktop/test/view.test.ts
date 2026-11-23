@@ -3261,8 +3261,8 @@ describe("summaryControls", () => {
   const BROKE: Seal = { state: "broken", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
   const STOPPED: Chain = { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [] };
 
-  it("makes answering the first work item that waits on a question, a call to allow or a pane that waits the main control, with the inbox beside it, past a line before it that waits for another reason", () => {
-    const answer = (opens: number) => ({ main: { label: "Answer the first question", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first that needs you." });
+  it("makes answering the first work item that waits on a question, a call to allow or a pane that waits the main control, with the inbox beside it and a hint that names the question, past a line before it that waits for another reason", () => {
+    const answer = (opens: number) => ({ main: { label: "Answer the first question", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first question." });
     expect(summaryControls([change(4, "finished"), change(7, "waiting", { questions: [ASKED] }), change(9, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
     expect(summaryControls([change(3, "waiting", { seal: BROKE }), change(7, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
     expect(summaryControls([change(3, "waiting", { chain: STOPPED }), change(8, "waiting", { permissions: [ASK] })])).toEqual(answer(8));
