@@ -48,7 +48,7 @@ function entryOf(value: unknown): LedgerEntry | undefined {
   return { workItemId, repo, branch, stage, startedAt, endedAt, state, stopped, usage };
 }
 
-/** Whether the file's last byte is no line break: a crash cut its last line. A file that does not exist has none. */
+/** Whether the file's last byte is no line break: a crash or a failed append cut its last line. A file that does not exist has none. */
 function endsInsideALine(file: string): boolean {
   let fd: number;
   try {
