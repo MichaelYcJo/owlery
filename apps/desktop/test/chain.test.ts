@@ -2,6 +2,7 @@
 // judgments, the broad gate and the seal the daemon runs after a `getSeal`.
 // Every session runs on the fake adapter, on a temporary repository, the
 // gate's command is a stand-in the case names, and no case starts an agent.
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -2816,6 +2817,22 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   const sectionOf = (block: string): string => ["<!-- owlery:seal -->", "## Owlery seal", "", `The newest verdict of \`${GUARANTEE}\`, as this pull request's head commit holds it:`, "", block, "<!-- /owlery:seal -->"].join("\n");
   /** The stage of a pull request after the round given, listed as no session. */
   const pullRequestStage = (round: number, more: Partial<ChainStage> = {}): ChainStage => ({ kind: "pull-request", round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: null, ...more });
+
+  it("pushes the head the stage checked, by its id, and not a commit that lands on the branch between the check and the push", async () => {
+    // A git first on the stage's PATH that commits in the worktree just before it pushes, as a person's terminal could.
+    const shims = mkdtempSync(join(tmpdir(), "owlery-git-shim-"));
+    cleanups.push(() => rmSync(shims, { recursive: true, force: true }));
+    const real = execFileSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    writeFileSync(join(shims, "git"), `#!/bin/sh\nif [ "$1" = push ]; then "${real}" commit --quiet --allow-empty -m "feat: a commit after the check"; fi\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    const { c, workItems, remote } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), gateEnv: { PATH: `${shims}:${process.env.PATH ?? "/usr/bin:/bin"}` } });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "sealed");
+    expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(-2)).toEqual(["chore: record the sealer's verdict", "feat: a commit after the check"]);
+    const checked = git(a.worktree, "rev-parse", "HEAD~1").trim();
+    expect(branchesOf(remote)).toEqual([`${a.branch} ${checked}`]);
+    expect(c.workItem(a.id)?.pullRequest?.pushed).toBe(checked);
+  });
 
   it("pushes the sealed branch to its remote and opens its pull request through gh: a list, a create with the branch, the base, the title and a body that opens with the seal section, then a view; the work item carries the pull request, the stage commits nothing, and the chain rests sealed with the pull request's number", async () => {
     const { c, workItems, remote, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
