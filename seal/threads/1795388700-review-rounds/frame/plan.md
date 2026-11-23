@@ -62,7 +62,7 @@ Each phase is one crafter's. The cases of a phase are seen red before they are p
 | 1. The records | `frame/design.md` *Scope* items 16, 17, 18 and 21, the refusal of a rename while a chain runs left to phase 2 | Scenario 16's cases of `test/record-writer.test.ts`; the reader's cases of scenario 12 in `test/round-record.test.ts`, with one case that reads `apps/desktop/role-bundle/templates/records/sdd-round.md` filled in; the cases of `commitPaths` in `test/worktrees.test.ts`; the cases of `test/decision-record.test.ts` and of `test/daemon.test.ts` that write a record, which hold through the new writer; the first half of scenario 17 | `97e8472` |
 | 2. Two rounds and one fix pass | *Scope* items 1 to 8, 13, 14, 15, 19, 23, 24 and 25, and the second half of item 21 | Scenarios 1, 2, 3, 5, 8, 9, 10, 11, 12 and 13, and the second half of 17 | `bff7d28` |
 | 3. The orchestrator's judgments | *Scope* items 9, 10, 11, 12, 20 and 22 | Scenarios 4, 6, 7, 14, 15 and 18 | `0418bab` |
-| 4. The window | *Scope* items 26, 27 and 28, and the work item's `changelog.md` | Scenarios 19 and 20, and the cases of `test/view.test.ts` for the line's state and its second row | |
+| 4. The window | *Scope* items 26, 27 and 28, and the work item's `changelog.md` | Scenarios 19 and 20, and the cases of `test/view.test.ts` for the line's state and its second row | `59991a5` |
 
 The new test files `frame/design.md` *Rule changes* names in its `check:` lines are made by phases 1 and 2 under those names: `test/round-record.test.ts` and `test/record-writer.test.ts` in phase 1, and `test/chain.test.ts` in phase 2. The check at the pull request refuses a `check:` line that names no file.
 
