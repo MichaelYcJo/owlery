@@ -521,6 +521,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
     expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD: \`x\` changed after the commit it names, \`${withheld.gate.slice(0, 7)}\`, outside the closing records\n`);
     expect(last()?.output.summary).not.toContain("the seal is broken");
+    // A withheld verdict and a merge of the base after it whose commits leave the tree as it was: no seal broke, and the arm names the path the base's commit touched.
+    const withheldMerged = reviewed();
+    gated(withheldMerged);
+    guaranteed(withheldMerged, section(1, withheldMerged.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: x"));
+    mergeAsSealed(withheldMerged.repo, "revert");
+    expect((await run(withheldMerged, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
+    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD: a commit of the base that a merge brought after the commit it names, \`${withheldMerged.gate.slice(0, 7)}\`, touches \`other.txt\`, outside the work item's records\n`);
 
     // A seal whose commit HEAD does not descend from, and one whose commit the repository does not hold, are broken, as the daemon reads them.
     const off = reviewed();
@@ -540,7 +548,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect((await run(nowhere, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN("d".repeat(40)) } });
     expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: this repository cannot resolve the sealed commit \`${"d".repeat(40)}\`; a new seal is owed at HEAD`);
-    expect(sent).toHaveLength(7);
+    expect(sent).toHaveLength(8);
   }, 60_000);
 
   it("passes the gate's record and the seal as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {
@@ -694,6 +702,15 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       ["a merge commit that itself changes a source file", ({ repo }) => merge(repo, true), "broken"],
       ["a merge of a base that committed the file the branch committed before the seal", ({ repo }) => mergeAsSealed(repo, "same file"), "broken", undefined, ({ gate }) => BROUGHT("x", gate)],
       ["a merge of a base that gained a commit and its revert", ({ repo }) => mergeAsSealed(repo, "revert"), "broken", undefined, ({ gate }) => BROUGHT("other.txt", gate)],
+      ["a merge of a base whose commits add and take back a file of the work item's directory alone", ({ repo }) => {
+        git(repo, "checkout", "--quiet", "main");
+        write(repo, "seal/threads/1-x/notes.md", "notes\n");
+        commitAll(repo, "docs: notes");
+        git(repo, "rm", "--quiet", "seal/threads/1-x/notes.md");
+        git(repo, "commit", "--quiet", "-m", "revert: notes");
+        git(repo, "checkout", "--quiet", "feature");
+        git(repo, "merge", "--quiet", "--no-ff", "--no-edit", "main");
+      }, "sealed"],
       ["two commits of which the second takes the first back", ({ repo }) => {
         write(repo, "x", "x, changed\n");
         commitAll(repo, "fix: x");
