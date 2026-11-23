@@ -24,9 +24,9 @@ const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
 const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null };
 /** What a branch just cut holds since its base. */
-const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
+const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
@@ -566,11 +566,11 @@ describe("work items", () => {
       const { workItem } = await c.message("workItemCreated", (m) => m.requestId === requestId);
       expect(git(repo, "for-each-ref", "--format=%(upstream)", `refs/heads/${workItem.branch}`).trim()).toBe("");
       expect(git(repo, "rev-parse", `refs/heads/${workItem.branch}`).trim()).toBe(workItem.baseCommit);
-      return [workItem.baseBranch, workItem.baseCommit, workItem.aheadOfBase];
+      return [workItem.baseBranch, workItem.baseCommit, workItem.aheadOfBase, workItem.behindBase];
     };
-    expect(await create(1, "feature")).toEqual(["feature", feature, 0]);
-    expect(await create(2, "origin/remote-only")).toEqual(["origin/remote-only", remoteOnly, 0]);
-    expect(await create(3, "origin/shadow")).toEqual(["origin/shadow", feature, 0]);
+    expect(await create(1, "feature")).toEqual(["feature", feature, 0, 0]);
+    expect(await create(2, "origin/remote-only")).toEqual(["origin/remote-only", remoteOnly, 0, 0]);
+    expect(await create(3, "origin/shadow")).toEqual(["origin/shadow", feature, 0, 0]);
   });
 
   it("answers a creation whose base is none of the repository's with an error that names it, and creates no branch, folder or list entry", async () => {
@@ -3202,24 +3202,29 @@ describe("the inbox", () => {
     expect(inboxes(c).map((m) => m.workItems[0]?.commits?.[0]?.subject)).toEqual([undefined, "add one.txt", "add one, said better"]);
   });
 
-  it("tells every client how far a work item's branch is ahead of its base branch: not by the commits the base gained and the branch merged in, and by none once the base holds the branch", async () => {
+  it("tells every client how far a work item's branch is ahead of its base branch and how far behind it: behind by a commit the base gained while the branch's head stayed, not ahead by the commits the base gained and the branch merged in, and by none either way once the base holds the branch", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
-    expect([workItem.baseBranch, workItem.aheadOfBase]).toEqual(["main", 0]);
-    const counts = (m: Inbox) => [m.workItems[0]?.aheadOfBase, m.workItems[0]?.newCommits];
+    expect([workItem.baseBranch, workItem.aheadOfBase, workItem.behindBase]).toEqual(["main", 0, 0]);
+    const counts = (m: Inbox) => [m.workItems[0]?.aheadOfBase, m.workItems[0]?.behindBase, m.workItems[0]?.newCommits];
     commit(workItem.worktree, "own.txt");
-    await c.message("inbox", (m) => counts(m).join() === "1,1");
+    await c.message("inbox", (m) => counts(m).join() === "1,0,1");
+    const head = git(workItem.worktree, "rev-parse", "HEAD").trim();
     commit(repo, "on-main.txt");
+    // The branch's head and its counts since the cut stay, and the inbox is for the base that moved.
+    const behind = await c.message("inbox", (m) => counts(m).join() === "1,1,1");
+    expect(git(workItem.worktree, "rev-parse", "HEAD").trim()).toBe(head);
+    expect(behind.workItems[0]?.commits?.map((each) => each.subject)).toEqual(["add own.txt"]);
     git(workItem.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
     // Three commits since the cut: the branch's own, the base's and the merge. The base holds its own.
-    await c.message("inbox", (m) => counts(m).join() === "2,3");
+    await c.message("inbox", (m) => counts(m).join() === "2,0,3");
     git(repo, "merge", "--quiet", "--ff-only", workItem.branch);
     // The branch's head and its count stay, and the inbox is for the base that moved.
-    await c.message("inbox", (m) => counts(m).join() === "0,3");
+    await c.message("inbox", (m) => counts(m).join() === "0,0,3");
   });
 
   it("tells every client how far a work item's branch is ahead of a remote's branch: by its own commit, by none once a fetch brought that commit to the remote's branch, and by no count once a fetch pruned it", async () => {
@@ -3229,20 +3234,20 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead of the remote", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
-    expect([workItem.baseBranch, workItem.aheadOfBase]).toEqual(["origin/main", 0]);
-    const counts = (m: Inbox) => [m.workItems[0]?.baseBranch, m.workItems[0]?.aheadOfBase, m.workItems[0]?.newCommits].join();
+    expect([workItem.baseBranch, workItem.aheadOfBase, workItem.behindBase]).toEqual(["origin/main", 0, 0]);
+    const counts = (m: Inbox) => [m.workItems[0]?.baseBranch, m.workItems[0]?.aheadOfBase, m.workItems[0]?.behindBase, m.workItems[0]?.newCommits].join();
     commit(workItem.worktree, "own.txt");
-    await c.message("inbox", (m) => counts(m) === "origin/main,1,1");
+    await c.message("inbox", (m) => counts(m) === "origin/main,1,0,1");
     git(origin, "pull", "--quiet", "--ff-only", repo, workItem.branch);
     git(repo, "fetch", "--quiet", "origin");
-    await c.message("inbox", (m) => counts(m) === "origin/main,0,1");
+    await c.message("inbox", (m) => counts(m) === "origin/main,0,0,1");
     git(origin, "checkout", "--quiet", "-b", "renamed");
     git(origin, "branch", "--quiet", "-D", "main");
     git(repo, "fetch", "--quiet", "--prune", "origin");
-    await c.message("inbox", (m) => counts(m) === "origin/main,,1");
+    await c.message("inbox", (m) => counts(m) === "origin/main,,,1");
   });
 
-  it("gives a work item cut from no branch, and one whose base branch is gone, no count of commits ahead", async () => {
+  it("gives a work item cut from no branch, and one whose base branch is gone, no count of commits ahead and none behind", async () => {
     const { repo, root } = repository();
     git(repo, "checkout", "--quiet", "--detach");
     // No local branch and no remote: the repository has no default base.
@@ -3252,16 +3257,16 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "From a commit", kind: "shell", cols: 80, rows: 24 });
     const detached = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
-    expect([detached.baseBranch, detached.aheadOfBase]).toEqual([null, null]);
+    expect([detached.baseBranch, detached.aheadOfBase, detached.behindBase]).toEqual([null, null, null]);
     git(repo, "checkout", "--quiet", "-b", "feature");
     c.send({ type: "createWorkItem", requestId: 2, repo, title: "From a feature", kind: "shell", cols: 80, rows: 24 });
     const cut = (await c.message("workItemCreated", (m) => m.requestId === 2)).workItem;
-    expect([cut.baseBranch, cut.aheadOfBase]).toEqual(["feature", 0]);
+    expect([cut.baseBranch, cut.aheadOfBase, cut.behindBase]).toEqual(["feature", 0, 0]);
     commit(detached.worktree, "one.txt");
     git(repo, "checkout", "--quiet", "--detach");
     git(repo, "branch", "--quiet", "-D", "feature");
     const inbox = await c.message("inbox", (m) => m.workItems[1]?.aheadOfBase === null && m.workItems[0]?.newCommits === 1);
-    expect(inbox.workItems.map((w) => [w.baseBranch, w.aheadOfBase, w.newCommits])).toEqual([[null, null, 1], ["feature", null, 0]]);
+    expect(inbox.workItems.map((w) => [w.baseBranch, w.aheadOfBase, w.behindBase, w.newCommits])).toEqual([[null, null, null, 1], ["feature", null, null, 0]]);
   });
 
   it("lists the 20 newest of a work item's commits, beside the count of all of them", async () => {
@@ -3286,7 +3291,7 @@ describe("the inbox", () => {
     git(repo, "worktree", "remove", "--force", workItem.worktree);
     git(repo, "branch", "--quiet", "-D", workItem.branch);
     const gone = await c.message("inbox", (m) => m.workItems[0]?.newCommits === null);
-    expect(gone.workItems).toEqual([{ ...workItem, aheadOfBase: null, newCommits: null, commits: null, changes: null }]);
+    expect(gone.workItems).toEqual([{ ...workItem, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }]);
   });
 
   it("sends no inbox while the counts stay as they were", async () => {
@@ -4394,7 +4399,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, permissions: [], aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, permissions: [], aheadOfBase: 1, behindBase: 0, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {

@@ -44,6 +44,7 @@ const WORK_ITEM: WorkItem = {
   baseCommit: "c".repeat(40),
   baseBranch: "main",
   aheadOfBase: 2,
+  behindBase: 1,
   newCommits: 2,
   commits: [COMMIT, { hash: "def5678", subject: "add an image", at: 1000, added: null, removed: null }],
   changes: { files: 2, added: 3, removed: 1, list: [FILE, { path: "owl.png", added: null, removed: null }] },
@@ -129,7 +130,7 @@ describe("LastLook", () => {
     const look: Look = {
       at: 1,
       sessions: [{ id: 2, kind: "shell", alive: false, workItemId: null, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null }],
-      workItems: [{ ...WORK_ITEM, baseCommit: null, baseBranch: null, aheadOfBase: null, newCommits: null, commits: null, changes: null }],
+      workItems: [{ ...WORK_ITEM, baseCommit: null, baseBranch: null, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }],
     };
     writeFileSync(join(dir, "last-look.json"), JSON.stringify(look));
     expect(new LastLook(dir).get()).toEqual(look);
@@ -191,6 +192,7 @@ describe("LastLook", () => {
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, repoName: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, baseBranch: 3 }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, aheadOfBase: "2" }] }))).toBeNull();
+    for (const behindBase of ["1", true, {}, [1]]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, behindBase }] })), JSON.stringify(behindBase)).toBeNull();
     for (const field of [{ repoId: "1" }, { repoId: null }, { pinned: "yes" }, { pinned: null }, { muted: 1 }, { muted: null }, { groupId: "2" }, { archivedAt: "9" }, { setup: "running" }, { setup: { ...SETUP, state: "done" } }, { setup: { ...SETUP, copied: [1] } }, { setup: { ...SETUP, failedCopies: [{ why: "x" }] } }, { setup: { ...SETUP, startedAt: undefined } }]) expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, ...field }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: "none" }] }))).toBeNull();
     expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, commits: [null] }] }))).toBeNull();
@@ -292,6 +294,18 @@ describe("LastLook", () => {
     look.record(1234, [SESSION, { ...SESSION, id: 5, stateQuestions: null }], [WORK_ITEM]);
     expect(JSON.parse(readFileSync(file, "utf8")).sessions.map((session: SessionInfo) => session.stateQuestions)).toEqual([ASKED, null]);
     expect(new LastLook(dir).get()?.sessions.map((session) => session.stateQuestions)).toEqual([ASKED, null]);
+  });
+
+  it("reads a look a build before the count behind the base wrote, whose work items lack it, with none, and holds in a look recorded now the count of each work item", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { behindBase: _behind, ...before } = WORK_ITEM;
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before, { ...before, id: 2 }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, behindBase: null }, { ...before, id: 2, behindBase: null }] });
+    const look = new LastLook(dir);
+    look.record(1234, [SESSION], [WORK_ITEM, { ...WORK_ITEM, id: 2, behindBase: 0 }, { ...WORK_ITEM, id: 3, behindBase: null }]);
+    expect(JSON.parse(readFileSync(file, "utf8")).workItems.map((item: WorkItem) => item.behindBase)).toEqual([1, 0, null]);
+    expect(new LastLook(dir).get()?.workItems.map((item) => item.behindBase)).toEqual([1, 0, null]);
   });
 
   it("reads a look a build before the setup wrote, whose work items lack it, with none", () => {

@@ -98,8 +98,8 @@ function isUnread(value: unknown): value is Unread {
   return isRecord(value) && typeof value.line === "number" && typeof value.why === "string";
 }
 
-/** The fields of a work item that came after the first look was written: the ones that came with the repositories, `setup`, which came with the worktree's setup, and `decisions`, `questions` and `unread`, which came with the work item's record, and `permissions`, which came with the permission requests. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
-type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "setup" | "decisions" | "questions" | "unread" | "permissions";
+/** The fields of a work item that came after the first look was written: the ones that came with the repositories, `setup`, which came with the worktree's setup, and `decisions`, `questions` and `unread`, which came with the work item's record, `permissions`, which came with the permission requests, and `behindBase`, which came with the count behind the base. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
+type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "setup" | "decisions" | "questions" | "unread" | "permissions" | "behindBase";
 /** A work item as a look's file holds one: every field of the protocol's, the ones that came later absent or of the protocol's type. */
 type WrittenWorkItem = Omit<WorkItem, CameLater> & Partial<Pick<WorkItem, CameLater>>;
 
@@ -118,6 +118,7 @@ function isWorkItem(value: unknown): value is WrittenWorkItem {
     isTextOrNull(item.baseCommit) &&
     isTextOrNull(item.baseBranch) &&
     isNumberOrNull(item.aheadOfBase) &&
+    (item.behindBase === undefined || isNumberOrNull(item.behindBase)) &&
     isNumberOrNull(item.newCommits) &&
     (item.commits === null || (Array.isArray(item.commits) && item.commits.every(isCommit))) &&
     (item.changes === null || isChanges(item.changes)) &&
@@ -148,7 +149,7 @@ function isLook(value: unknown): value is { at: number; sessions: WrittenSession
  * question. A work item without a field that came later
  * gets that field's empty value: the id 0, which no repository bears, no
  * pin, no mute, no group, no archive, no setup, no decision, no question,
- * nothing unread and no permission request. The decisions and the questions a look holds, each under its work
+ * nothing unread, no permission request and no count behind the base. The decisions and the questions a look holds, each under its work
  * item's id with its id and its state, are what the person has seen of the
  * work item's record.
  */
@@ -166,7 +167,7 @@ function lookOf(at: number, sessions: readonly WrittenSession[], workItems: read
       stateTool,
       stateQuestions: stateQuestions ? stateQuestions.map(({ asks, options, multiple }) => ({ asks, options: options.map(({ label, implies }) => ({ label, implies })), multiple })) : null,
     })),
-    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, setup, decisions, questions, unread, permissions }) => ({
+    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, behindBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, setup, decisions, questions, unread, permissions }) => ({
       id,
       title,
       repoId: repoId ?? 0,
@@ -178,6 +179,7 @@ function lookOf(at: number, sessions: readonly WrittenSession[], workItems: read
       baseCommit,
       baseBranch,
       aheadOfBase,
+      behindBase: behindBase ?? null,
       newCommits,
       commits: commits && commits.map(({ hash, subject, at, added, removed }) => ({ hash, subject, at, added, removed })),
       changes: changes && { files: changes.files, added: changes.added, removed: changes.removed, list: changes.list.map(({ path, added, removed }) => ({ path, added, removed })) },
