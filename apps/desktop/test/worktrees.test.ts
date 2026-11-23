@@ -1099,16 +1099,21 @@ describe("what a chain reads of a worktree", () => {
     expect(between.text).toContain("-on-main.txt\n");
   });
 
-  it("gives a file's text as a commit holds it, whatever the worktree holds, and the files a commit holds directly in a folder, and none of either where the commit holds none", async () => {
+  it("gives a file's text as a commit holds it, whatever the worktree and the commits after it hold, and the files that commit holds directly in a folder, and none of either where the commit holds none", async () => {
     const { repo } = repository();
     mkdirSync(join(repo, "rounds", "deeper"), { recursive: true });
     for (const file of ["rounds/round-1.md", "rounds/round-2.md", "rounds/deeper/round-3.md"]) writeFileSync(join(repo, file), `${file}\n`);
     git(repo, "add", "--all");
     git(repo, "commit", "--quiet", "-m", "records");
     const held = commitOf(repo, "HEAD");
+    writeFileSync(join(repo, "rounds/round-1.md"), "changed in a later commit\n");
+    writeFileSync(join(repo, "rounds/round-4.md"), "added in a later commit\n");
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "later");
     writeFileSync(join(repo, "rounds/round-1.md"), "changed in the worktree\n");
     writeFileSync(join(repo, "rounds/round-9.md"), "untracked\n");
-    expect([await fileAt(repo, held, "rounds/round-1.md"), await fileAt(repo, held, "rounds/round-9.md")]).toEqual(["rounds/round-1.md\n", null]);
+    expect([await fileAt(repo, held, "rounds/round-1.md"), await fileAt(repo, held, "rounds/round-4.md"), await fileAt(repo, held, "rounds/round-9.md")]).toEqual(["rounds/round-1.md\n", null, null]);
+    expect(await fileAt(repo, "HEAD", "rounds/round-1.md")).toBe("changed in a later commit\n");
     expect(await filesAt(repo, held, "rounds")).toEqual(["rounds/deeper", "rounds/round-1.md", "rounds/round-2.md"]);
     expect([await filesAt(repo, held, "rounds/"), await filesAt(repo, held, "no-such-folder")]).toEqual([["rounds/deeper", "rounds/round-1.md", "rounds/round-2.md"], []]);
   });

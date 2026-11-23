@@ -910,7 +910,7 @@ export async function worktreeHead(worktree: string): Promise<string> {
 /** The commit a name gives in a worktree, whole, or null where it names none: a hash, shortened or whole, a branch or a remote's branch. */
 export async function commitNamed(worktree: string, name: string): Promise<string | null> {
   try {
-    return (await git(worktree, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${name}^{commit}`])).trim() || null;
+    return (await git(worktree, ["rev-parse", "--verify", "--quiet", `${name}^{commit}`])).trim() || null;
   } catch {
     return null;
   }
