@@ -162,6 +162,9 @@ describe("the text of a guarantee", () => {
     expect(guaranteeText(null, "1-x", unended, PARTIES)).toBe(`# Guarantee: 1-x\n\n${written(SECTION)}`);
     const returned = `## Run 1\r\n\r\n${F}seal\r\ntarget: ${TARGET}\r\nVerdict: sealed\r\n${F}\r\n`;
     expect(guaranteeText(null, "1-x", returned, PARTIES)).toBe(`# Guarantee: 1-x\n\n## Run 1\r\n\r\n${F}seal\r\ntarget: ${TARGET}\r\nVerdict: sealed\r\n${DAEMONS}${F}\r\n`);
+    // A carriage return alone ends a line too, as the reader counts lines.
+    const alone = `## Run 1\r\r${F}seal\rtarget: ${TARGET}\rVerdict: sealed\r${F}\r`;
+    expect(guaranteeText(null, "1-x", alone, PARTIES)).toBe(`# Guarantee: 1-x\n\n## Run 1\r\r${F}seal\rtarget: ${TARGET}\rVerdict: sealed\r${DAEMONS}${F}\r`);
   });
 
   it("names one builder alone, and each builder in the order given", () => {

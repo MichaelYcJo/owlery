@@ -10,7 +10,7 @@ The scripts started from AgenticSeal 0.38.4 (https://github.com/MichaelYcJo/Agen
 
 The files are Owlery's own from the day they were taken, and Owlery changes them for its own records. Owlery follows no release of AgenticSeal, and nothing holds a file here to AgenticSeal's bytes. What Owlery changed is in git.
 
-The scripts' refusals still name `seal` commands, the orchestrator and AgenticSeal's templates. The issue that builds each stage of a work item rewrites what its stage prints.
+Where the broad gate's record or the guarantee is missing, or holds no block, the check says what Owlery's daemon writes. The refusals of the other arms still name `seal` commands, the orchestrator and AgenticSeal's templates. The issue that builds each stage of a work item rewrites what its stage prints.
 
 ## The cases
 

@@ -237,7 +237,7 @@ export function guaranteeText(before: string | null, workItem: string, section: 
   if (unread !== null) throw new Error(unread);
   const newest = got.verdicts.at(-1);
   if (newest === undefined || got.verdicts.length !== stood.verdicts.length + 1) throw new Error(`the section appended to ${GUARANTEE_FILE} would not be read as its newest verdict`);
-  if (newest.builtBy.length !== parties.builtBy.length || newest.builtBy.some((name, index) => name !== parties.builtBy[index])) {
+  if (JSON.stringify(newest.builtBy) !== JSON.stringify(parties.builtBy)) {
     throw new Error(`the building sessions do not read back as they were given: \`${parties.builtBy.join("`, `")}\``);
   }
   if (newest.judgedBy !== parties.judgedBy || newest.model !== parties.model || newest.rules !== `owlery ${parties.version}`) throw new Error("the judging session, its model or the rules do not read back as they were given");
