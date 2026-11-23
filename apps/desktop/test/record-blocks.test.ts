@@ -66,6 +66,7 @@ const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]
   { name: "a second judge", text: judged("built-by: the session", "judged-by: s-2", "judged-by: s-3"), blocks: 0, refusals: [6], notices: [] },
   { name: "a second line of builders, of a model and of the rules", text: `${judged("built-by: s-1", "built-by: s-2")}\n${judged("model: owl", "model: owl")}\n${judged("rules: owlery 1", "rules: owlery 2")}`, blocks: 0, refusals: [5, 12, 19], notices: [] },
   { name: "builders joined by a comma alone", text: judged("built-by: the session,s-1"), blocks: 0, refusals: [4], notices: [] },
+  { name: "two ids joined by a comma alone, as builders and as the judge: an id holds no comma", text: `${judged("built-by: s-1,s-2")}\n${judged("judged-by: s-1,s-2")}`, blocks: 0, refusals: [4, 10], notices: [] },
   { name: "a builder of two words that is not the session", text: judged("built-by: a session"), blocks: 0, refusals: [4], notices: [] },
   { name: "a builder's id that holds a no-break space, and a line of builders that names none", text: `${judged("built-by: s\u00a01")}\n${judged("built-by:")}\n${judged("built-by: s-1, ")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
   { name: "a judge named as the session, two judges on one line, and a judge with no id", text: `${judged("judged-by: the session")}\n${judged("judged-by: s-1, s-2")}\n${judged("judged-by:")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },

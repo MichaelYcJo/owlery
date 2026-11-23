@@ -260,6 +260,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     );
     expect(same.exit).toBe(1);
 
+    // The judge is found wherever the line names it, before `the session` too.
+    guaranteed(made, section(1, made.gate, "built-by: s-1, the session", "judged-by: s-1"));
+    const first = check(made, "ready", false, false);
+    expect(first.output).toContain("seal/threads/1-x/guarantee.md:9  `judged-by: s-1` names a session");
+    expect(first.exit).toBe(1);
+
     // A second run by another session: the first block still stands above it, and only the newest is read for its judge.
     guaranteed(made, section(1, made.gate, "built-by: the session, s-1", "judged-by: s-1", "model: owl-large", "rules: owlery 0.0.2"), section(2, made.gate, "built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"));
     const other = check(made, "ready", false, false);
