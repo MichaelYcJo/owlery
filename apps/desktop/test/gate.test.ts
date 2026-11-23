@@ -183,7 +183,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const a = workItems[0]!;
     expect(await c.getSeal(a.id, 1)).toBe("done");
     const chain = await c.chain(a.id, "sealed");
-    expect(chain.stages.at(-2)).toMatchObject({ kind: "gate", state: "finished", gate: { command: gate, exitCode: 0, output: true } });
+    expect(chain.stages.at(-3)).toMatchObject({ kind: "gate", state: "finished", gate: { command: gate, exitCode: 0, output: true } });
     // The head the command read is the commit of round 1's record: the run's own record and the sealer's verdict are the two commits after it.
     const ran = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(await output(c, a.id, 2)).toBe(`${a.worktree}\n${ran}\n0 none\n1 none\n2 none\nthe case's own\n`);
@@ -201,7 +201,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     commitAll(a.worktree, "feat: greet again");
     c.messages.length = 0;
     expect(await c.getSeal(a.id, 3)).toBe("done");
-    expect((await c.chain(a.id, "sealed")).stages.map(({ kind }) => kind)).toEqual(["round", "gate", "seal", "round", "gate", "seal"]);
+    expect((await c.chain(a.id, "sealed")).stages.map(({ kind }) => kind)).toEqual(["round", "gate", "seal", "pull-request", "round", "gate", "seal", "pull-request"]);
     expect(readFileSync(join(out, "asked"), "utf8")).toBe("asked\n");
   });
 

@@ -1,11 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
+import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -17,6 +18,7 @@ import {
   CHAIN_STAGES_KEPT,
   ChainStop,
   GATE_SUBJECT,
+  OPEN_PULL_REQUEST,
   ORCHESTRATOR,
   PARKED_SAYS,
   READING_SAYS,
@@ -52,6 +54,9 @@ import {
   parkedGrounds,
   passedBefore,
   promptText,
+  pullRequestCarriesSays,
+  pullRequestOpenSays,
+  pullRequestOwed,
   refusalsText,
   roundBase,
   roundFile,
@@ -72,6 +77,7 @@ import {
 } from "./chain";
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
+import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -228,6 +234,14 @@ export interface DaemonOptions {
   gateEnv?: Record<string, string>;
   /** How many of the last characters a broad gate's command printed the daemon keeps; `GATE_OUTPUT_CHARS` of `gate.ts` when absent. */
   gateOutputChars?: number;
+  /** The command and the first arguments the person's `gh` is started with. When absent, it is the `gh` the `PATH` of the broad gate's environment holds, which is the person's login shell's where `gateEnv` is absent. */
+  gh?: readonly [string, ...string[]];
+  /** How long one call of `gh`, and the push of a branch, may run before the daemon ends it; `GITHUB_LIMIT_MS` of `github.ts` when absent. */
+  githubLimitMs?: number;
+  /** How long the watch waits between two reads of an open pull request while its checks run, or while GitHub's head is not the commit the stage pushed; `PR_POLL_MS` of `github.ts` when absent. */
+  prPollMs?: number;
+  /** How long the watch waits between two reads of any other open pull request, and after a read that failed; `PR_REST_POLL_MS` of `github.ts` when absent. */
+  prRestPollMs?: number;
   /** How much recent output each session keeps for a client that reconnects. */
   bufferChars?: number;
   /** How long a client has to present the token. */
@@ -362,6 +376,11 @@ export class Daemon {
   private commitsReadAt = 0;
   // The read of the counts under way, which a hello that arrives meanwhile waits on.
   private readingCommits: Promise<void> | undefined;
+  // When the watch next reads each work item's open pull request, by the work item's id, on the system's clock. A pull request with no time here is read at the watch's next turn.
+  private readonly pullRequestDue = new Map<number, number>();
+  private watchTimer: NodeJS.Timeout | undefined;
+  // The watch's reads under way: one turn of reads runs at a time.
+  private watching: Promise<void> | undefined;
   private closed = false;
 
   constructor(private readonly options: DaemonOptions) {
@@ -591,6 +610,7 @@ export class Daemon {
     this.closed = true;
     this.closing();
     clearTimeout(this.commitTimer);
+    clearTimeout(this.watchTimer);
     clearTimeout(this.idleTimer);
     for (const session of this.sessions.values()) {
       clearTimeout(session.silentStart);
@@ -644,6 +664,9 @@ export class Daemon {
         this.checkIdle();
         // A notice that stands is read again as a window connects, so it goes once the person did what it asks. The daemon outlives the app for days, and a notice read once would stay.
         if (this.agentNotice !== null) void this.readAgentNotice();
+        // Each open pull request is read again at a hello, which is when a person looks.
+        this.pullRequestDue.clear();
+        this.scheduleWatch();
         void this.greet(socket, early);
         return;
       }
@@ -2093,7 +2116,9 @@ export class Daemon {
    * before each stage it reads the step the records owe (`chain.ts#stepOwed`)
    * and runs that stage, the broad gate (`runGate`) and the seal (`runSeal`)
    * among them, and it rests `parked` or `sealed` where the records owe
-   * none. A sealer's `withheld` verdict stops the chain with its reason.
+   * none. Before it rests `sealed` it runs the pull request stage where
+   * that is owed (`runPullRequest`), and rests with that stage's sentence
+   * once it ended well. A sealer's `withheld` verdict stops the chain with its reason.
    * Before a fix pass it reads what the chain owes first
    * (`chain.ts#gateBefore`): the orchestrator's judgment of whether the
    * rounds are converging, whose `no` stops the chain, or a stop at the
@@ -2136,7 +2161,8 @@ export class Daemon {
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
-        if (step.is === "sealed") return rest("sealed", sealedSays(step.round, step.at));
+        // A sealed chain owes the pull request stage where its routing sends the work to one and the stored pull request does not carry the head.
+        if (step.is === "sealed") return rest("sealed", (await this.runPullRequest(held, directory, standing, step)) ?? sealedSays(step.round, step.at));
         if (step.is === "gate") await this.runGate(held, directory, standing, step.round);
         else if (step.is === "seal") {
           const withheld = await this.runSeal(held, directory, standing, step);
@@ -2169,6 +2195,8 @@ export class Daemon {
         this.settleHold();
         this.checkIdle();
         this.readBranchNow(workItemId);
+        // The watch passes over a work item while its chain runs.
+        this.scheduleWatch();
       }
     }
   }
@@ -2553,7 +2581,7 @@ export class Daemon {
     const command = readRecordsPlace(worktree).broadGate ?? "";
     if (command.trim() === "") throw notRun(`the worktree's config.json names no command under "Broad gate"`);
     if (baseCommit === null) throw notRun("the work item records no commit its branch was cut at, so the run's record has no base to name");
-    const env = this.options.gateEnv ?? gateEnvironment(process.env, await (this.gatePath ??= loginPath(process.env)));
+    const env = await this.commandEnvironment();
     // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
     if (this.closed) throw new ChainStop("the daemon closed");
     const gone = this.whyNoRun(item.id);
@@ -2606,6 +2634,135 @@ export class Daemon {
     const chain = this.store.workItem(item.id)?.item.chain;
     if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
     if (failure !== null) throw new StageStopped(stoppedSays("gate", round, failure));
+  }
+
+  /**
+   * Runs the pull request stage of a sealed chain where it is owed
+   * (`chain.ts#pullRequestOwed`): the `Destination` row of the work item's
+   * `routing.md` at the branch's head, and the pull request the daemon
+   * stores, decide it. Where no stage is owed it gives the sentence of the
+   * open pull request that already carries the head, and null where the
+   * routing sends the work to none or the stored one is not open; otherwise
+   * it gives the chain's sentence once the stage ended well. It is no session, so it
+   * starts through no adapter, and it is listed with the chain as its newest
+   * stage, in the form of `runGate`.
+   *
+   * The stage reads the records the head commit holds (`github.ts#bodyRecords`),
+   * pushes that head commit, by its id, to the branch on the remote
+   * `github.ts#pushTarget` names with the person's git and writes the
+   * branch's upstream, then asks the person's `gh` for the branch's open pull
+   * requests. Where it lists one, the stage replaces that body's seal section
+   * and sends the body with `gh pr edit`; where it lists none, it opens one
+   * with `gh pr create`, ready, with the work item's title, its base and the
+   * body `github.ts#pullRequestBody` composes. It then reads the pull request
+   * with `gh pr view` and stores it with the work item. `gh` is the
+   * `DaemonOptions` one, or the one on the `PATH` of the broad gate's
+   * environment, and runs with that environment, no prompt and no colour.
+   * The body's file stands in the run folder, or in the system's temporary
+   * folder for a daemon given none, and is removed when the stage ends. The
+   * stage commits nothing and writes no file in the worktree, since a commit
+   * after the sealed one that is no closing record would break the seal.
+   *
+   * The stage fails where no `gh` is found, where the worktree's head moved
+   * after the records were read, where no remote can be told
+   * (`github.ts#pushTarget`), where `guarantee.md` holds no verdict block at
+   * the head, where the push, the writing of the upstream or a call of `gh` fails or passes its time
+   * limit, where an answer of `gh` does not read, where `gh` lists more than
+   * one open pull request of the branch, and where the body it lists holds
+   * its markers otherwise than once each. It then throws a `StageStopped`
+   * with the chain's sentence, and the stored pull request is as it was. A
+   * daemon that closed meanwhile stores nothing.
+   */
+  private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "sealed" }>): Promise<string | null> {
+    const { item } = held;
+    const { worktree, branch, baseBranch, baseCommit, title } = item;
+    const routing = await fileAt(worktree, standing.head, relative(worktree, join(directory, ROUTING_FILE)));
+    const destination = routingAnswer(routing ?? "", "Destination");
+    if (!pullRequestOwed(destination, item.pullRequest, standing.head)) {
+      // An open pull request that already carries the head: the chain says that it is open.
+      return destination === OPEN_PULL_REQUEST && item.pullRequest?.state === "open" ? pullRequestOpenSays(item.pullRequest.number) : null;
+    }
+    const env = await this.commandEnvironment();
+    // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
+    if (this.closed) throw new ChainStop("the daemon closed");
+    const gone = this.whyNoRun(item.id);
+    if (gone !== null) throw new ChainStop(gone);
+    const before = this.store.workItem(item.id)?.item.chain;
+    if (!before) throw new ChainStop("the daemon no longer keeps the work item");
+    const now = this.options.now ?? Date.now;
+    const working: ChainStage = { kind: "pull-request", round: step.round, state: "working", failure: null, startedAt: now(), endedAt: null, headlessId: null, refusals: 0, gate: null };
+    this.chainSet(item.id, { ...before, says: runningSays("pull-request", step.round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
+    let body: { file: string; remove: () => void } | undefined;
+    let failure: string | null = null;
+    let says = "";
+    try {
+      const cli = this.githubCli(env, worktree, "open");
+      const head = await worktreeHead(worktree);
+      if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
+      const target = await pushTarget(worktree, baseBranch);
+      const records = await bodyRecords(worktree, head, relative(worktree, directory));
+      const named = await pullRequestTitle(worktree, title, baseCommit, head);
+      await pushBranch(cli, target.remote, branch, head);
+      const listed = await openPullRequests(cli, branch);
+      if (listed.length > 1) throw new Error(`the branch has the open pull requests ${listed.map(({ number }) => `#${String(number)}`).join(", ")}, and Owlery opens or updates one`);
+      body = this.pullRequestBodyFile(item.id);
+      const [open] = listed;
+      let url: string;
+      if (open === undefined) {
+        writeFileSync(body.file, pullRequestBody(records), { mode: 0o600 });
+        url = await createPullRequest(cli, { branch, base: target.base, title: named, bodyFile: body.file });
+      } else {
+        let text: string;
+        try {
+          text = withSealSection(open.body, sealSection(records));
+        } catch (error) {
+          throw new Error((error instanceof Error ? error.message : String(error)).replace(/^the body/u, `the body of pull request #${String(open.number)}`));
+        }
+        writeFileSync(body.file, text, { mode: 0o600 });
+        await editPullRequest(cli, open.url, body.file);
+        url = open.url;
+      }
+      const viewed = await viewPullRequest(cli, url);
+      const pullRequest: PullRequest = { ...viewed, pushed: head, readAt: now(), failure: null };
+      if (this.closed) throw new ChainStop("the daemon closed");
+      this.store.setWorkItem(item.id, { pullRequest });
+      // GitHub lists the checks a push starts some seconds after it, so the watch reads the pull request again after the shorter wait, whatever this read gave.
+      this.pullRequestDue.set(item.id, Date.now() + (this.options.prPollMs ?? PR_POLL_MS));
+      says = open === undefined ? pullRequestOpenSays(viewed.number) : pullRequestCarriesSays(viewed.number, step.at);
+    } catch (error) {
+      if (this.closed) throw new ChainStop("the daemon closed");
+      failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
+    } finally {
+      body?.remove();
+    }
+    const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt: now() };
+    const chain = this.store.workItem(item.id)?.item.chain;
+    if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
+    if (failure !== null) throw new StageStopped(stoppedSays("pull-request", step.round, failure));
+    return says;
+  }
+
+  /** The environment a broad gate's command, the person's `gh` and the push run with: the `gateEnv` option, or a pane's with the `PATH` of the person's interactive login shell, which is asked once in the daemon's life (`gate.ts#gateEnvironment`). */
+  private async commandEnvironment(): Promise<Record<string, string>> {
+    return this.options.gateEnv ?? gateEnvironment(process.env, await (this.gatePath ??= loginPath(process.env)));
+  }
+
+  /** The person's `gh` in a worktree, run with the environment given: the `gh` option, or the first `gh` on that environment's `PATH`. It throws, with the second half of a sentence that says what Owlery cannot do without it, where none stands there. */
+  private githubCli(env: Record<string, string>, worktree: string, does: "open" | "read"): GitHubCli {
+    const found = this.options.gh ?? findOnPath("gh", env.PATH);
+    if (found === null) throw new Error(`no gh stands on the PATH of the login shell, so Owlery cannot ${does} the pull request; GitHub's CLI is at https://cli.github.com`);
+    return { gh: typeof found === "string" ? [found] : found, env: ghEnvironment(env), cwd: worktree, limitMs: this.options.githubLimitMs ?? GITHUB_LIMIT_MS };
+  }
+
+  /** The file a pull request's body is written to for `gh`, readable by the user alone, with what removes it: in the run folder, or in a folder of its own in the system's temporary folder for a daemon given no run folder. */
+  private pullRequestBodyFile(workItemId: number): { file: string; remove: () => void } {
+    const { runDir } = this.options;
+    if (runDir !== undefined) {
+      const file = join(runDir, `pull-request-${String(workItemId)}.md`);
+      return { file, remove: () => rmSync(file, { force: true }) };
+    }
+    const folder = mkdtempSync(join(tmpdir(), "owlery-pull-request-"));
+    return { file: join(folder, "body.md"), remove: () => rmSync(folder, { recursive: true, force: true }) };
   }
 
   /** Why a broad gate cannot run on the worktree as the head's tree, as the second half of a sentence, or null where it can: the worktree holds a change no commit holds, or an untracked file, outside the work item's directory. */
@@ -2753,6 +2910,75 @@ export class Daemon {
       if (this.clients.size === 0) return;
       void this.readCommitsNow();
     }, wait);
+  }
+
+  /**
+   * Arranges the watch's next turn, at the earliest time one of the watched
+   * pull requests is due (`watched`), in place of the turn arranged before,
+   * where no turn is under way. The turns follow one another while a client
+   * is connected: a turn that comes while none is reads nothing and arranges
+   * no other, and the hello of the next client to connect starts them again.
+   * A daemon that closed arranges none, and nothing the watch does holds the
+   * daemon or the Mac.
+   */
+  private scheduleWatch(): void {
+    if (this.closed || this.watching) return;
+    clearTimeout(this.watchTimer);
+    this.watchTimer = undefined;
+    const watched = this.watched();
+    if (watched.length === 0) return;
+    const next = Math.min(...watched.map(({ item }) => this.pullRequestDue.get(item.id) ?? 0));
+    this.watchTimer = setTimeout(() => {
+      this.watchTimer = undefined;
+      // Nobody is told what the watch reads while no client is connected.
+      if (this.clients.size === 0 || this.closed) return;
+      const due = this.watched().filter(({ item }) => (this.pullRequestDue.get(item.id) ?? 0) <= Date.now());
+      const turn = Promise.all(due.map((held) => this.readPullRequest(held))).then((changed) => {
+        if (changed.includes(true)) this.broadcastInbox();
+      });
+      this.watching = turn.finally(() => {
+        this.watching = undefined;
+        this.scheduleWatch();
+      });
+    }, Math.max(0, next - Date.now()));
+  }
+
+  /** The work items whose pull request the watch reads: each that is not archived, whose stored pull request is open, and whose chain does not run, since its pull request stage stores a newer one. */
+  private watched(): Held[] {
+    return this.store.workItems().filter(({ item }) => item.archivedAt === null && item.pullRequest?.state === "open" && !this.chains.has(item.id));
+  }
+
+  /**
+   * Reads a work item's open pull request again from GitHub, with one call
+   * of the person's `gh` (`github.ts#viewPullRequest`), and stores what it
+   * gives with the commit the stage pushed. The next read is due after
+   * `prPollMs` while the checks are pending or GitHub's head is not the
+   * pushed commit, and after `prRestPollMs` otherwise. Where the call fails
+   * or its answer does not read, the stored pull request keeps what the
+   * last read gave, its `failure` holds the sentence that says why, and the
+   * next read is due after `prRestPollMs`. A work item that left the watch
+   * while `gh` was asked, or whose pull request the stage replaced, keeps
+   * what it holds. It answers whether the stored pull request changed in
+   * more than the time of its read.
+   */
+  private async readPullRequest({ item }: Held): Promise<boolean> {
+    const before = item.pullRequest;
+    if (before === null) return false;
+    const now = this.options.now ?? Date.now;
+    let read: PullRequest;
+    let wait: number;
+    try {
+      const viewed = await viewPullRequest(this.githubCli(await this.commandEnvironment(), item.worktree, "read"), before.url);
+      read = { ...before, ...viewed, readAt: now(), failure: null };
+      wait = read.checks === "pending" || read.head !== read.pushed ? (this.options.prPollMs ?? PR_POLL_MS) : (this.options.prRestPollMs ?? PR_REST_POLL_MS);
+    } catch (error) {
+      read = { ...before, failure: (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "") };
+      wait = this.options.prRestPollMs ?? PR_REST_POLL_MS;
+    }
+    if (this.closed || !this.watched().some((held) => held.item.id === item.id && held.item.pullRequest === before)) return false;
+    this.pullRequestDue.set(item.id, Date.now() + wait);
+    this.store.setWorkItem(item.id, { pullRequest: read });
+    return JSON.stringify({ ...read, readAt: 0 }) !== JSON.stringify({ ...before, readAt: 0 });
   }
 
   /** Reads the counts now, or gives the read under way: one read runs at a time. */

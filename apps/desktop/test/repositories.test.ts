@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RepositoryStore } from "../src/daemon/repositories";
-import type { Chain, WorktreeSetup } from "../src/shared/protocol";
+import type { Chain, PullRequest, WorktreeSetup } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
@@ -20,8 +20,8 @@ function runDir(): string {
 /** What a creation hands the store: the repository's folder, and the work item's own fields. */
 const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
 const { repo: _repo, ...OWN } = PLACE;
-/** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null };
+/** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 /** The setup of a work item's worktree, as the daemon records one that ended. */
@@ -178,6 +178,27 @@ describe("RepositoryStore", () => {
     // A file whose chain is none of a chain's states is read as no repository, as a file whose setup is none is.
     writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, state: "reviewing" } }));
     expect(new RepositoryStore(dir).repositories()).toEqual([]);
+  });
+
+  it("keeps a work item's pull request: a second store reads it with only a pull request's fields, reads a work item a build before the pull request wrote with none, and reads a file whose pull request is none as no repository", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    expect(item.pullRequest).toBeNull();
+    const pullRequest: PullRequest = { number: 12, url: "https://github.com/owner/project/pull/12", state: "open", head: "c".repeat(40), pushed: "c".repeat(40), checks: "failed", list: [{ name: "build", state: "failed", link: "https://github.com/owner/project/actions/runs/1" }], listCount: 1, readAt: 5, failure: null };
+    expect(store.setWorkItem(item.id, { pullRequest })).toBe(true);
+    expect(store.setWorkItem(item.id, { pullRequest })).toBe(false);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, pullRequest });
+    const { pullRequest: _none, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
+    const file = (workItem: object): string => JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [workItem] }] });
+    writeFileSync(join(dir, "repositories.json"), file(before));
+    expect(new RepositoryStore(dir).workItem(1)?.item).toEqual({ ...before, pullRequest: null });
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, pullRequest: { ...pullRequest, extra: 1, list: [{ ...pullRequest.list[0], extra: 1 }] } }));
+    expect(new RepositoryStore(dir).workItem(1)?.item.pullRequest).toEqual(pullRequest);
+    for (const wrong of ["open", { ...pullRequest, state: "draft" }, { ...pullRequest, checks: "skipped" }, { ...pullRequest, pushed: null }, { ...pullRequest, list: [{ name: "build", state: "neutral", link: null }] }]) {
+      writeFileSync(join(dir, "repositories.json"), file({ ...before, pullRequest: wrong }));
+      expect(new RepositoryStore(dir).repositories(), JSON.stringify(wrong)).toEqual([]);
+    }
   });
 
   it("adds a group to a repository under an id no group bears, after the groups it has, writes the store, and gives a group's id to no group made after, though its repository was removed", () => {

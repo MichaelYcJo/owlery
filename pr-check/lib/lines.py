@@ -7,8 +7,7 @@ shows (`visible`), which lines a fenced block holds (`fence_spans`,
 (`comment_lines`), whether a line begins live (`liveness`,
 `live_pieces`, `live_lines`), which ATX heading a line is
 (`heading_level`, `headings`, `sections`), and which lines of a record a
-reader judges (`readable`). `lib/gaps.py` reads a closing memo through it,
-and the scripts load it through `lib/sibling.py`.
+reader judges (`readable`). The scripts load it through `lib/sibling.py`.
 
 The fence delimiter rule and the GFM line split are `lib/blocks.py`'s,
 imported beside it. `lib/blocks.py#walk` is the other walk of a markdown
@@ -37,11 +36,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # `lib/config.py`, `lib/routing.py` and `lib/fields.py`, apart from
 # `live_lines` on purpose, since a row they read is safe at its base reading
 # where the walk is unsure, and `fields.py` refuses a fence line the walk cannot
-# place. Readers that keep a rule of their own, each on purpose: the pull request
-# body readers through `close_issues_on_release.py#FENCE`, which open a fence
-# at any indentation as GitHub does, so a fence under a list item masks a
-# closing keyword (`docs/releasing/issues-and-milestones.md` *A keyword claims the
-# one number after it*); `tests/behaviour/test_docs_line_wrap.py#fenced_numbers`,
+# place. Readers that keep a rule of their own, each on purpose:
+# `tests/behaviour/test_docs_line_wrap.py#fenced_numbers`,
 # which strips a line's indentation first; and the oracle walk in
 # `tests/lib/test_lines.py`. A new reader
 # that decides by line whether it stands inside a fence belongs in one of
@@ -510,6 +506,5 @@ def headings(lines):
 
 def sections(lines, heading):
     """The index of each heading in LINES, already `readable`, whose text is
-    the string `heading` exactly. `lib/gaps.py#check_text` asks it for
-    `HEADING`, and `pr_body.py` for the section of a record it copies."""
+    the string `heading` exactly."""
     return [i for i, text in headings(lines) if text.strip() == heading]

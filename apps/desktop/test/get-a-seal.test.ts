@@ -6,7 +6,14 @@
 // daemon stops its session. Once the file `answers` stands beside it, the
 // stand-in answers a round's prompt with a record that holds no finding, so
 // the chain goes on to the repository's broad gate, a command that fails
-// and, while the file `gate-holds` stands, sleeps first. The page's
+// and, while the file `gate-holds` stands, sleeps first. While the file
+// `gate-passes` stands the command exits with 0, and the stand-in answers
+// the sealer's prompt with a verdict of `sealed`. The login shell's PATH
+// leads with the stand-in for `gh` (fixtures/sample-gh/gh), so the daemon
+// then pushes the branch to a bare repository in the case's temporary
+// folder and opens the pull request through the stand-in, and nothing
+// reaches GitHub. The app is started with `OWLERY_OPENER` naming a script
+// that notes each address it is handed, so no browser opens. The page's
 // `Notification` is replaced by a recorder, so nothing reaches the system's
 // notifications.
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -20,8 +27,11 @@ import { commitFile, git, temporaryRepository } from "./repositories";
 /** The line the repository's broad gate prints before it fails. */
 const PRINTED = "FAIL test/view.test.ts: 1 case failed";
 
-/** The repository's broad gate command: it sleeps while the file `gate-holds` stands in the folder, then prints a line and exits with 1. */
-const GATE = (base: string): string => `if [ -e '${join(base, "gate-holds")}' ]; then sleep 30; fi; echo '${PRINTED}'; exit 1`;
+/** The repository's broad gate command: it exits with 0 while the file `gate-passes` stands in the folder, and otherwise sleeps while the file `gate-holds` stands, then prints a line and exits with 1. */
+const GATE = (base: string): string => `if [ -e '${join(base, "gate-passes")}' ]; then exit 0; fi; if [ -e '${join(base, "gate-holds")}' ]; then sleep 30; fi; echo '${PRINTED}'; exit 1`;
+
+/** The folder of the stand-in for `gh` (fixtures/sample-gh/gh), which the login shell's PATH names first: it reaches no GitHub, opens pull request #12 and answers it open with two checks that passed. */
+const GH_FOLDER = join(__dirname, "fixtures", "sample-gh");
 
 describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
   let app: BuiltApp;
@@ -69,7 +79,7 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon also runs the CLI at its start, to read its version: that run prints one and is no session.
-    // Without the file `answers` a session sleeps. With it, the stand-in reads the handshake and the prompt, names its session and the proofer's agent as the CLI's first line does, and answers with the round's record: the heading and the target line the prompt gave, and no finding.
+    // Without the file `answers` a session sleeps. With it, the stand-in reads the handshake and the prompt and names its session and its role's agent as the CLI's first line does. It answers a sealer's prompt with a run's section whose verdict is `sealed`, under the heading and over the target line the prompt gave, and every other prompt with the round's record: the heading and the target line the prompt gave, and no finding.
     const cli = script(
       "cli",
       [
@@ -77,15 +87,24 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
         `if [ ! -e '${join(made.base, "answers")}' ]; then echo $$ > '${join(made.base, "cli-pid")}'; exec sleep 60; fi`,
         "read -r handshake",
         "read -r prompt",
+        `case "$prompt" in *'of the sealer on the work item'*)`,
+        "  heading=$(printf '%s' \"$prompt\" | sed -n 's/.*- Your section.s heading: `\\([^`]*\\)`.*/\\1/p')",
+        "  target=$(printf '%s' \"$prompt\" | sed -n 's/.*- Your verdict.s target line: `\\([^`]*\\)`.*/\\1/p')",
+        `  printf '%s\\n' '{"type":"system","subtype":"init","session_id":"stand-in-2","model":"stand-in","agents":["owlery:sealer"]}'`,
+        `  printf '{"type":"result","result":"%s\\\\n\\\\n### Claims checked by reading\\\\n\\\\n| Claim | Source | Read at | Result |\\\\n|---|---|---|---|\\\\n| Round 1 left no finding | \`trail/rounds/round-1.md\` | \`feature.txt\` | holds |\\\\n\\\\n\`\`\`seal\\\\n%s\\\\nVerdict: sealed\\\\n\`\`\`\\\\n","is_error":false}\\n' "$heading" "$target"`,
+        "  exit 0;;",
+        "esac",
         "heading=$(printf '%s' \"$prompt\" | sed -n 's/.*- Your record.s heading: `\\([^`]*\\)`.*/\\1/p')",
         "target=$(printf '%s' \"$prompt\" | sed -n 's/.*- Your record.s target line: `target: \\([^`]*\\)`.*/\\1/p')",
         `printf '%s\\n' '{"type":"system","subtype":"init","session_id":"stand-in-1","model":"stand-in","agents":["owlery:proofer"]}'`,
         `printf '{"type":"result","result":"%s\\\\n\\\\n\`\`\`seal\\\\ntarget: %s\\\\n\`\`\`\\\\n\\\\n## Findings\\\\n","is_error":false}\\n' "$heading" "$target"`,
       ].join("\n"),
     );
-    // The login shell: it names the stand-in, and a pane it starts ends at once.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
-    app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
+    // The login shell: it names the stand-in and a PATH whose first folder holds the stand-in for `gh`, and a pane it starts ends at once.
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '${GH_FOLDER}:/usr/bin:/bin'`);
+    // The program that stands for the system's browser: it notes each address it is handed.
+    const opener = script("opener", `printf '%s\\n' "$1" >> '${join(made.base, "opened")}'`);
+    app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root, OWLERY_OPENER: opener });
     // The recorder stands before any chain starts, so no notification of this run reaches the system.
     await app.evaluate(`(() => {
       window.__notifications = [];
@@ -255,6 +274,76 @@ describe('"Get a seal" in the built app', { timeout: 60_000 }, () => {
       // The round's record is committed, and no run of the gate is.
       expect(git(workItem.worktree, "log", "--format=%s", "-1").trim()).toBe("chore: record review round 1");
       expect(existsSync(join(workItem.worktree, "seal", "threads", git(workItem.worktree, "ls-tree", "--name-only", "HEAD", "seal/threads/").trim().split("/").at(-1) ?? "", "trail", "gate.md"))).toBe(false);
+    } finally {
+      second.close();
+    }
+  });
+
+  it("once the gate passes and the sealer seals, pushes the branch, opens the pull request through the stand-in for gh, lists its number, its state and each check under the seal's place, each opening its address, and gives the line the state and the second row of a pull request whose checks passed", async () => {
+    /** The pull request under the seal's place, as a person reads it: its row, the result of its checks, each check's mark, name and word, and what stands under the rows. */
+    const pullRequest = (): Promise<{ hidden: boolean; number: string; state: string; checks: string; rows: string[][]; more: string; failure: string }> =>
+      app.evaluate(`(() => ({
+        hidden: document.getElementById("view-pull-request").hidden,
+        number: document.getElementById("pull-request-number").textContent,
+        state: document.getElementById("pull-request-state").textContent,
+        checks: document.getElementById("pull-request-checks").textContent,
+        rows: [...document.querySelectorAll("#pull-request-list .check")].map((row) => [row.tagName, row.querySelector(".state-icon").getAttribute("aria-label"), row.querySelector(".name").textContent, row.querySelector(".words").textContent]),
+        more: document.getElementById("pull-request-more").textContent,
+        failure: document.getElementById("pull-request-failure").textContent,
+      }))()`);
+    const opened = (): string[] => (existsSync(join(made.base, "opened")) ? readFileSync(join(made.base, "opened"), "utf8").trim().split("\n") : []);
+    const second = await client();
+    try {
+      const workItem = second.alpha();
+      await app.click(`#repositories button[data-work-item="${workItem.id}"]`);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha"`, "the view of Alpha");
+      // No pull request yet, so nothing stands under the seal's place.
+      expect((await pullRequest()).hidden).toBe(true);
+      // The repository's one remote is a bare repository in the case's folder, and from here the gate passes.
+      const bare = join(made.base, "origin.git");
+      git(made.base, "init", "--quiet", "--bare", bare);
+      git(made.repo, "remote", "add", "origin", bare);
+      writeFileSync(join(made.base, "answers"), "");
+      writeFileSync(join(made.base, "gate-passes"), "");
+      await app.click("#get-seal");
+      await app.until(`document.getElementById("seal-says").textContent === "Pull request #12 is open."`, "the sentence of the opened pull request", 30_000);
+      expect(second.alpha().chain?.stages.map(({ kind, state }) => [kind, state]).slice(-3)).toEqual([["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+      // The bare remote holds the branch at the worktree's head, and the stage committed nothing after the seal's record.
+      expect(git(bare, "rev-parse", workItem.branch).trim()).toBe(git(workItem.worktree, "rev-parse", "HEAD").trim());
+      expect(git(workItem.worktree, "log", "--format=%s", "-1").trim()).toBe("chore: record the sealer's verdict");
+      expect(git(workItem.worktree, "status", "--porcelain").trim()).toBe("");
+
+      await app.until(`!document.getElementById("view-pull-request").hidden && document.getElementById("pull-request-checks").textContent === "Checks passed"`, "the pull request under the seal's place");
+      expect(await pullRequest()).toEqual({
+        hidden: false,
+        number: "Pull request #12",
+        state: "Open",
+        checks: "Checks passed",
+        rows: [
+          ["BUTTON", "Passed", "seal", "Passed"],
+          ["BUTTON", "Passed", "Owlery seal", "Passed"],
+        ],
+        more: "",
+        failure: "",
+      });
+      // The stage is not listed under "Ask": the gate's line and the sessions' lines are.
+      expect(await app.evaluate(`[...document.querySelectorAll("#headless li")].some((li) => li.textContent.includes("Pull request"))`)).toBe(false);
+      // The number opens the pull request's address, and a check's row the check's, through the program that stands for the browser.
+      // The program runs apart from the window, so each click's address is waited for before the next click.
+      const handed = async (count: number): Promise<string[]> => {
+        for (const deadline = Date.now() + 5_000; opened().length < count && Date.now() < deadline; ) await new Promise((r) => setTimeout(r, 50));
+        return opened();
+      };
+      await app.click("#pull-request-open");
+      expect(await handed(1)).toEqual(["https://github.com/owner/project/pull/12"]);
+      await app.click("#pull-request-list li:nth-child(2) .check");
+      expect(await handed(2)).toEqual(["https://github.com/owner/project/pull/12", "https://github.com/owner/project/runs/22"]);
+
+      // The work item's line has the state and the second row of a pull request whose checks passed.
+      const line = `#inbox-lines button[data-work-item="${workItem.id}"]`;
+      await app.click("#nav-inbox");
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('${line} .says')?.textContent === "Checks passed"`, "the pull request's result in the line's second row");
+      expect(await app.evaluate(`document.querySelector('${line} .state-icon').classList.contains("finished")`)).toBe(true);
     } finally {
       second.close();
     }

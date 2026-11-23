@@ -7,8 +7,8 @@ import { join, resolve } from "node:path";
 import { APPEARANCES, type Appearance, lookChoice, THEMES, type Theme } from "../src/shared/appearance";
 import type { SessionInfo, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
-/** The views a run captures, in the order it draws them: the inbox, the view of the work item that needs the person, the view of the work item parked with questions, a work item's menu and the "New work item" form. */
-export const VIEWS = ["inbox", "view", "parked", "menu", "dialog"] as const;
+/** The views a run captures, in the order it draws them: the inbox, the view of the work item that needs the person, the view of the work item parked with questions, the view of the finished work item, whose pull request's checks passed, a work item's menu and the "New work item" form. */
+export const VIEWS = ["inbox", "view", "parked", "finished", "menu", "dialog"] as const;
 export type View = (typeof VIEWS)[number];
 
 /** One screenshot: a view in a theme and an appearance, and the name of its file. */

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { AskedQuestion, Chain, Decision, Look, PermissionAsk, Question, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
+import type { AskedQuestion, Chain, Decision, Look, PermissionAsk, PullRequest, Question, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -33,6 +33,7 @@ const QUESTIONS: Question[] = [
 const UNREAD: Unread[] = [{ line: 40, why: "an empty `seal` block" }];
 const SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 const CHAIN: Chain = { state: "stopped", says: "Review round 2 failed: the session reached its time limit and was stopped.", stages: [{ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 1, refusals: 0, gate: null }, { kind: "round", round: 2, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: 3, endedAt: 4, headlessId: 2, refusals: 1, gate: null }], since: 6 };
+const PULL_REQUEST: PullRequest = { number: 12, url: "https://github.com/owner/project/pull/12", state: "open", head: "c".repeat(40), pushed: "c".repeat(40), checks: "pending", list: [{ name: "build", state: "pending", link: null }], listCount: 1, readAt: 5, failure: "gh pr view exited with code 1: HTTP 502" };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -59,6 +60,7 @@ const WORK_ITEM: WorkItem = {
   setup: SETUP,
   permissions: [ASK],
   chain: CHAIN,
+  pullRequest: PULL_REQUEST,
 };
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
@@ -315,6 +317,20 @@ describe("LastLook", () => {
     const { setup: _setup, ...before } = WORK_ITEM;
     writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, workItems: [before] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, setup: null }] });
+  });
+
+  it("reads a look a build before the pull request wrote, whose work items lack it, with none, keeps a pull request a look holds with only a pull request's fields, and reads a look whose pull request is none as no look", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { pullRequest: _pullRequest, ...before } = WORK_ITEM;
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, pullRequest: null }] });
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, pullRequest: { ...PULL_REQUEST, extra: 1, list: [{ ...PULL_REQUEST.list[0], extra: 1 }] } }] }));
+    expect(new LastLook(dir).get()).toEqual(LOOK);
+    for (const pullRequest of ["open", { ...PULL_REQUEST, state: "draft" }, { ...PULL_REQUEST, listCount: "1" }]) {
+      writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, pullRequest }] }));
+      expect(new LastLook(dir).get(), JSON.stringify(pullRequest)).toBeNull();
+    }
   });
 
   it("reads a look a build before the chain wrote, whose work items lack it, with none, keeps a chain a look holds with only a chain's fields, reads a chain an earlier build stored as reviewed as none with the look around it kept, and reads a look whose chain is none as no look", () => {
