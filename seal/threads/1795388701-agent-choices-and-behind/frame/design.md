@@ -9,7 +9,7 @@ Issue #27 is the request. Its body was read whole from the orchestrator's copy, 
 | Policy clause | What it fixes for this work |
 |---|---|
 | `docs/architecture.md` *Overall layout*: "Agent state is judged from events, never guessed from what the terminal screen prints" | The question and its choices come from an event's payload. Nothing reads the pane's output |
-| `docs/architecture.md` *Rules that keep it portable*, rules 1 and 2 | The protocol carries the shapes the daemon's reader produces. The tool's name and the payload's field names stay in `apps/desktop/src/daemon/agent-events.ts`, beside the map of that agent's events |
+| `docs/architecture.md` *Rules that keep it portable*, rules 1 and 2 | The protocol carries the shapes the daemon's reader produces. The question tool's name and its input's field names stand in the daemon alone: `apps/desktop/src/daemon/agent-events.ts` reads them, beside the map of that agent's events. The two readings of a tool's name that stood before this work stay, as *Data & interfaces* names them |
 | `docs/architecture.md` *The phone: the terminal session as a chat*: "the daemon's WebSocket protocol is not fitted only to the desktop UI, and no state lives on the UI side" | The questions and the count are the daemon's values, sent with the session and the work item. The window computes neither |
 | `docs/architecture.md` *The phone*: "Hooks are added only to the sessions Owlery launches", and `apps/desktop/src/daemon/hooks.ts#HOOK_EVENTS` | The daemon already receives `PreToolUse` and `PermissionRequest` for every tool, with the matcher `*`. This work adds no hook and changes no hook setting |
 | `docs/design.md` *Principles* 2: "The window reports, and does not converse. … It draws no chat bubble, no prompt box" | The window shows the choices and takes no answer. No choice is a button and the card gains no field |
@@ -81,7 +81,7 @@ The line numbers this section gives are read at `9fe0c0c`; the earlier phases ha
 | 9. The card's content | Given a waiting pane with questions, then `stateSays` gives the head "Claude Code asks", `waiting` true and the questions with their options and `multiple`. Given a pane with a text and no question, then no question and the text, as today | Cases in `apps/desktop/test/view.test.ts`, in its `stateSays` block |
 | 10. Ahead and behind in words | Given ahead 6 and behind 2 of `main`, then the sentence "6 commits ahead of main, 2 behind" and the fact "main · 6 ahead · 2 behind". Given behind 0, then "…, 0 behind" and "… · 0 behind". Given `behindBase` `null` or absent, or no base branch, then the sentence and the fact of today | The cases of `ahead` in `apps/desktop/test/view.test.ts` near its line 3063, with the new ones beside them |
 | 11. The window draws them | Given the built app with a work item whose agent pane was fed the question tool's `PreToolUse` with two choices, then the work item's line stands under "Needs you" and its second row says the question and the two labels; the preview's card says "Claude Code asks", the question, and a list of two items, each with its label and what it leads to; the card holds no button and no field; and the work item's view shows the same card in its right column | One case in a built-app file that already starts the app with an agent's pane and feeds its hook, which `apps/desktop/test/notification-click.test.ts` does today, so that the case adds no start of the app. The payload is fed through the hook socket, and no `claude` runs |
-| 12. No vendor's name reaches the protocol or the window | Given the built tree, then the tool's name and the payload's field names stand in the daemon's reader alone | `git grep -n 'AskUserQuestion\|tool_input\|tool_name' -- apps/desktop/src/shared apps/desktop/src/renderer apps/desktop/src/main` prints nothing, as it does at `9fe0c0c`. The review reads the names of the two new fields and of `AskedQuestion` |
+| 12. No vendor's name reaches the protocol or the window | Given the built tree, then the question tool's name and its input's field names stand in the daemon alone, and no file of `src/shared`, `src/renderer` or `src/main` names either | `git grep -n 'AskUserQuestion\|tool_input\|tool_name' -- apps/desktop/src/shared apps/desktop/src/renderer apps/desktop/src/main` prints nothing, as it does at `9fe0c0c`. The review reads the names of the two new fields and of `AskedQuestion` |
 | 13. The screenshots | Given `pnpm run screenshots` in `apps/desktop`, then the inbox's preview and the view of the work item that needs the person show the card with its two choices, in Night watch dark and light | The PNG files committed under `seal/threads/1795388701-agent-choices-and-behind/screenshots/`, read by the review against `docs/design.md` |
 
 ## Data & interfaces
@@ -161,12 +161,12 @@ export interface AskedQuestion {
   file: docs/design.md
   section: Components and their states
   from: A question's grounds and what an option implies are in `--ink-muted`.
-  to: A question's grounds and what an option implies are in `--ink-muted`. The choices an agent offers with its question stand under the question as a numbered list, each choice's label in `--ink-strong` and what it leads to in `--ink-muted`. No choice is a button and the card holds no field, since the person answers in the agent's pane.
+  to: A question's grounds and what an option implies are in `--ink-muted`. The choices an agent offers with its question stand under the question as a numbered list, each choice's label in `--ink-strong` and what it leads to in `--ink-muted`. Under a question that takes more than one choice stand the words "More than one may be chosen.", in `--size-caption` and `--ink-faint`. No choice is a button and the card holds no field, since the person answers in the agent's pane.
 - change
   file: docs/design.ko.md
   section: 부분과 그 상태
   from: 질문의 근거와 선택지가 뜻하는 바는 `--ink-muted`입니다.
-  to: 질문의 근거와 선택지가 뜻하는 바는 `--ink-muted`입니다. 에이전트가 질문과 함께 내놓은 선택지는 질문 아래에 번호를 붙인 목록으로 놓이고, 선택지의 이름은 `--ink-strong`, 그것을 고르면 어떻게 되는지는 `--ink-muted`입니다. 사람은 에이전트의 칸에서 답하므로, 어느 선택지도 단추가 아니고 카드에는 입력 칸이 없습니다.
+  to: 질문의 근거와 선택지가 뜻하는 바는 `--ink-muted`입니다. 에이전트가 질문과 함께 내놓은 선택지는 질문 아래에 번호를 붙인 목록으로 놓이고, 선택지의 이름은 `--ink-strong`, 그것을 고르면 어떻게 되는지는 `--ink-muted`입니다. 여러 개를 고를 수 있는 질문 아래에는 "More than one may be chosen."이라는 말이 `--size-caption`과 `--ink-faint`로 놓입니다. 사람은 에이전트의 칸에서 답하므로, 어느 선택지도 단추가 아니고 카드에는 입력 칸이 없습니다.
 
 ## Removes
 
