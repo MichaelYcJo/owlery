@@ -460,7 +460,7 @@ type Reached = Pick<ApprovalPlace, "state" | "note" | "label" | "since"> & { tex
 
 const NOT_STARTED: Reached = { state: "no-agent", note: "Not started", label: "Not started", since: null, text: null };
 
-/** How far a role came by what the work item's records say, and for the crafter by the branch's commits. */
+/** How far a role came by what the work item's records say, for the crafter by the branch's commits, and for the sealer by the seal the branch's head holds before the verdict the worktree holds. */
 function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached {
   switch (role) {
     case "framer":
@@ -517,9 +517,11 @@ function byChain(role: Role, workItem: WorkItem): Reached | null {
  * of its role and failed, with the stage's failure under the line. The
  * broad gate and the seal are the sealer's place's: it works while either
  * runs, and waits, with "Gate failed", where the newest stage is a broad
- * gate that failed. Otherwise the records say how far it came. It reads
- * the work item alone, so no pane's state, no hook and no session changes
- * it.
+ * gate that failed. Otherwise the records say how far it came, and for the
+ * sealer the seal the branch's head holds: finished where it holds, and
+ * waiting, with "Seal broken" and the seal's sentence under the line, where
+ * a later commit broke it. It reads the work item alone, so no pane's
+ * state, no hook and no session changes it.
  */
 export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
   const recorded = workItem.recorded;
