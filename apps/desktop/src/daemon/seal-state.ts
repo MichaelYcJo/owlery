@@ -39,8 +39,9 @@ function owedSays(step: Exclude<Step, { is: "sealed" }>, commit: string): string
 }
 
 /**
- * The seal the commit `head` holds for the work item's directory, from the
- * worktree's top, read by the first of these that holds:
+ * The seal the commit `head` holds for the work item's directory, a folder
+ * of the worktree as `standingOf` takes it, read by the first of these that
+ * holds:
  *
  * - The head holds no `guarantee.md` in the directory, the reader refuses a
  *   line of it or finds no verdict block, or the newest block reads
