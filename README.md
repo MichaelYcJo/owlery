@@ -25,7 +25,7 @@ The first start downloads Electron's binary, and then the window opens.
 
 ## The seal check on GitHub
 
-When a repository is connected, Owlery commits a workflow to it, `.github/workflows/owlery-seal.yml`. On each pull request the workflow runs Owlery's pull request check, which reads the records the work item committed. The check posts its verdict as a GitHub check named `Owlery seal` on the pull request's head commit, and the workflow's own job, `seal`, ends with the same result. A person without the app reads the verdict there, and in the seal section at the top of the pull request's body, which is a copy of the newest verdict block of the work item's `guarantee.md`.
+When a repository is connected, Owlery commits a workflow to it, `.github/workflows/owlery-seal.yml`. On each pull request the workflow runs Owlery's pull request check, which reads the records the work item committed. The check posts its verdict as a GitHub check named `Owlery seal` on the pull request's head commit. The workflow's own job, `seal`, fails where `Owlery seal` fails and passes where it passes or is neutral. A person without the app reads the verdict there, and in the seal section at the top of the pull request's body, which is a copy of the newest verdict block of the work item's `guarantee.md`.
 
 | Result of `Owlery seal` | Title | When |
 |---|---|---|

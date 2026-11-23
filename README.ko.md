@@ -25,7 +25,7 @@ pnpm --filter @owlery/desktop start
 
 ## GitHub의 인장 검사
 
-저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-seal.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `Owlery seal`이라는 이름의 GitHub 검사로 올리고, 워크플로 자신의 잡 `seal`도 같은 결과로 끝납니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 인장 구역에서도 읽습니다. 인장 구역은 작업의 `guarantee.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다.
+저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-seal.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `Owlery seal`이라는 이름의 GitHub 검사로 올립니다. 워크플로 자신의 잡 `seal`은 `Owlery seal`이 실패하면 실패하고, 통과하거나 중립이면 통과합니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 인장 구역에서도 읽습니다. 인장 구역은 작업의 `guarantee.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다.
 
 | `Owlery seal`의 결과 | 제목 | 언제 |
 |---|---|---|
