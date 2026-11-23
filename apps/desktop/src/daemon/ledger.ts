@@ -94,8 +94,10 @@ export class Ledger {
     this.held.push(entry);
     if (this.file === undefined) return;
     try {
-      // One append for each held entry, which leaves the held list once its line is written: an append that fails part way
-      // keeps only the entries whose line is not whole in the file, so no entry is written twice.
+      // One append for each held entry, which leaves the held list once its append returns. An append that fails part way
+      // keeps only the entries whose line is not whole in the file, so no entry is written twice. That rests on
+      // `appendFileSync` throwing only where its text is not whole in the file: one whose close fails after a whole write
+      // keeps its entry held, and the next append writes it a second time.
       while (this.held.length > 0) {
         const line = `${JSON.stringify(this.held[0])}\n`;
         // A line a crash or a failed append cut stays, and the next entry starts a line of its own after it.
