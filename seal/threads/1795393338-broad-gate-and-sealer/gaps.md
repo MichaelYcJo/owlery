@@ -45,6 +45,6 @@ A ruling on a sealer's question that fails is not asked again. The next start ru
 
 The seal's prompt names the frame, the phase records, the changelog and the record of decisions where the worktree holds them, and reads no tree of a commit for it. A file of those that stands in the worktree and in no commit is named to a sealer that reads the worktree.
 
-The fixture `REVIEWED` of `test/view.test.ts` keeps its name and holds a chain of the state `sealed`. #46 edits the same file, so phase 3 changed the three lines the protocol's change needs. Phase 4 merges #46 and can rename it.
+The fixture `REVIEWED` of `test/view.test.ts` keeps its name and holds a chain of the state `sealed`, and two cases of that file still say "reviewed" in their names, at lines 1278 and 1295. #46 edits the same file, so phase 3 changed the three lines the protocol's change needs. Phase 4 merges #46 and can rename them.
 
 No case starts the built app on a chain that reaches the seal. `test/get-a-seal.test.ts` stops its chain before a gate, and scenario 22, which is phase 4's, stops at a failed gate.
