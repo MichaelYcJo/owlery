@@ -3181,7 +3181,7 @@ describe("the inbox", () => {
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Amended", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
     const watched = watchedGit(base);
-    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the cut, and for the commits ahead of the base branch. */
+    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the cut, and for the commits ahead of the base branch and behind it. */
     const threeReads = async (): Promise<void> => {
       const reads = watched.calls("rev-list");
       await c.until(() => (watched.calls("rev-list") >= reads + 6 ? true : undefined));
