@@ -42,7 +42,7 @@ A commit of the chain can land on a detached HEAD. `worktrees.ts#commitPaths` re
 
 A branch whose name holds a `|` gets a `routing.md` that does not read as naming it. The chain then stops at its next step on the directory's taken name, and its sentence says that the routing names another branch.
 
-A stage that fails writes no row of `trail/refusals.md`. The rows are written in the stage's commit, as `frame/design.md` *Scope* item 20 states, and a stage whose session failed, or whose answer the daemon refused, makes no commit. Its refused calls are counted on its `ChainStage` and are in no committed file.
+A stage that fails before it commits writes no row of `trail/refusals.md`. The rows are written in the stage's commit, as `frame/design.md` *Scope* item 20 states, and a stage whose session failed, or whose answer the daemon refused before the commit, makes no commit. Its refused calls are counted on its `ChainStage` and are in no committed file. A fix pass that leaves a finding open fails after its commit, so its rows stand committed with the record.
 
 A question a stage asked is lost where the judgment on it fails. The questions stand in the stage's answer and in no record, and the judgment runs once, after the stage's commit. Where the orchestrator's answer rules on no question, or its session fails, the chain stops, and the person's next start runs the step the records owe with no judgment on those questions. The asking stage's answer is still listed with its headless session, among the newest 50 that ended.
 
