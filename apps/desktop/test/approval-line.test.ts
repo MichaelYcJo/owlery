@@ -226,5 +226,17 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     const why = "the session was stopped at a request before it finished";
     expect(second.item("Beta")?.chain?.stages.at(-1)?.failure).toBe(why);
     expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under failed", "Proofer: The session was stopped at a request before it finished."]]);
+    // The line takes the colour of a failure as the theme resolves `--state-failed`, and not the muted ink of a place's note.
+    expect(
+      await app.evaluate(`(() => {
+        const under = document.querySelector("#view-detail section.approval .under");
+        const probe = document.createElement("span");
+        probe.style.color = "var(--state-failed)";
+        under.parentElement.append(probe);
+        const failed = getComputedStyle(probe).color;
+        probe.remove();
+        return [getComputedStyle(under).color === failed, failed !== getComputedStyle(document.querySelector("#view-detail section.approval .note")).color];
+      })()`),
+    ).toEqual([true, true]);
   });
 });
