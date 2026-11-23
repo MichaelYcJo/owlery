@@ -116,12 +116,13 @@ export function heldGit(cleanups: Cleanups, base: string, when: string): { relea
   return { release, waiting: () => existsSync(arrived) };
 }
 
-/** What the stand-in for `gh` answers one kind of call with: what it prints on each stream and its exit code, or that it never exits. */
+/** What the stand-in for `gh` answers one kind of call with: what it prints on each stream and its exit code, or that it never exits, and with `stubborn` that it also ignores the signal to end. */
 export interface GhAnswer {
   out?: string;
   err?: string;
   exit?: number;
   hangs?: boolean;
+  stubborn?: boolean;
 }
 
 /** The four calls Owlery makes of `gh`, each a `pr` subcommand. */
@@ -172,6 +173,7 @@ export function ghStandIn(cleanups: Cleanups, base: string): GhStandIn {
       'for arg in "$@"; do if [ "$prev" = "--body-file" ]; then cat "$arg" > "$d/body-$n"; fi; prev=$arg; done',
       'case "$1 $2" in "pr list"|"pr create"|"pr edit"|"pr view") ;; *) exit 97 ;; esac',
       'a="$d/answer-$2"',
+      'if [ -e "$a.stubborn" ]; then trap "" TERM; exec sleep 30; fi',
       'if [ -e "$a.hangs" ]; then exec sleep 30; fi',
       'if [ -e "$a.err" ]; then cat "$a.err" >&2; fi',
       'if [ -e "$a.out" ]; then cat "$a.out"',
@@ -200,11 +202,12 @@ export function ghStandIn(cleanups: Cleanups, base: string): GhStandIn {
     bodies: () => Array.from({ length: count() }, (_, index) => (existsSync(join(folder, `body-${String(index + 1)}`)) ? readFileSync(join(folder, `body-${String(index + 1)}`), "utf8") : null)),
     answer: (call, answer) => {
       const at = join(folder, `answer-${call}`);
-      for (const end of ["out", "err", "exit", "hangs"]) rmSync(`${at}.${end}`, { force: true });
+      for (const end of ["out", "err", "exit", "hangs", "stubborn"]) rmSync(`${at}.${end}`, { force: true });
       if (answer.out !== undefined) writeFileSync(`${at}.out`, answer.out);
       if (answer.err !== undefined) writeFileSync(`${at}.err`, answer.err);
       if (answer.exit !== undefined) writeFileSync(`${at}.exit`, String(answer.exit));
       if (answer.hangs === true) writeFileSync(`${at}.hangs`, "");
+      if (answer.stubborn === true) writeFileSync(`${at}.stubborn`, "");
     },
   };
 }
