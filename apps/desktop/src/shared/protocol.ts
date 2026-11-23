@@ -289,6 +289,8 @@ export interface WorkItem {
   unread: Unread[];
   /** What the work item's records say of its chain, as the daemon last read them in its worktree. A daemon of an earlier build sends no such field, and a client reads its absence as a work item it draws no approval line for. The look keeps none, so a work item the look holds has none either. */
   recorded?: Recorded;
+  /** The seal its branch's head commit holds, as the daemon read it from git and the committed records. Null where the head commit holds no seal and where the daemon has read none yet. A daemon of an earlier build sends no such field, and a client reads its absence as null. The look keeps none, so a work item the look holds has none either. */
+  seal?: Seal | null;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
   /** Its chain: where the run a `getSeal` started stands, with the stages of every start, or null where none ran for it. A daemon of an earlier build sends no such field, and a client reads its absence as a daemon that offers no "Get a seal". */
@@ -367,6 +369,16 @@ export interface Recorded {
   gate: string | null;
   /** The last verdict block of the guarantee: the verdict's word, the commit it names, and the reason or the question, 2,000 characters of it at most, or null. */
   verdict: { is: "sealed" | "withheld" | "undecided"; commit: string; says: string | null } | null;
+}
+
+/** The seal the branch's head commit holds, as the daemon read it from git and the committed records. */
+export interface Seal {
+  /** `sealed` where the seal holds at the head. `broken` where the head holds a seal that a later commit broke. */
+  state: "sealed" | "broken";
+  /** The sealed commit: the commit the newest verdict block's `target:` names, whole as git names it, or as the block writes it where the repository holds no commit of that name. */
+  commit: string;
+  /** Why the seal is broken, as a sentence the window shows as it is, 2,000 characters of it at most. Null where it holds. */
+  why: string | null;
 }
 
 /** One call a headless session waits for the person to allow or refuse. */

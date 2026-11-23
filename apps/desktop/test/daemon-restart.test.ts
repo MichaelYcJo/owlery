@@ -6,16 +6,20 @@
 // quit, since each quit ends the app. Each pane's process is the receiver of ./fixtures, so no
 // shell of the person's and no agent starts. The cases signal only what
 // they started: the bystander daemon by the id its start gave, and the
-// app's own daemon through `BuiltApp.stop`.
+// app's own daemon through `BuiltApp.stop`. The seal a work item's head
+// holds is read again by a daemon that starts on the same run folder, which
+// the last describe shows with two daemons of the suite's own process and
+// no built app.
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received, RECEIVER } from "./korean-pane";
-import { temporaryRepository } from "./repositories";
+import { type Cleanups, client, commitSeal, standing } from "./chain-run";
+import { git, temporaryRepository } from "./repositories";
 
 /** The title `openReceiverPane` gives the work item it creates. */
 const TITLE = "Korean input";
@@ -208,5 +212,35 @@ describe("a complete quit in the built app", { timeout: 60_000 }, () => {
     // A window that lost its daemon reloads a second later, and a load asks for the daemon.
     await sleep(2000);
     expect(existsSync(join(runDir, "daemon.json"))).toBe(false);
+  });
+});
+
+describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
+  const cleanups: Cleanups = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  });
+
+  it("sends, from a second daemon started on the same run folder, the seal of a sealed work item and of a broken one as the first daemon read them: the same states, the same commits and the same sentence", async () => {
+    const stood = await standing(cleanups, ["Sealed work", "Broken work"], { commitPollMs: 50 });
+    const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+    const sealedAt = commitSeal(a.worktree, { workItem: "1795396351-sealed-work", branch: a.branch, base: a.baseCommit });
+    const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-broken-work", branch: b.branch, base: b.baseCommit });
+    writeFileSync(join(b.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+    git(b.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
+    const seals = (c: typeof stood.c) => () => {
+      const [one, two] = [c.workItem(a.id)?.seal, c.workItem(b.id)?.seal];
+      return one?.state === "sealed" && two?.state === "broken" ? [one, two] : undefined;
+    };
+    const before = await stood.c.until(seals(stood.c));
+    expect(before).toEqual([
+      { state: "sealed", commit: sealedAt, why: null },
+      { state: "broken", commit: brokenAt, why: `\`feature.txt\` changed after the sealed commit \`${brokenAt.slice(0, 7)}\`.` },
+    ]);
+    await stood.d.close();
+
+    const c = await client((await stood.start()).url, cleanups);
+    await c.message("ready");
+    expect(await c.until(seals(c))).toEqual(before);
   });
 });

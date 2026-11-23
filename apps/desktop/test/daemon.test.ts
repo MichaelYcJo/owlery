@@ -18,6 +18,7 @@ import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type PermissionAsk, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { commitSeal, standing } from "./chain-run";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
 const TOKEN = "t".repeat(64);
@@ -26,7 +27,7 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "recorded", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup or by its chain, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null };
@@ -448,7 +449,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, recorded: NOTHING_RECORDED, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -501,8 +502,8 @@ describe("work items", () => {
     for (const lists of [inbox, ready, ready.lastLook!]) {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      // The look keeps nothing of what the records say of the chain.
-      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded") : WORK_ITEM_FIELDS);
+      // The look keeps nothing of what the records say of the chain, and no seal.
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "seal") : WORK_ITEM_FIELDS);
       if (lists !== ready.lastLook) {
         expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
         expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
@@ -4104,6 +4105,43 @@ describe("what a work item's records say of its chain", () => {
   });
 });
 
+describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
+  const NAME = "1795396351-sealed-work";
+  /** A daemon whose one work item's branch the case seals by committing the records, and the work item once the lists carry its seal as `sealed`. */
+  async function sealed() {
+    const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 50 });
+    const a = workItems[0]!;
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    // The case sends nothing from here on: what the lists carry, the daemon read by itself.
+    const seal = await c.until(() => (c.workItem(a.id)?.seal?.state === "sealed" ? c.workItem(a.id)?.seal : undefined));
+    expect(seal).toEqual({ state: "sealed", commit: gate, why: null });
+    return { made, c, a, gate };
+  }
+  const broken = (c: Awaited<ReturnType<typeof sealed>>["c"], id: number) => c.until(() => (c.workItem(id)?.seal?.state === "broken" ? c.workItem(id)?.seal : undefined));
+
+  it("turns a sealed work item broken within the read interval after a commit made with git in its worktree, and no message of a client asks for it", async () => {
+    const { c, a, gate } = await sealed();
+    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+    git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
+    expect(await broken(c, a.id)).toEqual({ state: "broken", commit: gate, why: `\`feature.txt\` changed after the sealed commit \`${gate.slice(0, 7)}\`.` });
+  });
+
+  it("turns it broken when the branch is moved from the repository's main checkout with git update-ref, which no worktree's checkout makes", async () => {
+    const { made, c, a, gate } = await sealed();
+    const at = git(made.repo, "rev-parse", `refs/heads/${a.branch}`).trim();
+    // A commit of the branch's tree with one file changed, made in the main checkout through an index of its own.
+    const index = join(made.base, "moved.index");
+    const env = { ...process.env, GIT_INDEX_FILE: index };
+    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: made.repo, input: "Changed from the main checkout\n", encoding: "utf8" }).stdout.trim();
+    spawnSync("git", ["read-tree", at], { cwd: made.repo, env });
+    spawnSync("git", ["update-index", "--cacheinfo", `100644,${blob},feature.txt`], { cwd: made.repo, env });
+    const tree = spawnSync("git", ["write-tree"], { cwd: made.repo, env, encoding: "utf8" }).stdout.trim();
+    const moved = spawnSync("git", ["commit-tree", tree, "-p", at, "-m", "fix: change the greeting elsewhere"], { cwd: made.repo, encoding: "utf8" }).stdout.trim();
+    git(made.repo, "update-ref", `refs/heads/${a.branch}`, moved, at);
+    expect(await broken(c, a.id)).toEqual({ state: "broken", commit: gate, why: `\`feature.txt\` changed after the sealed commit \`${gate.slice(0, 7)}\`.` });
+  });
+});
+
 describe("the commit of a person's word", () => {
   const DEFAULT = { kind: "default", says: "Start from main.", grounds: "The default base." } as const;
   const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";
@@ -4454,7 +4492,8 @@ describe("the last look", () => {
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
   /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep. */
-  const asLooked = ({ recorded: _recorded, ...kept }: WorkItem): WorkItem => kept;
+  // A look keeps nothing of what the records say of the chain, and no seal.
+  const asLooked = ({ recorded: _recorded, seal: _seal, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();

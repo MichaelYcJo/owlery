@@ -344,20 +344,23 @@ function firstRefusal(record: Pick<RoundRecord, "refusals">, what: string): stri
 /**
  * What the order reads of a work item, in its worktree: each round record of
  * the directory as the commit `head` holds it, the record of decisions and
- * questions as the worktree holds it, committed or not, the paths the
- * commits after the last record's target changed, the gate's commit
- * with the paths that differ between it and the head, from the gate's record
- * as the commit `head` holds it, and the verdicts of the guarantee as that
- * commit holds it. A round record that only
- * the worktree holds is not read: a round reads a committed tree, and the
- * next round reads what a commit holds. It throws a `ChainStop` where a
+ * questions where `decisionsAt` says, the paths the commits after the last
+ * record's target changed, the gate's commit with the paths that differ
+ * between it and the head, from the gate's record as the commit `head`
+ * holds it, and the verdicts of the guarantee as that commit holds it. A
+ * round record that only the worktree holds is not read: a round reads a
+ * committed tree, and the next round reads what a commit holds. The record
+ * of decisions is read as the worktree holds it, committed or not, where
+ * `decisionsAt` is `worktree`, which is how a chain's run reads it, and as
+ * the commit `head` holds it where it is `head`, which is how the seal at
+ * the head is read (`seal-state.ts`). It throws a `ChainStop` where a
  * round record the head holds does not read whole or names no target,
  * where its target names no commit, and where the reader refuses a line of
  * the gate's record or of the guarantee, with the file and the line, and what
  * `repository-file.ts#repositoryFileText` throws where the record of
- * decisions stands and cannot be read.
+ * decisions stands in the worktree and cannot be read.
  */
-export async function standingOf(worktree: string, directory: string, head: string, base: string): Promise<Standing> {
+export async function standingOf(worktree: string, directory: string, head: string, base: string, decisionsAt: "worktree" | "head"): Promise<Standing> {
   const from = (path: string): string => relative(worktree, path);
   const folder = join(from(directory), ROUNDS_FOLDER);
   const numbered = (await filesAt(worktree, head, folder)).flatMap((path) => {
@@ -373,7 +376,7 @@ export async function standingOf(worktree: string, directory: string, head: stri
     if (record.target === null) throw new ChainStop(`${path} holds no round block`);
     rounds.push({ round, target: record.target, findings: record.findings });
   }
-  const text = repositoryFileText(join(directory, RECORD_FILE));
+  const text = decisionsAt === "head" ? await fileAt(worktree, head, join(from(directory), RECORD_FILE)) : repositoryFileText(join(directory, RECORD_FILE));
   const decisions = text === null ? null : readDecisionRecord(text);
   const last = rounds.at(-1);
   let changed: string[] = [];

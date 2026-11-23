@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
+import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup, losesWork, roleStageOf } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -84,6 +84,7 @@ import { THE_SESSION, isSessionId } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
 import { GATE_FILE, GUARANTEE_FILE, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
+import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, trailerValues, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
@@ -330,8 +331,8 @@ export class Daemon {
   private readonly wordCommits = new Map<string, Promise<void>>();
   // The last word of a person that was taken for each worktree, by the worktree: it ends once git has said where the worktree stands and the word is written or refused, after every one before it, so the words of one worktree are written in the order they came.
   private readonly words = new Map<string, Promise<void>>();
-  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits and the changes read there.
-  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null }>();
+  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits, the changes and the seal read there.
+  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null; seal: Seal | null }>();
   /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
   private readonly records = new Map<number, RecordsPlace>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
@@ -721,7 +722,7 @@ export class Daemon {
             // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
             this.commitCounts.set(stored.item.id, 0);
             if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
-            this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } });
+            this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null });
             // The setup pane starts first, and the answer carries the pane the creation named.
             this.startSetup(socket, message, stored.item.id, place.worktree, setup);
             const workItem = this.workItemOf(stored);
@@ -1843,7 +1844,7 @@ export class Daemon {
     return this.options.version;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -1856,6 +1857,7 @@ export class Daemon {
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
+      seal: read?.seal ?? null,
       permissions: [...this.headless.values()].flatMap((session) => (session.info.workItemId === item.id ? [...session.asks.values()] : [])).sort((a, b) => a.id - b.id),
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
     };
@@ -2102,6 +2104,9 @@ export class Daemon {
    * why, and nothing of another work item is started, stopped or refused. A
    * daemon that closes ends the run at its next step and stores nothing, so
    * the chain stays stored `running`, which the next daemon reads as stopped.
+   * A chain that rests or stops asks for the read of its branch
+   * (`readBranchNow`), so the seal its stages committed reaches the window
+   * without a wait of one interval.
    * `byPerson` says that a person's `getSeal` started the run.
    */
   private async runChain(workItemId: number, byPerson: boolean): Promise<void> {
@@ -2127,7 +2132,7 @@ export class Daemon {
         if (why !== null) throw new ChainStop(why);
         const directory = await this.chainDirectory(held);
         const head = await worktreeHead(worktree);
-        const standing = await standingOf(worktree, directory, head, roundBase(baseBranch, baseCommit, head));
+        const standing = await standingOf(worktree, directory, head, roundBase(baseBranch, baseCommit, head), "worktree");
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
@@ -2163,6 +2168,7 @@ export class Daemon {
       if (!this.closed) {
         this.settleHold();
         this.checkIdle();
+        this.readBranchNow(workItemId);
       }
     }
   }
@@ -2783,8 +2789,11 @@ export class Daemon {
    * changed or its branch's head moved. How far a branch is ahead of its
    * base branch and behind it is counted at every read, since the base moves
    * by itself, and a base that moved while the head stayed is a change. The
-   * commits and the changed files are read only where the head is another
-   * commit than the one they were last read at.
+   * commits, the changed files and the seal the head holds
+   * (`seal-state.ts#workItemSeal`) are read only where the head is another
+   * commit than the one they were last read at, and so once for each branch
+   * after the daemon starts. The seal is kept in memory alone: a daemon that
+   * starts reads it again from git.
    */
   private async readBranch({ repository, item }: Held): Promise<boolean> {
     // A work item from before the base commit was recorded has nothing to count from.
@@ -2812,9 +2821,36 @@ export class Daemon {
       return true;
     }
     // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
-    const [commits, changes] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head)]);
-    this.branches.set(item.id, { head, commits, changes });
+    const [commits, changes, seal] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head), this.sealAt(item, head)]);
+    this.branches.set(item.id, { head, commits, changes, seal });
     return true;
+  }
+
+  /** The seal a head of the work item's branch holds, or null where it holds none and where git could not say, which the log then says. */
+  private async sealAt(item: Held["item"], head: string): Promise<Seal | null> {
+    try {
+      return await workItemSeal(item, head);
+    } catch (error) {
+      console.error(`the seal of work item ${String(item.id)} was not read: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Reads the work item's branch now, after the read of every branch that is
+   * under way, and tells every client where it moved: a chain that rested or
+   * stopped has committed the records of its stages, and the seal they hold
+   * is read without a wait of one interval. A read that began before the
+   * chain's last commit ends first, so it does not put an earlier head's
+   * reading back over this one.
+   */
+  private readBranchNow(workItemId: number): void {
+    const under = this.readingCommits ?? Promise.resolve();
+    void under.then(async () => {
+      const held = this.store.workItem(workItemId);
+      if (this.closed || !held || held.item.archivedAt !== null) return;
+      if (await this.readBranch(held)) this.broadcastInbox();
+    });
   }
 
   /**

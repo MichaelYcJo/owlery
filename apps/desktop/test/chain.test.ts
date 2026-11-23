@@ -2777,4 +2777,16 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect([chain.says, stagesOf(chain)]).toEqual([`The sealer sealed ${read.slice(0, 7)}, after round 1.`, [["seal", "finished"]]]);
     expect(started.map(({ role }) => role?.role)).toEqual(["sealer"]);
   });
+
+  it("sends the seal its stages committed once the chain rests, with no wait of one interval of the read of the branches", async () => {
+    // One read of the branches at the hello, and the next a minute later, three times the case's wait.
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), commitPollMs: 60_000 });
+    const a = workItems[0]!;
+    expect(c.workItem(a.id)?.seal).toBeNull();
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "sealed");
+    expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the broad gate's run", "chore: record the sealer's verdict"]);
+    const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    expect(await c.until(() => c.workItem(a.id)?.seal ?? undefined)).toEqual({ state: "sealed", commit: gate, why: null });
+  });
 });
