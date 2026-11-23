@@ -53,7 +53,7 @@ Each phase is one commit or more on `feat/45-the-daemon-keeps-no-cost-per-stage`
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | *Scope* items 1 to 6 of `frame/design.md`: the neutral usage on the event and on the session, from both adapters | `node scripts/test-in-electron.mjs test/claude-adapter.test.ts test/fake-adapter.test.ts test/daemon.test.ts test/view.test.ts` in `apps/desktop`, with the cases of the scenarios "A subscription login's cost is marked", "A key's cost is not marked, and an unknown login is", "The fake adapter reports usage" and "A session's cost travels with its mark". The search of the scenario "No vendor's field crosses the protocol" prints nothing | 5d370d1 |
-| 2 | *Scope* items 7 to 13 of `frame/design.md`: the store, the entries the daemon writes, and the request that reads them | `node scripts/test-in-electron.mjs test/ledger.test.ts test/daemon.test.ts` in `apps/desktop`, with the cases of every other scenario of `frame/design.md` *User scenarios & acceptance* | |
+| 2 | *Scope* items 7 to 13 of `frame/design.md`: the store, the entries the daemon writes, and the request that reads them | `node scripts/test-in-electron.mjs test/ledger.test.ts test/daemon.test.ts` in `apps/desktop`, with the cases of every other scenario of `frame/design.md` *User scenarios & acceptance* | 73b090a |
 
 The typecheck and the whole suite are the broad gate, which the orchestrator runs once after the review rounds settle.
 
