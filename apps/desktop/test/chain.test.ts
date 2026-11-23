@@ -1342,7 +1342,15 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(untouched.after).toEqual(["docs: note the greeting"]);
       expect(status(untouched.worktree)).toEqual([` M ${DIRECTORY}/trail/rounds/round-1.md`]);
 
-      const located = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}\nlocation: \`notes\``) }) });
+      // A place is compared as the record writes it, as the check's `under` compares it: one written with a `\` names no path git prints with a `/`.
+      const backslashed = await stoppedWith(
+        (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}`),
+        ({ heading, target }) => roundRecord(heading, target, [1]).replace("location: `feature.txt:1`", "location: `notes\\greeting.md`"),
+      );
+      expect(backslashed.says).toMatch(/^The fix pass of round 1 failed: finding 1 is closed `fixed [0-9a-f]{40}`, and that commit changed no path its `location:` lines name: a fix that went elsewhere names its path on a `location:` line of the close block\.$/u);
+      expect(backslashed.after).toEqual(["docs: note the greeting"]);
+
+      const located =await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}\nlocation: \`notes\``) }) });
       expect(await located.c.getSeal(1, 1)).toBe("done");
       expect((await located.c.chain(1, "reviewed")).stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"], ["round", "finished"]]);
     });

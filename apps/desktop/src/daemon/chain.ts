@@ -719,6 +719,18 @@ export function fixPassRecord(before: string, after: string): { closes: ClosedFi
 }
 
 /**
+ * Whether a path a commit changed is a place a `location:` line names, or
+ * lies under it, as `under` of
+ * `pr-check/skills/code-review/scripts/chain_check.py` reads the two: the
+ * place as the record writes it, its trailing `/` dropped. A place written
+ * with a `\` names no path git prints with a `/`.
+ */
+function underPlace(path: string, place: string): boolean {
+  const stem = place.replace(/\/+$/u, "");
+  return path === stem || path.startsWith(`${stem}/`);
+}
+
+/**
  * Holds each `fixed <commit>` a fix pass wrote to the branch: the commit is
  * one the branch's head holds and the round's target does not, so it is a
  * commit of the pass or of an earlier one, which the next round reads, and
@@ -736,7 +748,7 @@ export async function fixedCommitsHeld(worktree: string, closes: readonly Closed
     if (await holdsCommit(worktree, target, commit)) throw new ChainStop(`finding ${String(finding)} is closed \`fixed ${close.commit}\`, and the round's target already held that commit`);
     const places = [...located, ...close.located];
     const changed = await pathsOfCommit(worktree, commit);
-    if (!changed.some((path) => places.some((place) => inFolder(path, place)))) {
+    if (!changed.some((path) => places.some((place) => underPlace(path, place)))) {
       throw new ChainStop(`finding ${String(finding)} is closed \`fixed ${close.commit}\`, and that commit changed no path its \`location:\` lines name: a fix that went elsewhere names its path on a \`location:\` line of the close block`);
     }
   }
