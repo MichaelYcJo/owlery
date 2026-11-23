@@ -2433,9 +2433,8 @@ export class Daemon {
    * (`chain.ts#sealPrompt`): since the commit the newest verdict block
    * seals, where it is a seal and an ancestor of the gate's commit, which a
    * later commit broke, and otherwise since the branch left its base. Its
-   * answer is its run's section of
-   * the guarantee. The daemon takes the section from the answer
-   * (`seal-records.ts#sectionOf`), puts its own lines into the section's
+   * answer is its run's section of the guarantee. The daemon takes the
+   * section from the answer (`seal-records.ts#sectionOf`), puts its own lines into the section's
    * verdict block, appends the section to `guarantee.md` as the head holds
    * the file (`seal-records.ts#guaranteeText`) and commits it, with the
    * rows of the calls the sealer's rule refused, and with the work item's
