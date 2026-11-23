@@ -2979,6 +2979,18 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     const refused = await failing({}, ({ remote }) => writeFileSync(join(remote, "hooks", "pre-receive"), "#!/bin/sh\necho 'the branch is refused here'\nexit 1\n", { mode: 0o755 }), /^The pull request stage failed: git push to origin failed: remote: the branch is refused here\.$/u);
     expect(branchesOf(refused.remote)).toEqual([]);
     expect(refused.gh.calls()).toEqual([]);
+    // A second clone moved the remote's branch: git prints its `To <address>` line first, and the sentence holds the line that says why.
+    let moved = "";
+    const behind = await failing(
+      {},
+      ({ made, workItems }) => {
+        moved = git(made.repo, "commit-tree", "main^{tree}", "-p", "main", "-m", "feat: pushed from another clone").trim();
+        git(made.repo, "push", "--quiet", "origin", `${moved}:refs/heads/${workItems[0]!.branch}`);
+      },
+      /^The pull request stage failed: git push to origin failed: ! \[rejected\] .*\((?:fetch first|non-fast-forward)\)\.$/u,
+    );
+    expect(branchesOf(behind.remote)).toEqual([`${behind.workItems[0]!.branch} ${moved}`]);
+    expect(behind.gh.calls()).toEqual([]);
     const remotes = await failing(
       {},
       ({ made }) => {

@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { OPEN_PULL_REQUEST, pullRequestOwed } from "../src/daemon/chain";
-import { BODY_LIMIT, CHECKS_KEPT, SECTION_CLOSE, SECTION_OPEN, bodyRecords, checksOf, openPullRequests, pullRequestBody, pullRequestTitle, pushTarget, withSealSection } from "../src/daemon/github";
+import { BODY_LIMIT, CHECKS_KEPT, SECTION_CLOSE, SECTION_OPEN, bodyRecords, checksOf, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, withSealSection } from "../src/daemon/github";
 import { type Cleanups, bareRemote, commitAll, write } from "./chain-run";
 import type { PullRequest } from "../src/shared/protocol";
 import { git, runs, temporaryClone, temporaryRepository } from "./repositories";
@@ -104,6 +104,21 @@ describe("where the branch goes", () => {
     expect(await refusal(pushTarget(made.repo, null))).toBe("the clone has the remotes fork and upstream, none of them named origin, and the work item has no base branch, so Owlery cannot tell which to push to");
     bareRemote(made.base, made.repo, "origin");
     expect(await pushTarget(made.repo, "main")).toEqual({ remote: "origin", base: "main" });
+  });
+
+  it("pushes the commit it is given, by its id, and not a commit that landed on the branch after it, and writes the branch's upstream", async () => {
+    const made = repository();
+    const bare = bareRemote(made.base, made.repo);
+    git(made.repo, "switch", "--quiet", "-c", "feat");
+    write(made.repo, "a.txt", "a\n");
+    const read = commitAll(made.repo, "feat: greet the person");
+    // A commit that lands after the stage read the head.
+    write(made.repo, "b.txt", "b\n");
+    const later = commitAll(made.repo, "feat: a later change");
+    await pushBranch({ gh: ["gh"], env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, cwd: made.repo, limitMs: 20_000 }, "origin", "feat", read);
+    expect(git(bare, "rev-parse", "refs/heads/feat").trim()).toBe(read);
+    expect(git(made.repo, "rev-parse", "HEAD").trim()).toBe(later);
+    expect([git(made.repo, "config", "branch.feat.remote").trim(), git(made.repo, "config", "branch.feat.merge").trim()]).toEqual(["origin", "refs/heads/feat"]);
   });
 
   it("titles the pull request with the work item's title, cut at 256 characters, and with the subject of the oldest commit after the base where the title is empty", async () => {
@@ -217,6 +232,16 @@ describe("the body of a pull request", () => {
     const made = repository();
     const head = records(made, { guarantee: `# Guarantee: ${NAME}\n\nNo verdict yet.\n` });
     expect(await refusal(bodyRecords(made.repo, head, DIRECTORY))).toBe(`${DIRECTORY}/guarantee.md holds no verdict block at the head commit`);
+  });
+
+  it("replaces a part whose text holds a marker line by the line that names its record, whatever the body's length, so the body holds one opening and one closing marker", async () => {
+    const made = repository();
+    const changelog = ["- The body opens with the seal section:", "", "```", SECTION_OPEN, "## Owlery seal", `  ${SECTION_CLOSE}  `, "```", ""].join("\n");
+    const head = records(made, { changelog, decisions: DECISIONS });
+    const body = pullRequestBody(await bodyRecords(made.repo, head, DIRECTORY), 1_000_000);
+    expect(body).toBe(`${[SECTION, held("## What changed", "changelog.md"), ROUNDS, GATE_PART, DECIDED].join("\n\n")}\n`);
+    const lines = body.split("\n").map((line) => line.trim());
+    expect([lines.filter((line) => line === SECTION_OPEN).length, lines.filter((line) => line === SECTION_CLOSE).length]).toEqual([1, 1]);
   });
 
   it("replaces the parts below the seal section, the last first, by a line that names each part's record, until the body is within the limit, and never cuts the seal section", async () => {

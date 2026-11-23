@@ -2637,8 +2637,9 @@ export class Daemon {
    * stage, in the form of `runGate`.
    *
    * The stage reads the records the head commit holds (`github.ts#bodyRecords`),
-   * pushes the branch to the remote `github.ts#pushTarget` names with the
-   * person's git, then asks the person's `gh` for the branch's open pull
+   * pushes that head commit, by its id, to the branch on the remote
+   * `github.ts#pushTarget` names with the person's git and writes the
+   * branch's upstream, then asks the person's `gh` for the branch's open pull
    * requests. Where it lists one, the stage replaces that body's seal section
    * and sends the body with `gh pr edit`; where it lists none, it opens one
    * with `gh pr create`, ready, with the work item's title, its base and the
@@ -2654,7 +2655,7 @@ export class Daemon {
    * The stage fails where no `gh` is found, where the worktree's head moved
    * after the records were read, where no remote can be told
    * (`github.ts#pushTarget`), where `guarantee.md` holds no verdict block at
-   * the head, where the push or a call of `gh` fails or passes its time
+   * the head, where the push, the writing of the upstream or a call of `gh` fails or passes its time
    * limit, where an answer of `gh` does not read, where `gh` lists more than
    * one open pull request of the branch, and where the body it lists holds
    * its markers otherwise than once each. It then throws a `StageStopped`
@@ -2690,7 +2691,7 @@ export class Daemon {
       const target = await pushTarget(worktree, baseBranch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
       const named = await pullRequestTitle(worktree, title, baseCommit, head);
-      await pushBranch(cli, target.remote, branch);
+      await pushBranch(cli, target.remote, branch, head);
       const listed = await openPullRequests(cli, branch);
       if (listed.length > 1) throw new Error(`the branch has the open pull requests ${listed.map(({ number }) => `#${String(number)}`).join(", ")}, and Owlery opens or updates one`);
       body = this.pullRequestBodyFile(item.id);

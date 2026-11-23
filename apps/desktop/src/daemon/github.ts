@@ -217,18 +217,33 @@ export async function pullRequestTitle(worktree: string, title: string, baseComm
 }
 
 /**
- * Pushes the branch to the remote with the person's git, from the worktree:
- * `git push --set-upstream`, with no force, with `GIT_TERMINAL_PROMPT=0` so
- * a push that would ask for a credential fails, and with the repository's
- * own push hooks. It throws, with the second half of a sentence that holds
- * git's first line, where the push did not end well.
+ * Pushes the commit given to the branch on the remote with the person's git,
+ * from the worktree: `git push <remote> <commit>:refs/heads/<branch>`, with
+ * no force, with `GIT_TERMINAL_PROMPT=0` so a push that would ask for a
+ * credential fails, and with the repository's own push hooks. The commit is
+ * named by its id, so a commit that lands on the branch after the stage read
+ * its head is not pushed. The remote's branch is then written as the local
+ * branch's upstream with `git config`, which a push that names a commit does
+ * not set. It throws, with the second half of a sentence, where the push or
+ * a `git config` did not end well: for a refused push, the sentence holds
+ * git's first line that is not its `To <address>` line, which names the
+ * remote and not why it refused.
  */
-export async function pushBranch(cli: GitHubCli, remote: string, branch: string): Promise<void> {
-  const ended = await runProcess("git", ["push", "--set-upstream", remote, `refs/heads/${branch}:refs/heads/${branch}`], { cwd: cli.cwd, env: { ...cli.env, GIT_TERMINAL_PROMPT: "0" }, limitMs: cli.limitMs });
+export async function pushBranch(cli: GitHubCli, remote: string, branch: string, commit: string): Promise<void> {
+  const ended = await runProcess("git", ["push", remote, `${commit}:refs/heads/${branch}`], { cwd: cli.cwd, env: { ...cli.env, GIT_TERMINAL_PROMPT: "0" }, limitMs: cli.limitMs });
   const why = whyFailed(`git push to ${remote}`, ended, cli.limitMs);
-  if (why === null) return;
-  const line = ended.code === null ? null : firstLine(ended.err);
-  throw new Error(line === null ? why : `git push to ${remote} failed: ${line}`);
+  if (why !== null) {
+    const said = gfmLines(ended.err).filter((line) => !/^To /u.test(line.trim()));
+    const line = ended.code === null ? null : firstLine(said.join("\n"));
+    throw new Error(line === null ? why : `git push to ${remote} failed: ${line}`);
+  }
+  for (const [key, value] of [
+    [`branch.${branch}.remote`, remote],
+    [`branch.${branch}.merge`, `refs/heads/${branch}`],
+  ] as const) {
+    const failed = whyFailed(`git config ${key}`, await runProcess("git", ["config", key, value], { cwd: cli.cwd, env: cli.env, limitMs: cli.limitMs }), cli.limitMs);
+    if (failed !== null) throw new Error(failed);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +431,11 @@ export function sealSection(records: Pick<BodyRecords, "directory" | "block">): 
  * gate and each decision made without asking. Where the body would pass
  * `limit` UTF-16 code units, the parts below the seal section are replaced,
  * the last first, by a line under the part's heading that names its record,
- * until the body fits. The seal section is never cut.
+ * until the body fits. A part whose text holds a line that is a marker line
+ * once the white space at its ends is taken off is replaced so whatever the
+ * body's length, since neither `withSealSection` nor the check reads a fence
+ * when it counts marker lines: the body holds one opening and one closing
+ * marker. The seal section is never cut.
  */
 export function pullRequestBody(records: BodyRecords, limit = BODY_LIMIT): string {
   const held = (heading: string, path: string): string => `${heading}\n\n\`${under(records.directory, path)}\` holds this part.`;
@@ -431,7 +450,8 @@ export function pullRequestBody(records: BodyRecords, limit = BODY_LIMIT): strin
     const listed = records.decisions.map(({ decided, grounds, state }) => `- Decided: ${decided}\n  Grounds: ${grounds}\n  State: ${state}`);
     parts.push({ whole: `## Decided without asking\n\n${listed.join("\n")}`, held: held("## Decided without asking", "decisions.md") });
   }
-  const texts = parts.map(({ whole }) => whole);
+  const marked = (text: string): boolean => gfmLines(text).some((line) => line.trim() === SECTION_OPEN || line.trim() === SECTION_CLOSE);
+  const texts = parts.map(({ whole, held: line }) => (marked(whole) ? line : whole));
   const body = (): string => `${[sealSection(records), ...texts].join("\n\n")}\n`;
   for (let index = parts.length - 1; index >= 0 && body().length > limit; index -= 1) texts[index] = parts[index]?.held ?? "";
   return body();
