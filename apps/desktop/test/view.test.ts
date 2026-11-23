@@ -7,6 +7,7 @@ import {
   archivedHead,
   archivedIn,
   answersFor,
+  approvalPlaces,
   askButton,
   askedSection,
   asksFetch,
@@ -16,7 +17,9 @@ import {
   baseSays,
   bellSays,
   cardStaysAt,
+  chainNotifications,
   changesSince,
+  choiceNote,
   closeAsks,
   commandKey,
   commitLines,
@@ -35,6 +38,9 @@ import {
   fileLines,
   filterChoices,
   gainedSince,
+  GATE_HEAD,
+  GATE_OUTPUT_SHOWS,
+  gateLine,
   headlessKey,
   headlessLines,
   hiddenRepositories,
@@ -68,6 +74,9 @@ import {
   noticeWithout,
   notificationFor,
   notificationOpens,
+  placeWords,
+  pullRequestFacts,
+  pullRequestNotifications,
   paneChoices,
   paneInFront,
   paneKey,
@@ -91,6 +100,7 @@ import {
   lacksRecords,
   recordsDialog,
   recordsOf,
+  refusedSeal,
   registered,
   repositoryMenu,
   rowButtons,
@@ -98,6 +108,7 @@ import {
   runningSessions,
   screenMoves,
   screenTurns,
+  sealButton,
   selectedLine,
   settingsBases,
   settingsFields,
@@ -130,7 +141,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { BASE_FETCH_MS, type BaseFetch, type CommitInfo, type Decision, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -144,6 +155,7 @@ const LOGIN: WorkItem = {
   baseCommit: null,
   baseBranch: null,
   aheadOfBase: null,
+  behindBase: null,
   newCommits: null,
   commits: null,
   changes: null,
@@ -156,6 +168,8 @@ const LOGIN: WorkItem = {
   questions: [],
   unread: [],
   setup: null,
+  chain: null,
+  pullRequest: null,
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
@@ -169,11 +183,11 @@ const KINDS: PaneKindInfo[] = [
 ];
 
 function session(id: number, fields: Partial<SessionInfo> = {}): SessionInfo {
-  return { id, kind: "claude", alive: true, workItemId: 1, state: null, stateSince: null, stateText: null, stateTool: null, ...fields };
+  return { id, kind: "claude", alive: true, workItemId: 1, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null, ...fields };
 }
 
 function headless(id: number, fields: Partial<HeadlessInfo> = {}): HeadlessInfo {
-  return { id, workItemId: 1, prompt: "Which file holds the login form?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234, errorOutput: "", stopped: null, role: null, ...fields };
+  return { id, workItemId: 1, prompt: "Which file holds the login form?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null, ...fields };
 }
 
 describe("tabLabel", () => {
@@ -1234,6 +1248,406 @@ describe("a work item whose headless session waits for the person to allow a cal
   });
 });
 
+describe("the approval line", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  const GATE = "3333333cccccccccccccccccccccccccccccccc";
+  const TARGET = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  /** What the daemon sends for a work item with no directory of its own. */
+  const NOTHING: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
+  /** A work item's records with the frame, three round records, a gate's run and a last verdict that seals. */
+  const SEALED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "sealed", commit: TARGET, says: null } };
+  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: SEALED };
+  const EMPTY: WorkItem = { ...LOGIN, newCommits: 0, recorded: NOTHING };
+  const NONE_STARTED = [
+    ["framer", "no-agent", "Not started", "Framer: Not started"],
+    ["crafter", "no-agent", "Not started", "Crafter: Not started"],
+    ["proofer", "no-agent", "Not started", "Proofer: Not started"],
+    ["sealer", "no-agent", "Not started", "Sealer: Not started"],
+  ];
+  const ASKS: Question = { id: 1, asks: "Does a stopped round count as a round?", grounds: "No document says.", by: "proofer", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
+
+  /** A stage of a chain: round 2, at work for 4 minutes, but for the fields given. */
+  const stage = (fields: Partial<ChainStage>): ChainStage => ({ kind: "round", round: 2, state: "working", failure: null, startedAt: NOW - 4 * MINUTE, endedAt: null, headlessId: 3, refusals: 0, gate: null, ...fields });
+  /** Round 1, which finished. */
+  const ROUND_ONE = stage({ round: 1, state: "finished", startedAt: NOW - 30 * MINUTE, endedAt: NOW - 20 * MINUTE });
+  /** The work item of the records with a chain in that state, which holds those stages, the oldest first. */
+  const chained = (state: Chain["state"], ...stages: ChainStage[]): WorkItem => ({ ...RECORDED, chain: { state, says: "", stages, since: NOW - 4 * MINUTE } });
+  /** A chain that runs round 2 after round 1. */
+  const RUNS_ROUND = chained("running", ROUND_ONE, stage({}));
+
+  /** Each place as a person reads it: its role, its state's class, its note and its mark's words. */
+  const read = (workItem: WorkItem): string[][] | null => approvalPlaces(workItem)?.map((place) => [place.role, place.state, place.note, placeWords(place, NOW)]) ?? null;
+  /** The lines of text under the places. */
+  const under = (workItem: WorkItem): string[] | null => approvalPlaces(workItem)?.flatMap((place) => (place.under === null ? [] : [place.under])) ?? null;
+
+  it("fills the four places in the order framer, crafter, proofer, sealer from what the records say and the branch's commits, and leaves each not started where they say nothing", () => {
+    expect(read(RECORDED)).toEqual([
+      ["framer", "finished", "Framed", "Framer: Framed"],
+      ["crafter", "finished", "1 commit", "Crafter: 1 commit"],
+      ["proofer", "finished", "3 rounds", "Proofer: 3 rounds"],
+      ["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"],
+    ]);
+    expect(under(RECORDED)).toEqual([]);
+    expect(approvalPlaces(RECORDED)?.map(({ name }) => name)).toEqual(["Framer", "Crafter", "Proofer", "Sealer"]);
+    expect(read({ ...RECORDED, newCommits: 3, recorded: { ...SEALED, rounds: 1 } })?.slice(1, 3)).toEqual([
+      ["crafter", "finished", "3 commits", "Crafter: 3 commits"],
+      ["proofer", "finished", "1 round", "Proofer: 1 round"],
+    ]);
+    expect(read(EMPTY)).toEqual(NONE_STARTED);
+    expect(under(EMPTY)).toEqual([]);
+    // A count of commits the daemon has not read leaves the crafter's place not started.
+    expect(read({ ...EMPTY, newCommits: null })).toEqual(NONE_STARTED);
+  });
+
+  it("marks the sealer's place failed at a withheld verdict and waiting at an undecided one, each with the verdict's commit and its reason or question under the line, and says a gate's run where no verdict stands", () => {
+    const withheld: WorkItem = { ...EMPTY, recorded: { ...NOTHING, verdict: { is: "withheld", commit: TARGET, says: "The broad gate did not run at the head." } } };
+    expect(read(withheld)?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
+    expect(under(withheld)).toEqual(["Sealer: The broad gate did not run at the head."]);
+    const undecided: WorkItem = { ...EMPTY, recorded: { ...NOTHING, verdict: { is: "undecided", commit: TARGET, says: "Which base does the hotfix merge into?" } } };
+    expect(read(undecided)?.[3]).toEqual(["sealer", "waiting", "Undecided", "Sealer: Undecided at 2222222"]);
+    expect(under(undecided)).toEqual(["Sealer: Which base does the hotfix merge into?"]);
+    const gated: WorkItem = { ...EMPTY, recorded: { ...NOTHING, gate: GATE } };
+    expect(read(gated)?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
+    expect(under(gated)).toEqual([]);
+    // A verdict stands over the gate's run, and a verdict whose record gives no text puts no line under the places.
+    expect(read({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
+    expect(under({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })).toEqual([]);
+    // The other three places are as the records give them.
+    expect(read(withheld)?.slice(0, 3)).toEqual(NONE_STARTED.slice(0, 3));
+  });
+
+  it("marks a role's place waiting where an open question names that role exactly as its asker, with the question's age in the mark's words and its text under the line, and marks no place for another asker or once the question is answered", () => {
+    const asked: WorkItem = { ...RECORDED, questions: [ASKS] };
+    expect(read(asked)?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+    expect(under(asked)).toEqual(["Proofer: Does a stopped round count as a round?"]);
+    expect(read(asked)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    // A question the daemon gave no time keeps the words without an age.
+    expect(read({ ...RECORDED, questions: [{ ...ASKS, since: null }] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you"]);
+    // Of two open questions of the role, the first stands under the line.
+    expect(under({ ...RECORDED, questions: [ASKS, { ...ASKS, id: 2, asks: "And a failed one?" }] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
+    // An open question marks the place over what the records say: the sealer waits on a question while its verdict seals.
+    expect(read({ ...RECORDED, questions: [{ ...ASKS, by: "sealer" }] })?.[3]).toEqual(["sealer", "waiting", "Needs you", "Sealer: Needs you, 12 min"]);
+    for (const by of ["orchestrator", "Proofer", " proofer", null]) {
+      expect(read({ ...RECORDED, questions: [{ ...ASKS, by }] })).toEqual(read(RECORDED));
+      expect(under({ ...RECORDED, questions: [{ ...ASKS, by }] })).toEqual([]);
+    }
+    expect(read({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual(read(RECORDED));
+    expect(under({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual([]);
+  });
+
+  it("is composed from the work item alone, so no pane's state and no headless session without a role changes it", () => {
+    expect(approvalPlaces.length).toBe(1);
+    const quiet = workItemEntries([RECORDED], [session(2, { state: "finished" })], KINDS);
+    const busy = workItemEntries([RECORDED], [session(3, { state: "waiting", stateSince: NOW - MINUTE, stateText: "Allow the edit?" })], KINDS);
+    // The two lists give the line of the inbox two states, and the places one.
+    expect(quiet[0]?.line.state).toBe("finished");
+    expect(busy[0]?.line.state).toBe("waiting");
+    // The function takes no session, a headless one with no role among them, so the places are the work item's alone: a pane that waits marks no place.
+    expect(approvalPlaces(busy[0]!.workItem)).toEqual(approvalPlaces(quiet[0]!.workItem));
+    expect(read(busy[0]!.workItem)).toEqual(read(RECORDED));
+    expect(read(busy[0]!.workItem)?.map(([, state]) => state)).not.toContain("waiting");
+  });
+
+  it("gives no places for a work item a daemon of an earlier build sends without what its records say, and the places of the records and the questions for one that carries no chain", () => {
+    const { recorded: _recorded, ...earlier } = RECORDED;
+    expect(approvalPlaces(earlier as WorkItem)).toBeNull();
+    expect(approvalPlaces({ ...earlier, questions: [ASKS] } as WorkItem)).toBeNull();
+    expect(approvalPlaces({ ...earlier, chain: RUNS_ROUND.chain } as WorkItem)).toBeNull();
+    // A daemon of a build between the two sends what the records say and no chain.
+    const { chain: _chain, ...noChain } = RECORDED;
+    expect(RECORDED.chain).toBeNull();
+    expect(read(noChain as WorkItem)).toEqual(read(RECORDED));
+    expect(read({ ...noChain, questions: [ASKS] } as WorkItem)).toEqual(read({ ...RECORDED, questions: [ASKS] }));
+  });
+
+  it("marks the proofer's place working at the round a running chain's newest stage is, and the crafter's at its fix pass, each with the stage's age in the mark's words, and marks no place for a judgment, for a ruling, for a stage that is not the newest, or for a chain that does not run", () => {
+    expect(read(RUNS_ROUND)?.[2]).toEqual(["proofer", "working", "Round 2", "Proofer: Round 2, 4 min"]);
+    expect(read(RUNS_ROUND)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    expect(under(RUNS_ROUND)).toEqual([]);
+    const fix = chained("running", ROUND_ONE, stage({ kind: "fix-pass", round: 1 }));
+    expect(read(fix)?.[1]).toEqual(["crafter", "working", "Fix pass", "Crafter: Fix pass on round 1, 4 min"]);
+    expect(read(fix)?.filter((_, place) => place !== 1)).toEqual(read(RECORDED)?.filter((_, place) => place !== 1));
+    // The orchestrator's two kinds of stage belong to none of the four roles.
+    for (const kind of ["judgment", "ruling"] as const) expect(read(chained("running", ROUND_ONE, stage({ kind })))).toEqual(read(RECORDED));
+    // Between two stages the newest one has ended, and an older stage marks no place whatever it says. A round that finished leaves the proofer's place to the records.
+    expect(read(chained("running", stage({}), stage({ kind: "judgment", state: "finished", endedAt: NOW - MINUTE })))).toEqual(read(RECORDED));
+    for (const state of ["running", "sealed"] as const) expect(read(chained(state, ROUND_ONE))).toEqual(read(RECORDED));
+    // A chain a restarted daemon reads as stopped keeps a newest stage that still says working, and no place works.
+    for (const state of ["stopped", "parked", "sealed"] as const) expect(read(chained(state, ROUND_ONE, stage({})))).toEqual(read(RECORDED));
+    // An open question of the role stands over the stage that runs.
+    expect(read({ ...RUNS_ROUND, questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+  });
+
+  it("marks the proofer's place failed where the chain's newest stage is a round that failed, and the crafter's where it is a fix pass, each over what the records say and with the stage's failure under the line, and marks no place for a judgment or a ruling that failed or for a failed stage that is not the newest", () => {
+    const why = "the session reached its time limit and was stopped";
+    const failed = (fields: Partial<ChainStage>): ChainStage => stage({ state: "failed", failure: why, endedAt: NOW - MINUTE, ...fields });
+    const round = chained("stopped", ROUND_ONE, failed({}));
+    expect(read(round)?.[2]).toEqual(["proofer", "failed", "Failed", "Proofer: Round 2 failed"]);
+    expect(read(round)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    expect(under(round)).toEqual(["Proofer: The session reached its time limit and was stopped."]);
+    const fix = chained("stopped", ROUND_ONE, failed({ kind: "fix-pass", round: 1 }));
+    expect(read(fix)?.[1]).toEqual(["crafter", "failed", "Failed", "Crafter: Fix pass on round 1 failed"]);
+    expect(under(fix)).toEqual(["Crafter: The session reached its time limit and was stopped."]);
+    for (const kind of ["judgment", "ruling"] as const) {
+      expect(read(chained("stopped", ROUND_ONE, failed({ kind })))).toEqual(read(RECORDED));
+      expect(under(chained("stopped", ROUND_ONE, failed({ kind })))).toEqual([]);
+    }
+    // The round runs again after its failure: the newest stage says where the place stands, and the failure leaves the line.
+    const again = chained("running", failed({}), stage({}));
+    expect(read(again)?.[2]).toEqual(["proofer", "working", "Round 2", "Proofer: Round 2, 4 min"]);
+    expect(under(again)).toEqual([]);
+    // A fix pass runs after a round that failed earlier: the proofer's place is as the records give it.
+    expect(read(chained("running", failed({}), stage({ kind: "fix-pass" })))?.[2]).toEqual(read(RECORDED)?.[2]);
+    // An open question of the role stands over the failure, with the question under the line.
+    expect(read({ ...round, questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+    expect(under({ ...round, questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
+  });
+
+  it("marks the sealer's place working while the chain runs the broad gate, with the note Broad gate, and while it runs the seal, with the note Judging, each with the stage's age in the mark's words, and leaves the place to the records once either has finished", () => {
+    const gate = (fields: Partial<ChainStage>): ChainStage => stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false }, ...fields });
+    const runsGate = chained("running", ROUND_ONE, gate({}));
+    expect(read(runsGate)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(runsGate)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(runsGate)).toEqual([]);
+    const runsSeal = chained("running", ROUND_ONE, stage({ kind: "seal" }));
+    expect(read(runsSeal)?.[3]).toEqual(["sealer", "working", "Judging", "Sealer: Judging, 4 min"]);
+    expect(read(runsSeal)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(runsSeal)).toEqual([]);
+    // A gate that passed and a seal whose verdict was written have finished: the records say the place, a gate's run or the verdict.
+    const passed = gate({ state: "finished", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 0, output: true } });
+    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...SEALED, verdict: null } })?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
+    const withheld: Recorded = { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Round 2 closed a finding the tree still holds." } };
+    const stopped: WorkItem = { ...chained("stopped", ROUND_ONE, passed, stage({ kind: "seal", state: "finished", endedAt: NOW - MINUTE })), recorded: withheld };
+    expect(read(stopped)?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
+    expect(under(stopped)).toEqual(["Sealer: Round 2 closed a finding the tree still holds."]);
+    // An open question of the sealer's stands over the stage that runs.
+    expect(read({ ...runsSeal, questions: [{ ...ASKS, by: "sealer" }] })?.[3]).toEqual(["sealer", "waiting", "Needs you", "Sealer: Needs you, 12 min"]);
+  });
+
+  it("marks the sealer's place waiting where the chain's newest stage is a broad gate that failed, with the note Gate failed, and failed where it is a sealer's session that failed, each over what the records say and with the stage's failure under the line", () => {
+    const failedGate = stage({ kind: "gate", headlessId: null, state: "failed", failure: "the command exited with code 3", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 3, output: true } });
+    const gated = chained("stopped", ROUND_ONE, failedGate);
+    expect(read(gated)?.[3]).toEqual(["sealer", "waiting", "Gate failed", "Sealer: Gate failed"]);
+    expect(read(gated)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(gated)).toEqual(["Sealer: The command exited with code 3."]);
+    // The records of this work item hold a verdict that seals an earlier commit, and the failed gate stands over it.
+    expect(read(RECORDED)?.[3]).toEqual(["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"]);
+    const judged = chained("stopped", ROUND_ONE, stage({ kind: "seal", state: "failed", failure: "the session reached its time limit and was stopped", endedAt: NOW - MINUTE }));
+    expect(read(judged)?.[3]).toEqual(["sealer", "failed", "Failed", "Sealer: Judging failed"]);
+    expect(read(judged)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(judged)).toEqual(["Sealer: The session reached its time limit and was stopped."]);
+    // A gate that runs again after its failure is at work, and the failure leaves the line.
+    const again = chained("running", ROUND_ONE, failedGate, stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }));
+    expect(read(again)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(under(again)).toEqual([]);
+    // A failed gate marks no other role's place, and a failed round after it leaves the sealer's place to the records.
+    expect(read(chained("stopped", failedGate, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE })))?.[3]).toEqual(read(RECORDED)?.[3]);
+  });
+
+  it("says a failed stage's failure under the places as a sentence: a capital on a first word of letters alone and a full stop where the text ends with none, and no other change", () => {
+    const says = (failure: string | null): string[] | null => under(chained("stopped", ROUND_ONE, stage({ state: "failed", failure, endedAt: NOW - MINUTE })));
+    // The clause the daemon writes, with no capital and no full stop.
+    expect(says("the daemon ended while the stage ran")).toEqual(["Proofer: The daemon ended while the stage ran."]);
+    expect(says("its record's target line reads `target: HEAD`")).toEqual(["Proofer: Its record's target line reads `target: HEAD`."]);
+    expect(says("stopped")).toEqual(["Proofer: Stopped."]);
+    // A text that is a sentence already, as a CLI's own error can be, stands as it is, and so does the mark it ends with.
+    expect(says("The session is out of turns.")).toEqual(["Proofer: The session is out of turns."]);
+    expect(says("is the CLI signed in?")).toEqual(["Proofer: Is the CLI signed in?"]);
+    expect(says("the CLI said: no!")).toEqual(["Proofer: The CLI said: no!"]);
+    // A first word that is a path, a file's name or a number is no word to give a capital.
+    expect(says("seal/threads/one/trail/rounds/round-2.md was written and not committed")).toEqual(["Proofer: seal/threads/one/trail/rounds/round-2.md was written and not committed."]);
+    expect(says("round-2.md holds no target line")).toEqual(["Proofer: round-2.md holds no target line."]);
+    expect(says("2 blocks open with a verdict")).toEqual(["Proofer: 2 blocks open with a verdict."]);
+    // A first word that a mark ends, before a space or the text's end, is a word of letters alone.
+    expect(says("error: unknown option '--no-such-option'")).toEqual(["Proofer: Error: unknown option '--no-such-option'."]);
+    expect(says("failed.")).toEqual(["Proofer: Failed."]);
+    for (const mark of [",", ":", ";", ".", "!", "?", "?!"]) expect(says(`stopped${mark} at a request`)).toEqual([`Proofer: Stopped${mark} at a request.`]);
+    // A mark inside the first word ends no word: an address and a name with a colon stand as written.
+    expect(says("http://localhost:4000 refused the connection")).toEqual(["Proofer: http://localhost:4000 refused the connection."]);
+    expect(says("node:fs could not be loaded")).toEqual(["Proofer: node:fs could not be loaded."]);
+    // The space around the text is no part of the sentence, and a line break inside it is kept.
+    expect(says("  the session failed\nexit 1\n")).toEqual(["Proofer: The session failed\nexit 1."]);
+    expect(says("")).toEqual(["Proofer: "]);
+    expect(says(null)).toEqual([]);
+  });
+});
+
+describe("a work item's chain", () => {
+  const MINUTE = 60_000;
+  const NOW = 100 * MINUTE;
+  const ROUND: ChainStage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: NOW - 30 * MINUTE, endedAt: NOW - 20 * MINUTE, headlessId: 3, refusals: 0, gate: null };
+  const FIX: ChainStage = { kind: "fix-pass", round: 1, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: NOW - 19 * MINUTE, endedAt: NOW - 6 * MINUTE, headlessId: 4, refusals: 0, gate: null };
+  const STOPPED_SAYS = "The fix pass of round 1 failed: the session reached its time limit and was stopped.";
+  const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", stages: [], since: NOW - 4 * MINUTE, ...fields });
+  const RUNNING: WorkItem = { ...LOGIN, chain: chain("running", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) };
+  const STOPPED: WorkItem = { ...LOGIN, chain: chain("stopped", { stages: [ROUND, FIX] }) };
+  const RESTS_SEALED: WorkItem = { ...LOGIN, chain: chain("sealed", { says: "The sealer sealed 1a2b3c4, after round 1.", stages: [ROUND] }) };
+  const PARKED: WorkItem = { ...LOGIN, chain: chain("parked", { says: "The work item waits for the answers to its questions.", stages: [ROUND] }) };
+  const QUESTION: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "crafter", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
+  const BASH: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: NOW - 2 * MINUTE };
+  const working = session(2, { state: "working", stateSince: NOW - 40 * MINUTE, stateText: "Running the tests" });
+  const finished = session(2, { state: "finished", stateSince: NOW - 50 * MINUTE, stateText: "The form is done." });
+  const waiting = session(2, { state: "waiting", stateSince: NOW - 3 * MINUTE, stateText: "May I run the tests?" });
+  /** A work item as a daemon of a build before the chain sends it. */
+  const { chain: _chain, ...BEFORE } = LOGIN;
+  const EARLIER = BEFORE as WorkItem;
+
+  it("gives the line of a work item whose chain is running the state working where no pane of it waits for the person, so that it is counted and stands among those at work, and the pane's state where its pane waits", () => {
+    for (const sessions of [[], [finished], [working], [session(5, { kind: "shell" })]]) expect(inboxLine(RUNNING, sessions, KINDS)).toEqual({ ...inboxLine(LOGIN, sessions, KINDS), state: "working" });
+    expect(inboxLine(RUNNING, [waiting], KINDS).state).toBe("waiting");
+    const entries = workItemEntries([RUNNING, SEARCH], [finished, session(3, { workItemId: 2, state: "finished" })], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 working, 1 finished");
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Working", [1]], ["Finished", [2]]]);
+  });
+
+  it("gives the line of a work item whose chain stopped the state waiting, whatever its panes say, so that it is counted and stands among those that need the person", () => {
+    for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(STOPPED, sessions, KINDS)).toEqual({ ...inboxLine(LOGIN, sessions, KINDS), state: "waiting" });
+    const entries = workItemEntries([SEARCH, STOPPED], [finished, session(3, { workItemId: 2, state: "working" })], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 needs you, 1 working");
+    expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Working", [2]]]);
+  });
+
+  it("leaves the line's state to the work item's panes where its chain rests sealed, where it is parked and every question is answered, and where no chain ran", () => {
+    for (const workItem of [RESTS_SEALED, PARKED, LOGIN]) {
+      for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(workItem, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+    }
+    // A parked chain's line waits by the open question of the work item's record.
+    expect(inboxLine({ ...PARKED, questions: [QUESTION] }, [finished], KINDS).state).toBe("waiting");
+  });
+
+  it("says a stopped chain's sentence in the line's second row, after a parked work item's question and a headless session's call and before what its agent says, and the branch while a search is typed", () => {
+    expect(lineText(STOPPED, finished, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText(STOPPED, undefined, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText(STOPPED, waiting, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText({ ...STOPPED, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...STOPPED, permissions: [BASH] }, finished, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(STOPPED, finished, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
+
+  it("names the stage a running chain runs in the line's second row, in short, where nothing on the line needs the person, and says what the line says without the stage where a question is open, a call waits to be allowed, the line's pane waits, a search is typed, the chain's newest stage has ended or the chain does not run", () => {
+    const runs = (fields: Partial<ChainStage>): WorkItem => ({ ...LOGIN, chain: chain("running", { stages: [ROUND, { ...ROUND, state: "working", endedAt: null, ...fields }] }) });
+    for (const pane of [finished, working, undefined]) expect(lineText(runs({ round: 2 }), pane, false)).toEqual({ says: "stage", text: "Proofer, round 2" });
+    expect(lineText(RUNNING, finished, false)).toEqual({ says: "stage", text: "Proofer, round 1" });
+    expect(lineText(runs({ kind: "fix-pass" }), finished, false)).toEqual({ says: "stage", text: "Crafter, fix pass" });
+    expect(lineText(runs({ kind: "judgment", round: 2 }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, judgment" });
+    expect(lineText(runs({ kind: "ruling" }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, ruling" });
+    // The broad gate is no role's session, so its words name no role, and the seal is the sealer's.
+    expect(lineText(runs({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }), finished, false)).toEqual({ says: "stage", text: "Broad gate" });
+    expect(lineText(runs({ kind: "seal" }), finished, false)).toEqual({ says: "stage", text: "Sealer, verdict" });
+    // The pull request stage is no role's session either, and runs after the seal.
+    expect(lineText(runs({ kind: "pull-request", headlessId: null }), finished, false)).toEqual({ says: "stage", text: "Pull request" });
+    // A line that waits keeps saying what it waits on while the stage runs.
+    expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...RUNNING, permissions: [BASH] }, finished, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(RUNNING, waiting, false)).toEqual({ says: "state", text: "May I run the tests?" });
+    expect(lineText(RUNNING, finished, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+    // Between two stages the newest one has ended, and a chain that rests runs none.
+    for (const workItem of [{ ...LOGIN, chain: chain("running", { stages: [ROUND] }) }, { ...LOGIN, chain: chain("running") }, RESTS_SEALED, PARKED]) {
+      expect(lineText(workItem, finished, false)).toEqual({ says: "state", text: "The form is done." });
+      expect(lineText(workItem, undefined, false)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+    }
+    // A chain a restarted daemon reads as stopped keeps a newest stage that still says working, and the line says the chain's sentence.
+    expect(lineText({ ...LOGIN, chain: chain("stopped", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) }, finished, false)).toEqual({ says: "chain", text: STOPPED_SAYS });
+  });
+
+  it("counts the age of a stopped chain's line from when the chain stopped, whenever its newest stage ended, and from the earlier of that and its questions' and its requests' times", () => {
+    // The chain stopped 4 minutes ago, 2 minutes after its newest stage ended.
+    expect(lineSince(STOPPED, finished)).toBe(NOW - 4 * MINUTE);
+    expect(lineSince(STOPPED, undefined)).toBe(NOW - 4 * MINUTE);
+    expect(stateWithAge(inboxLine(STOPPED, [finished], KINDS).state, lineSince(STOPPED, finished), NOW)).toBe("Needs you, 4 min");
+    expect(lineSince({ ...STOPPED, questions: [QUESTION] }, finished)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince({ ...STOPPED, permissions: [BASH] }, finished)).toBe(NOW - 4 * MINUTE);
+    // A chain that stopped outside a stage, at a start long after its newest stage ended, has waited since that stop.
+    expect(lineSince({ ...LOGIN, chain: chain("stopped", { stages: [ROUND], since: NOW - MINUTE }) }, finished)).toBe(NOW - MINUTE);
+    // The daemon ended while the stage ran, so the stage has no end, and a chain may stop before its first stage.
+    expect(lineSince({ ...LOGIN, chain: chain("stopped", { stages: [ROUND, { ...FIX, endedAt: null }] }) }, finished)).toBe(NOW - 4 * MINUTE);
+    expect(lineSince({ ...LOGIN, chain: chain("stopped") }, finished)).toBe(NOW - 4 * MINUTE);
+    expect(lineSince({ ...LOGIN, chain: chain("stopped", { since: NOW - MINUTE }), permissions: [BASH] }, finished)).toBe(NOW - 2 * MINUTE);
+  });
+
+  it("counts the age of a running chain's line from the start of the stage it runs where nothing on the line needs the person, from what the line waits on where it waits, and gives no age between two stages where the chain alone says that it works", () => {
+    // The round started 30 minutes ago, and the pane took its state at another time.
+    for (const pane of [finished, working, undefined]) expect(lineSince(RUNNING, pane)).toBe(NOW - 30 * MINUTE);
+    expect(stateWithAge(inboxLine(RUNNING, [finished], KINDS).state, lineSince(RUNNING, finished), NOW)).toBe("Working, 30 min");
+    expect(lineSince(RUNNING, waiting)).toBe(NOW - 3 * MINUTE);
+    expect(lineSince({ ...RUNNING, questions: [QUESTION] }, finished)).toBe(NOW - 12 * MINUTE);
+    expect(lineSince({ ...RUNNING, permissions: [BASH] }, finished)).toBe(NOW - 2 * MINUTE);
+    // Between two stages the newest one has ended.
+    const between: WorkItem = { ...LOGIN, chain: chain("running", { stages: [ROUND] }) };
+    expect(lineSince(between, finished)).toBeNull();
+    expect(lineSince(between, undefined)).toBeNull();
+    expect(lineSince(between, working)).toBe(NOW - 40 * MINUTE);
+    expect(lineSince(between, waiting)).toBe(NOW - 3 * MINUTE);
+    for (const workItem of [RESTS_SEALED, PARKED]) expect(lineSince(workItem, finished)).toBe(NOW - 50 * MINUTE);
+  });
+
+  it("notifies of a chain that stopped since the window's lists were held, titled with the work item's title, with the words a waiting pane's notification has, and of none of a muted work item, of the work item whose view is in front, or of a chain the window already held as stopped", () => {
+    const told = { workItemId: 1, title: "Fix the login bug", body: "Needs you" };
+    expect(told.body).toBe(notificationFor("working", session(3, { state: "waiting" }), false, [LOGIN], KINDS)?.body);
+    expect(chainNotifications([RUNNING, SEARCH], [STOPPED, SEARCH], undefined)).toEqual([told]);
+    expect(chainNotifications([LOGIN], [STOPPED], undefined)).toEqual([told]);
+    expect(chainNotifications([PARKED], [STOPPED], undefined)).toEqual([told]);
+    // A work item the window did not hold at all held no stopped chain.
+    expect(chainNotifications([], [STOPPED], undefined)).toEqual([told]);
+    expect(chainNotifications([RUNNING, SEARCH], [STOPPED, { ...SEARCH, chain: chain("stopped") }], 2)).toEqual([told]);
+    expect(chainNotifications([RUNNING], [{ ...STOPPED, muted: true }], undefined)).toEqual([]);
+    expect(chainNotifications([RUNNING], [STOPPED], 1)).toEqual([]);
+    expect(chainNotifications([STOPPED], [STOPPED], undefined)).toEqual([]);
+    // A chain in another state tells nothing, whatever the window held of it.
+    for (const rests of [RUNNING, RESTS_SEALED, PARKED, LOGIN]) {
+      expect(chainNotifications([STOPPED], [rests], undefined)).toEqual([]);
+      expect(chainNotifications([LOGIN], [rests], undefined)).toEqual([]);
+    }
+  });
+
+  it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal the daemon gave for the chain as it stands, and none while the chain runs', () => {
+    const start = "Start the review rounds on Fix the login bug";
+    expect(sealButton(LOGIN, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: "" });
+    expect(sealButton(STOPPED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
+    expect(sealButton(RESTS_SEALED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
+    expect(sealButton(PARKED, false, null)).toEqual({ offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
+    expect(sealButton(RUNNING, false, null)).toEqual({ offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
+    expect(sealButton(STOPPED, true, null)).toEqual({ offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
+    const refused = "The branch holds no commit after its base, so a round has nothing to read.";
+    expect(sealButton(LOGIN, false, refusedSeal(LOGIN, refused))).toEqual({ offered: true, enabled: true, title: start, says: "", refusal: refused });
+    expect(sealButton(STOPPED, false, refusedSeal(STOPPED, refused))).toEqual({ offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
+    // A chain that runs was started since the refusal, and one that is running says no refusal of a press on it.
+    expect(sealButton(RUNNING, false, refusedSeal(STOPPED, refused)).refusal).toBe("");
+    expect(sealButton(RUNNING, false, refusedSeal(RUNNING, "The chain of work item 1 is already running.")).refusal).toBe("");
+  });
+
+  it("says a refusal only while the chain stands as it stood when the daemon refused: not once a chain that no press of this window started has run and rests in another state, or in the same state since a later time", () => {
+    const waits = "The work item waits for the answers to its open questions. Answer them first.";
+    const atParked = refusedSeal(PARKED, waits);
+    expect(atParked).toEqual({ says: waits, state: "parked", since: NOW - 4 * MINUTE });
+    expect(sealButton(PARKED, false, atParked).refusal).toBe(waits);
+    // The person answered, the chain ran by itself and rests: no question is open any more.
+    for (const rests of [STOPPED, RESTS_SEALED]) expect(sealButton(rests, false, atParked).refusal).toBe("");
+    // A chain another window started stopped again: the same state, since a later time.
+    const loose = "The worktree holds a change no commit holds, at notes.txt. A round reads a committed tree: commit the change or remove it first.";
+    const atStopped = refusedSeal(STOPPED, loose);
+    expect(sealButton(STOPPED, false, atStopped).refusal).toBe(loose);
+    expect(sealButton({ ...STOPPED, chain: chain("stopped", { stages: [ROUND, FIX], since: NOW - MINUTE }) }, false, atStopped).refusal).toBe("");
+    // A refusal for a work item no chain ran for holds until one runs, and one for a work item the window no longer lists is kept as for none.
+    const atNone = refusedSeal(LOGIN, loose);
+    expect(atNone).toEqual({ says: loose, state: null, since: null });
+    expect(refusedSeal(undefined, loose)).toEqual(atNone);
+    expect(sealButton(LOGIN, false, atNone).refusal).toBe(loose);
+    expect(sealButton(STOPPED, false, atNone).refusal).toBe("");
+  });
+
+  it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line, and offers no "Get a seal" for it', () => {
+    for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(EARLIER, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
+    expect(lineText(EARLIER, finished, false)).toEqual(lineText(LOGIN, finished, false));
+    expect(lineSince(EARLIER, finished)).toBe(NOW - 50 * MINUTE);
+    expect(chainNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
+    expect(chainNotifications([EARLIER], [STOPPED], undefined)).toHaveLength(1);
+    expect(sealButton(EARLIER, false, null)).toEqual({ offered: false, enabled: false, title: "", says: "", refusal: "" });
+    expect(sealButton(EARLIER, false, refusedSeal(EARLIER, "refused")).offered).toBe(false);
+  });
+});
+
 describe("setupMark", () => {
   it("says Setting up while the setup runs and Setup failed where it failed, and nothing where it succeeded or none was named", () => {
     expect(setupMark({ ...LOGIN, setup: RUNNING_SETUP })).toBe("Setting up");
@@ -2129,6 +2543,84 @@ describe("headlessLines", () => {
   });
 });
 
+describe("the broad gate's line under Ask", () => {
+  const RUN: GateRun = { command: "pnpm -r run check", exitCode: null, output: false };
+  const ROUND: ChainStage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1000, endedAt: 2000, headlessId: 3, refusals: 0, gate: null };
+  /** A broad gate's stage: at work since 5000, but for the fields given. */
+  const gate = (fields: Partial<ChainStage> = {}): ChainStage => ({ kind: "gate", round: 1, state: "working", failure: null, startedAt: 5000, endedAt: null, headlessId: null, refusals: 0, gate: RUN, ...fields });
+  const PASSED = gate({ state: "finished", endedAt: 6000, gate: { ...RUN, exitCode: 0, output: true } });
+  const FAILED = gate({ state: "failed", failure: "the command exited with code 3", endedAt: 6000, gate: { ...RUN, exitCode: 3, output: true } });
+  /** The work item with a chain in that state, which holds those stages, the oldest first. */
+  const chained = (state: Chain["state"], ...stages: ChainStage[]): WorkItem => ({ ...LOGIN, chain: { state, says: "", stages, since: 7000 } });
+
+  it("gives no line for a work item no chain ran for, for one a daemon of an earlier build sent with no chain, and for a chain that holds no broad gate", () => {
+    const { chain: _chain, ...earlier } = LOGIN;
+    expect(LOGIN.chain).toBeNull();
+    expect(gateLine(LOGIN, null)).toBeNull();
+    expect(gateLine(earlier as WorkItem, null)).toBeNull();
+    expect(gateLine(chained("running", ROUND), null)).toBeNull();
+    expect(gateLine(chained("stopped"), null)).toBeNull();
+    // A stage of another kind holds no run, and a stage a build before the gate stored holds none either.
+    expect(gateLine(chained("running", { ...ROUND, kind: "seal" }), null)).toBeNull();
+    expect(gateLine(chained("stopped", gate({ gate: null })), null)).toBeNull();
+  });
+
+  it("says the words Broad gate, the command and the state's word of a gate that runs, with Stop and with no button for its output", () => {
+    expect(GATE_HEAD).toBe("Broad gate");
+    expect(gateLine(chained("running", ROUND, gate()), null)).toEqual({ startedAt: 5000, command: "pnpm -r run check", state: "working", words: "working", text: "", stop: true, output: false, printed: null });
+  });
+
+  it("offers the output of a gate that ended where its output is kept, says finished for one that passed, and failed with the stage's failure as a sentence for one that did not", () => {
+    expect(GATE_OUTPUT_SHOWS).toBe("Show output");
+    expect(gateLine(chained("running", ROUND, PASSED), null)).toEqual({ startedAt: 5000, command: "pnpm -r run check", state: "finished", words: "finished", text: "", stop: false, output: true, printed: null });
+    expect(gateLine(chained("stopped", ROUND, FAILED), null)).toEqual({ startedAt: 5000, command: "pnpm -r run check", state: "failed", words: "failed", text: "The command exited with code 3.", stop: false, output: true, printed: null });
+    // A command that printed nothing leaves nothing to show, and a failure the daemon gave no text has none.
+    expect(gateLine(chained("stopped", gate({ state: "failed", failure: null, endedAt: 6000, gate: { ...RUN, exitCode: 1, output: false } })), null)).toMatchObject({ state: "failed", text: "", output: false });
+  });
+
+  it("is the line of the chain's newest gate, wherever it stands among the stages", () => {
+    const again = gate({ startedAt: 9000, gate: { ...RUN, command: "pnpm test" } });
+    expect(gateLine(chained("running", ROUND, FAILED, again), null)).toMatchObject({ startedAt: 9000, command: "pnpm test", state: "working", stop: true });
+    // A seal and a ruling follow the gate that passed, and the line stays the gate's.
+    expect(gateLine(chained("running", FAILED, PASSED, { ...ROUND, kind: "seal", state: "working", endedAt: null }), null)).toMatchObject({ startedAt: 5000, state: "finished", output: true });
+    expect(gateLine(chained("stopped", gate({ startedAt: 4000, state: "finished", endedAt: 4500 }), FAILED, ROUND), null)).toMatchObject({ state: "failed", text: "The command exited with code 3." });
+  });
+
+  it("draws a gate whose stage says it works in a chain that does not run it as failed, with no Stop: no command of it runs", () => {
+    for (const state of ["stopped", "parked", "sealed"] as const) expect(gateLine(chained(state, ROUND, gate()), null)).toMatchObject({ state: "failed", words: "failed", text: "", stop: false, output: false });
+    // A running chain whose newest stage is another runs no gate either.
+    expect(gateLine(chained("running", gate(), { ...ROUND, state: "working", endedAt: null }), null)).toMatchObject({ state: "failed", stop: false });
+  });
+
+  it("draws what a read of the output answered under the line of the run it was read of, with a note where the daemon kept the end alone, and under no other run's and no other work item's line", () => {
+    const read = { workItemId: 1, startedAt: 5000, text: "FAIL test/view.test.ts\n1 failed\n", cut: false };
+    const failed = chained("stopped", ROUND, FAILED);
+    expect(gateLine(failed, read)?.printed).toEqual({ text: "FAIL test/view.test.ts\n1 failed\n", note: "" });
+    expect(gateLine(failed, { ...read, cut: true })?.printed).toEqual({ text: "FAIL test/view.test.ts\n1 failed\n", note: "Owlery kept the end of the output alone." });
+    // The gate ran again since the read, and the output of the earlier run is not the new line's.
+    expect(gateLine(chained("running", ROUND, FAILED, gate({ startedAt: 9000 })), read)?.printed).toBeNull();
+    expect(gateLine(failed, { ...read, startedAt: 4000 })?.printed).toBeNull();
+    expect(gateLine({ ...failed, id: 2 }, read)?.printed).toBeNull();
+    // The rest of the line is as without the read.
+    expect({ ...gateLine(failed, read), printed: null }).toEqual(gateLine(failed, null));
+  });
+
+  it("tells one drawing of the Ask section from the next by the gate's line too: its state, its buttons and the output under it", () => {
+    const failed = chained("stopped", ROUND, FAILED);
+    const read = { workItemId: 1, startedAt: 5000, text: "1 failed\n", cut: false };
+    const keys = [
+      headlessKey(1, [], null),
+      headlessKey(1, [], gateLine(chained("running", ROUND, gate()), null)),
+      headlessKey(1, [], gateLine(failed, null)),
+      headlessKey(1, [], gateLine(failed, read)),
+      headlessKey(1, [], gateLine(failed, { ...read, text: "2 failed\n" })),
+      headlessKey(1, [], gateLine(failed, { ...read, cut: true })),
+    ];
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(headlessKey(1, [], gateLine(failed, read))).toBe(headlessKey(1, [], gateLine(chained("stopped", ROUND, FAILED), { ...read })));
+  });
+});
+
 describe("lineSession", () => {
   it("gives the pane a line reads its state from, and nothing where no live pane of the work item reports one", () => {
     const sessions = [session(2, { state: "finished" }), session(4, { state: "waiting", stateSince: 900 }), session(5, { kind: "shell" })];
@@ -2965,17 +3457,21 @@ describe("stateWithAge", () => {
   });
 });
 
+/** A question an agent asks with two choices, and one that takes more than one choice. */
+const DATES: AskedQuestion = { asks: "Which library formats the dates?", options: [{ label: "date-fns", implies: "Small functions, one import each." }, { label: "dayjs", implies: "" }], multiple: false };
+const CHECKS: AskedQuestion = { asks: "Which checks run before a commit?", options: [{ label: "Lint", implies: "" }, { label: "Types", implies: "tsc --noEmit" }], multiple: true };
+
 describe("stateSays", () => {
   it("gives a finished agent's last message under the label of its pane's kind and the word said", () => {
-    expect(stateSays(session(3, { state: "finished", stateText: "The login form is fixed." }), KINDS)).toEqual({ head: "Claude Code said", text: "The login form is fixed.", waiting: false });
+    expect(stateSays(session(3, { state: "finished", stateText: "The login form is fixed." }), KINDS)).toEqual({ head: "Claude Code said", text: "The login form is fixed.", waiting: false, questions: [] });
   });
 
   it("gives what a waiting agent tells the person under the word asks", () => {
-    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?" }), KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?", waiting: true });
+    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?" }), KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?", waiting: true, questions: [] });
   });
 
   it("says which tool a waiting agent asks for where its event carried the tool's name and no text", () => {
-    expect(stateSays(session(3, { state: "waiting", stateTool: "Bash" }), KINDS)).toEqual({ head: "Claude Code asks", text: "Asks to use Bash", waiting: true });
+    expect(stateSays(session(3, { state: "waiting", stateTool: "Bash" }), KINDS)).toEqual({ head: "Claude Code asks", text: "Asks to use Bash", waiting: true, questions: [] });
     expect(stateSays(session(3, { state: "waiting", stateText: "May I?", stateTool: "Bash" }), KINDS)?.text).toBe("May I?");
   });
 
@@ -2999,10 +3495,42 @@ describe("stateSays", () => {
     const { stateText: _text, stateTool: _tool, ...old } = session(3, { state: "waiting" });
     expect(stateSays(old as SessionInfo, KINDS)).toBeNull();
   });
+
+  it("gives the questions a waiting agent asks, each with its choices and whether more than one may be chosen, and none where its event asked none", () => {
+    expect(stateSays(session(3, { state: "waiting", stateText: DATES.asks, stateQuestions: [DATES, CHECKS] }), KINDS)).toEqual({ head: "Claude Code asks", text: DATES.asks, waiting: true, questions: [DATES, CHECKS] });
+    expect(stateSays(session(3, { state: "waiting", stateText: "May I run the tests?", stateQuestions: null }), KINDS)?.questions).toEqual([]);
+    // A daemon of an earlier build sends no such field.
+    const { stateQuestions: _questions, ...old } = session(3, { state: "waiting", stateText: "May I run the tests?" });
+    expect(stateSays(old as SessionInfo, KINDS)).toEqual({ head: "Claude Code asks", text: "May I run the tests?", waiting: true, questions: [] });
+  });
+
+  it("says under a question that takes more than one choice that more than one may be chosen, and nothing under one that takes one", () => {
+    expect(choiceNote(CHECKS)).toBe("More than one may be chosen.");
+    expect(choiceNote(DATES)).toBe("");
+  });
 });
 
 describe("lineText", () => {
   const two = { ...LOGIN, newCommits: 2, commits: [commit("b2b2b2b", "Check the token"), commit("a1a1a1a", "Add the form")] };
+
+  it("says the question a waiting agent asks and the labels of its choices, with how many more questions it asks", () => {
+    const asking = (stateQuestions: AskedQuestion[]) => session(3, { state: "waiting", stateText: stateQuestions[0]?.asks ?? null, stateQuestions });
+    expect(lineText(two, asking([DATES]), false)).toEqual({ says: "state", text: "Which library formats the dates? date-fns · dayjs" });
+    expect(lineText(two, asking([DATES, CHECKS]), false)).toEqual({ says: "state", text: "Which library formats the dates? date-fns · dayjs (and 1 more question)" });
+    expect(lineText(two, asking([CHECKS, DATES, DATES]), false)).toEqual({ says: "state", text: "Which checks run before a commit? Lint · Types (and 2 more questions)" });
+    expect(lineText(two, asking([{ ...DATES, options: [] }]), false)).toEqual({ says: "state", text: "Which library formats the dates?" });
+    // A daemon of an earlier build sends no such field, and the line says the state's text.
+    const { stateQuestions: _questions, ...old } = asking([DATES]);
+    expect(lineText(two, old as SessionInfo, false)).toEqual({ says: "state", text: "Which library formats the dates?" });
+  });
+
+  it("keeps a parked work item's question and a headless session's call before the question an agent asks, and the branch while a search is typed", () => {
+    const asking = session(3, { state: "waiting", stateText: DATES.asks, stateQuestions: [DATES] });
+    const parked: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: null };
+    expect(lineText({ ...two, questions: [parked] }, asking, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...two, permissions: [{ id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 }] }, asking, false)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(two, asking, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+  });
 
   it("says what the agent's state carried where it carried a text or, while it waits, a tool's name", () => {
     expect(lineText(two, session(3, { state: "waiting", stateText: "May I run the tests?" }), false)).toEqual({ says: "state", text: "May I run the tests?" });
@@ -3063,6 +3591,20 @@ describe("ahead", () => {
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 6, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main", fact: "main · 6 ahead" });
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 1, newCommits: 1 })).toEqual({ sentence: "1 commit ahead of main", fact: "main · 1 ahead" });
     expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 0, newCommits: 0 })).toEqual({ sentence: "0 commits ahead of main", fact: "main · 0 ahead" });
+  });
+
+  it("says how many commits the branch is behind its base beside how many ahead, 0 among them", () => {
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 6, behindBase: 2, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main, 2 behind", fact: "main · 6 ahead · 2 behind" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 1, behindBase: 1, newCommits: 1 })).toEqual({ sentence: "1 commit ahead of main, 1 behind", fact: "main · 1 ahead · 1 behind" });
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 6, behindBase: 0, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main, 0 behind", fact: "main · 6 ahead · 0 behind" });
+    expect(ahead({ ...LOGIN, baseBranch: "origin/main", aheadOfBase: 0, behindBase: 3, newCommits: 0 })).toEqual({ sentence: "0 commits ahead of origin/main, 3 behind", fact: "origin/main · 0 ahead · 3 behind" });
+  });
+
+  it("says nothing of behind where the daemon sent no count of it, a daemon of an earlier build among them, or where no base branch is recorded", () => {
+    expect(ahead({ ...LOGIN, baseBranch: "main", aheadOfBase: 6, behindBase: null, newCommits: 6 })).toEqual({ sentence: "6 commits ahead of main", fact: "main · 6 ahead" });
+    const { behindBase: _none, ...earlier } = { ...LOGIN, baseBranch: "main", aheadOfBase: 6, newCommits: 6 };
+    expect(ahead(earlier as WorkItem)).toEqual({ sentence: "6 commits ahead of main", fact: "main · 6 ahead" });
+    expect(ahead({ ...LOGIN, baseBranch: null, behindBase: 2, newCommits: 3 })).toEqual({ sentence: "3 commits ahead", fact: "3 ahead" });
   });
 
   it("prints a base that is a remote's branch as it is stored, with the remote's name", () => {
@@ -3276,6 +3818,21 @@ describe("the dialog of the records place", () => {
     expect([refused.blocked, refused.files, refused.submit.enabled]).toEqual(["no repository 1", [], false]);
   });
 
+  it("tells an administrator how to make the seal check required, where the workflow is Owlery's, in a plan and in a repository that holds every part, and says that AgenticSeal's hygiene.yml posts no such check", () => {
+    const REQUIRED = "The workflow posts its verdict as the check `Owlery seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `Owlery seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `Owlery seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
+    const HYGIENE = "AgenticSeal's `hygiene.yml` posts no `Owlery seal` check, so GitHub offers none to require. Owlery changes no setting of the repository on GitHub.";
+    expect(recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test").required).toBe(REQUIRED);
+    const owlery = recordsDialog({ ...PROJECT, records: { root: "seal", check: ".github/workflows/owlery-seal.yml", broadGate: "make check" } }, kept(PLAN, "seal/README.md", "seal/config.json", ".github/workflows/owlery-seal.yml"), "", "");
+    expect([owlery.holds.length, owlery.required]).toEqual([3, REQUIRED]);
+    const files = [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }];
+    const hygiene = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, { ...PLAN, files }, "", "");
+    expect([hygiene.holds.length, hygiene.required]).toEqual([3, HYGIENE]);
+    // A plan that writes AgenticSeal's root beside a kept hygiene.yml says the same of that workflow.
+    expect(recordsDialog(PROJECT, { ...PLAN, files: [{ path: "seal/README.md", text: "# x\n" }, { path: "seal/config.json", text: "{}\n" }, { path: ".github/workflows/hygiene.yml", text: null }] }, "pnpm test", "pnpm test").required).toBe(HYGIENE);
+    // Until the daemon answers, where it refused the plan, and where a plan names no workflow, nothing is said of a check.
+    expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required, recordsDialog(PROJECT, { ...PLAN, files: PLAN.files.slice(0, 2) }, "pnpm test", "pnpm test").required]).toEqual(["", "", ""]);
+  });
+
   it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
     const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
     expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
@@ -3305,5 +3862,130 @@ describe("registered", () => {
     expect(registered("/r/docs/", [PROJECT, docs], [PROJECT, docs])).toBe(docs);
     expect(registered("/r/docs/vendor/inner", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
     expect(registered("/r/docs-old", [PROJECT, docs], [PROJECT, docs])).toBeUndefined();
+  });
+});
+
+describe("a work item's pull request", () => {
+  const HEAD = "3f2a9c1e5b7d9f01a2c4e6f8091b3d5f7a9c1e3b";
+  const URL = "https://github.com/owner/project/pull/12";
+  const pullRequest = (fields: Partial<PullRequest> = {}): PullRequest => ({ number: 12, url: URL, state: "open", head: HEAD, pushed: HEAD, checks: "none", list: [], listCount: 0, readAt: 1, failure: null, ...fields });
+  const BUILD_FAILED = { name: "build", state: "failed", link: "https://github.com/owner/project/runs/2" } as const;
+  const SEAL_PASSED = { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
+  const with_ = (fields: Partial<PullRequest>): WorkItem => ({ ...LOGIN, pullRequest: pullRequest(fields) });
+  const PENDING = with_({ checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: null }], listCount: 1 });
+  const PASSED = with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, SEAL_PASSED], listCount: 3 });
+  const OPEN = with_({});
+  const MERGED = with_({ state: "merged", checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const CLOSED = with_({ state: "closed" });
+  const SEALED: Chain = { state: "sealed", says: "Pull request #12 is open.", since: 5, stages: [] };
+
+  it("gives the line the state of the pull request's checks where no pane and no chain says more: working while they run, waiting where one failed, finished where they passed or there are none, and finished for a merged and a closed pull request", () => {
+    expect([PENDING, FAILED, PASSED, OPEN, MERGED, CLOSED].map((workItem) => inboxLine(workItem, [], KINDS).state)).toEqual(["working", "waiting", "finished", "finished", "finished", "finished"]);
+    // A finished pane and a sealed chain say no more than the pull request.
+    expect(inboxLine({ ...FAILED, chain: SEALED }, [session(2, { state: "finished" })], KINDS).state).toBe("waiting");
+    const entries = workItemEntries([PENDING, { ...FAILED, id: 2 }, { ...PASSED, id: 3 }], [], KINDS);
+    expect(inboxSummary(entries.map((entry) => entry.line))).toBe("1 needs you, 1 working, 1 finished");
+    // The finished pane's time is not the time the check failed, and the daemon reads none, so the line says no age.
+    expect(lineSince({ ...FAILED, chain: SEALED }, session(2, { state: "finished", stateSince: 40 }))).toBeNull();
+    expect(lineSince(LOGIN, session(2, { state: "finished", stateSince: 40 }))).toBe(40);
+    expect(lineSince(FAILED, session(2, { state: "working", stateSince: 50 }))).toBe(50);
+  });
+
+  it("says the result in the line's second row, and names the first failed check", () => {
+    const said = (workItem: WorkItem) => lineText({ ...workItem, commits: [{ hash: "a".repeat(40), subject: "feat: greet", at: 1, added: null, removed: null } as CommitInfo] }, undefined, false);
+    expect([PENDING, FAILED, PASSED, OPEN, MERGED, CLOSED].map((workItem) => said(workItem))).toEqual([
+      { says: "pull-request", text: "Checks running" },
+      { says: "pull-request", text: "Check failed: build" },
+      { says: "pull-request", text: "Checks passed" },
+      { says: "pull-request", text: "Pull request open" },
+      { says: "pull-request", text: "Merged" },
+      { says: "pull-request", text: "Closed" },
+    ]);
+    // The first failed check is named, wherever it stands in the list.
+    expect(said(with_({ checks: "failed", list: [SEAL_PASSED, BUILD_FAILED], listCount: 2 })).text).toBe("Check failed: build");
+    // A search shows the branch, as it does on every line.
+    expect(lineText(FAILED, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
+    // A work item without a pull request says what it said before.
+    expect(lineText({ ...LOGIN, chain: SEALED }, undefined, false)).toEqual({ says: "branch", text: LOGIN.branch });
+  });
+
+  it("lists in the view the pull request's number with its address, its state, the result of its checks, each check with its mark, its state's word and its address, how many more checks there are, and why the last read failed", () => {
+    const passed = { name: "Owlery seal", mark: "finished", words: "Passed", link: SEAL_PASSED.link };
+    expect(pullRequestFacts(PASSED)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks passed", rows: [passed], foot: "", failure: "" });
+    expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "Owlery seal", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
+    // The checks in the order the daemon keeps them, the failed ones first.
+    expect(pullRequestFacts(FAILED)).toMatchObject({ checks: "2 checks failed", rows: [{ name: "build", mark: "failed", words: "Failed", link: BUILD_FAILED.link }, { name: "lint", mark: "failed", words: "Failed", link: null }, passed] });
+    expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, SEAL_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");
+    expect(pullRequestFacts(OPEN)).toMatchObject({ checks: "No checks", rows: [] });
+    expect([MERGED, CLOSED].map((workItem) => pullRequestFacts(workItem)?.state)).toEqual(["Merged", "Closed"]);
+    // GitHub listed more checks than the daemon keeps.
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 4 }))?.foot).toBe("3 more checks");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 2 }))?.foot).toBe("1 more check");
+    // A read that failed keeps the facts of the read before it, and the view says so under the rows.
+    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1, failure: "gh pr view exited with code 1: HTTP 502" }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view exited with code 1: HTTP 502.");
+    expect(pullRequestFacts(with_({ failure: "gh pr view printed no pull request Owlery reads." }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view printed no pull request Owlery reads.");
+    // A work item without a pull request, and one of a daemon of an earlier build, which sends no such field, list none.
+    expect(pullRequestFacts(LOGIN)).toBeNull();
+    const { pullRequest: _, ...earlier } = LOGIN;
+    expect(pullRequestFacts(earlier as WorkItem)).toBeNull();
+  });
+
+  it("leaves the line to a pane that works or waits, to a running or stopped chain, to a park and to a call that waits for the person", () => {
+    const working = session(2, { state: "working", stateText: "Running the tests" });
+    const waiting = session(2, { state: "waiting", stateText: "May I run the tests?" });
+    expect(inboxLine(PASSED, [working], KINDS).state).toBe("working");
+    expect(lineText(PASSED, working, false)).toEqual({ says: "state", text: "Running the tests" });
+    expect(inboxLine(PASSED, [waiting], KINDS).state).toBe("waiting");
+    const stage: ChainStage = { kind: "pull-request", round: 1, state: "working", failure: null, startedAt: 1, endedAt: null, headlessId: null, refusals: 0, gate: null };
+    const running = { ...FAILED, chain: { state: "running", says: "The pull request stage is running.", since: 1, stages: [stage] } satisfies Chain };
+    expect(inboxLine(running, [], KINDS).state).toBe("working");
+    expect(lineText(running, undefined, false)).toEqual({ says: "stage", text: "Pull request" });
+    const stopped = { ...PASSED, chain: { state: "stopped", says: "The pull request stage failed: gh pr list exited with code 4.", since: 1, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
+    expect(inboxLine(stopped, [], KINDS).state).toBe("waiting");
+    expect(lineText(stopped, undefined, false)).toEqual({ says: "chain", text: "The pull request stage failed: gh pr list exited with code 4." });
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    expect(inboxLine({ ...PASSED, questions: [asked] }, [], KINDS).state).toBe("waiting");
+    expect(lineText({ ...PASSED, questions: [asked] }, undefined, false).says).toBe("question");
+    const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 };
+    expect(lineText({ ...PASSED, permissions: [ask] }, undefined, false).says).toBe("permission");
+  });
+
+  it("notifies of a work item whose pull request makes its line begin to wait or finish, once, and of none that is muted, in front, or whose line a pane or a chain gives", () => {
+    const toldOf = (workItem: WorkItem, body: string) => ({ workItemId: workItem.id, title: workItem.title, body });
+    expect(pullRequestNotifications([PENDING], [FAILED], [], KINDS, undefined)).toEqual([toldOf(FAILED, "Needs you")]);
+    expect(pullRequestNotifications([PENDING], [PASSED], [], KINDS, undefined)).toEqual([toldOf(PASSED, "Finished")]);
+    expect(pullRequestNotifications([PASSED], [MERGED], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([LOGIN], [OPEN], [], KINDS, undefined)).toEqual([toldOf(OPEN, "Finished")]);
+    // Nothing changed, the line begins to work, or the checks fail again.
+    expect(pullRequestNotifications([FAILED], [FAILED], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PASSED], [PENDING], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([FAILED], [{ ...FAILED, pullRequest: { ...pullRequest({ checks: "failed", list: [{ name: "lint", state: "failed", link: null }], listCount: 1 }) } }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [{ ...FAILED, muted: true }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [FAILED], [], KINDS, FAILED.id)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [FAILED], [session(2, { state: "working" })], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([PENDING], [{ ...FAILED, chain: { ...SEALED, state: "running" } }], [], KINDS, undefined)).toEqual([]);
+    // A park, a call that waits and a stopped chain each raise their own notification, and the pull request none.
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    const ask: PermissionAsk = { id: 7, headlessId: 3, tool: "Bash", action: "run", text: "pnpm test", at: 1 };
+    for (const more of [{ questions: [asked] }, { permissions: [ask] }, { chain: { ...SEALED, state: "stopped" as const, says: "The pull request stage failed: x." } }]) expect(pullRequestNotifications([PENDING], [{ ...FAILED, ...more }], [], KINDS, undefined), Object.keys(more)[0]).toEqual([]);
+  });
+
+  it("takes a merged pull request's decisions off the line's mark, the summary and the filter of the decisions, and the view still lists both", () => {
+    const decision = (id: number, fields: Partial<Decision> = {}): Decision => ({ id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1.", by: null, state: "decided", reversal: null, landed: null, since: 2000, ...fields });
+    const decisions = [decision(1), decision(2, { state: "reversed", reversal: "main에서 시작해 주세요", since: 3000 })];
+    const merged = { ...MERGED, decisions };
+    const open = { ...PASSED, decisions };
+    expect(decisionMark(merged, null)).toBe("");
+    expect(decisionMark(open, null)).toBe("1 decision without asking, 1 reversed");
+    const look: Look = { at: 1000, sessions: [], workItems: [MERGED] };
+    expect(changesSince(look, [merged], [], KINDS)).toEqual([]);
+    expect(changesSince({ ...look, workItems: [PASSED] }, [open], [], KINDS).map((change) => change.decided)).toEqual([2]);
+    const filtered = (workItem: WorkItem) => matchWorkItems(workItemEntries([workItem], [], KINDS), "", "decided").map((entry) => entry.workItem.id);
+    expect(filtered(merged)).toEqual([]);
+    expect(filtered(open)).toEqual([1]);
+    expect(decisionLines(merged, 4000).map((line) => line.id)).toEqual([2, 1]);
+    // A closed pull request takes nothing off.
+    expect(decisionMark({ ...CLOSED, decisions }, null)).toBe("1 decision without asking, 1 reversed");
   });
 });

@@ -25,6 +25,7 @@ const AT_THE_STAGE: Record<PairKey, readonly string[]> = {
   "proofer at round": ["skills/code-review/SKILL.md"],
   "crafter at fix-pass": ["skills/implement/SKILL.md", "skills/implement/fix-pass.md"],
   "sealer at seal": [],
+  "orchestrator at judgment": ["docs/forms/the-round-record.md"],
 };
 
 /** The bundle's documents a role session's rules file holds, by their paths in the bundle, in the order they follow the head. */

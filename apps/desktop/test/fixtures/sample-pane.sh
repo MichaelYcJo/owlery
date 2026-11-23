@@ -4,10 +4,12 @@
 # `claude`: it prints a few lines in the terminal's own colours, for a
 # screenshot to show them, and then waits. The lines are invented examples.
 
-# The daemon also runs $SHELL with no terminal, to look for `claude`, and is
-# told of the stand-in beside this file, so no CLI of the person's is run.
+# The daemon also runs $SHELL with no terminal, to look for `claude` and for
+# the PATH a broad gate and `gh` run with, and is told of the stand-in beside
+# this file and of a PATH whose first folder holds the stand-in for `gh`
+# (sample-gh/gh), so no CLI of the person's is run and nothing reaches GitHub.
 if [ ! -t 0 ]; then
-  printf '\n__owlery_cli=%s\n__owlery_path=%s\n' "${0%/*}/sample-cli.sh" '/usr/bin:/bin'
+  printf '\n__owlery_cli=%s\n__owlery_path=%s\n' "${0%/*}/sample-cli.sh" "${0%/*}/sample-gh:/usr/bin:/bin"
   exit 0
 fi
 # A setup pane runs `$SHELL -l -i -c <the command .worktreesetup holds>`, and

@@ -1,25 +1,52 @@
 // The screenshot command: `pnpm run screenshots` sets `OWLERY_SCREENSHOTS`
 // and this file then starts the built app in the background, on a temporary
-// repository with five work items, one in each state a work item has and one
-// parked with questions, and writes one PNG file for each view (the inbox, a
-// work item's view, the view of the parked work item, a work item's menu and
-// the "New work item" form) in each appearance of the theme a first run
-// opens in. No agent runs: a pane's process is a fixture, a state is what
-// the daemon's hook socket is fed, and the view's work item is asked two
-// prompts, which a stand-in for the CLI answers. It fails the first at once,
+// repository with six work items, one in each state a work item has, one
+// whose chain runs a review round, one parked with questions and a finished
+// one whose pull request's checks passed, and writes one PNG file for each
+// view (the inbox, a work item's view, the view of the parked work item, the
+// view of the finished work item, a work item's menu and the "New work
+// item" form) in each appearance of the theme a first run opens in. No agent runs: a pane's process is a fixture, a state is what
+// the daemon's hook socket is fed, the agent of the work item that needs the
+// person waits on a question with two choices, fed as its question tool's
+// call, and the view's work item is asked two prompts, which a stand-in for
+// the CLI answers. It fails the first at once,
 // and holds the second, whose session asks the person to allow a command and
 // gets no answer, so the work item's line says the request and the view's
 // "Ask" section shows its card. The run waits until the section shows that
 // request before its first shot. That work item carries no decision made
 // without asking and no setup's words on its line, so the line's second row
-// gives its whole width to the request. No stage runs either: the questions
-// are blocks the run writes into the parked work item's record, which the
-// daemon reads in its worktree. The repository names a setup once three
-// work items stand, so the one at work shows its setup running, the one in
+// gives its whole width to the request. Three chains run, each started as a
+// second client of the daemon starts one. Two stay at their first round,
+// whose prompt the stand-in holds: one for the work item at review, so its
+// line of the inbox names the stage with its age, and one for the view's
+// work item, started before its prompts are asked, so its approval line
+// shows a finished place, a working one and two not started. The third is
+// the parked work item's, whose stages the stand-in answers: its round
+// leaves no finding, the repository's broad gate, a script of the
+// repository that prints two lines, passes, and its sealer asks a question
+// in place of a verdict, which the orchestrator's ruling parks the work
+// item with. So the parked view lists the gate that passed first under
+// "Ask", with its command and "Show output", and its approval line counts
+// the round and marks the sealer's place, which waits on the questions. A
+// fourth chain is the finished work item's: the stand-in answers its round
+// with no finding and its sealer with `sealed`, after the same gate, and the
+// daemon then pushes the branch to a bare repository in the run's temporary
+// folder, the repository's one remote, and opens the pull request through
+// the stand-in for `gh` the login shell's PATH names (fixtures/sample-gh/gh),
+// which reaches no GitHub and answers the pull request open with two checks
+// that passed. So that work item's line says "Checks passed", and its view
+// lists the pull request under the seal's place.
+// The second question is a block the run writes into the parked work
+// item's record, which the daemon reads in its worktree. The repository
+// names a setup once four work items
+// stand, so the one at work shows its setup running, the one in
 // the view has a setup that succeeded, with the paths it copied, and the
 // form names the setup's command; no setup's command runs, and the run
-// types the code a setup pane ends with. Each view's shot opens at the top
-// of its side column, where the parked view's questions stand. With
+// types the code a setup pane ends with. The inbox's shot previews the work
+// item that needs the person, with its agent's question and its approval
+// line. The view's shot scrolls its side column until the approval line is
+// the last thing in it, and the parked view's shot opens at the top of the
+// column, where its questions stand, with the gate's line under "Ask". With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -28,7 +55,7 @@
 // carries the files.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORD_FILE, withQuestion } from "../src/daemon/decision-record";
@@ -58,9 +85,34 @@ const SAMPLE_PANE = join(__dirname, "fixtures", "sample-pane.sh");
 const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[]; setup: "running" | "succeeded" | null }[] = [
   { title: "Choose the base of the hotfix", kind: "shell", events: [], setup: null },
   { title: "Rename the settings file", kind: "shell", events: [], setup: null },
+  { title: "Sort the history by date", kind: "shell", events: [], setup: null },
   { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }], setup: null },
   { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
-  { title: "Fix the login redirect", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Notification", message: "Should the redirect keep the query string of the page the person came from?" }], setup: "succeeded" },
+  {
+    title: "Fix the login redirect",
+    kind: "claude",
+    events: [
+      { hook_event_name: "UserPromptSubmit" },
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            {
+              question: "Should the redirect keep the query string of the page the person came from?",
+              header: "Redirect",
+              multiSelect: false,
+              options: [
+                { label: "Keep it", description: "The person lands on the page they left, with its filters." },
+                { label: "Drop it", description: "The person lands on the page's plain address." },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    setup: "succeeded",
+  },
 ];
 /**
  * The ignored files of the repository's main checkout, each with what it
@@ -78,13 +130,24 @@ const SETUP_FILES = { ".worktreeinclude": ".env\n**/.env.local\nnode_modules/\n*
 const SETUP_ENDS_WITH = 0;
 /** The last work item made. */
 const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
-/** The first work item made, which the run parks with `QUESTIONS`. Its view is the view "parked". */
+/** The first work item made, whose chain passes its broad gate and parks at its sealer's question, and whose record the run writes `WRITTEN` into. Its view is the view "parked". The stand-in for the CLI answers the stages of the chain whose work item's directory holds this title's slug (fixtures/sample-cli.sh). */
 const PARKED = WORK_ITEMS[0]?.title ?? "";
-/** The questions the parked work item waits on. */
-const QUESTIONS = [
-  { asks: "Which base does the hotfix merge into?", grounds: "No document names the base of a hotfix, and the choice decides which release ships it.", by: "sealer", options: [{ label: "main", implies: "It waits for the next release." }, { label: "release/v0.0.2", implies: "It ships with this release." }], default: "release/v0.0.2" },
-  { asks: "May the run push the branch to the remote?", grounds: "A push needs the person's approval.", by: "sealer", options: [{ label: "Yes", implies: "The branch is pushed once the seal is given." }, { label: "No", implies: "The branch stays on this Mac." }] },
-];
+/** The repository's broad gate command, as its `config.json` names it, and the script it runs, which the repository holds: it prints two lines and exits with 0. The lines are invented examples. */
+const GATE = "sh scripts/check.sh";
+const GATE_SCRIPT = "#!/bin/sh\nprintf ' Test Files  2 passed\\n      Tests  12 passed\\n'\n";
+/** The finished work item, whose chain the stand-in for the CLI answers to a seal, so the daemon opens its pull request through the stand-in for `gh` (fixtures/sample-gh/gh). Its view is the view "finished". */
+const FINISHED = "Add an export of the history";
+/** The pull request's number and its checks as the stand-in for `gh` answers them. */
+const PULL_REQUEST = "Pull request #12";
+const CHECKS = ["seal", "Owlery seal"];
+/** The work item at review: the run commits a file on its branch and starts its chain, whose first round the stand-in for the CLI holds, so its line of the inbox names the stage. */
+const AT_REVIEW = "Sort the history by date";
+/** The question the parked work item's sealer asks in place of a verdict, as the stand-in for the CLI answers its seal (fixtures/sample-cli.sh). The chain parks the work item with it. */
+const SEALER_ASKS = "Which base does the hotfix merge into?";
+/** The question the run writes into the parked work item's record, below the sealer's. */
+const WRITTEN = { asks: "May the run push the branch to the remote?", grounds: "A push needs the person's approval.", by: "sealer", options: [{ label: "Yes", implies: "The branch is pushed once the seal is given." }, { label: "No", implies: "The branch stays on this Mac." }] };
+/** How many questions the parked work item waits on: the sealer's and the one the run writes. */
+const QUESTIONS = 2;
 /** The prompt the run asks first in the shown work item's view. The stand-in for the CLI fails it at once. */
 const ASKED = "Which file holds the redirect?";
 /** The prompt the run asks second there. The stand-in holds it, and its session asks the person to allow a command (fixtures/sample-cli.sh). */
@@ -112,18 +175,20 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-inbox.png",
       "night-watch-dark-view.png",
       "night-watch-dark-parked.png",
+      "night-watch-dark-finished.png",
       "night-watch-dark-menu.png",
       "night-watch-dark-dialog.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
       "night-watch-light-parked.png",
+      "night-watch-light-finished.png",
       "night-watch-light-menu.png",
       "night-watch-light-dialog.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(30);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(30);
-    expect(all[29]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
+    expect(all).toHaveLength(36);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(36);
+    expect(all[35]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -172,6 +237,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
 
   const SIDEBAR_LINE = `#repositories button[data-work-item="${WORK_ITEMS.length}"]`;
   const PARKED_LINE = `#repositories button[data-work-item="1"]`;
+  const REVIEW_LINE = `#inbox-lines button[data-work-item="${WORK_ITEMS.findIndex(({ title }) => title === AT_REVIEW) + 1}"]`;
+  const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
+  /** A role's place of the approval line in the view's right column. */
+  const place = (role: string): string => `#view-detail section.approval .place[data-role="${role}"]`;
   const MENU = `[role="menu"]`;
 
   /** The work items and the sessions the daemon lists, read as a second client of it, which then hands the daemon `told` where it is given. */
@@ -187,6 +256,26 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
           if (message.type !== "ready") return;
           if (told) socket.send(JSON.stringify(told));
           resolve({ workItems: message.workItems, sessions: message.sessions });
+        });
+      });
+    } finally {
+      socket.close();
+    }
+  }
+
+  /** Asks the daemon for a seal of the work item, as a second client of it, and waits for its answer: the chain has started, or the daemon's refusal is thrown. */
+  async function getSeal(workItemId: number): Promise<void> {
+    const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })));
+        socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")));
+        socket.addEventListener("message", (event) => {
+          const message = JSON.parse(String(event.data)) as ServerMessage;
+          if (message.type === "ready") socket.send(JSON.stringify({ type: "getSeal", requestId: 1, workItemId } satisfies ClientMessage));
+          if (message.type === "done" && message.requestId === 1) resolve();
+          if (message.type === "error" && message.requestId === 1) reject(new Error(`the daemon started no chain for work item ${workItemId}: ${message.message}`));
         });
       });
     } finally {
@@ -241,16 +330,28 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   /** Brings a view to the front, as a person does, and waits until it is drawn. */
   const show: Record<View, () => Promise<void>> = {
     inbox: async () => {
+      // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
+      await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length}`, "the inbox with its lines");
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('${REVIEW_LINE} .says')?.textContent === "Proofer, round 1" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed"`, `the inbox with its lines, the stage on the line of ${AT_REVIEW}, the pull request on the line of ${FINISHED} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup")`, "the work item's view with its terminal and its setup");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup") && document.querySelector('${place("proofer")} .state-icon.working') && document.querySelector('${place("crafter")} .state-icon.finished')`, "the work item's view with its terminal, its setup and its approval line");
+      // The approval line stands under what the agent says, past the column's first screen, so the column is scrolled until the line is the last thing in it.
+      await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
     parked: async () => {
       await app.click(PARKED_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${QUESTIONS.length}`, "the parked work item's view with its questions");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${QUESTIONS} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output"`, "the parked work item's view with its questions, its approval line and the line of its broad gate");
+      // The questions stand at the top of the column, which the shown work item's view left scrolled.
+      await app.evaluate(`document.getElementById("view-scroll").scrollTop = 0`);
+    },
+    finished: async () => {
+      await app.click(`#repositories button[data-work-item="${FINISHED_ID}"]`);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(FINISHED)} && !document.getElementById("view-pull-request").hidden && document.getElementById("pull-request-number").textContent === ${JSON.stringify(PULL_REQUEST)} && document.getElementById("pull-request-checks").textContent === "Checks passed" && [...document.querySelectorAll("#pull-request-list .name")].map((name) => name.textContent).join() === ${JSON.stringify(CHECKS.join())} && document.querySelector('${place("sealer")} .note')?.textContent === "Sealed"`, "the finished work item's view with its pull request under the seal's place and its sealer's place sealed");
+      // The approval line stands under what the agent says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
+      await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
     menu: async () => {
       await show.inbox();
@@ -288,9 +389,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   beforeAll(async () => {
     buildApp();
     made = temporaryRepository();
-    // The ignored files a setup copies, in the main checkout, and the `.gitignore` that ignores them, committed before any work item starts from the branch.
+    // The ignored files a setup copies, in the main checkout, and the `.gitignore` that ignores them, committed before any work item starts from the branch. The place for work records is committed with it, since a chain starts only in a worktree that holds one, and so are the broad gate command its `config.json` names and the script that command runs, since a chain starts only where the records name a gate.
     writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n*.pem\n");
-    git(made.repo, "add", ".gitignore");
+    mkdirSync(join(made.repo, "seal"));
+    writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "seal", "config.json"), `${JSON.stringify({ "Broad gate": GATE })}\n`);
+    mkdirSync(join(made.repo, "scripts"));
+    writeFileSync(join(made.repo, "scripts", "check.sh"), GATE_SCRIPT);
+    git(made.repo, "add", ".gitignore", "seal/README.md", "seal/config.json", "scripts/check.sh");
     git(made.repo, "commit", "--quiet", "-m", "ignore");
     for (const [path, text] of Object.entries(IGNORED)) {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
@@ -330,15 +436,51 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
 
-    // The parked work item's record, written into its worktree as a stage would write it: the directory with the routing that names the branch, and the record. The daemon reads it at its next pass.
+    // The parked work item's chain: one commit on its branch, and a seal asked for it. The stand-in for the CLI answers its round with no finding, the daemon runs the repository's broad gate, which passes, and the stand-in's sealer asks a question in place of a verdict, which the ruling parks the work item with. The run then writes a second question into the record the chain committed, and the daemon reads it at its next pass.
     const parked = (await listed()).workItems.find((workItem) => workItem.title === PARKED);
     if (!parked) throw new Error(`the daemon lists no work item ${PARKED}`);
-    const directory = join(parked.worktree, "seal", "threads", `1-${parked.branch.replace(/^.*\//, "")}`);
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(join(parked.worktree, "seal", "README.md"), `${MARKER}\n`);
-    writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${parked.branch} |\n`);
-    writeFileSync(join(directory, RECORD_FILE), QUESTIONS.reduce(withQuestion, ""));
+    commitFile(parked.worktree, "hotfix.ts");
+    await getSeal(parked.id);
+    const chainOfParked = async (): Promise<WorkItem["chain"]> => (await listed()).workItems.find((workItem) => workItem.id === parked.id)?.chain ?? null;
+    for (const deadline = Date.now() + 30_000; (await chainOfParked())?.state !== "parked"; await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error(`the chain of ${PARKED} never parked: ${JSON.stringify(await chainOfParked())}`);
+    }
+    const stages = (await chainOfParked())?.stages.map(({ kind, state }) => `${kind} ${state}`) ?? [];
+    if (stages.join() !== "round finished,gate finished,seal finished,ruling finished") throw new Error(`the chain of ${PARKED} parked after other stages: ${stages.join()}`);
+    const threads = join(parked.worktree, "seal", "threads");
+    const [named, ...others] = readdirSync(threads);
+    if (named === undefined || others.length > 0) throw new Error(`the worktree of ${PARKED} holds no one directory of its own: ${[named, ...others].join()}`);
+    const record = join(threads, named, RECORD_FILE);
+    const asked = readFileSync(record, "utf8");
+    if (!asked.includes(`asks: ${SEALER_ASKS}`)) throw new Error(`the record of ${PARKED} does not hold the sealer's question: ${asked}`);
+    writeFileSync(record, withQuestion(asked, WRITTEN));
     await app.until(`document.querySelector('${PARKED_LINE} .state-icon.waiting')`, "the parked work item as one that needs the person", 15_000);
+
+    // The finished work item's chain: one commit on its branch, a bare repository as the repository's one remote, and a seal asked for it. The stand-in for the CLI answers its round with no finding, the broad gate passes, and the stand-in's sealer seals, so the daemon pushes the branch to the bare repository and opens the pull request through the stand-in for `gh`, which reaches no GitHub.
+    const finished = (await listed()).workItems.find((workItem) => workItem.title === FINISHED);
+    if (!finished) throw new Error(`the daemon lists no work item ${FINISHED}`);
+    const bare = join(made.base, "origin.git");
+    git(made.base, "init", "--quiet", "--bare", bare);
+    git(made.repo, "remote", "add", "origin", bare);
+    commitFile(finished.worktree, "export.ts");
+    await getSeal(finished.id);
+    const ofFinished = async (): Promise<WorkItem | undefined> => (await listed()).workItems.find((workItem) => workItem.id === finished.id);
+    for (let deadline = Date.now() + 30_000, now = await ofFinished(); now?.chain?.state !== "sealed" || now.pullRequest?.checks !== "passed"; now = await ofFinished()) {
+      if (now?.chain?.state === "stopped" || now?.chain?.state === "parked" || Date.now() >= deadline) throw new Error(`the chain of ${FINISHED} opened no pull request whose checks passed: ${JSON.stringify({ chain: now?.chain, pullRequest: now?.pullRequest })}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const sealed = (await ofFinished())?.chain?.stages.map(({ kind, state }) => `${kind} ${state}`) ?? [];
+    if (sealed.join() !== "round finished,gate finished,seal finished,pull-request finished") throw new Error(`the chain of ${FINISHED} was sealed after other stages: ${sealed.join()}`);
+    const branch = git(finished.worktree, "rev-parse", "--abbrev-ref", "HEAD").trim();
+    if (git(bare, "rev-parse", branch).trim() !== git(finished.worktree, "rev-parse", "HEAD").trim()) throw new Error(`the bare remote does not hold the branch of ${FINISHED} at its worktree's head`);
+
+    // The two chains that stay at work: one commit on the branch of the work item at review, and a seal asked for it and for the shown work item, before the shown one's prompts, since a chain starts in no work item a session works in. Each chain declares its work item's routing in a commit of its own and then runs round 1, which the stand-in for the CLI holds.
+    const atReview = (await listed()).workItems.find((item) => item.title === AT_REVIEW);
+    if (!atReview) throw new Error(`the daemon lists no work item ${AT_REVIEW}`);
+    commitFile(atReview.worktree, "history.ts");
+    await getSeal(atReview.id);
+    await getSeal(shown.id);
+    await app.until(`document.querySelector('${place("proofer")} .note')?.textContent === "Round 1" && document.querySelectorAll("#view-detail .commit").length === 3`, "the shown work item's round as running, and the commit that declares its routing", 20_000);
 
     // A prompt asked in the view, which the stand-in for the CLI fails.
     await app.click("#ask-prompt");

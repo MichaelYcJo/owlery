@@ -15,7 +15,8 @@
 // This module adds two things to the Python grammar: a key a block may hold
 // any number of, and a kind's own check, a rule that spans two keys of the
 // kind, run after the block's lines parse. The Python reader has neither, and
-// the two kinds it shares with this module use neither.
+// the six kinds it shares with this module use neither: the sealer's verdict,
+// the broad gate's run, and the four kinds of a round record.
 //
 // It reads no file and imports nothing, so a test and the daemon read alike.
 
@@ -66,7 +67,7 @@ const INLINE_HTML = /<(?:(!\[CDATA\[)|(\?)|(![A-Za-z])|\/?[A-Za-z])/gu;
 /** A tag's end: the first `>` outside a quoted attribute value. */
 const TAG_END = /(?:[^>"']|"[^"]*"|'[^']*')*>/suy;
 
-type Fence = { character: string; length: number };
+export type Fence = { character: string; length: number };
 
 /** The text's lines as GFM ends them, at LF, CR or CRLF and nowhere else, with no empty line after the last line end. */
 export function gfmLines(text: string): string[] {
@@ -81,14 +82,16 @@ function fenceLine(line: string): { run: string; info: string } | null {
   return run === undefined || info === undefined ? null : { run, info };
 }
 
-function fenceOpener(line: string): Fence | null {
+/** The fence a line opens, or null. A run of backticks whose info string holds a backtick opens none. */
+export function fenceOpener(line: string): Fence | null {
   const found = fenceLine(line);
   if (found === null) return null;
   if (found.run.startsWith("`") && found.info.includes("`")) return null;
   return { character: found.run.charAt(0), length: found.run.length };
 }
 
-function fenceCloses(line: string, opener: Fence): boolean {
+/** Whether a line closes the fence that opener opened. */
+export function fenceCloses(line: string, opener: Fence): boolean {
   const found = fenceLine(line);
   return found !== null && found.run.charAt(0) === opener.character && found.run.length >= opener.length && stripped(found.info) === "";
 }
@@ -270,6 +273,8 @@ export interface Kind {
   keys: ReadonlyMap<string, Spec>;
   /** The key a block of this kind opens with. */
   opener: string;
+  /** The pairs of keys a block holds one of at most, as the Python reader's `one_of` holds them. The second of a pair is refused at its line. */
+  oneOf: readonly (readonly [string, string])[];
   /** A rule that spans two keys of the kind: the refusal's sentence, or null where the block holds it. It runs after every line parsed. */
   check: ((block: Block) => string | null) | null;
 }
@@ -313,8 +318,8 @@ function spec(shape: string, many: Count, says: string): Spec {
   return { shape: new RegExp(`^(?:${shape})$`, "su"), many, says };
 }
 
-function kind(name: string, keys: [string, Spec][], check: Kind["check"] = null): Kind {
-  return { name, keys: new Map(keys), opener: keys[0]?.[0] ?? "", check };
+function kind(name: string, keys: [string, Spec][], check: Kind["check"] = null, oneOf: Kind["oneOf"] = []): Kind {
+  return { name, keys: new Map(keys), opener: keys[0]?.[0] ?? "", oneOf, check };
 }
 
 /** The first line of a key in a block, or undefined where the block holds none. */
@@ -333,10 +338,78 @@ const LABEL = "`(?<label>[^`]+)`";
 
 const TEXT_SAYS = "it is text after the key, opening with a character that is no white space";
 
-/** The sealer's verdict, as `pr-check/lib/fields.py#VERDICT_BLOCK` spells it. */
+/** A character Python's `\\w` takes: a letter or a number of any script, or the underscore. JavaScript's own `\\w` takes those of ASCII alone. */
+const WORD = "[\\p{L}\\p{N}_]";
+/** One place a finding or a close names: a path between two backticks, with a line or a span of lines after a colon where it names one. */
+const PLACE = `\`[^\`${SPACE}:/#][^\`${SPACE}:#]*(?::[0-9]+(?:-[0-9]+)?)?\``;
+const PLACES = `${PLACE}(?:, ${PLACE})*`;
+const PLACES_SAYS = "a location is one or more of `path`, `path:line` or `path:first-last`, each backticked, joined by `, `";
+const ORIGINAL_SPEC = spec(`(?<commit>${COMMIT})`, "at most one", "it names the migration config's baseline commit, as 7 to 40 hex digits");
+
+/** The base a round block's `target:` line takes after `against`: letters, numbers, `_`, `.`, `/` and `-`, ending in a letter, a number or `_`. */
+const BASE = `[\\p{L}\\p{N}_./-]*${WORD}`;
+
+/** Whether a name is a base the round block's `target:` line takes. Git allows a branch's name it does not: one with a `+`, an `@`, a `#`, a `,` or a `!`, and one that ends in `-`. */
+export const ROUND_BASE = new RegExp(`^(?:${BASE})$`, "su");
+
+/** A round's one block, as `pr-check/lib/fields.py#ROUND_BLOCK` spells it. */
+export const ROUND_BLOCK = kind("round", [
+  [
+    "target:",
+    spec(`(?<commit>${COMMIT})(?: against ${BASE}|, fixes ${COMMIT}\\.\\.${COMMIT})`, "one", "it names the reviewed commit as `<sha> against <base>`, or `<sha>, fixes <a>..<b>` for a verifying round"),
+  ],
+  ["original:", ORIGINAL_SPEC],
+]);
+
+/** A finding's block, as `pr-check/lib/fields.py#FINDING_BLOCK` spells it. */
+export const FINDING_BLOCK = kind(
+  "finding",
+  [
+    ["severity:", spec(".*", "one", "a severity is words after the key")],
+    ["location:", spec(PLACES, "one", PLACES_SAYS)],
+    ["evidence:", spec(".*", "at most one", "evidence is words after the key")],
+    ["regression:", spec("round-(?<round>[1-9][0-9]*)(?:#(?<finding>[1-9][0-9]*))?", "at most one", "a reference is `round-<N>#<n>` or `round-<N>`")],
+    ["reopens:", spec("round-(?<round>[1-9][0-9]*)#(?<finding>[1-9][0-9]*)", "at most one", "a reopened close is a finding's, so the reference is `round-<N>#<n>`")],
+  ],
+  null,
+  [["regression:", "reopens:"]],
+);
+
+/** A finding's close block, as `pr-check/lib/fields.py#CLOSE_BLOCK` spells it. A finding with none is open. */
+export const CLOSE_BLOCK = kind("close", [
+  ["verdict:", spec(`rejected|fixed (?<commit>${COMMIT})|deferred (?<home>${NOT_SPACE}(?:.*${NOT_SPACE})?)`, "one", "a verdict is `fixed <commit>`, `rejected` or `deferred <home>`")],
+  ["answer:", spec(".*", "at most one", "an answer is prose after the key")],
+  ["location:", spec(PLACES, "at most one", PLACES_SAYS)],
+]);
+
+/** A confirmation's block, as `pr-check/lib/fields.py#CONFIRMATION_BLOCK` spells it. `none` reads for a record of an earlier release's template. */
+export const CONFIRMATION_BLOCK = kind("confirmation", [["confirms:", spec("none|round-(?<round>[1-9][0-9]*)#(?<finding>[1-9][0-9]*)", "one", "it is `round-<N>#<n>`, the earlier finding it confirms")]]);
+
+/** The kinds a round record holds, as `pr-check/lib/fields.py#ROUND_RECORD` lists them. */
+export const ROUND_RECORD: readonly Kind[] = [ROUND_BLOCK, FINDING_BLOCK, CLOSE_BLOCK, CONFIRMATION_BLOCK];
+
+/** A session's id as a verdict block names it: one word that holds no comma. */
+const SESSION = `[^${SPACE},]+`;
+/** Whether a text is a session's id as a verdict block names one. The daemon writes no other into a commit's trailer. */
+export function isSessionId(text: string): boolean {
+  return new RegExp(`^${SESSION}$`, "u").test(text);
+}
+/** The name a verdict block gives a building session that a person drove, whose id the daemon does not keep. */
+export const THE_SESSION = "the session";
+/** What joins the names of a verdict block's `built-by:` line. */
+export const BUILDERS_JOIN = ", ";
+const BUILDER = `(?:${THE_SESSION}|${SESSION})`;
+
+/**
+ * The sealer's verdict, as `pr-check/lib/fields.py#VERDICT_BLOCK` spells it.
+ * The four keys after `Verdict:` are the lines the daemon writes into the
+ * sealer's block: who built the work, who judged it, the judging model and
+ * the version of the rules. A block written before the daemon wrote them
+ * holds none.
+ */
 export const VERDICT_BLOCK = kind("verdict", [
   ["target:", spec(`(?<commit>${COMMIT}) against (?<base>${NOT_SPACE}+)`, "one", "it names the audited commit as `<sha> against <base>`, each one word")],
-  ["original:", spec(`(?<commit>${COMMIT})`, "at most one", "it names the migration config's baseline commit, as 7 to 40 hex digits")],
+  ["original:", ORIGINAL_SPEC],
   [
     "Verdict:",
     spec(
@@ -345,7 +418,17 @@ export const VERDICT_BLOCK = kind("verdict", [
       "the verdict reads `Verdict: sealed`, `Verdict: withheld reason: <reason>` or `Verdict: undecided question: <question>`, written exactly so",
     ),
   ],
+  ["built-by:", spec(`${BUILDER}(?:${BUILDERS_JOIN}${BUILDER})*`, "at most one", `it names each session that built the work, \`${THE_SESSION}\` or a session's id that holds no white space and no comma, joined by \`, \``)],
+  ["judged-by:", spec(SESSION, "at most one", "it is the judging session's id, one word that holds no comma")],
+  ["model:", spec(`${NOT_SPACE}(?:.*${NOT_SPACE})?`, "at most one", "it is the judging model's name, which opens and ends with a character that is no white space")],
+  ["rules:", spec(`owlery ${NOT_SPACE}+`, "at most one", "it reads `owlery <version>`, the version one word")],
 ]);
+
+/** The names of a verdict block's `built-by:` line, in its order, and none for a block that holds no such line. */
+export function builders(block: Block): string[] {
+  const said = field(block, "built-by:");
+  return said === undefined ? [] : said.value.split(BUILDERS_JOIN);
+}
 
 /** The broad gate's run, as `pr-check/lib/fields.py#RUN_BLOCK` spells it. */
 export const RUN_BLOCK = kind("run", [["run:", spec(`(?<commit>${COMMIT}) against (?<base>${COMMIT})`, "one", "a run is `<tree> against <base commit>`, each a commit's SHA")]]);
@@ -380,6 +463,19 @@ export const DECISION_BLOCK = kind(
   },
 );
 
+const OPTION_SPEC = spec(`${LABEL}(?: (?<implies>${TEXT}))?`, "any number", "an option is its label between two backticks, holding no backtick, then optionally a space and what the option implies");
+const DEFAULT_SPEC = spec(LABEL, "at most one", "a default is an option's label between two backticks");
+
+/** What is wrong with a block's `option:` and `default:` lines, or null: each label stands once, and the default names one of them. */
+function brokenOptions(block: Block): string | null {
+  const labels = (block.fields.get("option:") ?? []).map((option) => option.groups.label ?? "");
+  const twice = labels.find((label, at) => labels.indexOf(label) !== at);
+  if (twice !== undefined) return `two \`option:\` lines hold the label \`${twice}\`: a ${block.kind.name} block holds each label once`;
+  const fallback = field(block, "default:")?.groups.label;
+  if (fallback !== undefined && !labels.includes(fallback)) return `\`default:\` names \`${fallback}\`, and no \`option:\` line of the block holds that label`;
+  return null;
+}
+
 /** A question a work item is parked with. */
 export const QUESTION_BLOCK = kind(
   "question",
@@ -388,8 +484,8 @@ export const QUESTION_BLOCK = kind(
     ["asks:", spec(TEXT, "one", TEXT_SAYS)],
     ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
     ["by:", spec(TEXT, "at most one", TEXT_SAYS)],
-    ["option:", spec(`${LABEL}(?: (?<implies>${TEXT}))?`, "any number", "an option is its label between two backticks, holding no backtick, then optionally a space and what the option implies")],
-    ["default:", spec(LABEL, "at most one", "a default is an option's label between two backticks")],
+    ["option:", OPTION_SPEC],
+    ["default:", DEFAULT_SPEC],
     ["state:", spec("open|answered", "one", "a question's state is `open` or `answered`")],
     ["answer:", spec(TEXT, "at most one", TEXT_SAYS)],
   ],
@@ -398,11 +494,44 @@ export const QUESTION_BLOCK = kind(
     const answer = field(block, "answer:");
     if (state === "answered" && answer === undefined) return "the question block's state is `answered` and it holds no `answer:` line";
     if (state !== "answered" && answer !== undefined) return "the question block holds an `answer:` line and its state is `open`: an open question holds none";
-    const labels = (block.fields.get("option:") ?? []).map((option) => option.groups.label ?? "");
-    const twice = labels.find((label, at) => labels.indexOf(label) !== at);
-    if (twice !== undefined) return `two \`option:\` lines hold the label \`${twice}\`: a question block holds each label once`;
-    const fallback = field(block, "default:")?.groups.label;
-    if (fallback !== undefined && !labels.includes(fallback)) return `\`default:\` names \`${fallback}\`, and no \`option:\` line of the block holds that label`;
+    return brokenOptions(block);
+  },
+);
+
+// The kinds a stage's answer holds. Each is read in an answer and written to
+// no record, so the pull request check spells none of them.
+
+/** A question a stage of a chain asks in its answer: the daemon has it decided from the code and the policy, or parks the work item with it. */
+export const ASK_BLOCK = kind(
+  "question",
+  [
+    ["asks:", spec(TEXT, "one", TEXT_SAYS)],
+    ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
+    ["option:", OPTION_SPEC],
+    ["default:", DEFAULT_SPEC],
+  ],
+  brokenOptions,
+);
+
+/** The orchestrator's judgment of whether a work item's review rounds are converging. */
+export const CONVERGENCE_BLOCK = kind("judgment", [
+  ["converging:", spec("(?<converging>yes|no)", "one", "it is `yes` or `no`")],
+  ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
+]);
+
+/** The orchestrator's ruling on one question of a stage: a decision of one of three kinds, or a park. */
+export const RULING_BLOCK = kind(
+  "ruling",
+  [
+    ["rules:", spec(`(?<question>${ID}) (?<ruling>default|scope|answered|park)`, "one", `it is \`<question> <ruling>\`: the question's number, ${ID_SAYS}, and one of \`default\`, \`scope\`, \`answered\` and \`park\``)],
+    ["decided:", spec(TEXT, "at most one", TEXT_SAYS)],
+    ["grounds:", spec(TEXT, "one", TEXT_SAYS)],
+  ],
+  (block) => {
+    const parks = field(block, "rules:")?.groups.ruling === "park";
+    const decided = field(block, "decided:");
+    if (parks && decided !== undefined) return "the ruling block parks its question and holds a `decided:` line: a park decides nothing";
+    if (!parks && decided === undefined) return "the ruling block holds no `decided:` line, and every ruling but `park` says what was decided";
     return null;
   },
 );
@@ -411,9 +540,9 @@ export const QUESTION_BLOCK = kind(
 // What each refusal and notice says. The sentences shared with the Python
 // reader are its own, word for word, and the fixtures compare them.
 
-const UNCLOSED = "a fence opened here never closes, so every line after it is hidden from the reader";
-const COMMENT_LINE = "the line begins with `<!--`, and a record carries no HTML comment: the check reads one as text, so delete the comment";
-const UNSURE =
+export const UNCLOSED = "a fence opened here never closes, so every line after it is hidden from the reader";
+export const COMMENT_LINE = "the line begins with `<!--`, and a record carries no HTML comment: the check reads one as text, so delete the comment";
+export const UNSURE =
   "the walk cannot place this fence line: a line above it opens an HTML block, or a fence stands in a list item, a block quote or an indent, so no `seal` block from there on is read; write each fence at the start of its line";
 const LINE_BREAK = "a value holds a line break, and a block's line holds one field";
 
@@ -449,6 +578,10 @@ function blockAt(lines: readonly string[], first: number, last: number, kinds: r
     const its = key === undefined ? undefined : found.keys.get(key);
     if (key === undefined || its === undefined) return refused(number, `\`${line}\` is no field of a ${found.name} block, which takes ${listed([...found.keys.keys()])}, each written \`<key>: <value>\``);
     if (fields.has(key) && its.many !== "any number") return refused(number, `a second \`${key}\` line: a ${found.name} block holds one`);
+    for (const pair of found.oneOf) {
+      const other = pair.find((each) => each !== key && fields.has(each));
+      if (pair.includes(key) && other !== undefined) return refused(number, `\`${key}\` beside \`${other}\`: a ${found.name} block holds one of the two`);
+    }
     const value = line.slice(key.length + 1);
     const match = its.shape.exec(value);
     if (match === null) return refused(number, `\`${line}\` does not read whole as \`${key} <value>\`: ${its.says}`);

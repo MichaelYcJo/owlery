@@ -3,9 +3,8 @@
 
 The grammar is `skills/settle/rule-changes.md` *Rule changes*. `GRAMMAR` below is
 the one spelling of its operations in code; the item lines, their fields and
-the no-change block are spelt once in `lib/items.py`, which `lib/gaps.py`
-reads `## Not verified` with as well. `parse` reads a section into operations,
-refusing at its line any block that does not match whole, and names, without
+the no-change block are spelt once in `lib/items.py`. `parse` reads a section
+into operations, refusing at its line any block that does not match whole, and names, without
 refusing it, a line that opens like one of the section's forms and is not it.
 Each operation carries its fields' lines at their lines in the design
 (`Op.lines`), by which `skills/code-review/scripts/chain_check.py` names a
