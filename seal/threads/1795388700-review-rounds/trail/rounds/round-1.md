@@ -66,6 +66,12 @@ if (!touched.some((path) => places.some((place) => inFolder(path, place)))) thro
 
 `standingOf` refuses a record with any refusal, so a standing round's `findings` hold every numbered heading, which is what the check's `held` holds. The snippet leaves other statements of the fact to the fix pass: `changelog.md:8`, the two rule changes, *Scope* items 6 and 7 (`frame/design.md:83-84`), the paragraph of `gaps.md:40`, the row of `pr.md:8`, the doc comments of `roundRecordOf` and `fixedCommitsHeld`, and the cases of `test/chain.test.ts` "a round's answer" and "a fix pass held to its record", which owe one case for each new refusal. Where the fix pass keeps the gap instead, the changelog sentence and both rule changes are rewritten to say which refusals the daemon does not hold.
 
+```seal
+verdict: fixed 1c8a033
+location: `apps/desktop/src/daemon/worktrees.ts`, `apps/desktop/test/chain.test.ts`, `apps/desktop/test/worktrees.test.ts`
+answer: The daemon now refuses each of the four kinds, so the claim was kept and the filter widened. `chain.ts#roundRecordOf` takes every earlier record (`earlier`, from `standingOf`) and refuses a `confirms:`, `reopens:` or `regression:` line in the first record, one that names a round that is no earlier record, and one that names a finding its record does not hold, each with the line. `chain.ts#fixedCommitsHeld` refuses a `fixed` whose commit changed no path the finding's `location:` or the close block's names. The fix is written in other words than the record's: a commit's paths are read with `git diff-tree --no-commit-id --name-only -r --root -z`, the check's own command, in the new `worktrees.ts#pathsOfCommit`, since the record's `<commit>^..<commit>` fails on a first commit and lists a merge's paths, which the check does not. The fix also went to `worktrees.ts` and to two test files, which the close's `location:` names. Each refusal has a case, and each guard was shown red by `seal mutate`. `53b0453` drops a comparison of that lookup that held nothing. One kind outside the records arm stays: in a repository that declares a migration, the check's parity arm asks each round record for an `original:` line, which the daemon does not hold. `changelog.md` and `gaps.md` *Not done* now say so in place of the earlier claim and the earlier paragraph. `frame/design.md` *Scope* items 6 and 7, both editions of its rule change on *Records are committed to the repository* and `pr.md` are not the fix pass's to write, and the hand-back names each sentence for the orchestrator.
+```
+
 ### 2. A fix pass on round 2 or later runs with no convergence judgment where the chain stopped between a ruling on a question and that judgment
 
 ```seal
@@ -93,6 +99,11 @@ await this.runStage(item.id, "ruling", round, ORCHESTRATOR, item.worktree, promp
 
 `stageCell` (`chain.ts:584-586`) then writes `ruling 2` in `trail/refusals.md`, and `sinceRound` needs no change, since it walks back over every kind but `round`. The fix pass owes the other statements of the fact: the head comment of `gateBefore` (`chain.ts:220-222`), *Scope* item 9's last sentence and the `CHAIN_STAGE_KINDS` line of *Data & interfaces* (`frame/design.md:86`, `:172`), the paragraph of `gaps.md:54` and the row of `pr.md:10`, the changelog's list of a stage's kinds (`changelog.md:16`), the stage cell's spelling in *Data & interfaces*, and the cases of `test/chain.test.ts` that expect a ruling as `["judgment", 2, "finished"]`. A case on round 2 that parks, refuses the resume and starts by a person's `getSeal` pins the judgment.
 
+```seal
+verdict: fixed 2093738
+answer: The record's fix holds against the code and was applied: a ruling on a stage's questions is stored as a stage of the kind `ruling`, the fourth of `CHAIN_STAGE_KINDS`, so `gateBefore` reads a stored `judgment` as the judgment of convergence alone. `stageName` says "The ruling after round N", and a row of `trail/refusals.md` reads `ruling N`. The new case of `test/chain.test.ts` parks round 2 on its proofer's question, has the answer's start refused and starts by a person's `getSeal`. It failed against the old code with the fix pass started and no orchestrator asked, and passes now. `changelog.md` names the kind, and the paragraph of `gaps.md` on the edge left. The frame's sentences on the kind (`frame/design.md` *Scope* item 9 and *Data & interfaces*) and the row of `pr.md` are named in the hand-back.
+```
+
 ### 3. A base branch whose name the round block's shape does not take fails every round 1
 
 ```seal
@@ -110,6 +121,12 @@ const standing = await standingOf(worktree, directory, head, base);
 ```
 
 `ROUND_BASE` is `new RegExp("^[\\p{L}\\p{N}_./-]*[\\p{L}\\p{N}_]$", "u")`, and `ROUND_BLOCK`'s `target:` shape is built from the same text, so the base's shape has one source. The case belongs in `test/chain.test.ts` "a work item's chain": a work item whose `baseBranch` is `feat/a+b` gets round 1's target against its base commit.
+
+```seal
+verdict: fixed 6707b66
+location: `apps/desktop/src/daemon/record-blocks.ts`, `apps/desktop/test/chain.test.ts`
+answer: Applied as the record shows, with the choice in a function of its own: `chain.ts#roundBase` gives the work item's base branch where `record-blocks.ts#ROUND_BASE` takes its name, and otherwise the base commit, or the head. `ROUND_BLOCK`'s `target:` shape is built from the same text as `ROUND_BASE`. The fix also went to `record-blocks.ts`, which the close's `location:` names. A case of "a work item's chain" runs a work item whose base branch is `feat/a+b`: it failed against the old code with round 1 refused by the daemon's own reader, and passes with the target against the base commit. `frame/design.md` *Scope* item 5 still gives the base without this condition, and the hand-back names it.
+```
 
 ### 4. After a chain that no press started has run, the window shows a refusal that no longer holds under "Get a seal"
 
@@ -135,6 +152,12 @@ if (sealRefused?.workItemId === workItem.id && (workItem.chain?.stages.at(-1)?.s
 
 The newest stage's start is read, not the count of the stages, since the count stops at `CHAIN_STAGES_KEPT`. *Scope* item 26 (`frame/design.md:112`) and the doc comment of `sealButton` owe the condition, and `test/get-a-seal.test.ts` or `test/view.test.ts` owes a case of a refusal that leaves once a stage has started.
 
+```seal
+verdict: fixed c53978e
+location: `apps/desktop/src/renderer/view.ts`, `apps/desktop/test/view.test.ts`
+answer: Fixed in other words than the record's. A refusal is kept with the chain's state and the time the chain took it (`view.ts#refusedSeal`), and `view.ts#sealButton` says it only while the chain stands so. The record's marker, the newest stage's start, keeps a refusal that no longer holds where a chain runs and stops before any stage starts, as a start refused after the answers does. The marker reads `Chain.since`, which finding 5's fix adds in the same commit. The fix also went to `view.ts`, which the close's `location:` names. A case of `test/view.test.ts` holds a refusal given while the chain was parked, which is not said once the chain is stopped or reviewed, nor in the same state since a later time. It was shown red by `seal mutate` with each half of the comparison removed. No case of the built app parks a chain and reads the foot, which `gaps.md` *Not verified* names. `frame/design.md` *Scope* item 26 is named in the hand-back.
+```
+
 ### 5. The age on a stopped chain's line counts from an older stage where the chain stopped outside a stage
 
 ```seal
@@ -146,6 +169,12 @@ evidence: read `apps/desktop/src/renderer/view.ts:168-190`, `apps/desktop/src/da
 Why it matters: `lineSince` counts a stopped chain's line from `chain.stages.at(-1)?.endedAt` (`view.ts:187`). A chain stops at several points where no stage ended just then. A resume refused at the answers (`daemon.ts:1890`) keeps the ruling's end, which may be hours old, since the person answered later. A stop at the first step of a later `getSeal` keeps the end of the newest stage of an earlier start, which may be days old. The read of the order between two stages can throw, for a round record that no longer reads, and so can the routing. The line under "Needs you" then shows an age that says the work item has waited much longer than it has, and the inbox's order of attention rests on that age. *Scope* item 27 states the rule as built, and no document gives the reason for it.
 
 The chain holds no time of its own state, so the fix gives it one. `Chain` gains `since: number`, the daemon's clock when the chain took its state, set wherever `chainSet` changes `state`, and `lineSince` reads `chain.since` for a stopped chain. `chainRead` reads a chain an earlier build wrote with no `since` as its newest stage's end. The fix pass owes *Scope* item 27 and the `Chain` line of *Data & interfaces* (`frame/design.md:113`, `:174`), the changelog's list of a chain's fields, and a case in `test/view.test.ts` of a chain stopped after its newest stage ended.
+
+```seal
+verdict: fixed c53978e
+location: `apps/desktop/src/daemon/chain.ts`, `apps/desktop/src/daemon/daemon.ts`, `apps/desktop/src/daemon/repositories.ts`, `apps/desktop/test/chain.test.ts`, `apps/desktop/test/view.test.ts`
+answer: Applied as the record shows. `Chain` gains `since`, the daemon's clock when the chain took its state, set at each start, at each rest and where a start is refused after the answers. `view.ts#lineSince` counts a stopped chain's line from it. A chain stored `running` is read as stopped since the clock of the daemon that reads it, and a chain written with no `since` as in its state since its newest stage ended. The fix also went to `chain.ts`, `daemon.ts` and `repositories.ts`, which the close's `location:` names. A case of `test/view.test.ts` failed against the old code with the age counted from the stage's end, and a case of `test/chain.test.ts` runs the daemon on a clock that moves. `3c09305` and `b40847f` sharpen that case, after `seal mutate` showed two of the three writes unwatched. `changelog.md` names the field and the age. `frame/design.md` *Scope* item 27 and the `Chain` line of *Data & interfaces* are named in the hand-back.
+```
 
 ### 6. The foot's new parts are drawn in forms `docs/design.md` does not state, and no rule change adds them
 
@@ -166,6 +195,11 @@ Why it matters: `docs/design.md:18`, principle 8, reads "**Every form is stated 
 ```
 
 The Korean operation changes the same row of `docs/design.ko.md` in the same words, so the broad gate's count of table rows stays equal. The orchestrator owes the two operations, since no crafter writes the frame. `gaps.md:72` then leaves. The screenshots show the button at rest alone (`gaps.md:70`), so this round could read the button's form against *The main button* row and could not read the sentence's or the refusal's against a screenshot.
+
+```seal
+verdict: fixed aee5611
+answer: The orchestrator's `aee5611` adds to `frame/design.md` *Rule changes* the two `change` operations the record shows, on *Components and their states* of `docs/design.md` and *부분과 그 상태* of `docs/design.ko.md`, each with the record's words for the view's foot and a `check:` line naming `test/get-a-seal.test.ts` and `test/view.test.ts`, and removes the line of `gaps.md` that named the gap. The fix touches the work item's records alone.
+```
 
 ### 7. `pr.md` is the orchestrator's prose where the plugin asks for quotes, and two of its sentences do not hold
 
@@ -189,6 +223,11 @@ The repair is the orchestrator's. Where it follows the plugin's text, each row's
 ```markdown
 Every call it asks permission for, to write a file or to run a command, is refused and counted.
 It passed in the runs of phases 2, 3 and 4, which made it and changed it.
+```
+
+```seal
+verdict: fixed aee5611
+answer: The orchestrator's `aee5611` keeps the release's form of `pr.md` and records that judgment, with its grounds, in `frame/plan.md` *Judgments of the run*. It replaces the two sentences with the record's two lines, and adds to the row on the orchestrator's judgment that six rounds is a default taken for a question the owner has not answered. The fix touches the work item's records alone.
 ```
 
 ## Confirmations
