@@ -69,4 +69,4 @@ This pull request moves no version: the first pull request of `release/v0.0.2` m
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-23 | The pull request's title takes `feat`; Q1 stands at its default, carried to the owner's hand run as a measurement and not asked before the merge | The diff adds what the window shows (a work item's question and its choices, and the count behind its base) and a field to each of two protocol shapes, which `feat` names; Q1 is a measurement no agent can take under the owner's rule that no real `claude` runs, and its options (c) and (d) each name a follow-up issue that changes one module | the plugin's `skills/commit-pr-convention/SKILL.md`; `docs/product.md` *What we promise*, under which no question holds a run under `agentic` |
