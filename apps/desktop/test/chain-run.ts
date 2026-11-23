@@ -165,13 +165,13 @@ export function ghStandIn(cleanups: Cleanups, base: string): GhStandIn {
     [
       "#!/bin/sh",
       `d='${folder}'`,
-      // The watch calls gh for several pull requests at once, so a call takes its number under a lock.
+      // The watch calls gh for several pull requests at once, so a call takes its number under a lock, and the count names it once its arguments are noted.
       'until mkdir "$d/lock" 2>/dev/null; do sleep 0.01; done',
       'n=$(($(cat "$d/count" 2>/dev/null || echo 0) + 1))',
-      'echo "$n" > "$d/count"',
-      'rmdir "$d/lock"',
       'printf \'%s\\n\' "$@" > "$d/call-$n"',
       'printf \'%s %s\' "$GH_PROMPT_DISABLED" "$NO_COLOR" > "$d/env-$n"',
+      'echo "$n" > "$d/count"',
+      'rmdir "$d/lock"',
       'prev=""',
       'for arg in "$@"; do if [ "$prev" = "--body-file" ]; then cat "$arg" > "$d/body-$n"; fi; prev=$arg; done',
       'case "$1 $2" in "pr list"|"pr create"|"pr edit"|"pr view") ;; *) exit 97 ;; esac',
