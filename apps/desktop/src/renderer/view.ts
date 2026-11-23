@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type BaseFetch, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -108,7 +108,7 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 export interface InboxLine {
   title: string;
   branch: string;
-  /** `waiting` for a work item parked with questions for the person, and for one whose headless session waits for the person to allow a call, whatever its panes say. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
@@ -122,6 +122,24 @@ function questionsOf(workItem: WorkItem): readonly Question[] {
 /** The calls a work item's headless sessions wait for the person to allow or refuse, the oldest first: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
 function permissionsOf(workItem: WorkItem): readonly PermissionAsk[] {
   return (workItem.permissions as PermissionAsk[] | undefined) ?? [];
+}
+
+/** A work item's chain: the one the daemon sends, null where no chain ran for the work item, and undefined for a daemon of an earlier build, which sends no such field and offers no "Get a seal". */
+function chainOf(workItem: WorkItem): Chain | null | undefined {
+  return workItem.chain as Chain | null | undefined;
+}
+
+/**
+ * The stage a work item's chain runs now: the newest of its stages, where
+ * the chain is running and that stage works, and otherwise null. A chain
+ * between two stages runs none, and neither does a chain a daemon that
+ * started again reads as stopped, whose newest stage may still say that it
+ * works.
+ */
+function runningStage(workItem: WorkItem): ChainStage | null {
+  const chain = chainOf(workItem);
+  const newest = chain?.stages.at(-1);
+  return chain?.state === "running" && newest?.state === "working" ? newest : null;
 }
 
 /**
@@ -139,35 +157,54 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
  * One line of the inbox: the work item, its state, and its new commits. A
  * work item parked with questions for the person waits, whatever its panes
  * say, and so does one whose headless session waits for the person to allow
- * a call, so each stands with the work items that wait for the person.
- * Otherwise the state is that of its most recent live pane of a kind that
- * reports state. An exited pane keeps its last state and is passed over,
- * because nothing will change that state again.
+ * a call, and one whose chain stopped, so each stands with the work items
+ * that wait for the person. Otherwise the state is that of its most recent
+ * live pane of a kind that reports state. An exited pane keeps its last
+ * state and is passed over, because nothing will change that state again.
+ * A work item whose chain is running is at work whatever that pane says,
+ * but where the pane waits for the person: the pane of the session that
+ * built the branch stays finished while the rounds run.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
   const count = workItem.newCommits ?? 0;
+  const chain = chainOf(workItem)?.state;
+  const pane = reporting ? reporting.state : null;
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 ? "waiting" : reporting ? reporting.state : null,
+    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : pane,
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
 
 /**
  * Since when a line's state has lasted, which its age is counted from: for
- * a work item parked with questions, or whose headless session waits for
- * the person to allow a call, the earliest of the times the daemon first
- * read one of its open questions at and the times its requests arrived at,
- * all of them the daemon's clock, and otherwise the time of the state of
- * the pane the line reads, `session`. Null where none gives one.
+ * a work item parked with questions, one whose headless session waits for
+ * the person to allow a call, and one whose chain stopped, the earliest of
+ * the times the daemon first read one of its open questions at, the times
+ * its requests arrived at and the time the chain stopped at, all of them
+ * the daemon's clock. Otherwise, where the work item's chain runs a stage
+ * and the pane the line reads, `session`, does not wait for the person, the
+ * time that stage started at. Otherwise the time of that pane's state. Null
+ * where none gives one, and for a work item whose chain is between two
+ * stages and alone says that it works: its pane's time is that of another
+ * state.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
   const parked = parkedWith(workItem) ?? [];
   const asks = permissionsOf(workItem);
-  if (parked.length === 0 && asks.length === 0) return session?.stateSince ?? null;
-  const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...asks.map(({ at }) => at)];
+  const chain = chainOf(workItem);
+  if (parked.length === 0 && asks.length === 0 && chain?.state !== "stopped") {
+    if (chain?.state === "running" && session?.state !== "waiting") {
+      const stage = runningStage(workItem);
+      if (stage) return stage.startedAt;
+      if (session?.state !== "working") return null;
+    }
+    return session?.stateSince ?? null;
+  }
+  const stopped = chain?.state === "stopped" ? chain.since : null;
+  const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...asks.map(({ at }) => at), ...(stopped === null ? [] : [stopped])];
   return times.length > 0 ? Math.min(...times) : null;
 }
 
@@ -322,6 +359,167 @@ export function unreadLines(workItem: WorkItem): string[] {
   return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
 }
 
+/** The heading of the approval line's section in the preview and in a view's right column. */
+export const APPROVAL_HEAD = "Approval line";
+
+/** The four roles of the approval line, in its order. */
+const ROLES = ["framer", "crafter", "proofer", "sealer"] as const;
+export type Role = (typeof ROLES)[number];
+
+/** Each role as a person reads its name: with one capital. */
+const ROLE_NAME: Record<Role, string> = { framer: "Framer", crafter: "Crafter", proofer: "Proofer", sealer: "Sealer" };
+
+/** One place of the approval line: a role, how far it came, and its words. */
+export interface ApprovalPlace {
+  role: Role;
+  /** The role's name, with one capital. */
+  name: string;
+  /** The class of the marks that gives the place its shape and its colour: `no-agent` for a place not started. */
+  state: "waiting" | "working" | "finished" | "failed" | "no-agent";
+  /** Two words at most, under the name. */
+  note: string;
+  /** What the mark says after the role's name and a colon, before an age. */
+  label: string;
+  /** The time the mark's age counts from, or null where its words carry no age. */
+  since: number | null;
+  /** The line of text this place puts under the places, the role's name, a colon and the text, or null where it has none. Plain text, never markup. */
+  under: string | null;
+}
+
+/** The words of the broad gate where the window names it: on the gate's line under "Ask", on the approval line, and on a line of the inbox while the gate runs. */
+export const GATE_HEAD = "Broad gate";
+
+/**
+ * Each kind of stage a chain runs: the stage in short, as a line of the
+ * inbox names it while it runs, who runs it and what it is, and the place
+ * it marks on the approval line, with the note under the role's name and
+ * the mark's words while it works. The orchestrator's two kinds belong to
+ * none of the four roles and mark no place. The broad gate is no role's
+ * session, so its words name no role, and it marks the sealer's place,
+ * since the seal rests on it. `failed` is what the place says where the
+ * stage failed, for a kind whose failure is no failure of its role: a
+ * broad gate that failed leaves the sealer's place waiting for the person.
+ * Every other kind's place then reads "Failed", with the failed mark. It
+ * holds one row for each of `CHAIN_STAGE_KINDS`, so a kind added to the
+ * protocol without its row here does not compile.
+ */
+const STAGES: Record<ChainStageKind, { short: (round: number) => string; marks: { role: Role; note: (round: number) => string; label: (round: number) => string; failed?: Pick<ApprovalPlace, "state" | "note" | "label"> } | null }> = {
+  round: { short: (round) => `Proofer, round ${round}`, marks: { role: "proofer", note: (round) => `Round ${round}`, label: (round) => `Round ${round}` } },
+  "fix-pass": { short: () => "Crafter, fix pass", marks: { role: "crafter", note: () => "Fix pass", label: (round) => `Fix pass on round ${round}` } },
+  judgment: { short: () => "Orchestrator, judgment", marks: null },
+  ruling: { short: () => "Orchestrator, ruling", marks: null },
+  gate: { short: () => GATE_HEAD, marks: { role: "sealer", note: () => GATE_HEAD, label: () => GATE_HEAD, failed: { state: "waiting", note: "Gate failed", label: "Gate failed" } } },
+  seal: { short: () => "Sealer, verdict", marks: { role: "sealer", note: () => "Judging", label: () => "Judging" } },
+};
+
+/** A commit as a place's words show it: its first seven characters. */
+function shortCommit(commit: string): string {
+  return commit.slice(0, 7);
+}
+
+/** A count with its noun, one or many. */
+function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * A failed stage's failure as the window says it under the places. The
+ * daemon writes it as a clause with no capital and no full stop, which its
+ * own sentence of the chain wraps, and a CLI's own error can be any text.
+ * The first word gains a capital where it is letters alone, with or without
+ * marks that end it before a space or the text's end, so a path, a file's
+ * name, an address and a number stand as written, and the text gains a full
+ * stop where it ends with none.
+ */
+function asSentence(failure: string): string {
+  const text = failure.trim();
+  if (text === "") return text;
+  const opened = /^\p{Ll}\p{L}*[,:;.!?]*(?=\s|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  return /[.?!]$/u.test(opened) ? opened : `${opened}.`;
+}
+
+/** A place's state and words, before its name and its line of text are added. */
+type Reached = Pick<ApprovalPlace, "state" | "note" | "label" | "since"> & { text: string | null };
+
+const NOT_STARTED: Reached = { state: "no-agent", note: "Not started", label: "Not started", since: null, text: null };
+
+/** How far a role came by what the work item's records say, and for the crafter by the branch's commits. */
+function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached {
+  switch (role) {
+    case "framer":
+      return recorded.framed ? { state: "finished", note: "Framed", label: "Framed", since: null, text: null } : NOT_STARTED;
+    case "crafter": {
+      const commits = workItem.newCommits ?? 0;
+      if (commits < 1) return NOT_STARTED;
+      const note = counted(commits, "commit", "commits");
+      return { state: "finished", note, label: note, since: null, text: null };
+    }
+    case "proofer": {
+      if (recorded.rounds < 1) return NOT_STARTED;
+      const note = counted(recorded.rounds, "round", "rounds");
+      return { state: "finished", note, label: note, since: null, text: null };
+    }
+    case "sealer": {
+      const verdict = recorded.verdict;
+      if (verdict === null) return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
+      const { state, note } = ({ sealed: { state: "finished", note: "Sealed" }, withheld: { state: "failed", note: "Withheld" }, undecided: { state: "waiting", note: "Undecided" } } as const)[verdict.is];
+      return { state, note, label: `${note} at ${shortCommit(verdict.commit)}`, since: null, text: verdict.says };
+    }
+  }
+}
+
+/**
+ * How far a role came by the newest stage of the work item's chain, or null
+ * where that stage says nothing of the role: it is of another role's kind
+ * or of the orchestrator's, it finished, or no chain ran. The role's place
+ * failed where the stage failed, with the stage's failure as a sentence for
+ * its text, and works where the chain runs the stage, with the stage's
+ * start as the time its age counts from. A broad gate that failed is no
+ * failure of the sealer: its place then waits, and reads "Gate failed".
+ */
+function byChain(role: Role, workItem: WorkItem): Reached | null {
+  const newest = chainOf(workItem)?.stages.at(-1);
+  const marks = newest === undefined ? null : STAGES[newest.kind].marks;
+  if (newest === undefined || marks === null || marks.role !== role) return null;
+  if (newest.state === "failed") return { ...(marks.failed ?? { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed` }), since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
+  if (runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
+  return null;
+}
+
+/**
+ * The four places of a work item's approval line, framer, crafter, proofer
+ * and sealer in that order, or null for a work item that carries no
+ * `recorded`: one a daemon of an earlier build sent, or one of the look. A
+ * place's state is the first of these that holds. It waits where an open
+ * question of the work item names its role, exactly, as the asker, with
+ * that question's text under the line. It works where the work item's chain
+ * runs a stage of its role, and it failed where the chain's newest stage is
+ * of its role and failed, with the stage's failure under the line. The
+ * broad gate and the seal are the sealer's place's: it works while either
+ * runs, and waits, with "Gate failed", where the newest stage is a broad
+ * gate that failed. Otherwise the records say how far it came. It reads
+ * the work item alone, so no pane's state, no hook and no session changes
+ * it.
+ */
+export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
+  const recorded = workItem.recorded;
+  if (recorded === undefined) return null;
+  const open = parkedWith(workItem) ?? [];
+  return ROLES.map((role) => {
+    const asked = open.find(({ by }) => by === role);
+    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem) ?? byRecords(role, workItem, recorded));
+    const name = ROLE_NAME[role];
+    const { text, ...shown } = reached;
+    return { role, name, ...shown, under: text === null ? null : `${name}: ${text}` };
+  });
+}
+
+/** What a place's mark says to a pointer and to a screen reader: the role's name, a colon, and its words, with the age where it has one, as in "Proofer: Needs you, 12 min". */
+export function placeWords(place: ApprovalPlace, now: number): string {
+  const age = ageOf(place.since, now);
+  return `${place.name}: ${place.label}${age ? `, ${age}` : ""}`;
+}
+
 export interface QuestionLine {
   /** The question's id, which its answer names it by. */
   id: number;
@@ -438,6 +636,23 @@ export function permissionNotifications(before: readonly WorkItem[], workItems: 
   return workItems
     .filter((workItem) => !workItem.muted && workItem.id !== inFront)
     .flatMap((workItem) => permissionsOf(workItem).flatMap(({ id }) => (held.has(id) ? [] : [{ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }])));
+}
+
+/**
+ * The notifications for the chains that stopped since the window's lists
+ * were `before`: one for each of `workItems` whose chain is stopped now and
+ * that `before`, the work items and the archived ones the window held, did
+ * not hold with a stopped chain. It is titled with the work item's title
+ * and says what a waiting pane's notification says. None is given for a
+ * work item whose notifications are muted, nor for `inFront`, the work item
+ * whose view is in front of a focused window. An archived work item is not
+ * among `workItems`, so none is given for one.
+ */
+export function chainNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  const held = new Set(before.filter((workItem) => chainOf(workItem)?.state === "stopped").map((workItem) => workItem.id));
+  return workItems
+    .filter((workItem) => chainOf(workItem)?.state === "stopped" && !held.has(workItem.id) && !workItem.muted && workItem.id !== inFront)
+    .map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }));
 }
 
 /** The name of a work item's repository: the one the daemon sends, or the last part of the repository's folder for a daemon of an earlier build, which sends none. */
@@ -967,41 +1182,71 @@ function saidBy(session: SessionInfo | undefined): string | null {
   return session.state === "waiting" && session.stateTool ? asksToUse(session.stateTool) : null;
 }
 
+/** The questions a pane's agent asks the person, as the event that began its state carried them: none where that event asked none, and against a daemon of a build before them, which sends no such field. */
+function askedBy(session: SessionInfo | undefined): AskedQuestion[] {
+  return session?.stateQuestions ?? [];
+}
+
+/** How many more questions there are than the one a line says, as in " (and 2 more questions)", or nothing where there are none. */
+function moreQuestions(more: number): string {
+  return more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : "";
+}
+
 /**
  * What the agent of a work item's line says, under its head: the label of
  * the pane's kind and "asks" while the agent waits, "said" otherwise.
  * `waiting` says that the agent waits for the person, which the card of its
- * words shows by its edge. Nothing where the state carried neither a text
- * nor, for a pane that waits, a tool's name.
+ * words shows by its edge. `questions` are the questions the agent asks the
+ * person in its pane, each with its choices, which the card lists in place
+ * of the text, and none where it asks none. Nothing where the state carried
+ * neither a text nor, for a pane that waits, a tool's name.
  */
-export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean } | null {
+export function stateSays(session: SessionInfo | undefined, paneKinds: readonly PaneKindInfo[]): { head: string; text: string; waiting: boolean; questions: AskedQuestion[] } | null {
   const text = saidBy(session);
   if (!session || text === null) return null;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   const waiting = session.state === "waiting";
-  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting };
+  return { head: `${kind ? kind.label : session.kind} ${waiting ? "asks" : "said"}`, text, waiting, questions: askedBy(session) };
+}
+
+/** What the card says under a question an agent asks that takes more than one choice, and nothing under one that takes one. */
+export function choiceNote(question: AskedQuestion): string {
+  return question.multiple ? "More than one may be chosen." : "";
 }
 
 /**
- * The text of a line's second row, and which of the five it is: for a work
+ * The text of a line's second row, and which of the seven it is: for a work
  * item parked with questions the first question, followed by how many more
  * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
  * session of the work item waits for the person to allow a call, the oldest
  * request as the tool it asks to use and its text, followed by how many
- * more wait, as in " (and 1 more)"; otherwise what the agent's state
- * carried, otherwise the newest commit's subject, otherwise the branch.
- * While a search is typed it is the branch, where the letters that match
- * are marked.
+ * more wait, as in " (and 1 more)"; otherwise, where the work item's chain
+ * stopped, the chain's sentence, which says the stage and why, as the
+ * daemon wrote it; otherwise, where the chain runs a stage and the line's
+ * pane does not wait for the person, the stage in short, who runs it and
+ * what it is, as in "Proofer, round 2" and "Sealer, verdict", and "Broad
+ * gate" for the broad gate, which no role runs; otherwise, where the agent
+ * asks the person a question in its pane, the first question and the
+ * labels of its choices, followed by how many more questions it asks, as
+ * in "Which
+ * library formats the dates? date-fns · dayjs (and 1 more question)";
+ * otherwise what the agent's state carried, otherwise the newest commit's
+ * subject, otherwise the branch. While a search is typed it is the branch,
+ * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "state" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "stage" | "state" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
-  if (open) {
-    const more = open.length - 1;
-    return { says: "question", text: `${open[0]?.asks ?? ""}${more > 0 ? ` (and ${more} more ${more === 1 ? "question" : "questions"})` : ""}` };
-  }
+  if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const asks = searching ? [] : permissionsOf(workItem);
   const oldest = asks[0];
   if (oldest) return { says: "permission", text: `${asksToUse(oldest.tool)}: ${oldest.text}${asks.length > 1 ? ` (and ${asks.length - 1} more)` : ""}` };
+  const chain = searching ? null : chainOf(workItem);
+  if (chain?.state === "stopped") return { says: "chain", text: chain.says };
+  const stage = searching || session?.state === "waiting" ? null : runningStage(workItem);
+  if (stage) return { says: "stage", text: STAGES[stage.kind].short(stage.round) };
+  const asked = searching ? [] : askedBy(session);
+  const first = asked[0];
+  if (first) return { says: "state", text: `${first.asks}${first.options.length > 0 ? ` ${first.options.map(({ label }) => label).join(" · ")}` : ""}${moreQuestions(asked.length - 1)}` };
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];
@@ -1028,18 +1273,21 @@ export function lineBadge(workItem: WorkItem, look: Look | null): string {
 }
 
 /**
- * How far a work item's branch is ahead of its base: as the preview's
- * sentence, "6 commits ahead of main", and as the base's fact in a view,
- * "main · 6 ahead". The count is of the commits the base branch does not
- * hold. Where no base branch is recorded it is left out, and the count is of
- * the commits since the branch was cut. The count is left out where the
- * daemon read none.
+ * How far a work item's branch is ahead of its base and behind it: as the
+ * preview's sentence, "6 commits ahead of main, 2 behind", and as the base's
+ * fact in a view, "main · 6 ahead · 2 behind". Ahead counts the commits the
+ * base branch does not hold, and behind the commits the base holds that the
+ * branch does not. Where no base branch is recorded it is left out with
+ * behind, and the count is of the commits since the branch was cut. A count
+ * is left out where the daemon read none, and behind is left out where a
+ * daemon of an earlier build sent no such field.
  */
 export function ahead(workItem: WorkItem): { sentence: string; fact: string } {
   const base = workItem.baseBranch ?? null;
   const count = (base === null ? workItem.newCommits : workItem.aheadOfBase) ?? null;
-  const sentence = count === null ? "" : `${count} ${count === 1 ? "commit" : "commits"} ahead${base === null ? "" : ` of ${base}`}`;
-  const fact = [base, count === null ? null : `${count} ahead`].filter((part) => part !== null).join(" · ");
+  const behind = base === null ? null : (workItem.behindBase ?? null);
+  const sentence = count === null ? "" : `${count} ${count === 1 ? "commit" : "commits"} ahead${base === null ? "" : ` of ${base}`}${behind === null ? "" : `, ${behind} behind`}`;
+  const fact = [base, count === null ? null : `${count} ahead`, behind === null ? null : `${behind} behind`].filter((part) => part !== null).join(" · ");
   return { sentence, fact: fact || "Not recorded" };
 }
 
@@ -2088,6 +2336,48 @@ export function askButton(prompt: string, workItem: WorkItem): { enabled: boolea
   return { enabled: true, title: `Ask in ${workItem.title}` };
 }
 
+/** The daemon's refusal of a press of "Get a seal": its sentence, with the state of the work item's chain and the time the chain took it as the window held them at the refusal, each null where no chain ran for the work item. */
+export interface SealRefusal {
+  says: string;
+  state: Chain["state"] | null;
+  since: number | null;
+}
+
+/** The refusal the daemon answered a press of "Get a seal" with, for the work item as the window holds it at the answer, or for none where the window no longer lists it. */
+export function refusedSeal(workItem: WorkItem | undefined, says: string): SealRefusal {
+  const chain = workItem && chainOf(workItem);
+  return { says, state: chain?.state ?? null, since: chain?.since ?? null };
+}
+
+/**
+ * The "Get a seal" button of a work item's view, which starts the work
+ * item's chain: whether it is drawn, whether it can be pressed, its title,
+ * the chain's sentence that stands above it, and the refusal under it. It
+ * is drawn where the daemon sent the work item's chain, a chain or none,
+ * and not for a daemon of an earlier build, which sends no such field and
+ * starts no chain. It cannot be pressed while the chain is running, nor
+ * while `asked`, the window's own request to start it, waits for the
+ * daemon's answer. `refused` is the daemon's refusal of the window's last
+ * request for the work item (`refusedSeal`), or null. Its sentence is said
+ * while the chain stands as it stood when the daemon refused, in that state
+ * since that time, and not while the chain runs: a chain that took a state
+ * since then ran, whoever started it, and what refused the press may no
+ * longer hold.
+ */
+export function sealButton(workItem: WorkItem, asked: boolean, refused: SealRefusal | null): { offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
+  const chain = chainOf(workItem);
+  if (chain === undefined) return { offered: false, enabled: false, title: "", says: "", refusal: "" };
+  const running = chain?.state === "running";
+  const stands = refused !== null && refused.state === (chain?.state ?? null) && refused.since === (chain?.since ?? null);
+  return {
+    offered: true,
+    enabled: !running && !asked,
+    title: running ? "The chain is running." : asked ? "The chain is starting." : `Start the review rounds on ${workItem.title}`,
+    says: chain?.says ?? "",
+    refusal: running || !stands ? "" : refused.says,
+  };
+}
+
 /** The headless sessions the window holds, with one the daemon just sent: in place of the one of the same id, or after the others. */
 export function withHeadless(held: readonly HeadlessInfo[], changed: HeadlessInfo): HeadlessInfo[] {
   return held.some((info) => info.id === changed.id) ? held.map((info) => (info.id === changed.id ? changed : info)) : [...held, changed];
@@ -2138,7 +2428,67 @@ export function headlessLines(held: readonly HeadlessInfo[], workItem: WorkItem)
     });
 }
 
-/** What tells one drawing of a work item's "Ask" section from the next: it differs where a line or a request of it differs, and between two work items. The section is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the section shows. */
-export function headlessKey(workItemId: number, lines: readonly HeadlessLine[]): string {
-  return JSON.stringify([workItemId, lines]);
+/** The words of the button on the broad gate's line that shows what the gate's command printed. */
+export const GATE_OUTPUT_SHOWS = "Show output";
+
+/** What a `readGateOutput` answered, as the window holds it: the work item, the start of the run whose line asked, by the daemon's clock, the text, and whether the daemon kept the end of the output alone. */
+export interface GateOutput {
+  workItemId: number;
+  startedAt: number;
+  text: string;
+  cut: boolean;
+}
+
+/** The line of a work item's newest broad gate under "Ask", drawn in the form of a headless session's line. */
+export interface GateLine {
+  /** When the run started, by the daemon's clock, which tells one run of a work item's gate from the next. */
+  startedAt: number;
+  /** The command the gate ran, as the stage holds it. */
+  command: string;
+  /** The mark the line is drawn with. */
+  state: HeadlessState;
+  /** The state in words beside the mark, as a headless session's line says its state. */
+  words: string;
+  /** Why the gate failed, as a sentence, and empty for a gate that did not fail and for one the daemon gave no reason. */
+  text: string;
+  /** Whether the line offers "Stop": the chain runs the gate's command now. */
+  stop: boolean;
+  /** Whether the line offers "Show output": the run has ended and the daemon kept what its command printed. */
+  output: boolean;
+  /** What the command printed, as the window last read it for this run, with a note where the daemon kept the end alone, and null where the window read none for this run. Plain text, never markup. */
+  printed: { text: string; note: string } | null;
+}
+
+/**
+ * The line of a work item's newest broad gate, or null where its chain
+ * holds none: no chain ran, a daemon of an earlier build sent no chain, or
+ * no stage of the chain holds a gate's run. The line's state is the
+ * stage's, with the failure as a sentence where it failed. A stage that
+ * says it works in a chain that does not run it now is drawn failed, with
+ * no "Stop": no command of it runs. `read` is what the window last read of
+ * a gate's output, or null, and it stands under the line only where it was
+ * read of this run of this work item's gate.
+ */
+export function gateLine(workItem: WorkItem, read: GateOutput | null): GateLine | null {
+  // A stage of another kind holds no run, and neither does a stage a build before the gate stored.
+  const stage = chainOf(workItem)?.stages.findLast((held) => (held.gate ?? null) !== null);
+  const run = stage?.gate;
+  if (!stage || !run) return null;
+  const state: HeadlessState = stage.state === "working" && runningStage(workItem) !== stage ? "failed" : stage.state;
+  const shown = read !== null && read.workItemId === workItem.id && read.startedAt === stage.startedAt;
+  return {
+    startedAt: stage.startedAt,
+    command: run.command,
+    state,
+    words: state,
+    text: stage.failure === null ? "" : asSentence(stage.failure),
+    stop: state === "working",
+    output: run.output,
+    printed: shown ? { text: read.text, note: read.cut ? "Owlery kept the end of the output alone." : "" } : null,
+  };
+}
+
+/** What tells one drawing of a work item's "Ask" section from the next: it differs where the broad gate's line, a session's line or a request of it differs, and between two work items. The section is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the section shows. */
+export function headlessKey(workItemId: number, lines: readonly HeadlessLine[], gate: GateLine | null = null): string {
+  return JSON.stringify([workItemId, lines, gate]);
 }

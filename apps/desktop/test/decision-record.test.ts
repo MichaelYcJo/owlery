@@ -1,7 +1,8 @@
 // A work item's record of the decisions made for it without asking and of the
 // questions it was parked with: `decisions.md` of its directory. The cases
-// read a record, write each change of one, and find a work item's directory
-// by its branch, in temporary repositories and never in Owlery's own.
+// read a record, write each change of one, find a work item's directory by
+// its branch, and name a renamed branch in its `routing.md`, in temporary
+// repositories and never in Owlery's own.
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -11,6 +12,7 @@ import {
   readDecisionRecord,
   withAnswer,
   withApplied,
+  withBranch,
   withCarried,
   withDecision,
   withQuestion,
@@ -379,10 +381,12 @@ describe("the writer of a work item's record", () => {
       mkdirSync(path, { recursive: true });
       return path;
     };
+    /** The worktree of a directory `directory` made: three folders above it. */
+    const worktreeOf = (path: string): string => join(path, "..", "..", "..");
 
     it("creates the record with its head where none stands, and returns the record as read back", () => {
       const path = directory();
-      const record = writeRecord(path, (text) =>
+      const record = writeRecord(worktreeOf(path), path, (text) =>
         withDecision(text, { kind: "route", decided: "The work item runs through the review chain, with no framer.", grounds: "`docs/roadmap.md` *Milestones* row 2 puts every pull request of a work item under the check.", by: "orchestrator" }),
       );
       expect(readFileSync(join(path, RECORD_FILE), "utf8")).toBe(`${HEAD}${ROUTE.trimEnd()}\n`);
@@ -393,7 +397,7 @@ describe("the writer of a work item's record", () => {
     it("applies several changes as one write of the whole file", () => {
       const path = directory();
       writeFileSync(join(path, RECORD_FILE), RECORD);
-      const record = writeRecord(path, (text) => withAnswer(withReversal(text, 1, "No."), 2, "yes"));
+      const record = writeRecord(worktreeOf(path), path, (text) => withAnswer(withReversal(text, 1, "No."), 2, "yes"));
       expect(readFileSync(join(path, RECORD_FILE), "utf8")).toBe(withAnswer(withReversal(RECORD, 1, "No."), 2, "yes"));
       expect(record).toEqual(readDecisionRecord(readFileSync(join(path, RECORD_FILE), "utf8")));
       expect(readdirSync(path)).toEqual([RECORD_FILE]);
@@ -405,7 +409,7 @@ describe("the writer of a work item's record", () => {
       writeFileSync(file, `${RECORD}A line of the person's own.\n`);
       chmodSync(file, 0o000);
       cleanups.push(() => chmodSync(file, 0o600));
-      expect(() => writeRecord(path, (text) => withDecision(text, { kind: "scope", decided: "No push.", grounds: "None asked." }))).toThrow("EACCES");
+      expect(() => writeRecord(worktreeOf(path), path, (text) => withDecision(text, { kind: "scope", decided: "No push.", grounds: "None asked." }))).toThrow("EACCES");
       chmodSync(file, 0o600);
       expect(readFileSync(file, "utf8")).toBe(`${RECORD}A line of the person's own.\n`);
       expect(readdirSync(path)).toEqual([RECORD_FILE]);
@@ -418,21 +422,21 @@ describe("the writer of a work item's record", () => {
       const decide = (text: string): string => withDecision(text, { kind: "scope", decided: "No push.", grounds: "None asked." });
       writeFileSync(outside, RECORD);
       symlinkSync(outside, file);
-      expect(() => writeRecord(path, decide)).toThrow("decisions.md is a link, and Owlery reads it only as a file of its own");
+      expect(() => writeRecord(worktreeOf(path), path, decide)).toThrow("decisions.md is a link, and Owlery reads it only as a file of its own");
       expect([lstatSync(file).isSymbolicLink(), readFileSync(outside, "utf8")]).toEqual([true, RECORD]);
       // A link that leads nowhere is not a record that does not stand: a new record's head is not written over it.
       const nowhere = directory();
       symlinkSync(join(nowhere, "..", "no-such-file"), join(nowhere, RECORD_FILE));
-      expect(() => writeRecord(nowhere, decide)).toThrow("decisions.md is a link");
+      expect(() => writeRecord(worktreeOf(nowhere), nowhere, decide)).toThrow("decisions.md is a link");
       expect([lstatSync(join(nowhere, RECORD_FILE)).isSymbolicLink(), readdirSync(nowhere)]).toEqual([true, [RECORD_FILE]]);
     });
 
     it("leaves the file as it is where the change throws, and creates none", () => {
       const path = directory();
-      expect(() => writeRecord(path, (text) => withReversal(text, 1, "No."))).toThrow("the record holds no decision 1");
+      expect(() => writeRecord(worktreeOf(path), path, (text) => withReversal(text, 1, "No."))).toThrow("the record holds no decision 1");
       expect(existsSync(join(path, RECORD_FILE))).toBe(false);
       writeFileSync(join(path, RECORD_FILE), RECORD);
-      expect(() => writeRecord(path, (text) => withAnswer(withReversal(text, 1, "No."), 6, "Another."))).toThrow("question 6 is answered");
+      expect(() => writeRecord(worktreeOf(path), path, (text) => withAnswer(withReversal(text, 1, "No."), 6, "Another."))).toThrow("question 6 is answered");
       expect(readFileSync(join(path, RECORD_FILE), "utf8")).toBe(RECORD);
     });
   });
@@ -521,5 +525,27 @@ describe("a work item's directory", () => {
 
     const rooted = worktree({ "2-b/routing.md": declares("") });
     expect(workItemDirectory(rooted, "")).toBeNull();
+  });
+
+  it("is found by a renamed branch once the `Branch` row names it: the row's name alone is rewritten, with the cell's own spaces, the cells after it, each line's end and every other line as they were, and the pull request check finds the directory by the new name", { timeout: 30_000 }, () => {
+    expect(withBranch(declares("feature"), "owlery/second-name")).toBe(declares("owlery/second-name"));
+    const padded = ["# Routing: 2-b", "", "|Axis|Answer|", "|---|---|", "  || Review | straight to the PR", "| Destination | stop before the pull request |", "| Automation | yes |", "|Branch|   feature\t| built on feature |", "", "The branch feature was cut on | Branch | feature |.", ""];
+    const renamed = padded.map((line) => (line.startsWith("|Branch|") ? "|Branch|   owlery/second-name\t| built on feature |" : line));
+    expect(withBranch(padded.join("\r\n"), "owlery/second-name")).toBe(renamed.join("\r\n"));
+    // A row that ends with its name, in a file whose last line has no end.
+    expect(withBranch(declares("feature").trimEnd().replace(/ \|$/, ""), "second")).toBe(declares("second").trimEnd().replace(/ \|$/, ""));
+
+    const folder = worktree({ "2-b/routing.md": withBranch(padded.join("\n"), "owlery/second-name") });
+    const expected = join(folder, "seal", "threads", "2-b");
+    expect([workItemDirectory(folder, "feature"), workItemDirectory(folder, "owlery/second-name"), checkFinds(folder, "owlery/second-name")]).toEqual([null, expected, expected]);
+  });
+
+  it("is not renamed in a routing that declares no branch, and not to a name the row cannot hold", () => {
+    expect(() => withBranch(routing([["Review", "none"], ["Destination", "open the pull request"], ["Branch", "feature"]]), "second")).toThrow("the routing declares no branch");
+    expect(() => withBranch(`${F}\n${declares("feature")}${F}\n`, "second")).toThrow("the routing declares no branch");
+    expect(() => withBranch(routing([["Review", "straight to the PR"], ["Destination", "open the pull request"], ["Branch", "feature"], ["Branch", "other"]]), "second")).toThrow("the routing declares no branch");
+    expect(() => withBranch(declares("feature"), "a|b")).toThrow("the routing's `Branch` row cannot name the branch a|b");
+    expect(() => withBranch(declares("feature"), "second ")).toThrow("the routing's `Branch` row cannot name the branch second ");
+    expect(() => withBranch(declares("feature"), "")).toThrow("the routing's `Branch` row cannot name the branch ");
   });
 });

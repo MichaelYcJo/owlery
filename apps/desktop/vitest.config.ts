@@ -19,7 +19,11 @@ const appFiles = readdirSync(testFolder)
 export default defineConfig({
   test: {
     projects: [
-      { extends: true, test: { name: "unit", include: ["test/**/*.test.ts"], exclude: appFiles } },
+      // A case of the unit project that starts git or a script several times took 5 to 6 seconds while
+      // other agents' suites and builds ran beside it on the same Mac (load average above 15), past
+      // Vitest's 5-second default, and each broad gate met another such case (issues #161 and #164).
+      // 20 seconds is the time the cases that start several processes already set for themselves.
+      { extends: true, test: { name: "unit", include: ["test/**/*.test.ts"], exclude: appFiles, testTimeout: 20_000 } },
       { extends: true, test: { name: "app", include: appFiles, fileParallelism: false } },
     ],
   },

@@ -1,12 +1,12 @@
 # What a review round leaves
 
-The proofer writes this record, the crafter closes its findings, and
+The proofer's answer is this record, the daemon writes and commits it, the
+crafter closes its findings, and
 `skills/code-review/scripts/chain_check.py` reads it at the pull request.
 
 ## The round record
 
-**A round is one file the proofer writes.** `seal/threads/<id>/trail/rounds/round-N.md`,
-from `templates/records/sdd-round.md`, in the branch worktree under review: a `seal` block holding its `target:` line, then `## Findings` with one `### <n>. <symptom>` section per finding, `## Confirmations` where the round confirmed something, `## Not judged` and `## Probes`. A finding holds one `seal` block of its fields, why it matters with its grounds, the paste-ready fix in a fenced block, and, once it is closed, its close block. The record is written in words, and no
+**A round is one file, and its text is the proofer's.** The proofer answers with the record, from `templates/records/sdd-round.md`, and the daemon writes that answer unchanged to `seal/threads/<id>/trail/rounds/round-N.md` in the work item's worktree and commits it: a `seal` block holding its `target:` line, then `## Findings` with one `### <n>. <symptom>` section per finding, `## Confirmations` where the round confirmed something, `## Not judged` and `## Probes`. A finding holds one `seal` block of its fields, why it matters with its grounds, the paste-ready fix in a fenced block, and, once it is closed, its close block. The record is written in words, and no
 emoji stands anywhere in it. No report file stands beside it and nothing
 generates, copies or derives any part of it.
 check: tests/skills/test_chain_check.py tests/text/test_the_record_is_written_in_words.py
@@ -48,8 +48,8 @@ claim is one of absence.
 **A later round re-runs an `executed` line rather than re-deriving the
 claim.** Where it weighs an earlier finding, it runs the commands the line
 names again. A probe the line names was deleted under the agent contract's
-probe rule, so the round writes it again from its `## Probes` row. The sealer weighs no finding: a finding's verdict is the
-check's to read (`agents/sealer.md` step 3).
+probe rule, so the round writes it again from its `## Probes` row. The sealer runs no line again: it reads each `fixed` finding's claim
+against the tree (`agents/sealer.md` step 2).
 check: tests/text/test_review_axes.py
 
 **The fix pass appends one close block per finding and edits nothing else in the file.** The block stands in the finding's section, after its paste-ready fix, and holds its `verdict:` line, with the commit for `fixed`, and its `answer:` line: what was done, why the finding does not hold, or where it went. Where its fix went to a path the finding's `location:` does not name, the close block carries a `location:` line naming it, and its answer says so. The finding's own block is the proofer's and is never edited.
@@ -96,12 +96,12 @@ check: tests/skills/test_chain_check.py
 **Each finding's close block has one writer, and the blocks written at one step reach the branch in a single commit.** A finding a fix pass answers is the pass's to close: it writes the close block last, after
 its fix commits and the corrections its sweep made, because a `fixed`
 verdict names a commit that is already there, and it commits neither. The
-orchestrator takes the round record from the hand-back as it stands and
-commits it, once for the whole pass, before it spawns the verifying round,
-which can read only what a commit holds. It edits no line in that commit,
-and a close it doubts goes into that round's spawn prompt. A finding closed
-with no fix pass, such as `deferred the frame` on the framer's route or a
-`deferred <home>` the orchestrator files at the cap, has the orchestrator
-as its writer, and the orchestrator writes and commits the close block of every finding it closes at that step together. A second hand on a close block gives a reader nothing: made before the orchestrator's commit it leaves no trace
-in the history, and made after it the round pays one more record commit.
+daemon reads the round record in the worktree as the pass left it and
+commits it, once for the whole pass, before it launches the verifying
+round, which can read only what a commit holds. It commits the record only
+where it differs from the committed one by close blocks alone, and it edits
+no line of it. The daemon writes no close block: a finding that no fix pass
+answers stays open. A second hand on a close block gives a reader nothing:
+made before the daemon's commit it leaves no trace in the history, and made
+after it the round pays one more record commit.
 check: tests/text/test_the_rules_have_one_owner.py tests/text/test_a_moved_rule_leaves_its_definition.py

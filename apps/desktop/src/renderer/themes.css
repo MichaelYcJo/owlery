@@ -128,6 +128,11 @@
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
+  /* The approval line: the rule that joins a role's name to the next place, the edge of the block, and the edge between two of its places. `none` draws none. */
+  --approval-rule: linear-gradient(var(--rule), var(--rule));
+  --approval-edge: none;
+  --approval-box-edge: none;
+
   /* A state's mark, as paths on a square of 16 units: `--shape-<state>` is drawn as a line and `--shape-<state>-fill` is filled, and the working state has the faint line under the part that turns and the part that turns. `none` draws nothing. */
   --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
   --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
@@ -239,6 +244,10 @@
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
+  --approval-rule: linear-gradient(var(--rule), var(--rule));
+  --approval-edge: none;
+  --approval-box-edge: none;
+
   --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
   --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
   --shape-working: none;
@@ -348,6 +357,10 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
+
+  --approval-rule: none;
+  --approval-edge: inset 0 0 0 1px var(--rule);
+  --approval-box-edge: inset 1px 0 0 var(--rule);
 
   --shape-waiting: none;
   --shape-waiting-fill: path("M3 3h10v10H3z");
@@ -459,6 +472,10 @@
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
 
+  --approval-rule: none;
+  --approval-edge: inset 0 0 0 1px var(--rule);
+  --approval-box-edge: inset 1px 0 0 var(--rule);
+
   --shape-waiting: none;
   --shape-waiting-fill: path("M3 3h10v10H3z");
   --shape-working: path("M3 3h10v10H3z");
@@ -569,6 +586,10 @@
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
+  --approval-rule: linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%);
+  --approval-edge: none;
+  --approval-box-edge: none;
+
   --shape-waiting: none;
   --shape-waiting-fill: path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z");
   --shape-working: none;
@@ -678,6 +699,10 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
+
+  --approval-rule: linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%);
+  --approval-edge: none;
+  --approval-box-edge: none;
 
   --shape-waiting: none;
   --shape-waiting-fill: path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z");

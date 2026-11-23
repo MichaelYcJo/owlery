@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RepositoryStore } from "../src/daemon/repositories";
-import type { WorktreeSetup } from "../src/shared/protocol";
+import type { Chain, WorktreeSetup } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: (() => void)[] = [];
@@ -21,7 +21,7 @@ function runDir(): string {
 const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
 const { repo: _repo, ...OWN } = PLACE;
 /** What a work item holds of the fields set after its creation, by a person or by its setup, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null };
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, groups: [] };
 /** The setup of a work item's worktree, as the daemon records one that ended. */
@@ -142,6 +142,42 @@ describe("RepositoryStore", () => {
     const store = new RepositoryStore(dir);
     expect(store.workItem(1)?.item.setup).toEqual({ ...running, paneId: null, state: "failed", failure: "The daemon stopped before the setup command ended." });
     expect(store.workItem(2)?.item.setup).toEqual({ ...SETUP, paneId: null });
+  });
+
+  it("keeps a work item's chain: a second store reads it with each stage naming no headless session, reads a work item a build before the chain wrote with none, reads a chain that was running when the daemon ended as stopped, and reads a chain an earlier build stored as reviewed as none, with every repository and work item of the file kept", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    const stage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 4, refusals: 0, gate: null } as const;
+    const chain: Chain = { state: "sealed", says: "The sealer sealed ccccccc, after round 1.", stages: [stage], since: 3 };
+    expect(store.setWorkItem(item.id, { chain })).toBe(true);
+    expect(store.setWorkItem(item.id, { chain })).toBe(false);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, chain: { ...chain, stages: [{ ...stage, headlessId: null }] } });
+    const { chain: _none, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
+    const file = (workItem: object): string => JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [workItem] }] });
+    writeFileSync(join(dir, "repositories.json"), file(before));
+    expect(new RepositoryStore(dir).workItem(1)?.item).toEqual({ ...before, chain: null });
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { state: "running", says: "Review round 1 is running.", reviewedAt: null, since: 3, stages: [{ ...stage, state: "working", endedAt: null }] } }));
+    expect(new RepositoryStore(dir, () => 7).workItem(1)?.item.chain).toEqual({ state: "stopped", says: "The daemon ended while review round 1 ran.", since: 7, stages: [{ ...stage, state: "failed", failure: "the daemon ended while the stage ran", endedAt: null, headlessId: null }] });
+    // A build before the seal rested a chain `reviewed`, with the head it rested at or, in a file written by hand, without: the file's guard takes it, so the store holds the file's repository and its work item, and the chain is read as none.
+    for (const reviewed of [{ state: "reviewed", says: "The review rounds settled at ccccccc, after round 1.", reviewedAt: "c".repeat(40), since: 3, stages: [stage] }, { state: "reviewed", says: "The review rounds settled.", stages: [] }]) {
+      writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: reviewed }));
+      const read = new RepositoryStore(dir);
+      expect([read.repositories().map(({ folder }) => folder), read.workItem(1)?.item], JSON.stringify(reviewed)).toEqual([["/r/project"], { ...before, chain: null }]);
+    }
+    // A chain a build before the time of its state wrote is read as in its state since its newest stage ended.
+    const { since: _since, ...written } = chain;
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: written }));
+    expect(new RepositoryStore(dir).workItem(1)?.item.chain).toEqual({ ...chain, since: 2, stages: [{ ...stage, headlessId: null }] });
+    // A stage a build before the broad gate wrote holds no run of one, and a gate's stage is read with its run.
+    const { gate: _gate, ...old } = stage;
+    const gate = { ...stage, kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: 3, output: true } };
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, stages: [old, gate] } }));
+    expect(new RepositoryStore(dir).workItem(1)?.item.chain).toEqual({ ...chain, stages: [{ ...stage, headlessId: null }, gate] });
+    expect(new RepositoryStore(dir).repositories()).toHaveLength(1);
+    // A file whose chain is none of a chain's states is read as no repository, as a file whose setup is none is.
+    writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, state: "reviewing" } }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([]);
   });
 
   it("adds a group to a repository under an id no group bears, after the groups it has, writes the store, and gives a group's id to no group made after, though its repository was removed", () => {

@@ -28,7 +28,10 @@ export function startsInBackground(env: NodeJS.ProcessEnv): boolean {
  * (#148). Its page stays visible and draws its frames under the windows over
  * it, where at full opacity it was hidden and drew none (measured for #148),
  * so the debugging port's input, its reads and its captures of the page
- * reach it as before.
+ * reach it as before. While the displays sleep the system counts every
+ * window as unseen, and such a page is hidden and draws no frame, so the
+ * window of a start in the background turns background throttling off at
+ * each load of its page (main.ts), and its page draws then too (#164).
  */
 export function showInBackground(win: { setIgnoreMouseEvents(ignore: boolean): void; setOpacity(opacity: number): void; showInactive(): void }): void {
   win.setIgnoreMouseEvents(true);

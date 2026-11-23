@@ -171,9 +171,11 @@ def parse(text):
     as undeclared. The strict spelling below is deliberate for the first two,
     because a wrong answer there decides whether a reviewer sees the work.
     `Planning`'s one reader is `chain_check.py`, which reads a `framer` answer
-    against the frame's mark, and no script reads `Implementation`: the sealer
-    reads it and withholds where a declared `crafter` left a closed phase with
-    no record (`agents/sealer.md` step 4). So a wrong answer here is read
+    against the frame's mark, and no script of the check reads
+    `Implementation`: Owlery's daemon reads it for the sessions a verdict
+    names as having built the work, and the sealer reads it and withholds
+    where a declared `crafter` left a closed phase with no record
+    (`agents/sealer.md` step 3). So a wrong answer here is read
     against a record the run left, where a wrong answer above decides what the
     pull request owes. That is why
     the rows are optional rather than lenient, and it is also the asymmetry to

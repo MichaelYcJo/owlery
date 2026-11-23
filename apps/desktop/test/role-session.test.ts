@@ -1,9 +1,11 @@
 // Real role sessions: the person's own `claude`, on their login, launched as
-// the proofer at a round with the built bundle. Each costs the person's
+// a role at its stage with the built bundle. Each costs the person's
 // usage, so the suite never runs one: `pnpm run role:run` sets
-// `OWLERY_ROLE_RUN` and takes the first case, and `pnpm run role:refusal`
-// sets `OWLERY_ROLE_REFUSAL` and takes the second, so each script spends one
-// session. Without either variable the file runs nothing.
+// `OWLERY_ROLE_RUN` and takes the first case, as the proofer at a round, and
+// `pnpm run role:refusal` and `pnpm run role:refusal:sealer` set
+// `OWLERY_ROLE_REFUSAL` and take the second, as the proofer at a round and
+// as the sealer at the seal, so each script spends one session. Without
+// either variable the file runs nothing.
 //
 // The first session is asked three things it can answer only from what a
 // role launch gives it: one from its definition, one from the rules the
@@ -11,8 +13,8 @@
 // also holds the person's settings files and plugin lists to their bytes.
 //
 // The second is asked to append to a file with one shell command, which a
-// proofer's grant refuses: the case reads the stream for the session's tools,
-// the request and the refusal, and the file for its bytes.
+// proofer's grant and a sealer's refuse: the case reads the stream for the
+// session's tools, the request and the refusal, and the file for its bytes.
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -23,21 +25,25 @@ import { claudeAdapter, lookupCommand, parseLookup } from "../src/daemon/adapter
 import { Daemon } from "../src/daemon/daemon";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { terminalEnv } from "../src/daemon/pty";
-import type { HeadlessInfo, ServerMessage } from "../src/shared/protocol";
+import type { HeadlessInfo, RoleStage, ServerMessage } from "../src/shared/protocol";
 import { buildApp } from "./built-app";
 import { temporaryRepository } from "./repositories";
 
 /** The run, started by `pnpm run role:run`. */
 const RUN = process.env.OWLERY_ROLE_RUN === "1";
-/** The refused call, started by `pnpm run role:refusal`. */
-const REFUSAL = process.env.OWLERY_ROLE_REFUSAL === "1";
+/** The pair the run's session is launched as: the proofer at a round. */
+const PROOFER: RoleStage = { role: "proofer", stage: "round" };
+/** The pair of the refused call: the proofer's for `pnpm run role:refusal`, whose script sets the variable to `1`, and the sealer's for `pnpm run role:refusal:sealer`, whose script sets it to `sealer`. Undefined where neither script started the file. */
+const REFUSED: RoleStage | undefined = ({ "1": PROOFER, sealer: { role: "sealer", stage: "seal" } } as Record<string, RoleStage>)[process.env.OWLERY_ROLE_REFUSAL ?? ""];
+/** The refused call, started by one of those two scripts. */
+const REFUSAL = REFUSED !== undefined;
 
 /** The files a role session must leave as they were: the person's settings, and the lists of the plugins and marketplaces they installed. */
 const UNCHANGED = [".claude/settings.json", ".claude/settings.local.json", ".claude/plugins/installed_plugins.json", ".claude/plugins/known_marketplaces.json"];
 
 const PROMPT = [
   "Answer these three questions in three short numbered lines, and do nothing else: run no command and write no file.",
-  "1. Your definition names the directory you clone the repository into for a round. Quote that path exactly as your definition writes it.",
+  "1. Your definition names the file the daemon writes your round record to. Quote that path exactly as your definition writes it.",
   "2. Which rule numbers of the agent contract are retired? Quote the numbers as the contract lists them.",
   "3. Read the file `templates/records/sdd-round.md` of the role bundle, and quote its first line exactly.",
 ].join("\n");
@@ -61,8 +67,8 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
 
   const bytes = (): (string | null)[] => UNCHANGED.map((file) => (existsSync(join(homedir(), file)) ? readFileSync(join(homedir(), file)).toString("base64") : null));
 
-  /** Launches one proofer at a round on `prompt`, in a work item of a scratch repository, and gives the session as it ended, the lines of its output stream, every message the daemon sent, and the work item's folder. */
-  async function proofer(prompt: string): Promise<{ headless: HeadlessInfo; lines: Record<string, unknown>[]; messages: ServerMessage[]; worktree: string }> {
+  /** Launches one session as the pair given on `prompt`, in a work item of a scratch repository, and gives the session as it ended, the lines of its output stream, every message the daemon sent, and the work item's folder. */
+  async function launched(prompt: string, role: RoleStage): Promise<{ headless: HeadlessInfo; lines: Record<string, unknown>[]; messages: ServerMessage[]; worktree: string }> {
     // The CLI as the adapter finds it, through the person's login shell. The adapter is then given a shell that names a
     // script in its place: the script runs that CLI with the arguments and the environment the adapter gave it, and
     // keeps a copy of what it printed.
@@ -117,7 +123,7 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
     await message("ready", () => true, 10_000);
     client.send(JSON.stringify({ type: "createWorkItem", requestId: 1, repo: repository.repo, title: "A real role session", kind: "shell", cols: 80, rows: 24 }));
     const { workItem } = await message("workItemCreated", () => true, 10_000);
-    client.send(JSON.stringify({ type: "ask", requestId: 2, workItemId: workItem.id, prompt, role: { role: "proofer", stage: "round" } }));
+    client.send(JSON.stringify({ type: "ask", requestId: 2, workItemId: workItem.id, prompt, role }));
     const headless: HeadlessInfo = (await message("headless", (m) => m.headless.state !== "working", 280_000)).headless;
 
     // What the run's record is written from: the session as the daemon holds it, and what its result line says it cost.
@@ -129,12 +135,12 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
 
   it.skipIf(!RUN)("answers from its definition, from the appended rules and from a file of the bundle, and changes no settings file and no plugin list", async () => {
     const before = bytes();
-    const { headless } = await proofer(PROMPT);
+    const { headless } = await launched(PROMPT, PROOFER);
     const after = bytes();
 
     expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, { role: "proofer", stage: "round" }]);
     // Only `agents/proofer.md` states this path.
-    expect(headless.answer).toContain("round-<n>/clone");
+    expect(headless.answer).toContain("trail/rounds/round-<n>.md");
     // Only `skills/agent-contract/SKILL.md` states the retired numbers.
     expect(headless.answer).toMatch(/8, 16,? and 20/);
     // The first line of `templates/records/sdd-round.md`, which no appended document holds.
@@ -143,22 +149,23 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
   }, 300_000);
 
   it.skipIf(!REFUSAL)("holds the tools of its grant alone, and is refused a command that would change a file: the request reaches the daemon, the daemon's rule refuses it, and the file keeps its bytes", async () => {
-    const { headless, lines, messages, worktree } = await proofer(REFUSAL_PROMPT);
+    const pair = REFUSED ?? PROOFER;
+    const { headless, lines, messages, worktree } = await launched(REFUSAL_PROMPT, pair);
     const text = lines.map((line) => JSON.stringify(line)).join("\n");
     console.log(JSON.stringify({ types: lines.map((line) => (line.type === "control_request" ? `control_request:${String((line.request as { subtype?: unknown } | undefined)?.subtype)}` : line.type)), toolResults: lines.filter((line) => line.type === "user") }, null, 2));
 
-    // The session's first line lists the four tools of a proofer's grant, and no other.
+    // The session's first line lists the four tools of the pair's grant, a proofer's and a sealer's alike, and no other.
     const init = lines.find((line) => line.type === "system" && line.subtype === "init") as { tools?: string[]; permissionMode?: string } | undefined;
     expect([...(init?.tools ?? [])].sort()).toEqual(["Bash", "Glob", "Grep", "Read"]);
     expect(init?.permissionMode).toBe("default");
     // The call reached the daemon as a request, on the session's output stream.
     const requests = lines.filter((line) => line.type === "control_request").map((line) => line.request as { subtype?: string; tool_name?: string; input?: { command?: string } });
     expect(requests.filter((request) => request.subtype === "can_use_tool").map((request) => request.tool_name)).toContain("Bash");
-    // The session was told the reason of a proofer's refused command, which only the daemon's rule states.
-    expect(text).toContain("Owlery gives the proofer no command that asks for permission.");
+    // The session was told the reason of its role's refused command, which only the daemon's rule states.
+    expect(text).toContain(`Owlery gives the ${pair.role} no command that asks for permission.`);
     // Nothing was appended.
     expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\n");
-    expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, { role: "proofer", stage: "round" }]);
+    expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, pair]);
     // A role session's request never waits for the person.
     expect(messages.flatMap((m) => (m.type === "inbox" || m.type === "ready" ? m.workItems.flatMap((item) => item.permissions) : []))).toEqual([]);
   }, 300_000);

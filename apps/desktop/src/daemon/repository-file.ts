@@ -1,5 +1,6 @@
 // The one way the daemon reads a file of a person's repository whose text it
-// acts on, but for the setup's command (below). Six files are read through it: a work item's `decisions.md` and
+// acts on, but for the setup's command (below). Eight files are read through it: a work item's `decisions.md`,
+// its `trail/gate.md` and its `guarantee.md` (`chain-records.ts`), and
 // each `routing.md` under `threads/` of its worktree, and, in a repository's
 // main checkout, the `README.md` at each name of a records root, the root's
 // `config.json`, `.github/workflows/hygiene.yml`, and `package.json`. The
