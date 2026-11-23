@@ -34,6 +34,11 @@ The statements of the fact were listed from the docstring of `Ledger`, the comme
       // keeps its entry held, and the next append writes it a second time.
 ```
 
+```seal
+verdict: fixed 22ba7dd
+answer: The finding holds, and the comment at `apps/desktop/src/daemon/ledger.ts` in `add` now carries the paste-ready text word for word. Read against the code: the entry leaves `held` once its own `appendFileSync` returns, so the clause "once its append returns" is the exact condition. The precondition holds as stated: `appendFileSync` opens, writes in a loop and closes, so an error thrown after the whole text is written, a failed close, leaves the entry in `held` and the next call writes it again, which is the case `gaps.md:11` names. Read against the frame: `frame/design.md` *Scope* item 8 asks that a failed entry be held and written before the next entry's line, and the comment states the guarantee that item gives and its one limit. The snippet fits the unit, and the comment changes no code (read: `git show 22ba7dd`). `gaps.md:11` already names the precondition and its answerer, so no row is added. `test/ledger.test.ts` passed, 11 of 11, exit 0, and `tsc` over `src/daemon/ledger.ts` and `test/ledger.test.ts` exited 0 (executed). A case is not added: the change is a comment, and the case that pins the behaviour is the one `98fa06b` added.
+```
+
 ### 2. Three records say the daemon takes nothing from an agent after a stop, while it still takes the exit and the window shows its error output
 
 ```seal
@@ -55,6 +60,11 @@ frame/questions.md:21: ... The daemon takes no usage and no result after a stop 
 ```
 
 Each line changes only the clause it shows. Every other word of the three lines stays.
+
+```seal
+verdict: fixed 4d9f760
+answer: The orchestrator's `4d9f760` takes the record's three lines and changes one clause in each (read: `git show 4d9f760`). `changelog.md:8` now says the daemon takes no usage and no result from an agent after a stop. `trail/phases/phase-2.md:9` says it takes no result after a stop. `frame/questions.md:21` says it takes no usage and no result after a stop, and that its listener passes on only the exit once the session is no longer working. Each clause holds against `apps/desktop/src/daemon/daemon.ts#startHeadless` at HEAD: the `exit` event is handled before the guard `if (info.state !== "working") return;`, and every other event type is dropped after it, among them a result, which is the only event that sets `HeadlessInfo.usage` (read: `daemon.ts:1349-1359`). A search of the work item's records outside the round records for "takes nothing", "no event after", "takes no event" and "every event" finds no sentence left of this class (executed: `git grep -n -i -E` over `seal/threads/1795341001-cost-per-stage`). The search is a sample over words, and the records of the work item read whole at the round were the proofer's method. This pass changed none of the three files.
+```
 
 ## Confirmations
 
