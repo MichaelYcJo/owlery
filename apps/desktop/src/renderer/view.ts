@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { BASE_FETCH_MS, losesWork, type AgentState, type AskedQuestion, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type PaneKind, type PaneKindInfo, type PermissionAsk, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -130,6 +130,19 @@ function chainOf(workItem: WorkItem): Chain | null | undefined {
 }
 
 /**
+ * The stage a work item's chain runs now: the newest of its stages, where
+ * the chain is running and that stage works, and otherwise null. A chain
+ * between two stages runs none, and neither does a chain a daemon that
+ * started again reads as stopped, whose newest stage may still say that it
+ * works.
+ */
+function runningStage(workItem: WorkItem): ChainStage | null {
+  const chain = chainOf(workItem);
+  const newest = chain?.stages.at(-1);
+  return chain?.state === "running" && newest?.state === "working" ? newest : null;
+}
+
+/**
  * The questions a work item is parked with, while it is parked: the
  * questions of its record that have no answer, in the order of the file.
  * Null once the person answered every one, for a work item that never was
@@ -171,17 +184,23 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
  * the person to allow a call, and one whose chain stopped, the earliest of
  * the times the daemon first read one of its open questions at, the times
  * its requests arrived at and the time the chain stopped at, all of them
- * the daemon's clock, and otherwise the time of the
- * state of the pane the line reads, `session`. Null where none gives one,
- * and for a work item whose running chain alone says that it works: its
- * pane's time is that of another state.
+ * the daemon's clock. Otherwise, where the work item's chain runs a stage
+ * and the pane the line reads, `session`, does not wait for the person, the
+ * time that stage started at. Otherwise the time of that pane's state. Null
+ * where none gives one, and for a work item whose chain is between two
+ * stages and alone says that it works: its pane's time is that of another
+ * state.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
   const parked = parkedWith(workItem) ?? [];
   const asks = permissionsOf(workItem);
   const chain = chainOf(workItem);
   if (parked.length === 0 && asks.length === 0 && chain?.state !== "stopped") {
-    if (chain?.state === "running" && session?.state !== "working" && session?.state !== "waiting") return null;
+    if (chain?.state === "running" && session?.state !== "waiting") {
+      const stage = runningStage(workItem);
+      if (stage) return stage.startedAt;
+      if (session?.state !== "working") return null;
+    }
     return session?.stateSince ?? null;
   }
   const stopped = chain?.state === "stopped" ? chain.since : null;
@@ -338,6 +357,152 @@ export function decisionLines(workItem: WorkItem, now: number): DecisionLine[] {
  */
 export function unreadLines(workItem: WorkItem): string[] {
   return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
+}
+
+/** The heading of the approval line's section in the preview and in a view's right column. */
+export const APPROVAL_HEAD = "Approval line";
+
+/** The four roles of the approval line, in its order. */
+const ROLES = ["framer", "crafter", "proofer", "sealer"] as const;
+export type Role = (typeof ROLES)[number];
+
+/** Each role as a person reads its name: with one capital. */
+const ROLE_NAME: Record<Role, string> = { framer: "Framer", crafter: "Crafter", proofer: "Proofer", sealer: "Sealer" };
+
+/** One place of the approval line: a role, how far it came, and its words. */
+export interface ApprovalPlace {
+  role: Role;
+  /** The role's name, with one capital. */
+  name: string;
+  /** The class of the marks that gives the place its shape and its colour: `no-agent` for a place not started. */
+  state: "waiting" | "working" | "finished" | "failed" | "no-agent";
+  /** Two words at most, under the name. */
+  note: string;
+  /** What the mark says after the role's name and a colon, before an age. */
+  label: string;
+  /** The time the mark's age counts from, or null where its words carry no age. */
+  since: number | null;
+  /** The line of text this place puts under the places, the role's name, a colon and the text, or null where it has none. Plain text, never markup. */
+  under: string | null;
+}
+
+/**
+ * Each kind of stage a chain runs: who runs it and what it is in short, as
+ * a line of the inbox names the stage, and the place it marks on the
+ * approval line, with the note under the role's name and the mark's words
+ * while it works. The orchestrator's two kinds belong to none of the four
+ * roles and mark no place. It holds one row for each of `CHAIN_STAGE_KINDS`,
+ * so a kind added to the protocol without its row here does not compile.
+ */
+const STAGES: Record<ChainStageKind, { by: string; short: (round: number) => string; marks: { role: Role; note: (round: number) => string; label: (round: number) => string } | null }> = {
+  round: { by: "Proofer", short: (round) => `round ${round}`, marks: { role: "proofer", note: (round) => `Round ${round}`, label: (round) => `Round ${round}` } },
+  "fix-pass": { by: "Crafter", short: () => "fix pass", marks: { role: "crafter", note: () => "Fix pass", label: (round) => `Fix pass on round ${round}` } },
+  judgment: { by: "Orchestrator", short: () => "judgment", marks: null },
+  ruling: { by: "Orchestrator", short: () => "ruling", marks: null },
+};
+
+/** A commit as a place's words show it: its first seven characters. */
+function shortCommit(commit: string): string {
+  return commit.slice(0, 7);
+}
+
+/** A count with its noun, one or many. */
+function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * A failed stage's failure as the window says it under the places. The
+ * daemon writes it as a clause with no capital and no full stop, which its
+ * own sentence of the chain wraps, and a CLI's own error can be any text.
+ * The first word gains a capital where it is letters alone, with or without
+ * marks that end it before a space or the text's end, so a path, a file's
+ * name, an address and a number stand as written, and the text gains a full
+ * stop where it ends with none.
+ */
+function asSentence(failure: string): string {
+  const text = failure.trim();
+  if (text === "") return text;
+  const opened = /^\p{Ll}\p{L}*[,:;.!?]*(?=\s|$)/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  return /[.?!]$/u.test(opened) ? opened : `${opened}.`;
+}
+
+/** A place's state and words, before its name and its line of text are added. */
+type Reached = Pick<ApprovalPlace, "state" | "note" | "label" | "since"> & { text: string | null };
+
+const NOT_STARTED: Reached = { state: "no-agent", note: "Not started", label: "Not started", since: null, text: null };
+
+/** How far a role came by what the work item's records say, and for the crafter by the branch's commits. */
+function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached {
+  switch (role) {
+    case "framer":
+      return recorded.framed ? { state: "finished", note: "Framed", label: "Framed", since: null, text: null } : NOT_STARTED;
+    case "crafter": {
+      const commits = workItem.newCommits ?? 0;
+      if (commits < 1) return NOT_STARTED;
+      const note = counted(commits, "commit", "commits");
+      return { state: "finished", note, label: note, since: null, text: null };
+    }
+    case "proofer": {
+      if (recorded.rounds < 1) return NOT_STARTED;
+      const note = counted(recorded.rounds, "round", "rounds");
+      return { state: "finished", note, label: note, since: null, text: null };
+    }
+    case "sealer": {
+      const verdict = recorded.verdict;
+      if (verdict === null) return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
+      const { state, note } = ({ sealed: { state: "finished", note: "Sealed" }, withheld: { state: "failed", note: "Withheld" }, undecided: { state: "waiting", note: "Undecided" } } as const)[verdict.is];
+      return { state, note, label: `${note} at ${shortCommit(verdict.commit)}`, since: null, text: verdict.says };
+    }
+  }
+}
+
+/**
+ * How far a role came by the newest stage of the work item's chain, or null
+ * where that stage says nothing of the role: it is of another role's kind
+ * or of the orchestrator's, it finished, or no chain ran. The role's place
+ * failed where the stage failed, with the stage's failure as a sentence for
+ * its text, and works where the chain runs the stage, with the stage's
+ * start as the time its age counts from.
+ */
+function byChain(role: Role, workItem: WorkItem): Reached | null {
+  const newest = chainOf(workItem)?.stages.at(-1);
+  const marks = newest === undefined ? null : STAGES[newest.kind].marks;
+  if (newest === undefined || marks === null || marks.role !== role) return null;
+  if (newest.state === "failed") return { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed`, since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
+  if (runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
+  return null;
+}
+
+/**
+ * The four places of a work item's approval line, framer, crafter, proofer
+ * and sealer in that order, or null for a work item that carries no
+ * `recorded`: one a daemon of an earlier build sent, or one of the look. A
+ * place's state is the first of these that holds. It waits where an open
+ * question of the work item names its role, exactly, as the asker, with
+ * that question's text under the line. It works where the work item's chain
+ * runs a stage of its role, and it failed where the chain's newest stage is
+ * of its role and failed, with the stage's failure under the line.
+ * Otherwise the records say how far it came. It reads the work item alone,
+ * so no pane's state, no hook and no session changes it.
+ */
+export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
+  const recorded = workItem.recorded;
+  if (recorded === undefined) return null;
+  const open = parkedWith(workItem) ?? [];
+  return ROLES.map((role) => {
+    const asked = open.find(({ by }) => by === role);
+    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem) ?? byRecords(role, workItem, recorded));
+    const name = ROLE_NAME[role];
+    const { text, ...shown } = reached;
+    return { role, name, ...shown, under: text === null ? null : `${name}: ${text}` };
+  });
+}
+
+/** What a place's mark says to a pointer and to a screen reader: the role's name, a colon, and its words, with the age where it has one, as in "Proofer: Needs you, 12 min". */
+export function placeWords(place: ApprovalPlace, now: number): string {
+  const age = ageOf(place.since, now);
+  return `${place.name}: ${place.label}${age ? `, ${age}` : ""}`;
 }
 
 export interface QuestionLine {
@@ -1035,14 +1200,16 @@ export function choiceNote(question: AskedQuestion): string {
 }
 
 /**
- * The text of a line's second row, and which of the six it is: for a work
+ * The text of a line's second row, and which of the seven it is: for a work
  * item parked with questions the first question, followed by how many more
  * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
  * session of the work item waits for the person to allow a call, the oldest
  * request as the tool it asks to use and its text, followed by how many
  * more wait, as in " (and 1 more)"; otherwise, where the work item's chain
  * stopped, the chain's sentence, which says the stage and why, as the
- * daemon wrote it; otherwise, where the agent asks the
+ * daemon wrote it; otherwise, where the chain runs a stage and the line's
+ * pane does not wait for the person, the stage in short, who runs it and
+ * what it is, as in "Proofer, round 2"; otherwise, where the agent asks the
  * person a question in its pane, the first question and the labels of its
  * choices, followed by how many more questions it asks, as in "Which
  * library formats the dates? date-fns · dayjs (and 1 more question)";
@@ -1050,7 +1217,7 @@ export function choiceNote(question: AskedQuestion): string {
  * subject, otherwise the branch. While a search is typed it is the branch,
  * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "state" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "stage" | "state" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const asks = searching ? [] : permissionsOf(workItem);
@@ -1058,6 +1225,8 @@ export function lineText(workItem: WorkItem, session: SessionInfo | undefined, s
   if (oldest) return { says: "permission", text: `${asksToUse(oldest.tool)}: ${oldest.text}${asks.length > 1 ? ` (and ${asks.length - 1} more)` : ""}` };
   const chain = searching ? null : chainOf(workItem);
   if (chain?.state === "stopped") return { says: "chain", text: chain.says };
+  const stage = searching || session?.state === "waiting" ? null : runningStage(workItem);
+  if (stage) return { says: "stage", text: `${STAGES[stage.kind].by}, ${STAGES[stage.kind].short(stage.round)}` };
   const asked = searching ? [] : askedBy(session);
   const first = asked[0];
   if (first) return { says: "state", text: `${first.asks}${first.options.length > 0 ? ` ${first.options.map(({ label }) => label).join(" · ")}` : ""}${moreQuestions(asked.length - 1)}` };

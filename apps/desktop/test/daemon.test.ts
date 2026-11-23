@@ -26,12 +26,14 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "questions", "recorded", "repo", "repoId", "repoName", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup or by its chain, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null };
 /** What a work item holds of its record of decisions and questions where its worktree holds none. */
 const NO_RECORD = { decisions: [], questions: [], unread: [] };
+/** What a work item holds of its records of the chain where its worktree holds none of them. */
+const NOTHING_RECORDED = { framed: false, rounds: 0, gate: null, verdict: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 /** What a repository holds of the records place where its checkout holds none. */
 const NO_RECORDS = { root: null, check: null, broadGate: null };
@@ -446,7 +448,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, recorded: NOTHING_RECORDED, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -473,6 +475,8 @@ describe("work items", () => {
     await c.message("done", (m) => m.requestId === 2);
     d.park(created.workItem.id, { by: "sealer", questions: [{ asks: "Which base?", grounds: "No document names it.", options: [{ label: "main", implies: "The default." }], default: "main" }] });
     writeFileSync(join(directory, RECORD_FILE), `${readFileSync(join(directory, RECORD_FILE), "utf8")}\n\`\`\`seal\n\`\`\`\n`);
+    // A verdict, so that what the records say of the chain carries one.
+    writeFileSync(join(directory, "guarantee.md"), `\`\`\`seal\ntarget: ${"a".repeat(40)} against main\nVerdict: withheld reason: The suite failed.\n\`\`\`\n`);
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
     expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
     expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
@@ -497,7 +501,12 @@ describe("work items", () => {
     for (const lists of [inbox, ready, ready.lastLook!]) {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      expect(Object.keys(workItem).sort()).toEqual(WORK_ITEM_FIELDS);
+      // The look keeps nothing of what the records say of the chain.
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded") : WORK_ITEM_FIELDS);
+      if (lists !== ready.lastLook) {
+        expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
+        expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
+      }
       expect(Object.keys(workItem.commits![0]!).sort()).toEqual(["added", "at", "hash", "removed", "subject"]);
       expect(Object.keys(workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
       expect(Object.keys(workItem.changes!.list[0]!).sort()).toEqual(["added", "path", "removed"]);
@@ -4039,6 +4048,62 @@ describe("the questions a work item is parked with", () => {
   });
 });
 
+describe("what a work item's records say of its chain", () => {
+  const FENCE = "```";
+  const A = "a".repeat(40);
+  const B = "b".repeat(40);
+  const run = (tree: string): string => `${FENCE}seal\nrun: ${tree} against ${"c".repeat(40)}\n${FENCE}\n`;
+  const verdict = (commit: string, says: string): string => `${FENCE}seal\ntarget: ${commit} against main\nVerdict: ${says}\n${FENCE}\n`;
+  /** A file of the directory, the folders above it made. */
+  const put = (directory: string, path: string, text: string): void => {
+    mkdirSync(join(directory, path, ".."), { recursive: true });
+    writeFileSync(join(directory, path), text);
+  };
+
+  it("sends a work item whose worktree holds no directory of its own with no frame, no round, no gate and no verdict, at its creation, in `ready` and in an `inbox`", async () => {
+    const { c, url, workItems } = await withWorkItems(["No directory"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    expect(a.recorded).toEqual(NOTHING_RECORDED);
+    expect(itemOf(await (await client(url)).message("ready"), a.id)?.recorded).toEqual(NOTHING_RECORDED);
+    c.send({ type: "setWorkItem", requestId: 1, id: a.id, pinned: true });
+    expect(itemOf(await c.message("inbox"), a.id)?.recorded).toEqual(NOTHING_RECORDED);
+  });
+
+  it("reads the records of a work item's directory at every pass, uncommitted and once committed alike, the last block of the gate's record and of the guarantee, and a reason of 2000 characters at most, and sends every client the lists where they read otherwise and nothing where they read the same", async () => {
+    const { c, url, workItems } = await withWorkItems(["Recorded", "Another"], { commitPollMs: 30 });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    const other = await client(url);
+    await other.message("ready");
+    put(directory, "frame/design.md", "# Design\n");
+    for (const n of [1, 2, 3]) put(directory, `trail/rounds/round-${n}.md`, `# Round ${n}\n`);
+    put(directory, "trail/gate.md", `${run(A)}\n${run(B)}`);
+    put(directory, "guarantee.md", `${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "sealed")}`);
+    expect(git(a.worktree, "status", "--porcelain", "--", "seal")).toContain("?? seal/");
+    const said = { framed: true, rounds: 3, gate: B, verdict: { is: "sealed", commit: B, says: null } };
+    for (const told of [c, other]) {
+      const inbox = await told.message("inbox", (m) => itemOf(m, a.id)?.recorded?.rounds === 3);
+      expect([itemOf(inbox, a.id)?.recorded, itemOf(inbox, b.id)?.recorded]).toEqual([said, NOTHING_RECORDED]);
+    }
+
+    // Committed, the records read the same: the inbox the new commit sends carries them as they were.
+    git(a.worktree, "add", "seal");
+    git(a.worktree, "commit", "--quiet", "-m", "records");
+    const committed = await c.message("inbox", (m) => itemOf(m, a.id)?.newCommits === 1);
+    expect(itemOf(committed, a.id)?.recorded).toEqual(said);
+    // A pass that reads the records as it read them last sends nothing.
+    await settled(c);
+    c.messages.length = 0;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(c.messages).toEqual([]);
+
+    // A record that reads otherwise is sent, and a reason is cut at 2000 characters.
+    put(directory, "guarantee.md", verdict(A, `withheld reason: ${"가".repeat(2001)}`));
+    const withheld = await c.message("inbox", (m) => itemOf(m, a.id)?.recorded?.verdict?.is === "withheld");
+    expect(itemOf(withheld, a.id)?.recorded).toEqual({ ...said, verdict: { is: "withheld", commit: A, says: "가".repeat(2000) } });
+  });
+});
+
 describe("the commit of a person's word", () => {
   const DEFAULT = { kind: "default", says: "Start from main.", grounds: "The default base." } as const;
   const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";
@@ -4386,6 +4451,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
+  /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep. */
+  const asLooked = ({ recorded: _recorded, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
@@ -4407,7 +4474,7 @@ describe("the last look", () => {
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const ready = await (await client(url)).message("ready");
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [workItem] });
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [asLooked(workItem)] });
     expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash", stateQuestions: null }]);
   });
 
@@ -4474,7 +4541,7 @@ describe("the last look", () => {
     const { url } = await daemon({ runDir, worktreesRoot: root, now: () => 5678 });
     const ready = await (await client(url)).message("ready");
     // The look keeps the session it was taken with, which the daemon that starts no longer holds.
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [workItem] });
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [asLooked(workItem)] });
     expect(ready.sessions).toEqual([]);
   });
 

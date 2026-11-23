@@ -4,7 +4,7 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, RUN_SETUP_SAYS, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import { APPROVAL_HEAD, approvalPlaces, choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -269,6 +269,33 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 }
 
 /**
+ * The approval line's section, or null for a work item that carries no
+ * record of its chain: the four places in order, each its mark, which says
+ * the place's whole words, the role's name and a note under the name. A
+ * rule after each name joins it to the next place, where the theme draws
+ * one, and the sealer's place holds the seal's place. Under the places
+ * stands each place's line of text, plain text and never markup, in the
+ * colour of a failure for a place that failed.
+ */
+function approvalSection(entry: Entry): HTMLElement | null {
+  const places = approvalPlaces(entry.workItem);
+  if (places === null) return null;
+  const now = Date.now();
+  const line = document.createElement("ol");
+  line.className = "places";
+  line.append(
+    ...places.map((place) => {
+      const head = row(iconOf(place.state, placeWords(place, now)), part("name", place.name), place.role === "sealer" ? sealPlace("line") : part("join", ""));
+      const element = item(`place ${place.state}`, head, part("note", place.note));
+      element.dataset.role = place.role;
+      return element;
+    }),
+  );
+  const under = places.flatMap((place) => (place.under === null ? [] : [part(place.state === "failed" ? "under failed" : "under", place.under)]));
+  return section("approval", heading(APPROVAL_HEAD), line, ...under);
+}
+
+/**
  * A question an agent asks in its pane, as the card of what it says lists
  * it: the question, its choices as a numbered list in the agent's order,
  * each with what it leads to, and under a question that takes more than one
@@ -294,8 +321,9 @@ function askedPart(question: AskedQuestion): HTMLElement {
 /**
  * What the preview and a view's right column say of a work item alike: what
  * its agent says, the questions it asks with their choices in place of its
- * text, the decisions made for it in place of asking, its commits,
- * its changed files and its setup, each left out where the daemon sent none.
+ * text, its approval line, the decisions made for it in place of asking,
+ * its commits, its changed files and its setup, each left out where the
+ * daemon sent none.
  * Under the decisions stands a line for each line of the work item's record
  * that the daemon did not read, and the section is drawn for those lines
  * alone where the record gave no decision. The first `gained` commits carry
@@ -312,6 +340,8 @@ export function detail(entry: Entry, gained: number, { reverse, runSetup }: { re
   const says = stateSays(entry.session, held.paneKinds);
   // The agent's words are plain text, never markup. Where the agent waits for the person the card says so by its class, and the theme gives that card its edge.
   if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), ...(says.questions.length > 0 ? says.questions.map(askedPart) : [part("said", says.text)])));
+  const approval = approvalSection(entry);
+  if (approval) parts.push(approval);
   const decisions = decisionLines(entry.workItem, Date.now());
   const unread = unreadLines(entry.workItem);
   if (decisions.length > 0 || unread.length > 0) {

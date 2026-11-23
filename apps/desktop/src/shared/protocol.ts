@@ -287,6 +287,8 @@ export interface WorkItem {
   questions: Question[];
   /** What the reader did not read of the work item's record. A daemon of an earlier build sends no such field, and a client reads its absence as nothing unread. */
   unread: Unread[];
+  /** What the work item's records say of its chain, as the daemon last read them in its worktree. A daemon of an earlier build sends no such field, and a client reads its absence as a work item it draws no approval line for. The look keeps none, so a work item the look holds has none either. */
+  recorded?: Recorded;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
   /** Its chain: where the run a `getSeal` started stands, with the stages of every start, or null where none ran for it. A daemon of an earlier build sends no such field, and a client reads its absence as a daemon that offers no "Get a seal". */
@@ -310,7 +312,7 @@ export interface ChainStage {
   round: number;
   /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. */
   state: "working" | "finished" | "failed";
-  /** Why the stage `failed`, as a sentence the window shows as it is, and null in the other two states. */
+  /** Why the stage `failed`, and null in the other two states: a clause with no capital and no full stop where the daemon words it, and a session's own error as the session gave it. The daemon's sentence of the chain wraps it, and the approval line says it as a sentence. */
   failure: string | null;
   startedAt: number;
   /** When the stage ended, or null while it works and where the daemon ended before it did. */
@@ -339,6 +341,18 @@ export interface Chain {
   stages: ChainStage[];
   /** When the chain took its `state`, by the daemon's clock. A chain stops at times no stage ended at: where a start is refused after the answers, and where the read of the records between two stages fails. */
   since: number;
+}
+
+/** What a work item's records say of its chain, as the daemon last read them in its worktree, committed or not. */
+export interface Recorded {
+  /** Whether `frame/design.md` stands in the work item's directory, as a plain file. */
+  framed: boolean;
+  /** How many round records the directory holds. */
+  rounds: number;
+  /** The commit the last run block of the gate's record names, or null. */
+  gate: string | null;
+  /** The last verdict block of the guarantee: the verdict's word, the commit it names, and the reason or the question, 2,000 characters of it at most, or null. */
+  verdict: { is: "sealed" | "withheld" | "undecided"; commit: string; says: string | null } | null;
 }
 
 /** One call a headless session waits for the person to allow or refuse. */
