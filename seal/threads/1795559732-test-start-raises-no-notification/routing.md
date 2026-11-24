@@ -7,7 +7,7 @@
 | Planning | framer |
 | Implementation | crafter |
 | Automation | yes |
-| Branch | test/154-a-test-start-can-still-raise-a-macos-notification |
+| Branch | feat/154-a-test-start-can-still-raise-a-macos-notification |
 
 Answered 2026-11-25 by the orchestrator, before the first edit.
 

@@ -1,6 +1,6 @@
 Part of #154. The issue closes when `release/v0.0.4` reaches `main`.
 
-- "The pull request's title takes `test:`, and the kind that came closest is `fix:`." (`frame/plan.md` *Judgments of the run*, 2026-11-25)
+- "The pull request's title takes `feat:`, and the kind that came closest is `test:`." (`frame/plan.md` *Judgments of the run*, 2026-11-25)
 - "The page learns that the app started in the background." (`frame/design.md` *Scope*, item 1)
 - "One function decides who raises a notification." (`frame/design.md` *Scope*, item 2)
 - "The page raises every notification through that function." (`frame/design.md` *Scope*, item 3)
