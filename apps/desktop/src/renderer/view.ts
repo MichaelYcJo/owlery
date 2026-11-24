@@ -2475,11 +2475,11 @@ export interface TerminalWrites {
 export interface ScreenTurns {
   /** The pane on the screen, or nothing while the screen is free. */
   readonly pane: number | undefined;
-  /** Puts `pane` on the screen. */
-  take(pane: number): void;
+  /** Puts `pane` on the screen. Where `drawnBefore` holds, the window drew the pane before, and nothing is sent in this turn until the terminal has drawn a piece written in it with `answered` false, which is the pane's replay. */
+  take(pane: number, drawnBefore?: boolean): void;
   /** Takes the screen back from the pane on it, and empties the terminal after what it has still to draw. */
   giveBack(): void;
-  /** Hands the terminal what the pane on the screen printed. Where `answered` is false, nothing is sent until the terminal has drawn it. */
+  /** Hands the terminal what the pane on the screen printed. Where `answered` is false, nothing is sent until the terminal has drawn it, and once it is drawn a pane that came back is sent what it is sent again. */
   write(data: string, answered: boolean): void;
   /** The pane that what the terminal hands the window now goes to, or nothing where it is sent to nobody. */
   receiver(): number | undefined;
@@ -2495,6 +2495,16 @@ export interface ScreenTurns {
  * pane on the screen took it, and what a person types in that span is not
  * sent either. Nothing is sent while the terminal draws a piece written
  * with `answered` false, and nothing from a free screen.
+ *
+ * A pane the window drew before and that takes the screen again is sent
+ * nothing from its take until the terminal has drawn its replay. The screen
+ * was emptied when the pane before it left, so until then the terminal
+ * holds none of the modes the pane's program set, such as pastes in
+ * brackets, and would encode a paste or a key without them. What a person
+ * types or pastes in that span is dropped. A pane the window draws for the
+ * first time is sent what it is sent before its replay: the terminal's
+ * answers to that replay's questions must reach its program, and they leave
+ * by the same path as a person's keys.
  */
 export function screenTurns(term: TerminalWrites): ScreenTurns {
   let pane: number | undefined;
@@ -2503,13 +2513,16 @@ export function screenTurns(term: TerminalWrites): ScreenTurns {
   let reached = 0;
   // The pieces the terminal is drawing whose answers are not sent.
   let muted = 0;
+  // Whether the pane on the screen came back, and the terminal has not yet drawn the replay written in this turn.
+  let unreplayed = false;
   return {
     get pane() {
       return pane;
     },
-    take(next) {
+    take(next, drawnBefore = false) {
       pane = next;
       turn += 1;
+      unreplayed = drawnBefore;
       const taken = turn;
       // An empty piece is drawn in its place among the others, so its callback runs once the terminal has drawn everything handed to it before this turn.
       term.write("", () => {
@@ -2527,11 +2540,14 @@ export function screenTurns(term: TerminalWrites): ScreenTurns {
         return;
       }
       muted += 1;
+      const written = turn;
       term.write(data, () => {
         muted -= 1;
+        // A replay written in an earlier turn says nothing of the modes of the pane on the screen now.
+        if (written === turn) unreplayed = false;
       });
     },
-    receiver: () => (reached === turn && muted === 0 ? pane : undefined),
+    receiver: () => (reached === turn && muted === 0 && !unreplayed ? pane : undefined),
   };
 }
 
