@@ -1,9 +1,12 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import type { RoleAdapter } from "../src/daemon/adapters/adapter";
+import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
+import { claudeEnv } from "../src/daemon/adapters/claude";
+import { authArgs, claudeLogins, LINKED_NAMES, linkOwn, loginStatusOf } from "../src/daemon/adapters/claude-accounts";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
 import { AccountStore } from "../src/daemon/accounts";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
@@ -12,7 +15,7 @@ import { accountFor, type HeadlessInfo, type ServerMessage, SYSTEM_DEFAULT_ID } 
 import { temporaryRepository } from "./repositories";
 
 const TOKEN = "t".repeat(64);
-const SYSTEM_DEFAULT = { id: 0, name: "System default", made: false, folder: null };
+const SYSTEM_DEFAULT = { id: 0, name: "System default", made: false, folder: null, signedIn: null, loginEndsAt: null };
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -31,6 +34,44 @@ function handedFolder(): string {
   const made = folder("owlery-handed-");
   writeFileSync(join(made, "settings.json"), "{}\n");
   return made;
+}
+
+/** The links a folder holds, each by its name with the path it leads to. */
+function linksIn(dir: string): Record<string, string> {
+  return Object.fromEntries(
+    readdirSync(dir)
+      .filter((name) => lstatSync(join(dir, name)).isSymbolicLink())
+      .map((name) => [name, readlinkSync(join(dir, name))]),
+  );
+}
+
+/** A person's own config folder: some names of the linked list, and some of a login's own, which no account's folder takes. */
+function ownFolder(): string {
+  const own = folder("owlery-own-");
+  writeFileSync(join(own, "settings.json"), '{"enabledPlugins":{}}\n');
+  writeFileSync(join(own, "CLAUDE.md"), "Be brief.\n");
+  mkdirSync(join(own, "skills"));
+  mkdirSync(join(own, "projects"));
+  writeFileSync(join(own, "projects", "a.jsonl"), "{}\n");
+  writeFileSync(join(own, "history.jsonl"), "{}\n");
+  writeFileSync(join(own, ".claude.json"), "{}\n");
+  writeFileSync(join(own, ".credentials.json"), "{}\n");
+  mkdirSync(join(own, "statsig"));
+  return own;
+}
+
+/** A copy of the stand-in for `claude auth` in a folder of its own, and the calls it noted, each as its arguments and the folder `CLAUDE_CONFIG_DIR` named. */
+function authStandIn(): { cli: string; here: string; calls: () => string[] } {
+  const here = folder("owlery-auth-");
+  const cli = join(here, "claude");
+  copyFileSync(join(__dirname, "fixtures", "claude-auth-stand-in", "claude"), cli);
+  chmodSync(cli, 0o755);
+  return { cli, here, calls: () => (existsSync(join(here, "calls")) ? readFileSync(join(here, "calls"), "utf8").trim().split("\n") : []) };
+}
+
+/** Claude Code's part of the accounts, with the stand-in as the CLI, the environment a role session is given, and the person's own folder as `own` names it at each call. */
+function loginsOf(cli: string, own: () => string | null): AccountLogins {
+  return claudeLogins({ locate: () => Promise.resolve({ cli, path: process.env.PATH ?? "/usr/bin:/bin" }), envOf: (path, at) => claudeEnv(process.env, path, at), ownFolder: own });
 }
 
 /** Each name a folder holds, with the bytes of each file, so a case reads that nothing was added, removed or written. */
@@ -68,9 +109,9 @@ describe("AccountStore", () => {
     const store = new AccountStore(folder());
     const work = handedFolder();
     const home = handedFolder();
-    expect(store.addHanded(" Work ", work, "claude")).toEqual({ id: 1, name: "Work", adapter: "claude", folder: work, made: false });
-    expect(store.addHanded("Home", `${home}/`, "claude")).toEqual({ id: 2, name: "Home", adapter: "claude", folder: home, made: false });
-    expect(store.listed()).toEqual([SYSTEM_DEFAULT, { id: 1, name: "Work", made: false, folder: work }, { id: 2, name: "Home", made: false, folder: home }]);
+    expect(store.addHanded(" Work ", work, "claude")).toEqual({ id: 1, name: "Work", adapter: "claude", folder: work, made: false, signedIn: null, loginEndsAt: null });
+    expect(store.addHanded("Home", `${home}/`, "claude")).toEqual({ id: 2, name: "Home", adapter: "claude", folder: home, made: false, signedIn: null, loginEndsAt: null });
+    expect(store.listed()).toEqual([SYSTEM_DEFAULT, { id: 1, name: "Work", made: false, folder: work, signedIn: null, loginEndsAt: null }, { id: 2, name: "Home", made: false, folder: home, signedIn: null, loginEndsAt: null }]);
     expect(store.account(2)?.folder).toBe(home);
     expect(store.account(SYSTEM_DEFAULT_ID)).toBeUndefined();
     expect(store.account(3)).toBeUndefined();
@@ -123,7 +164,7 @@ describe("AccountStore", () => {
     store.addHanded("Work", handed, "claude");
     expect(store.rename(1, "  Office  ")).toBe(true);
     expect(store.rename(1, "Office")).toBe(false);
-    expect(store.listed()[1]).toEqual({ id: 1, name: "Office", made: false, folder: handed });
+    expect(store.listed()[1]).toEqual({ id: 1, name: "Office", made: false, folder: handed, signedIn: null, loginEndsAt: null });
     expect(new AccountStore(runDir).account(1)?.name).toBe("Office");
     expect(() => store.rename(1, " ")).toThrow("An account needs a name.");
     expect(() => store.rename(SYSTEM_DEFAULT_ID, "Mine")).toThrow("System default keeps its name.");
@@ -138,7 +179,7 @@ describe("AccountStore", () => {
     store.addHanded("Work", handed, "claude");
     store.setDefault(1);
     expect(statSync(join(runDir, "accounts.json")).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toEqual({ nextId: 2, defaultId: 1, accounts: [{ id: 1, name: "Work", adapter: "claude", folder: handed, made: false }] });
+    expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toEqual({ nextId: 2, defaultId: 1, accounts: [{ id: 1, name: "Work", adapter: "claude", folder: handed, made: false, signedIn: null, loginEndsAt: null }] });
     const again = new AccountStore(runDir);
     expect(again.listed()).toEqual(store.listed());
     expect(again.defaultId()).toBe(1);
@@ -170,6 +211,65 @@ describe("AccountStore", () => {
     const store = new AccountStore(undefined);
     store.addHanded("Work", handedFolder(), "claude");
     expect(store.listed()).toHaveLength(2);
+  });
+
+  it("makes the folder of an account added with none, accounts/<id> of the run folder, empty and readable by the user alone, passes over an id whose folder stands already, and refuses an empty name and a store with no run folder, making nothing (scenario 5's folder)", () => {
+    const runDir = folder();
+    const store = new AccountStore(runDir);
+    expect(store.addMade(" Work ", "claude")).toEqual({ id: 1, name: "Work", adapter: "claude", folder: join(runDir, "accounts", "1"), made: true, signedIn: null, loginEndsAt: null });
+    expect(statSync(join(runDir, "accounts")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(runDir, "accounts", "1")).mode & 0o777).toBe(0o700);
+    expect(readdirSync(join(runDir, "accounts", "1"))).toEqual([]);
+    // A folder a lost accounts.json left behind is no account's to take.
+    mkdirSync(join(runDir, "accounts", "2"));
+    writeFileSync(join(runDir, "accounts", "2", ".claude.json"), "{}\n");
+    expect(store.addMade("Home", "claude").folder).toBe(join(runDir, "accounts", "3"));
+    expect(readFileSync(join(runDir, "accounts", "2", ".claude.json"), "utf8")).toBe("{}\n");
+    expect(store.addHanded("Handed", handedFolder(), "claude").id).toBe(4);
+    expect(() => store.addMade(" ", "claude")).toThrow("An account needs a name.");
+    expect(() => new AccountStore(undefined).addMade("Work", "claude")).toThrow("This daemon keeps no run folder to make an account's folder in.");
+    expect(readdirSync(join(runDir, "accounts")).sort()).toEqual(["1", "2", "3"]);
+    expect(new AccountStore(runDir).account(3)).toMatchObject({ made: true, folder: join(runDir, "accounts", "3") });
+  });
+
+  it("keeps the agent's last word on an account's login, writes it, says whether it changed, refuses an id it keeps no account under, and reads a file of a build before sign-in as no word", () => {
+    const runDir = folder();
+    const store = new AccountStore(runDir);
+    const handed = handedFolder();
+    store.addHanded("Work", handed, "claude");
+    expect(store.setLogin(1, { signedIn: true, loginEndsAt: 1_800_000_000_000 })).toBe(true);
+    expect(store.setLogin(1, { signedIn: true, loginEndsAt: 1_800_000_000_000 })).toBe(false);
+    expect(new AccountStore(runDir).listed()[1]).toEqual({ id: 1, name: "Work", made: false, folder: handed, signedIn: true, loginEndsAt: 1_800_000_000_000 });
+    expect(store.setLogin(1, { signedIn: false, loginEndsAt: null })).toBe(true);
+    expect(new AccountStore(runDir).account(1)).toMatchObject({ signedIn: false, loginEndsAt: null });
+    expect(() => store.setLogin(SYSTEM_DEFAULT_ID, { signedIn: true, loginEndsAt: null })).toThrow("No account 0 is kept.");
+    expect(() => store.setLogin(7, { signedIn: true, loginEndsAt: null })).toThrow("No account 7 is kept.");
+    writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 2, defaultId: 0, accounts: [{ id: 1, name: "Work", adapter: "claude", folder: handed, made: false }] }));
+    expect(new AccountStore(runDir).account(1)).toMatchObject({ signedIn: null, loginEndsAt: null });
+    writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 2, defaultId: 0, accounts: [{ id: 1, name: "Work", adapter: "claude", folder: handed, made: false, signedIn: "yes", loginEndsAt: "soon" }] }));
+    expect(new AccountStore(runDir).account(1)).toMatchObject({ signedIn: null, loginEndsAt: null });
+  });
+
+  it("removes an account with the folder it made, a link in it as a link, leaves a folder handed over and every file in it, names System default the default again where the default was removed, and refuses System default and an id it keeps no account under (the store's half of scenarios 7 and 13)", () => {
+    const runDir = folder();
+    const store = new AccountStore(runDir);
+    const own = handedFolder();
+    const handed = handedFolder();
+    const made = store.addMade("Work", "claude").folder;
+    symlinkSync(join(own, "settings.json"), join(made, "settings.json"));
+    writeFileSync(join(made, ".claude.json"), "{}\n");
+    store.addHanded("Handed", handed, "claude");
+    store.setDefault(1);
+    const before = { own: contents(own), handed: contents(handed) };
+    expect(store.remove(1)).toBe(true);
+    expect(statSync(join(runDir, "accounts")).isDirectory()).toBe(true);
+    expect(readdirSync(join(runDir, "accounts"))).toEqual([]);
+    expect(store.defaultId()).toBe(SYSTEM_DEFAULT_ID);
+    expect(store.remove(2)).toBe(false);
+    expect({ own: contents(own), handed: contents(handed) }).toEqual(before);
+    expect(new AccountStore(runDir).listed()).toEqual([SYSTEM_DEFAULT]);
+    expect(() => store.remove(SYSTEM_DEFAULT_ID)).toThrow("System default is never removed.");
+    expect(() => store.remove(2)).toThrow("No account 2 is kept.");
   });
 });
 
@@ -314,7 +414,7 @@ describe("the daemon's accounts", () => {
     expect(ready).toMatchObject({ accounts: [SYSTEM_DEFAULT], defaultAccountId: SYSTEM_DEFAULT_ID });
     const work = handedFolder();
     await c.request({ type: "addAccount", name: "Work", folder: work });
-    const listed = [SYSTEM_DEFAULT, { id: 1, name: "Work", made: false, folder: work }];
+    const listed = [SYSTEM_DEFAULT, { id: 1, name: "Work", made: false, folder: work, signedIn: null, loginEndsAt: null }];
     expect(await c.message("accounts")).toEqual({ type: "accounts", accounts: listed, defaultAccountId: SYSTEM_DEFAULT_ID });
     await c.request({ type: "setDefaultAccount", id: 1 });
     expect(await c.message("accounts", (m) => m.defaultAccountId === 1)).toEqual({ type: "accounts", accounts: listed, defaultAccountId: 1 });
@@ -338,7 +438,8 @@ describe("the daemon's accounts", () => {
     expect(await c.request({ type: "addAccount", name: "Relative", folder: "work" })).toMatchObject({ type: "error", message: 'The folder of an account is an absolute path, and "work" is not one.' });
     expect(await c.request({ type: "addAccount", name: "Missing", folder: join(work, "missing") })).toMatchObject({ type: "error", message: `No folder stands at ${join(work, "missing")}.` });
     expect(await c.request({ type: "addAccount", name: "Again", folder: work })).toMatchObject({ type: "error", message: `The folder ${work} is already the account "Work".` });
-    expect(await c.request({ type: "addAccount", name: "No folder" })).toMatchObject({ type: "error", message: "An account is added with a name and the absolute path of its folder." });
+    // With no folder the daemon makes one, and this adapter signs no account in.
+    expect(await c.request({ type: "addAccount", name: "No folder" })).toMatchObject({ type: "error", message: "This agent signs no account in here, so Owlery makes no folder for one. Use an existing folder." });
     expect(await c.request({ type: "setDefaultAccount", id: 9 })).toMatchObject({ type: "error", message: "No account 9 is kept." });
     expect(await c.request({ type: "setRepository", id: repositoryId, accountId: 9, name: "Renamed" })).toMatchObject({ type: "error", message: "No account 9 is kept." });
     expect(await c.request({ type: "setWorkItem", id: workItemId, accountId: 9, pinned: true })).toMatchObject({ type: "error", message: "No account 9 is kept." });
@@ -464,5 +565,230 @@ describe("the daemon's accounts", () => {
     const stored = JSON.parse(readFileSync(join(first.runDir, "repositories.json"), "utf8")).repositories;
     expect(stored.map((repository: { accountId: unknown }) => repository.accountId)).toEqual([null, 2]);
     expect(stored[0].workItems[0].accountId).toBeNull();
+  });
+});
+
+describe("Claude Code's part of the accounts", () => {
+  it("links into an account's folder each listed name the person's folder holds and no other, leaves a name the account's folder holds already, follows no link into the person's folder and changes nothing of it (scenario 5's links)", () => {
+    const own = ownFolder();
+    const account = folder("owlery-made-");
+    writeFileSync(join(account, "CLAUDE.md"), "The account's own.\n");
+    symlinkSync(join(account, "nowhere"), join(account, "rules"));
+    const before = contents(own);
+    expect(linkOwn(account, own)).toEqual(["settings.json", "skills", "projects", "history.jsonl"]);
+    expect(linksIn(account)).toEqual({ "settings.json": join(own, "settings.json"), skills: join(own, "skills"), projects: join(own, "projects"), "history.jsonl": join(own, "history.jsonl"), rules: join(account, "nowhere") });
+    expect(readFileSync(join(account, "CLAUDE.md"), "utf8")).toBe("The account's own.\n");
+    expect(readdirSync(account).sort()).toEqual(["CLAUDE.md", "history.jsonl", "projects", "rules", "settings.json", "skills"]);
+    expect(contents(own)).toEqual(before);
+    // A second call finds nothing missing.
+    expect(linkOwn(account, own)).toEqual([]);
+    expect(LINKED_NAMES).not.toContain(".claude.json");
+    expect(LINKED_NAMES).not.toContain(".credentials.json");
+  });
+
+  it("reads the CLI's word on a login from how `auth status` exited and the end it printed, and nothing from any other exit", () => {
+    expect(authArgs("login")).toEqual(["auth", "login"]);
+    expect(authArgs("status")).toEqual(["auth", "status"]);
+    expect(authArgs("logout")).toEqual(["auth", "logout"]);
+    expect(loginStatusOf(0, '{"loggedIn":true,"loginExpiresAt":"2026-12-20T09:30:00.000Z"}')).toEqual({ signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z") });
+    expect(loginStatusOf(0, '{"loggedIn":true,"loginExpiresAt":null}')).toEqual({ signedIn: true, loginEndsAt: null });
+    expect(loginStatusOf(0, '{"loggedIn":true,"authMethod":"api_key"}')).toEqual({ signedIn: true, loginEndsAt: null });
+    expect(loginStatusOf(0, '{"loginExpiresAt":"soon"}')).toEqual({ signedIn: true, loginEndsAt: null });
+    expect(loginStatusOf(1, "not json")).toEqual({ signedIn: false, loginEndsAt: null });
+    expect(loginStatusOf(2, '{"loggedIn":true}')).toBeUndefined();
+  });
+
+  it("signs a folder in by a pane's command, reads its login, and signs it out through the CLI with the folder as CLAUDE_CONFIG_DIR, links only once the person's folder is known, and rejects with the CLI's words where it failed", async () => {
+    const { cli, here, calls } = authStandIn();
+    const account = folder("owlery-made-");
+    const own = ownFolder();
+    let known: string | null = null;
+    const logins = loginsOf(cli, () => known);
+    logins.furnish(account);
+    expect(readdirSync(account)).toEqual([]);
+    known = own;
+    logins.furnish(account);
+    expect(Object.keys(linksIn(account)).sort()).toEqual(["CLAUDE.md", "history.jsonl", "projects", "settings.json", "skills"]);
+    expect(await logins.status(account)).toEqual({ signedIn: false, loginEndsAt: null });
+    const signIn = await logins.signIn(account);
+    expect(signIn).toEqual({ command: cli, args: ["auth", "login"], env: claudeEnv(process.env, process.env.PATH ?? "/usr/bin:/bin", account) });
+    expect(signIn.env.CLAUDE_CONFIG_DIR).toBe(account);
+    // The pane's process, run here as a pane would run it.
+    await new Promise<void>((resolve, reject) => {
+      execFile(signIn.command, signIn.args, { env: signIn.env }, (error) => (error ? reject(error) : resolve()));
+    });
+    expect(await logins.status(account)).toEqual({ signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z") });
+    writeFileSync(join(here, "refuse-logout"), "");
+    await expect(logins.signOut(account)).rejects.toThrow("claude auth logout exited with 2: Logout failed.");
+    rmSync(join(here, "refuse-logout"));
+    await logins.signOut(account);
+    expect(await logins.status(account)).toEqual({ signedIn: false, loginEndsAt: null });
+    // A CLI given no folder exits otherwise than 0 or 1, which says nothing of a login.
+    const unnamed = claudeLogins({ locate: () => Promise.resolve({ cli, path: process.env.PATH ?? "/usr/bin:/bin" }), envOf: (path) => ({ PATH: path }), ownFolder: () => own });
+    await expect(unnamed.status(account)).rejects.toThrow("claude auth status exited with 64.");
+    expect(calls()).toEqual([`auth status|${account}`, `auth login|${account}`, `auth status|${account}`, `auth logout|${account}`, `auth logout|${account}`, `auth status|${account}`, "auth status|"]);
+    const lost = claudeLogins({ locate: () => Promise.reject(new Error("claude was not found by the login shell (/bin/zsh)")), envOf: (path, at) => claudeEnv(process.env, path, at), ownFolder: () => own });
+    await expect(lost.signIn(account)).rejects.toThrow("claude was not found by the login shell (/bin/zsh)");
+    await expect(lost.status(account)).rejects.toThrow("claude was not found by the login shell (/bin/zsh)");
+    await expect(lost.signOut(account)).rejects.toThrow("claude was not found by the login shell (/bin/zsh)");
+  });
+});
+
+describe("the accounts Owlery makes", () => {
+  it("adds an account with no folder: the daemon makes its folder in the run folder, links the person's names into it once the adapter knows the person's folder and again before each launch under it, and changes nothing of the person's folder; an adapter that signs no account in is refused one (scenario 5)", async () => {
+    const own = ownFolder();
+    const before = contents(own);
+    let known: string | null = null;
+    const { cli } = authStandIn();
+    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => known) }) });
+    expect(await c.request({ type: "addAccount", name: "Early" })).toMatchObject({ type: "done" });
+    const early = join(runDir, "accounts", "1");
+    // The lookup has not answered, so no link is made.
+    expect(readdirSync(early)).toEqual([]);
+    known = own;
+    expect(await c.request({ type: "addAccount", name: " Work " })).toMatchObject({ type: "done" });
+    const work = join(runDir, "accounts", "2");
+    const linked = { "CLAUDE.md": join(own, "CLAUDE.md"), "history.jsonl": join(own, "history.jsonl"), projects: join(own, "projects"), "settings.json": join(own, "settings.json"), skills: join(own, "skills") };
+    expect(linksIn(work)).toEqual(linked);
+    const sent = await c.message("accounts", (m) => m.accounts.length === 3);
+    expect(sent.accounts.slice(1)).toEqual([
+      { id: 1, name: "Early", made: true, folder: early, signedIn: null, loginEndsAt: null },
+      { id: 2, name: "Work", made: true, folder: work, signedIn: null, loginEndsAt: null },
+    ]);
+    rmSync(join(work, "skills"));
+    const { workItemId } = await workItemIn(c);
+    await asked(c, workItemId, 2);
+    expect(linksIn(work)).toEqual(linked);
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 800, workItemId, accountId: 1 });
+    await c.message("started", (m) => m.requestId === 800);
+    expect(linksIn(early)).toEqual(linked);
+    expect(contents(own)).toEqual(before);
+    const plain = await daemon();
+    expect(await plain.c.request({ type: "addAccount", name: "Work" })).toMatchObject({ type: "error", message: "This agent signs no account in here, so Owlery makes no folder for one. Use an existing folder." });
+    expect(existsSync(join(plain.runDir, "accounts"))).toBe(false);
+    expect(await plain.c.request({ type: "addAccount", name: "Work", folder: 7 })).toMatchObject({ type: "error", message: "An account is added with a name, and the absolute path of its folder where the person hands one over." });
+  });
+
+  it("signs an account in in a pane of no work item that runs the CLI's own sign-in under the account's folder, and at the pane's end and at a request reads whether a login stands and when it ends (scenario 6)", async () => {
+    const { cli, here, calls } = authStandIn();
+    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null) }) });
+    await c.request({ type: "addAccount", name: "Work" });
+    await c.request({ type: "addAccount", name: "Home" });
+    const work = join(runDir, "accounts", "1");
+    const home = join(runDir, "accounts", "2");
+    c.send({ type: "signIn", requestId: 700, id: 1, cols: 80, rows: 24 });
+    const pane = (await c.message("started", (m) => m.requestId === 700)).session;
+    expect(pane).toMatchObject({ kind: "shell", alive: true, workItemId: null, accountId: 1, signsIn: 1 });
+    const signed = await c.message("accounts", (m) => m.accounts[1]?.signedIn === true);
+    expect(signed.accounts[1]).toEqual({ id: 1, name: "Work", made: true, folder: work, signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z") });
+    await c.message("inbox", (m) => m.sessions.some((session) => session.id === pane.id && !session.alive));
+    expect(calls()).toEqual([`auth login|${work}`, `auth status|${work}`]);
+    writeFileSync(join(here, "refuse-login"), "");
+    c.send({ type: "signIn", requestId: 701, id: 2, cols: 80, rows: 24 });
+    expect((await c.message("started", (m) => m.requestId === 701)).session).toMatchObject({ workItemId: null, accountId: 2, signsIn: 2 });
+    expect((await c.message("accounts", (m) => m.accounts[2]?.signedIn === false)).accounts[2]).toMatchObject({ signedIn: false, loginEndsAt: null });
+    // Signed out outside Owlery, which the daemon learns at the person's request.
+    rmSync(join(work, ".stand-in-login"));
+    expect(await c.request({ type: "readSignIn", id: 1 })).toMatchObject({ type: "done" });
+    expect((await c.message("accounts", (m) => m.accounts[1]?.signedIn === false)).accounts[1]).toMatchObject({ signedIn: false, loginEndsAt: null });
+    expect(calls().slice(2)).toEqual([`auth login|${home}`, `auth status|${home}`, `auth status|${work}`]);
+    rmSync(join(here, "refuse-login"));
+    writeFileSync(join(here, "hold-login"), "");
+    c.send({ type: "signIn", requestId: 702, id: 1, cols: 80, rows: 24 });
+    const held = (await c.message("started", (m) => m.requestId === 702)).session;
+    expect(await c.request({ type: "signIn", id: 1, cols: 80, rows: 24 })).toMatchObject({ type: "error", message: 'A sign-in of "Work" is open already.' });
+    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "error", message: '"Work" is not removed while something runs under it: its sign-in pane.' });
+    rmSync(join(here, "hold-login"));
+    await c.message("inbox", (m) => m.sessions.some((session) => session.id === held.id && !session.alive));
+    for (const [id, refusal] of [
+      [SYSTEM_DEFAULT_ID, "System default is signed in with the agent in a terminal of your own."],
+      [9, "No account 9 is kept."],
+    ] as const) {
+      expect(await c.request({ type: "signIn", id, cols: 80, rows: 24 })).toMatchObject({ type: "error", message: refusal });
+      expect(await c.request({ type: "readSignIn", id })).toMatchObject({ type: "error", message: refusal });
+    }
+    const plain = await daemon();
+    await plain.c.request({ type: "addAccount", name: "Handed", folder: handedFolder() });
+    expect(await plain.c.request({ type: "signIn", id: 1, cols: 80, rows: 24 })).toMatchObject({ type: "error", message: "This agent signs no account in here." });
+    expect(await plain.c.request({ type: "readSignIn", id: 1 })).toMatchObject({ type: "error", message: "This agent signs no account in here." });
+  });
+
+  it("removes an account Owlery made that settings name: signs its folder out through the CLI, removes the folder with its links, clears each repository's and work item's setting that named it and a default that named it, reads those repositories' chain again under the account they then take, and changes nothing of the person's folder (scenario 13)", async () => {
+    const own = ownFolder();
+    const before = contents(own);
+    const { cli, calls } = authStandIn();
+    // The plugin is enabled in the account's folder alone, so a repository's chain says which folder it was read in. No reading of commits reads it again meanwhile.
+    let enabledIn: string | null = null;
+    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => own) }), pluginEnabled: (_folder, _checkout, configDir) => configDir !== null && configDir === enabledIn, commitPollMs: 3_600_000 });
+    await c.request({ type: "addAccount", name: "Work" });
+    await c.request({ type: "addAccount", name: "Home" });
+    const work = join(runDir, "accounts", "1");
+    enabledIn = work;
+    expect(Object.keys(linksIn(work))).toHaveLength(5);
+    const one = await workItemIn(c);
+    const two = await workItemIn(c);
+    await c.request({ type: "setDefaultAccount", id: 1 });
+    await c.request({ type: "setRepository", id: one.repositoryId, accountId: 1 });
+    await c.request({ type: "setWorkItem", id: one.workItemId, accountId: 1 });
+    await c.request({ type: "setWorkItem", id: two.workItemId, accountId: 2 });
+    const chainOf = (lists: Extract<ServerMessage, { type: "inbox" }>, id: number) => lists.repositories.find((repository) => repository.id === id)?.chain?.plugin;
+    // Before the removal both read the account's folder: the one by its setting, the other by the default.
+    await c.message("inbox", (m) => m.repositories[0]?.accountId === 1 && chainOf(m, one.repositoryId) === true && chainOf(m, two.repositoryId) === true);
+    const from = c.messages.length;
+    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "done" });
+    expect(calls()).toEqual([`auth logout|${work}`]);
+    expect(existsSync(work)).toBe(false);
+    const accounts = await c.message("accounts", (m) => !m.accounts.some((account) => account.id === 1));
+    expect([accounts.accounts.map((account) => account.id), accounts.defaultAccountId]).toEqual([[0, 2], SYSTEM_DEFAULT_ID]);
+    const inbox = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox"));
+    expect(inbox.repositories.map((repository) => [repository.id, repository.accountId, repository.chain?.plugin])).toEqual([
+      [one.repositoryId, null, false],
+      [two.repositoryId, null, false],
+    ]);
+    expect(inbox.workItems.map((item) => [item.id, item.accountId])).toEqual([
+      [one.workItemId, null],
+      [two.workItemId, 2],
+    ]);
+    expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toMatchObject({ defaultId: 0, accounts: [{ id: 2 }] });
+    expect(contents(own)).toEqual(before);
+  });
+
+  it("refuses a removal while a pane or a working session runs under the account, naming each, for System default and an id it keeps none of, and where the sign-out fails, removing nothing (scenario 13's refusal)", async () => {
+    const { cli, here, calls } = authStandIn();
+    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null), delayMs: 300 }) });
+    await c.request({ type: "addAccount", name: "Work" });
+    const work = join(runDir, "accounts", "1");
+    const { workItemId } = await workItemIn(c);
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 810, workItemId, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 810)).session;
+    const ask = await c.request({ type: "ask", workItemId, prompt: "Who am I?", accountId: 1 });
+    expect(ask.type).toBe("asked");
+    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "error", message: '"Work" is not removed while something runs under it: the Claude Code pane in "A work item"; a session asked in "A work item".' });
+    c.send({ type: "close", id: pane.id });
+    await c.message("inbox", (m) => !m.sessions.some((session) => session.id === pane.id));
+    await c.message("headless", (m) => m.headless.state !== "working");
+    writeFileSync(join(here, "refuse-logout"), "");
+    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "error", message: "claude auth logout exited with 2: Logout failed." });
+    expect(existsSync(work)).toBe(true);
+    expect(await c.request({ type: "removeAccount", id: SYSTEM_DEFAULT_ID })).toMatchObject({ type: "error", message: "System default is never removed." });
+    expect(await c.request({ type: "removeAccount", id: 9 })).toMatchObject({ type: "error", message: "No account 9 is kept." });
+    expect(calls()).toEqual([`auth logout|${work}`]);
+    expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8")).accounts).toHaveLength(1);
+  });
+
+  it("removes an account handed over by its folder without signing it out, and leaves the folder and every file in it (the removing half of scenario 7)", async () => {
+    const { cli, calls } = authStandIn();
+    const { c } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => ownFolder()) }) });
+    const handed = handedFolder();
+    mkdirSync(join(handed, "projects"));
+    writeFileSync(join(handed, "projects", "a.jsonl"), "{}\n");
+    const before = contents(handed);
+    await c.request({ type: "addAccount", name: "Handed", folder: handed });
+    const { workItemId } = await workItemIn(c);
+    await asked(c, workItemId, 1);
+    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "done" });
+    expect((await c.message("accounts", (m) => m.accounts.length === 1)).accounts).toEqual([SYSTEM_DEFAULT]);
+    expect(contents(handed)).toEqual(before);
+    expect(calls()).toEqual([]);
   });
 });

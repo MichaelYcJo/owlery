@@ -66,4 +66,44 @@ export interface RoleAdapter {
    * that has found none.
    */
   defaultLoginFolder?(): string | null;
+  /**
+   * What the adapter's agent does with an account's config folder: lends a
+   * folder the daemon made what belongs to the person, signs a folder in and
+   * out, and says whether a login stands in it. The daemon calls it only for
+   * an account's folder and reads no file of the folder itself. An adapter
+   * without it signs no account in, and the daemon makes no account's folder
+   * for it.
+   */
+  readonly logins?: AccountLogins;
+}
+
+/** Whether a login stands in a config folder, and the daemon's clock at which it is expected to end, or null where the agent named no end. */
+export interface LoginStatus {
+  signedIn: boolean;
+  loginEndsAt: number | null;
+}
+
+/** The process a pane runs: the file to execute, its arguments, and the variables it is given over the daemon's environment. */
+export interface LoginCommand {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+/** An adapter's part of the accounts the daemon keeps, each named by its config folder. */
+export interface AccountLogins {
+  /**
+   * Gives a folder the daemon made for an account what belongs to the person
+   * in the agent's default login, as the adapter's agent shares it, and adds
+   * only what the folder lacks. It writes nothing into the default login's
+   * folder, does nothing while the adapter has not found that folder, and
+   * does not throw: a name it cannot give stays missing until the next call.
+   */
+  furnish(folder: string): void;
+  /** The process of a pane in which the person signs the folder in, through the agent's own sign-in. It rejects, with a sentence a person reads, where the adapter cannot find its agent. */
+  signIn(folder: string): Promise<LoginCommand>;
+  /** Whether a login stands in the folder. It rejects, with a sentence a person reads, where the agent could not say. */
+  status(folder: string): Promise<LoginStatus>;
+  /** Signs the folder out, through the agent's own command. It rejects, with a sentence a person reads, where the agent did not. */
+  signOut(folder: string): Promise<void>;
 }

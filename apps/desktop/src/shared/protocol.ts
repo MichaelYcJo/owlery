@@ -331,13 +331,19 @@ export const SYSTEM_DEFAULT_NAME = "System default";
 /**
  * One login of the person's agent, kept as the agent's config folder. `folder`
  * is null for System default alone, and `made` says whether Owlery made the
- * folder, and false for a folder the person handed over.
+ * folder, and false for a folder the person handed over. `signedIn` and
+ * `loginEndsAt` are the agent's last word on the folder's login: whether one
+ * stood, and the daemon's clock at which it is expected to end, each null
+ * where the agent has said nothing yet, and always for System default, whose
+ * login the person keeps in their own terminal.
  */
 export interface Account {
   id: number;
   name: string;
   made: boolean;
   folder: string | null;
+  signedIn: boolean | null;
+  loginEndsAt: number | null;
 }
 
 /**
@@ -484,10 +490,12 @@ export interface SessionInfo {
   id: number;
   kind: PaneKind;
   alive: boolean;
-  /** The work item whose worktree the pane runs in. Null only for a pane that a daemon of a build before 0.0.2 opened without one. */
+  /** The work item whose worktree the pane runs in. Null for a sign-in pane (`signsIn`), and for a pane that a daemon of a build before 0.0.2 opened without one. */
   workItemId: number | null;
   /** The id of the account the pane was launched under, `SYSTEM_DEFAULT_ID` among them, or null for a pane launched under none: a setup's pane, and a pane of a kind that takes no account. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   accountId?: number | null;
+  /** The id of the account whose sign-in the pane runs, or null for every other pane. Such a pane runs under that account and in no work item, so no work item's view and no line of the inbox lists it. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  signsIn?: number | null;
   /** Null until the agent's first event or until the pane has sent no event for the time after its start the daemon allows, whichever comes first, and always for a kind that reports no state. An exited session keeps its last. */
   state: AgentState | null;
   /** The daemon's clock when the session entered `state`, or null where it has none. */
@@ -732,12 +740,18 @@ export type ClientMessage =
   | { type: "addRepository"; requestId: number; folder: string }
   // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. `paneChain` is the person's answer to which chain the repository's Claude Code panes run, and null takes the answer away, so the window asks again. `accountId` is the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them, or null, which leaves the repository's sessions to the default; an id the daemon keeps no account under is refused, and nothing of the message is then set. The daemon answers with `done`.
   | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean; paneChain?: ChainChoice | null; accountId?: number | null }
-  // Adds an account the person hands over by its config folder: `folder` is an absolute path to a folder that exists and is no account's yet, and `name` is stored without the white space at its ends. Any other folder, and an empty name, are refused with a sentence. The daemon makes nothing in the folder and reads nothing of it. It answers with `done`, before the `accounts` that carries the account.
-  | { type: "addAccount"; requestId: number; name: string; folder: string }
+  // Adds an account, its `name` stored without the white space at its ends. With `folder` the person hands over a config folder: an absolute path to a folder that exists and is no account's yet, and the daemon makes nothing in the folder and reads nothing of it. Without it the daemon makes the account's folder, `accounts/<id>` of its run folder, readable by the user alone, and gives it the person's own names as the adapter lends them, which it gives again before each launch under the account. Any other folder, and an empty name, are refused with a sentence, and so is an account without a folder where the role adapter signs no account in. It answers with `done`, before the `accounts` that carries the account.
+  | { type: "addAccount"; requestId: number; name: string; folder?: string }
   // Names the account new sessions take where nothing nearer is set: the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them. Another id is refused. The daemon answers with `done`, before the `accounts` that carries the change.
   | { type: "setDefaultAccount"; requestId: number; id: number }
   // Gives an account another name, stored without the white space at its ends. An empty name, System default, which keeps its name, and an id the daemon keeps no account under are refused with a sentence, and nothing is renamed. The daemon answers with `done`, before the `accounts` that carries the change. A ledger entry keeps the name it was written with.
   | { type: "renameAccount"; requestId: number; id: number; name: string }
+  // Removes an account. It is refused with a sentence, and nothing is removed, for System default, for an id the daemon keeps no account under, and while a live pane or a working headless session runs under the account, which the sentence names. For a folder the daemon made, it signs the folder out through the adapter's agent and then removes the folder, and a sign-out that fails refuses the removal with the agent's words. A folder handed over is left as it is. Each repository's and work item's setting that named the account is cleared, and a default that named it is System default again. The daemon answers with `done`, before the `accounts` and the `inbox` that carry the change.
+  | { type: "removeAccount"; requestId: number; id: number }
+  // Starts a sign-in pane for an account that has a folder: a terminal pane in which the adapter's agent signs that folder in, sized `cols` by `rows`, in no work item, listed with `signsIn` naming the account. Its output goes to the client that asked. When its process ends, the daemon asks the agent whether a login stands in the folder, as `readSignIn` does. Refused with a sentence for System default, for an id the daemon keeps no account under, where the role adapter signs no account in, and while a sign-in pane of the account is alive. The daemon answers with `started`.
+  | { type: "signIn"; requestId: number; id: number; cols: number; rows: number }
+  // Asks the adapter's agent again whether a login stands in an account's folder, and keeps its word. Refused with a sentence for System default, for an id the daemon keeps no account under, where the role adapter signs no account in, and where the agent could not say. The daemon answers with `done`, before the `accounts` that carries a change.
+  | { type: "readSignIn"; requestId: number; id: number }
   // Takes a repository and its work items, the archived among them, off the daemon's lists. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Without `delete` it removes nothing on disk: the repository, each worktree's folder and each branch stay. It ends the sessions named, and refuses where a pane's process has not exited within its wait. With `delete`, which the person chose, it deletes each work item from disk first, one after another, as a `deleteWorkItem` does with the stamp `stamps` holds under that work item's id and with `force`. It refuses before the first delete, and ends nothing, where `stamps` holds no stamp for a work item, where a session runs that the message does not name, and while an archive is ending the sessions of one of the work items. Where one delete is refused or fails, the removal stops there: the refusal opens with that work item's title, the work items deleted before it are gone, and the repository and the others stay. The repository's own folder is never touched. The daemon answers with `done`.
   | { type: "removeRepository"; requestId: number; id: number; workItems: number[]; running: Running; delete?: { stamps: Record<number, string>; force: boolean } }
   // Asks what a setup of the records place in the repository `id` would write and commit, with `broadGate` as the command a new `config.json` holds. The daemon writes nothing, and answers with a `recordsPlan`.

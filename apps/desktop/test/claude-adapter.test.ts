@@ -240,6 +240,27 @@ describe("the Claude adapter's run", () => {
     expect(lost.defaultLoginFolder?.()).toBeNull();
   });
 
+  it("signs an account's folder in and out and reads its login through the CLI its lookup found, under a session's environment with the folder as CLAUDE_CONFIG_DIR, and links the person's names only once the lookup has answered", async () => {
+    const folder = temporaryFolder();
+    const own = join(folder, "own");
+    mkdirSync(own);
+    writeFileSync(join(own, "settings.json"), "{}\n");
+    const account = join(folder, "account");
+    mkdirSync(account);
+    const cli = join(folder, "claude");
+    writeFileSync(cli, readFileSync(join(__dirname, "fixtures", "claude-auth-stand-in", "claude")));
+    chmodSync(cli, 0o755);
+    const adapter = claudeAdapter(fakeShell(folder, cli, own).env);
+    adapter.logins?.furnish(account);
+    expect(readdirSync(account)).toEqual([]);
+    expect(await adapter.logins?.signIn(account)).toEqual({ command: cli, args: ["auth", "login"], env: { HOME: folder, USER: "person", PATH: "/usr/bin:/bin", LANG: "en_US.UTF-8", CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1", CLAUDE_CONFIG_DIR: account } });
+    adapter.logins?.furnish(account);
+    expect(readdirSync(account)).toEqual(["settings.json"]);
+    expect(await adapter.logins?.status(account)).toEqual({ signedIn: false, loginEndsAt: null });
+    await adapter.logins?.signOut(account);
+    expect(readFileSync(join(folder, "calls"), "utf8")).toBe(`auth status|${account}\nauth logout|${account}\n`);
+  });
+
   it("launches the CLI the shell found, in the folder, with the flags and the five names, writes the handshake and then the prompt on standard input, ends the input at the result, and maps what it prints", async () => {
     const folder = temporaryFolder();
     const cwd = temporaryFolder();

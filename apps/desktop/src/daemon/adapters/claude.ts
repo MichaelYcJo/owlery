@@ -12,6 +12,7 @@ import { terminalEnv } from "../pty";
 import { writeWholeFile } from "../whole-file";
 import type { RoleStage, Usage } from "../../shared/protocol";
 import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun } from "./adapter";
+import { CONFIG_DIR_VARIABLE, claudeLogins } from "./claude-accounts";
 import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
 
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
@@ -99,9 +100,6 @@ export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: strin
     ...(role ? [role.bundleDir] : []),
   ];
 }
-
-/** The variable that names the config folder Claude Code keeps a login, its state and its settings in. */
-export const CONFIG_DIR_VARIABLE = "CLAUDE_CONFIG_DIR";
 
 /**
  * The environment of a headless session: five names, and the config folder
@@ -425,6 +423,9 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role) };
   };
 
+  // The folder the login shell names, which a pane's `claude` reads, and `.claude` of the home where it names none, as Claude Code itself reads it.
+  const defaultLoginFolder = (): string | null => (answered === undefined ? null : (answered.configDir ?? join(env.HOME || homedir(), ".claude")));
+
   return {
     name: "claude",
     features: ["role-tools", "permission-requests", "accounts"],
@@ -559,7 +560,8 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         return null;
       }
     },
-    // The folder the login shell names, which a pane's `claude` reads, and `.claude` of the home where it names none, as Claude Code itself reads it.
-    defaultLoginFolder: () => (answered === undefined ? null : (answered.configDir ?? join(env.HOME || homedir(), ".claude"))),
+    defaultLoginFolder,
+    // The CLI the lookup finds signs a folder in and out, under the environment a role session is given, so no variable of the daemon's reaches it.
+    logins: claudeLogins({ locate: located, envOf: (path, folder) => claudeEnv(env, path, folder), ownFolder: defaultLoginFolder }),
   };
 }

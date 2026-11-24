@@ -1,17 +1,24 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { type Account, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME } from "../shared/protocol";
 import { writeWholeFile } from "./whole-file";
 
 const FILE = "accounts.json";
 
-/** An account as the store keeps it: the name a person gave it, the adapter whose agent it is a login of, its config folder, and whether Owlery made that folder. */
+/** The folder of the run folder that holds the folders the daemon makes for accounts, each named by its account's id. */
+export const MADE_FOLDERS = "accounts";
+
+/** An account as the store keeps it: the name a person gave it, the adapter whose agent it is a login of, its config folder, whether Owlery made that folder, and the agent's last word on its login. */
 export interface StoredAccount {
   id: number;
   name: string;
   adapter: string;
   folder: string;
   made: boolean;
+  /** Whether a login stood in the folder at the agent's last word on it, and null where it has said nothing yet. */
+  signedIn: boolean | null;
+  /** The daemon's clock at which that login is expected to end, and null where the agent named no end or has said nothing yet. */
+  loginEndsAt: number | null;
 }
 
 /** What `accounts.json` holds: the id the next account takes, the default account's id, and the accounts. */
@@ -29,6 +36,16 @@ function isStoredAccount(value: unknown): value is StoredAccount {
 
 function isStored(value: unknown): value is Stored {
   return isRecord(value) && Number.isInteger(value.nextId) && Number.isInteger(value.defaultId) && Array.isArray(value.accounts) && value.accounts.every(isStoredAccount);
+}
+
+/** Whether anything stands at a path, a link that leads nowhere among it. */
+function stands(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The folder a path names once its links are followed, or the path itself where nothing stands there to follow. */
@@ -51,8 +68,9 @@ function realOf(folder: string): string {
  * whose next id stands at or below an id it holds is read as one past the
  * highest. A default that names no account the file holds is read as System
  * default, and a file that is no store as no account. The store reads no file
- * inside a folder and writes none there. Given no run directory, the store is
- * kept in memory alone.
+ * inside a folder and writes none there: it makes an empty folder for an
+ * account added with none, and removes that folder with its account. Given
+ * no run directory, the store is kept in memory alone and makes no folder.
  */
 export class AccountStore {
   private readonly file: string | undefined;
@@ -68,7 +86,8 @@ export class AccountStore {
       return;
     }
     if (!isStored(value)) return;
-    const accounts = value.accounts.map(({ id, name, adapter, folder, made }) => ({ id, name, adapter, folder, made }));
+    // A file of a build before sign-in holds no word on a login, and reads as one the agent has said nothing of.
+    const accounts = value.accounts.map(({ id, name, adapter, folder, made, signedIn, loginEndsAt }) => ({ id, name, adapter, folder, made, signedIn: typeof signedIn === "boolean" ? signedIn : null, loginEndsAt: typeof loginEndsAt === "number" && Number.isFinite(loginEndsAt) ? loginEndsAt : null }));
     const highest = accounts.reduce((most, account) => Math.max(most, account.id), SYSTEM_DEFAULT_ID);
     this.stored = {
       nextId: Math.max(value.nextId, highest + 1),
@@ -98,7 +117,7 @@ export class AccountStore {
 
   /** The accounts as a client is sent them: System default first, then the others in the order they were added. */
   listed(): Account[] {
-    return [{ id: SYSTEM_DEFAULT_ID, name: SYSTEM_DEFAULT_NAME, made: false, folder: null }, ...this.stored.accounts.map(({ id, name, made, folder }) => ({ id, name, made, folder }))];
+    return [{ id: SYSTEM_DEFAULT_ID, name: SYSTEM_DEFAULT_NAME, made: false, folder: null, signedIn: null, loginEndsAt: null }, ...this.stored.accounts.map(({ id, name, made, folder, signedIn, loginEndsAt }) => ({ id, name, made, folder, signedIn, loginEndsAt }))];
   }
 
   /**
@@ -125,10 +144,68 @@ export class AccountStore {
     const real = realOf(path);
     const holder = this.stored.accounts.find((account) => realOf(account.folder) === real);
     if (holder) throw new Error(`The folder ${folder} is already the account "${holder.name}".`);
-    const account: StoredAccount = { id: this.stored.nextId++, name: named, adapter, folder: path, made: false };
+    const account: StoredAccount = { id: this.stored.nextId++, name: named, adapter, folder: path, made: false, signedIn: null, loginEndsAt: null };
     this.stored.accounts.push(account);
     this.write();
     return account;
+  }
+
+  /**
+   * Adds an account whose config folder the store makes, under the next id,
+   * and answers with it: `accounts/<id>` of the run folder, readable by the
+   * user alone, as is the folder that holds it, and empty. An id whose folder
+   * stands already, as one a lost `accounts.json` left, is passed over, so no
+   * account takes a folder it did not make. It throws, with a sentence a
+   * person reads and nothing added, for an empty name, and where the store
+   * keeps no run folder to make the folder in.
+   */
+  addMade(name: string, adapter: string): StoredAccount {
+    const named = name.trim();
+    if (named === "") throw new Error("An account needs a name.");
+    if (this.file === undefined) throw new Error("This daemon keeps no run folder to make an account's folder in.");
+    const holder = join(dirname(this.file), MADE_FOLDERS);
+    mkdirSync(holder, { recursive: true, mode: 0o700 });
+    let id = this.stored.nextId;
+    while (stands(join(holder, String(id)))) id += 1;
+    const folder = join(holder, String(id));
+    mkdirSync(folder, { mode: 0o700 });
+    const account: StoredAccount = { id, name: named, adapter, folder, made: true, signedIn: null, loginEndsAt: null };
+    this.stored.nextId = id + 1;
+    this.stored.accounts.push(account);
+    this.write();
+    return account;
+  }
+
+  /** Keeps the agent's last word on an account's login, and answers whether it is another than the store held. It throws for an id the store keeps no account under. */
+  setLogin(id: number, { signedIn, loginEndsAt }: { signedIn: boolean; loginEndsAt: number | null }): boolean {
+    const account = this.account(id);
+    if (account === undefined) throw new Error(`No account ${String(id)} is kept.`);
+    if (account.signedIn === signedIn && account.loginEndsAt === loginEndsAt) return false;
+    account.signedIn = signedIn;
+    account.loginEndsAt = loginEndsAt;
+    this.write();
+    return true;
+  }
+
+  /**
+   * Removes an account, and answers whether the default was that account,
+   * which then is System default again. A folder the store made is removed
+   * with everything in it, a link in it removed as a link and what it leads
+   * to left as it is. A folder handed over is left as it is. It throws, with
+   * a sentence a person reads and nothing removed, for System default and an
+   * id the store keeps no account under, and where the made folder could not
+   * be removed.
+   */
+  remove(id: number): boolean {
+    if (id === SYSTEM_DEFAULT_ID) throw new Error(`${SYSTEM_DEFAULT_NAME} is never removed.`);
+    const account = this.account(id);
+    if (account === undefined) throw new Error(`No account ${String(id)} is kept.`);
+    if (account.made) rmSync(account.folder, { recursive: true, force: true });
+    this.stored.accounts = this.stored.accounts.filter((kept) => kept.id !== id);
+    const wasDefault = this.stored.defaultId === id;
+    if (wasDefault) this.stored.defaultId = SYSTEM_DEFAULT_ID;
+    this.write();
+    return wasDefault;
   }
 
   /** Names the default account, and answers whether it is another than it was. It throws for an id the store keeps no account under, and names nothing. */

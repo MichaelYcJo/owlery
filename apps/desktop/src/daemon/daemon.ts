@@ -6,9 +6,9 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { accountFor, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { accountFor, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
-import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
+import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
@@ -73,7 +73,7 @@ import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecor
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
-import { AccountStore } from "./accounts";
+import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
 import { onOwlChain, planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
@@ -907,9 +907,13 @@ export class Daemon {
       case "addAccount": {
         try {
           const { name, folder } = message as { name: unknown; folder: unknown };
-          if (typeof name !== "string" || typeof folder !== "string") throw new Error("An account is added with a name and the absolute path of its folder.");
+          if (typeof name !== "string" || (typeof folder !== "string" && folder !== undefined)) throw new Error("An account is added with a name, and the absolute path of its folder where the person hands one over.");
+          const { logins } = this.options.roleAdapter;
+          if (folder === undefined && logins === undefined) throw new Error("This agent signs no account in here, so Owlery makes no folder for one. Use an existing folder.");
           // The store refuses an empty name and any folder but one that stands and is no account's yet, in its own words.
-          this.accounts.addHanded(name, folder, this.options.roleAdapter.name);
+          if (folder !== undefined) this.accounts.addHanded(name, folder, this.options.roleAdapter.name);
+          // A folder the daemon makes is given the person's own names now, where the adapter knows them, and again before each launch under it.
+          else logins?.furnish(this.accounts.addMade(name, this.options.roleAdapter.name).folder);
           // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
           this.send(socket, { type: "done", requestId: message.requestId });
           this.broadcastAccounts();
@@ -946,6 +950,30 @@ export class Daemon {
         } catch (error) {
           this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
         }
+        return;
+      }
+      case "removeAccount": {
+        void this.removeAccount(socket, message);
+        return;
+      }
+      case "signIn": {
+        void this.signIn(socket, message);
+        return;
+      }
+      case "readSignIn": {
+        const read = async (): Promise<void> => {
+          try {
+            const { id } = message as { id: unknown };
+            if (typeof id !== "number") throw new Error("An account is named by its id.");
+            const changed = await this.readLogin(this.loginsOf(id).account);
+            // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            if (changed) this.broadcastAccounts();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        void read();
         return;
       }
       case "removeRepository": {
@@ -1533,6 +1561,98 @@ export class Daemon {
     return { accountDir, configDir: accountDir ?? this.options.roleAdapter.defaultLoginFolder?.() ?? null };
   }
 
+  /** The account of an id and the adapter's part of accounts, for a request that signs the account in or reads its login. It throws, with a sentence, for System default, an id the daemon keeps no account under, and an adapter that signs no account in. */
+  private loginsOf(id: number): { account: StoredAccount; logins: AccountLogins } {
+    if (id === SYSTEM_DEFAULT_ID) throw new Error(`${SYSTEM_DEFAULT_NAME} is signed in with the agent in a terminal of your own.`);
+    const account = this.accounts.account(id);
+    if (account === undefined) throw new Error(`No account ${String(id)} is kept.`);
+    const { logins } = this.options.roleAdapter;
+    if (logins === undefined) throw new Error("This agent signs no account in here.");
+    return { account, logins };
+  }
+
+  /** Asks the adapter's agent whether a login stands in an account's folder, keeps its word, and answers whether the word is another than the store held. An account removed while the agent answered keeps nothing. It rejects, with the agent's sentence, where the agent could not say. */
+  private async readLogin(account: StoredAccount): Promise<boolean> {
+    const { logins } = this.loginsOf(account.id);
+    const status = await logins.status(account.folder);
+    return this.accounts.account(account.id) === account && this.accounts.setLogin(account.id, status);
+  }
+
+  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, and a working headless session. */
+  private runningUnder(id: number): string[] {
+    const titleOf = (workItemId: number | null): string => (workItemId === null ? "" : (this.store.workItem(workItemId)?.item.title ?? ""));
+    const panes = [...this.sessions.values()]
+      .filter(({ info }) => info.alive && info.accountId === id)
+      .map(({ info }) => (info.signsIn === id ? "its sign-in pane" : `the ${this.options.paneKinds.find((offered) => offered.kind === info.kind)?.label ?? info.kind} pane in "${titleOf(info.workItemId)}"`));
+    const headless = [...this.headless.values()].filter(({ info }) => info.state === "working" && info.accountId === id).map(({ info }) => `a session asked in "${titleOf(info.workItemId)}"`);
+    return [...panes, ...headless];
+  }
+
+  /**
+   * Removes an account at a request: refused while anything runs under it,
+   * then, for a folder the daemon made, the folder is signed out through the
+   * adapter's agent and removed, and every setting that named the account is
+   * cleared. The repositories whose account that changes have their chain
+   * read again, as a change of their setting has. Something that started
+   * under the account while its folder was signed out refuses the removal,
+   * and the account stays, signed out.
+   */
+  private async removeAccount(socket: WebSocket, message: Extract<ClientMessage, { type: "removeAccount" }>): Promise<void> {
+    try {
+      const { id } = message as { id: unknown };
+      if (typeof id !== "number") throw new Error("An account is named by its id.");
+      if (id === SYSTEM_DEFAULT_ID) throw new Error(`${SYSTEM_DEFAULT_NAME} is never removed.`);
+      const account = this.accounts.account(id);
+      if (account === undefined) throw new Error(`No account ${String(id)} is kept.`);
+      const refused = (running: string[]): Error => new Error(`"${account.name}" is not removed while something runs under it: ${running.join("; ")}.`);
+      if (this.runningUnder(id).length > 0) throw refused(this.runningUnder(id));
+      if (account.made) {
+        const { logins } = this.options.roleAdapter;
+        // A folder the daemon made was signed in through the adapter, and is signed out the same way before it goes, so no login of it is left behind.
+        if (logins === undefined) throw new Error("This agent signs no account out here, so the account's folder stays.");
+        await logins.signOut(account.folder);
+        if (this.runningUnder(id).length > 0) throw refused(this.runningUnder(id));
+        if (this.accounts.account(id) !== account) throw new Error(`No account ${String(id)} is kept.`);
+      }
+      const defaultChanged = this.accounts.remove(id);
+      const cleared = this.store.repositories().filter((repository) => repository.accountId === id);
+      for (const repository of cleared) this.store.setRepository(repository.id, { accountId: null });
+      for (const { item } of this.store.workItems()) if (item.accountId === id) this.store.setWorkItem(item.id, { accountId: null });
+      // A repository set to no account takes the default, so where the default was this account those are read again too.
+      for (const repository of this.store.repositories()) if (cleared.some((was) => was.id === repository.id) || (defaultChanged && repository.accountId === null)) this.readRecords(repository);
+      // The answer first, so the client that asked knows its request was carried out when the accounts and the lists carry the change.
+      this.send(socket, { type: "done", requestId: message.requestId });
+      this.broadcastAccounts();
+      this.broadcastInbox();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** Starts an account's sign-in pane at a request, in the account's folder and under it, and answers with `started`. */
+  private async signIn(socket: WebSocket, message: Extract<ClientMessage, { type: "signIn" }>): Promise<void> {
+    try {
+      const { id, cols, rows } = message as { id: unknown; cols: unknown; rows: unknown };
+      if (typeof id !== "number" || typeof cols !== "number" || typeof rows !== "number") throw new Error("A sign-in is asked for an account's id, with the size of its pane.");
+      const { account, logins } = this.loginsOf(id);
+      if ([...this.sessions.values()].some(({ info }) => info.alive && info.signsIn === id)) throw new Error(`A sign-in of "${account.name}" is open already.`);
+      const command = await logins.signIn(account.folder);
+      if (this.accounts.account(id) !== account) throw new Error(`No account ${String(id)} is kept.`);
+      const info = this.startSession(socket, { kind: "shell", cols, rows }, account.folder, null, false, null, () => command, id);
+      // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
+      this.send(socket, { type: "started", requestId: message.requestId, session: info });
+      this.broadcastInbox();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** Gives the folder of an account the daemon made the person's names it lacks, through the adapter, before a launch under it: nothing for System default, for no account, for a folder handed over and for an adapter that declares no accounts or signs none in. */
+  private furnish(accountId: number | null): void {
+    const account = accountId === null ? undefined : this.accounts.account(accountId);
+    if (account?.made && this.options.roleAdapter.features.includes("accounts")) this.options.roleAdapter.logins?.furnish(account.folder);
+  }
+
   /** Sends every client the accounts and the default one, after either changed. */
   private broadcastAccounts(): void {
     this.broadcast({ type: "accounts", accounts: this.accounts.listed(), defaultAccountId: this.accounts.defaultId() });
@@ -1795,6 +1915,7 @@ export class Daemon {
     // Undefined for System default, which has no folder.
     const account = this.accounts.account(accountId);
     const accountDir = account !== undefined && this.options.roleAdapter.features.includes("accounts") ? account.folder : undefined;
+    this.furnish(accountId);
     const session: HeadlessSession = {
       info: { id: this.nextHeadlessId++, workItemId: item.id, prompt: prompt.shown, state: "working", answer: "", error: null, usage: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role, accountId },
       prompt: prompt.given,
@@ -1883,14 +2004,22 @@ export class Daemon {
    * account or null where it names none, the work item's, the repository's
    * and the default, and its start names that account's folder. `commandOf`
    * gives the command of a pane that runs another than its kind's, as a setup
-   * pane does, which runs under no account.
+   * pane does, which runs under no account. A sign-in pane, `signsIn`, runs
+   * the command `commandOf` gives under the account it signs in, in no work
+   * item, and at its process's end the daemon reads the account's login. A
+   * launch under an account whose folder the daemon made gives that folder
+   * the person's names it lacks first.
    */
-  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false, own: number | null = null, commandOf?: (id: number) => PaneCommand): SessionInfo {
+  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number | null, continueLatest = false, own: number | null = null, commandOf?: (id: number) => PaneCommand, signsIn: number | null = null): SessionInfo {
     const id = this.nextId++;
-    const held = this.store.workItem(workItemId);
+    const held = workItemId === null ? undefined : this.store.workItem(workItemId);
     const repository = held?.repository;
-    const accountId = commandOf || !held || !this.options.paneKinds.some((offered) => offered.kind === pane.kind && offered.accounts === true) ? null : accountFor(own, held.item, held.repository, this.accounts.defaultId());
-    const { command, args, env } = commandOf ? commandOf(id) : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), checkout: repository?.folder ?? cwd, chosen: repository?.paneChain ?? null, ...this.foldersOf(accountId) });
+    const accountId = signsIn ?? (commandOf || !held || !this.options.paneKinds.some((offered) => offered.kind === pane.kind && offered.accounts === true) ? null : accountFor(own, held.item, held.repository, this.accounts.defaultId()));
+    this.furnish(accountId);
+    const launch = commandOf ? commandOf(id) : workItemId === null ? undefined : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), checkout: repository?.folder ?? cwd, chosen: repository?.paneChain ?? null, ...this.foldersOf(accountId) });
+    // Only a pane that runs a command of its own opens in no work item.
+    if (launch === undefined) throw new Error("a pane opens in a work item");
+    const { command, args, env } = launch;
     const terminal = TerminalSession.spawn({
       command,
       args,
@@ -1901,7 +2030,7 @@ export class Daemon {
     });
     let exited = (): void => {};
     const session: Session = {
-      info: { id, kind: pane.kind, alive: true, workItemId, accountId, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
+      info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
       terminal,
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,
@@ -1924,7 +2053,18 @@ export class Daemon {
     terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
       // A setup ends with its pane's process, whether or not the pane is still listed.
-      const setupEnded = this.setupExited(workItemId, id, exitCode, signal, session.ended);
+      const setupEnded = workItemId !== null && this.setupExited(workItemId, id, exitCode, signal, session.ended);
+      // A sign-in ended, however it went, so the account's login is read again. A daemon that is closing reads nothing.
+      if (signsIn !== null && !this.closed) {
+        const account = this.accounts.account(signsIn);
+        if (account !== undefined)
+          void this.readLogin(account).then(
+            (changed) => {
+              if (changed) this.broadcastAccounts();
+            },
+            (error: unknown) => console.error(`the login of account ${String(signsIn)} was not read: ${error instanceof Error ? error.message : String(error)}`),
+          );
+      }
       exited();
       clearTimeout(session.silentStart);
       this.endLog(session);

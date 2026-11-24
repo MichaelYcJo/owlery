@@ -3,7 +3,7 @@
 // connector's shape is held by two adapters from the start
 // (docs/architecture.md, "Rules that keep it portable", rule 3).
 import type { RoleStage, Usage } from "../../shared/protocol";
-import type { PermissionAction, RoleAdapter, RoleEvent, RoleFeature } from "./adapter";
+import type { AccountLogins, PermissionAction, RoleAdapter, RoleEvent, RoleFeature } from "./adapter";
 
 /** One request a fake session raises. With `withdraw` the session withdraws it, and waits for no answer to it. */
 export interface FakeAsk {
@@ -33,6 +33,8 @@ export interface FakeAdapterOptions {
   notice?: string;
   /** The folder the adapter answers as its default login's at every call of `defaultLoginFolder`; none, as an adapter that found none, when absent. */
   defaultLoginFolder?: string;
+  /** What the adapter does with an account's folder, as its `logins`; an adapter that signs no account in when absent. A case gives the Claude Code part with a stand-in for the CLI. */
+  logins?: AccountLogins;
   /** What the turn used, for the prompt and the role the session was started with, if any, on the result of a session that succeeds. Without it, and on the result of a session told to fail, the result carries no usage. */
   usage?: (prompt: string, role?: RoleStage) => Usage | null;
   /** The id and the model a session reports as its own, for the prompt and the role it was started with, if any. Without it each session reports the id `fake-<n>`, counted from 1 in each adapter, and the model `fake`. */
@@ -46,6 +48,7 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
     features: options.features ?? ["role-tools", "permission-requests", "accounts"],
     notice: () => Promise.resolve(options.notice ?? null),
     defaultLoginFolder: () => options.defaultLoginFolder ?? null,
+    ...(options.logins ? { logins: options.logins } : {}),
     start({ prompt, cwd, role, accountDir }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const asks = options.asks?.(prompt, role) ?? [];

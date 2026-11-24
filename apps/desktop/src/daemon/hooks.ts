@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs
 import { createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, join } from "node:path";
 import type { PaneKind } from "../shared/protocol";
-import { CONFIG_DIR_VARIABLE } from "./adapters/claude";
+import { CONFIG_DIR_VARIABLE } from "./adapters/claude-accounts";
 import type { PaneCommand, PaneStart } from "./daemon";
 import { loginShell } from "./pty";
 import { writeWholeFile } from "./whole-file";
