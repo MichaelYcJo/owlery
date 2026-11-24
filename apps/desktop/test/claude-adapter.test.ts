@@ -50,6 +50,12 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
+  it("gives a refresh of an account's usage no tool at all, one turn and no transcript, in place of the default tools less three, and nothing else (scenario 15)", () => {
+    const plain = claudeArgs("/work/tree");
+    const at = plain.indexOf("--disallowedTools");
+    expect(claudeArgs("/work/tree", undefined, true)).toEqual([...plain.slice(0, at), "--tools", "", "--max-turns", "1", "--no-session-persistence", ...plain.slice(at + 2)]);
+  });
+
   it("gives a role launch the role's tools as one value in place of the default tools, then the bundle, the role's agent and the rules file, and the bundle's folder after the worktree, and nothing else", () => {
     const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"] };
     expect(claudeArgs("/work/tree", role)).toEqual([
@@ -206,9 +212,44 @@ describe("the Claude adapter's run", () => {
     return events;
   }
 
-  it("declares its name and the three features: it sets a session's tools by its role, it reports permission requests and takes their answers, and it launches a session under an account's folder", () => {
+  it("declares its name and the four features: it sets a session's tools by its role, it reports permission requests and takes their answers, it launches a session under an account's folder, and it starts the refresh of an account's usage", () => {
     expect(claudeAdapter({}).name).toBe("claude");
-    expect(claudeAdapter({}).features).toEqual(["role-tools", "permission-requests", "accounts"]);
+    expect(claudeAdapter({}).features).toEqual(["role-tools", "permission-requests", "accounts", "limit-refresh"]);
+  });
+
+  it("launches a refresh with the arguments of a refresh under the account's folder, and reports the limit its stream hands over before its result (scenario 15)", async () => {
+    const folder = temporaryFolder();
+    const cwd = temporaryFolder();
+    const account = temporaryFolder();
+    const cli = script(
+      folder,
+      "cli",
+      [
+        `for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`,
+        `env | sort > '${folder}/env'`,
+        `echo '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1800000000,"rateLimitType":"five_hour","utilization":0.3}}'`,
+        `echo '{"type":"result","is_error":false,"result":"OK","total_cost_usd":0.002}'`,
+        "cat > /dev/null",
+        "exit 0",
+      ].join("\n"),
+    );
+    const adapter = claudeAdapter(fakeShell(folder, cli).env);
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      adapter
+        .start({ prompt: "Reply with the single word OK.", cwd, accountDir: account, refresh: true }, (event) => {
+          events.push(event);
+          if (event.type === "exit") resolve();
+        })
+        .catch(reject);
+    });
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(cwd, undefined, true));
+    expect(readFileSync(join(folder, "env"), "utf8").split("\n")).toContain(`CLAUDE_CONFIG_DIR=${account}`);
+    expect(events).toEqual([
+      { type: "limit", status: "ok", used: 0.3, resetsAt: 1_800_000_000_000, window: "five_hour" },
+      { type: "result", text: "OK", isError: false, usage: { costUsd: 0.002, converted: true, models: [] } },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
   });
 
   it("launches the CLI with the account's folder as CLAUDE_CONFIG_DIR where it is given one, over the login shell's, with the login shell's where it is given none, and with no such name where the shell holds none either (the role session's half of scenario 3)", async () => {
@@ -1212,14 +1253,31 @@ describe("the output stream, as one real run printed it", () => {
       isError: false,
       usage: { costUsd: 0.0508754, converted: true, models: [{ model: "claude-opus-5-5", inputTokens: 2, outputTokens: 4, cacheReadTokens: 11617, cacheWriteTokens: 6058, costUsd: 0.0508754 }] },
     });
-    expect(events).toHaveLength(texts.length + 1);
+    // The answer's pieces, the one limit of the run's `rate_limit_event` line, and the result.
+    expect(events).toHaveLength(texts.length + 2);
   });
 
-  it("drops every line that is neither the answer's text nor the result", () => {
+  it("drops every line that is neither the answer's text, nor the limit, nor the result", () => {
     for (const line of lines) {
       const type = typeOf(line);
-      if (type !== "assistant" && type !== "result") expect(eventsForLine(line), type).toEqual([]);
+      if (type !== "assistant" && type !== "result" && type !== "rate_limit_event") expect(eventsForLine(line), type).toEqual([]);
     }
+  });
+
+  it("maps the run's `rate_limit_event` line, which a turn far from any limit printed, to one limit for each window of its `unifiedWindows`, named by the window, with a reset of 0 as none (scenario 15)", () => {
+    const line = lines.find((recorded) => typeOf(recorded) === "rate_limit_event")!;
+    expect(eventsForLine(line)).toEqual([{ type: "limit", status: "ok", used: 0, resetsAt: null, window: "seven_day" }]);
+  });
+
+  it("maps a limit line with no windows by its own values, named by `rateLimitType`, and gives null for each value the line holds in no form of the reference's (scenario 15)", () => {
+    const limit = (info: object) => eventsForLine(JSON.stringify({ type: "rate_limit_event", rate_limit_info: info }));
+    expect(limit({ status: "allowed_warning", utilization: 0.8, resetsAt: 1_800_000_000, rateLimitType: "five_hour" })).toEqual([{ type: "limit", status: "near", used: 0.8, resetsAt: 1_800_000_000_000, window: "five_hour" }]);
+    // A reset too large for seconds is read as milliseconds.
+    expect(limit({ status: "rejected", resetsAt: 1_800_000_000_000 })).toEqual([{ type: "limit", status: "reached", used: null, resetsAt: 1_800_000_000_000, window: null }]);
+    expect(limit({ status: "throttled", utilization: 80, resetsAt: "soon", rateLimitType: "" })).toEqual([{ type: "limit", status: null, used: null, resetsAt: null, window: null }]);
+    expect(limit({ unifiedWindows: { five_hour: { status: "allowed", utilization: 0.5, resetsAt: 1_800_000_000 }, seven_day: "full" } })).toEqual([{ type: "limit", status: "ok", used: 0.5, resetsAt: 1_800_000_000_000, window: "five_hour" }]);
+    expect(eventsForLine('{"type":"rate_limit_event"}')).toEqual([]);
+    expect(eventsForLine('{"type":"rate_limit_event","rate_limit_info":[]}')).toEqual([]);
   });
 
   it("drops a line that is not JSON, or is JSON of another shape", () => {

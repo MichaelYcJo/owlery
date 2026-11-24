@@ -344,7 +344,29 @@ export interface Account {
   folder: string | null;
   signedIn: boolean | null;
   loginEndsAt: number | null;
+  /** The last limit value the account's headless sessions handed over, one for each `window`, in the order each window first arrived. The daemon keeps them in its run folder, so they outlive it. */
+  limits: AccountLimit[];
+  /** The refresh of the account's usage that runs, or how the last one ended, and null where none ran since the daemon started. */
+  refresh: AccountRefresh | null;
 }
+
+/**
+ * What a session's agent last said of its account's usage limit, each value
+ * null where the agent gave none: whether the limit is far, near or
+ * reached, the part of it used as a fraction from 0 to 1, the daemon's clock
+ * at which it resets, the limit's name where the agent names one, and the
+ * daemon's clock at the value's arrival.
+ */
+export interface AccountLimit {
+  status: "ok" | "near" | "reached" | null;
+  used: number | null;
+  resetsAt: number | null;
+  window: string | null;
+  at: number;
+}
+
+/** A refresh of an account's usage: running since the daemon's clock `startedAt`, or ended at `at`, with how many limit values its session handed over, what its turn reported it used, and why it failed, or null where it gave its result. */
+export type AccountRefresh = { state: "running"; startedAt: number } | { state: "ended"; at: number; handed: number; usage: Usage | null; error: string | null };
 
 /**
  * The account a new session of a work item takes: the session's own where
@@ -752,6 +774,8 @@ export type ClientMessage =
   | { type: "signIn"; requestId: number; id: number; cols: number; rows: number }
   // Asks the adapter's agent again whether a login stands in an account's folder, and keeps its word. Refused with a sentence for System default, for an id the daemon keeps no account under, where the role adapter signs no account in, and where the agent could not say. The daemon answers with `done`, before the `accounts` that carries a change.
   | { type: "readSignIn"; requestId: number; id: number }
+  // Refreshes the usage of the account `id`, System default among them, on the person's press and at nothing else: the daemon starts one session of the adapter's agent under the account, with no role, no tool, one turn and no transcript, in an empty folder of its own, keeps the limit values its stream hands over in the account's `limits`, and ends it at its result or after one minute. It is refused with a sentence, and nothing starts, for an id the daemon keeps no account under, where the role adapter declares no refresh (`refreshesUsage`), while a refresh of the account runs, and while a live pane or a working headless session runs under the account, which hands over its values itself. The daemon answers with `done`, before the `accounts` that carries the refresh as running, and a later `accounts` carries how it ended. A refresh is no entry of the ledger.
+  | { type: "refreshUsage"; requestId: number; id: number }
   // Changes the account of the Claude Code pane `id` whose process runs to the account `accountId`, System default among them: the daemon ends the pane's process, waits for its exit, and starts the agent in the same pane under the new account on the conversation the pane's hook events last named, or anew where they named none. A turn under way is cut. It is refused with a sentence, and nothing is ended, for a headless session (`headless`), a sign-in pane, a shell, a pane whose process ended, an account the daemon does not keep or the one the pane runs under, and where the two accounts' folders do not keep the same conversations. The daemon answers with `done`, before the `inbox` that names the pane's new account.
   | { type: "changeAccount"; requestId: number; id: number; accountId: number; headless?: true }
   // Takes a repository and its work items, the archived among them, off the daemon's lists. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Without `delete` it removes nothing on disk: the repository, each worktree's folder and each branch stay. It ends the sessions named, and refuses where a pane's process has not exited within its wait. With `delete`, which the person chose, it deletes each work item from disk first, one after another, as a `deleteWorkItem` does with the stamp `stamps` holds under that work item's id and with `force`. It refuses before the first delete, and ends nothing, where `stamps` holds no stamp for a work item, where a session runs that the message does not name, and while an archive is ending the sessions of one of the work items. Where one delete is refused or fails, the removal stops there: the refusal opens with that work item's title, the work items deleted before it are gone, and the repository and the others stay. The repository's own folder is never touched. The daemon answers with `done`.
@@ -812,8 +836,8 @@ export type ClientMessage =
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts.
-  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number }
+  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no.
+  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean }
   // The whole of the four lists, sent to every client whenever one of them changes.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
@@ -842,7 +866,7 @@ export type ServerMessage =
   // A headless session that ended left the daemon's list, which keeps the sessions that ended last and every one still working. Sent to every client.
   | { type: "headlessDropped"; id: number }
   // The accounts and the default one, as `ready` carries them, sent to every client whenever either changes.
-  | { type: "accounts"; accounts: Account[]; defaultAccountId: number }
+  | { type: "accounts"; accounts: Account[]; defaultAccountId: number; refreshesUsage?: boolean }
   // The choice and whether the hold stands, sent to every client whenever either changes.
   | { type: "keepAwake"; keepAwake: KeepAwake }
   // The adapter's notice of its agent, sent to every client whenever it changes: the sentence, or null once there is nothing to say.

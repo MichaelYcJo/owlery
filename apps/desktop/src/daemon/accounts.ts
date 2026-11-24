@@ -1,12 +1,15 @@
 import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { type Account, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME } from "../shared/protocol";
+import { type Account, type AccountLimit, type AccountRefresh, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME } from "../shared/protocol";
 import { writeWholeFile } from "./whole-file";
 
 const FILE = "accounts.json";
 
-/** The folder of the run folder that holds the folders the daemon makes for accounts, each named by its account's id. */
+/** The folder of the run folder that holds the folders the daemon makes for accounts, each named by its account's id, and the empty folder a refresh of usage runs in. */
 export const MADE_FOLDERS = "accounts";
+
+/** The folder of `MADE_FOLDERS` a refresh of usage runs in. No account's id is this name. */
+const REFRESH_FOLDER = "refresh";
 
 /** An account as the store keeps it: the name a person gave it, the adapter whose agent it is a login of, its config folder, whether Owlery made that folder, and the agent's last word on its login. */
 export interface StoredAccount {
@@ -19,13 +22,16 @@ export interface StoredAccount {
   signedIn: boolean | null;
   /** The daemon's clock at which that login is expected to end, and null where the agent named no end or has said nothing yet. */
   loginEndsAt: number | null;
+  /** The last limit value its sessions handed over, one for each window (`Account.limits`). */
+  limits: AccountLimit[];
 }
 
-/** What `accounts.json` holds: the id the next account takes, the default account's id, and the accounts. */
+/** What `accounts.json` holds: the id the next account takes, the default account's id, the accounts, and System default's limit values, since System default is no entry of the accounts. */
 interface Stored {
   nextId: number;
   defaultId: number;
   accounts: StoredAccount[];
+  systemLimits: AccountLimit[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -34,7 +40,19 @@ function isStoredAccount(value: unknown): value is StoredAccount {
   return isRecord(value) && Number.isInteger(value.id) && (value.id as number) > SYSTEM_DEFAULT_ID && typeof value.name === "string" && typeof value.adapter === "string" && typeof value.folder === "string" && typeof value.made === "boolean";
 }
 
-function isStored(value: unknown): value is Stored {
+const LIMIT_STATES: readonly unknown[] = ["ok", "near", "reached", null];
+const numberOrNull = (value: unknown): boolean => value === null || (typeof value === "number" && Number.isFinite(value));
+
+function isLimit(value: unknown): value is AccountLimit {
+  return isRecord(value) && LIMIT_STATES.includes(value.status) && numberOrNull(value.used) && numberOrNull(value.resetsAt) && (value.window === null || typeof value.window === "string") && typeof value.at === "number" && Number.isFinite(value.at);
+}
+
+/** The limit values a file holds, each in its form, and none for a file of a build before them. */
+function limitsOf(value: unknown): AccountLimit[] {
+  return Array.isArray(value) ? value.filter(isLimit).map(({ status, used, resetsAt, window, at }) => ({ status, used, resetsAt, window, at })) : [];
+}
+
+function isStored(value: unknown): value is Omit<Stored, "systemLimits"> & { systemLimits?: unknown } {
   return isRecord(value) && Number.isInteger(value.nextId) && Number.isInteger(value.defaultId) && Array.isArray(value.accounts) && value.accounts.every(isStoredAccount);
 }
 
@@ -74,7 +92,7 @@ function realOf(folder: string): string {
  */
 export class AccountStore {
   private readonly file: string | undefined;
-  private stored: Stored = { nextId: SYSTEM_DEFAULT_ID + 1, defaultId: SYSTEM_DEFAULT_ID, accounts: [] };
+  private stored: Stored = { nextId: SYSTEM_DEFAULT_ID + 1, defaultId: SYSTEM_DEFAULT_ID, accounts: [], systemLimits: [] };
 
   constructor(runDir: string | undefined) {
     this.file = runDir === undefined ? undefined : join(runDir, FILE);
@@ -87,12 +105,14 @@ export class AccountStore {
     }
     if (!isStored(value)) return;
     // A file of a build before sign-in holds no word on a login, and reads as one the agent has said nothing of.
-    const accounts = value.accounts.map(({ id, name, adapter, folder, made, signedIn, loginEndsAt }) => ({ id, name, adapter, folder, made, signedIn: typeof signedIn === "boolean" ? signedIn : null, loginEndsAt: typeof loginEndsAt === "number" && Number.isFinite(loginEndsAt) ? loginEndsAt : null }));
+    // A file of a build before usage holds no limit value, and reads as one no session handed any over to.
+    const accounts = value.accounts.map(({ id, name, adapter, folder, made, signedIn, loginEndsAt, limits }) => ({ id, name, adapter, folder, made, signedIn: typeof signedIn === "boolean" ? signedIn : null, loginEndsAt: typeof loginEndsAt === "number" && Number.isFinite(loginEndsAt) ? loginEndsAt : null, limits: limitsOf(limits) }));
     const highest = accounts.reduce((most, account) => Math.max(most, account.id), SYSTEM_DEFAULT_ID);
     this.stored = {
       nextId: Math.max(value.nextId, highest + 1),
       defaultId: accounts.some((account) => account.id === value.defaultId) ? value.defaultId : SYSTEM_DEFAULT_ID,
       accounts,
+      systemLimits: limitsOf(value.systemLimits),
     };
   }
 
@@ -115,9 +135,40 @@ export class AccountStore {
     return this.stored.defaultId;
   }
 
-  /** The accounts as a client is sent them: System default first, then the others in the order they were added. */
-  listed(): Account[] {
-    return [{ id: SYSTEM_DEFAULT_ID, name: SYSTEM_DEFAULT_NAME, made: false, folder: null, signedIn: null, loginEndsAt: null }, ...this.stored.accounts.map(({ id, name, made, folder, signedIn, loginEndsAt }) => ({ id, name, made, folder, signedIn, loginEndsAt }))];
+  /** The accounts as a client is sent them: System default first, then the others in the order they were added, each with the refresh `refreshOf` gives of its id, which the store does not keep. */
+  listed(refreshOf: (id: number) => AccountRefresh | null = () => null): Account[] {
+    const limits = (kept: readonly AccountLimit[]): AccountLimit[] => kept.map((limit) => ({ ...limit }));
+    return [
+      { id: SYSTEM_DEFAULT_ID, name: SYSTEM_DEFAULT_NAME, made: false, folder: null, signedIn: null, loginEndsAt: null, limits: limits(this.stored.systemLimits), refresh: refreshOf(SYSTEM_DEFAULT_ID) },
+      ...this.stored.accounts.map(({ id, name, made, folder, signedIn, loginEndsAt, limits: kept }) => ({ id, name, made, folder, signedIn, loginEndsAt, limits: limits(kept), refresh: refreshOf(id) })),
+    ];
+  }
+
+  /**
+   * Keeps a limit value a session of the account `id`, System default among
+   * them, handed over at the daemon's clock `at`, in place of the last one
+   * of its window, or after the others where its window had none. It answers
+   * whether it kept it, which it does not for an id the store keeps no
+   * account under, as one removed while its session ran.
+   */
+  setLimit(id: number, limit: Omit<AccountLimit, "at">, at: number): boolean {
+    const kept = id === SYSTEM_DEFAULT_ID ? this.stored.systemLimits : this.account(id)?.limits;
+    if (kept === undefined) return false;
+    const { status, used, resetsAt, window } = limit;
+    const value: AccountLimit = { status, used, resetsAt, window, at };
+    const index = kept.findIndex((was) => was.window === window);
+    if (index === -1) kept.push(value);
+    else kept[index] = value;
+    this.write();
+    return true;
+  }
+
+  /** The empty folder of the run folder a refresh of usage runs in, made readable by the user alone where it does not stand. It throws, with a sentence a person reads, where the store keeps no run folder. */
+  refreshFolder(): string {
+    if (this.file === undefined) throw new Error("This daemon keeps no run folder to run a refresh in.");
+    const folder = join(dirname(this.file), MADE_FOLDERS, REFRESH_FOLDER);
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    return folder;
   }
 
   /**
@@ -144,7 +195,7 @@ export class AccountStore {
     const real = realOf(path);
     const holder = this.stored.accounts.find((account) => realOf(account.folder) === real);
     if (holder) throw new Error(`The folder ${folder} is already the account "${holder.name}".`);
-    const account: StoredAccount = { id: this.stored.nextId++, name: named, adapter, folder: path, made: false, signedIn: null, loginEndsAt: null };
+    const account: StoredAccount = { id: this.stored.nextId++, name: named, adapter, folder: path, made: false, signedIn: null, loginEndsAt: null, limits: [] };
     this.stored.accounts.push(account);
     this.write();
     return account;
@@ -169,7 +220,7 @@ export class AccountStore {
     while (stands(join(holder, String(id)))) id += 1;
     const folder = join(holder, String(id));
     mkdirSync(folder, { mode: 0o700 });
-    const account: StoredAccount = { id, name: named, adapter, folder, made: true, signedIn: null, loginEndsAt: null };
+    const account: StoredAccount = { id, name: named, adapter, folder, made: true, signedIn: null, loginEndsAt: null, limits: [] };
     this.stored.nextId = id + 1;
     this.stored.accounts.push(account);
     this.write();

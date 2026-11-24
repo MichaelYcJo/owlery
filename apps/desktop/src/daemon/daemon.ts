@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { accountFor, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -141,6 +141,12 @@ const END_WAIT_MS = 3000;
 /** How long a headless session may work, from its start, before the daemon stops it, where the options name no time. */
 export const HEADLESS_LIMIT_MS = 60 * 60_000;
 
+/** How long a refresh of an account's usage may run, from its start, before the daemon stops it, where the options name no time. */
+export const REFRESH_LIMIT_MS = 60_000;
+
+/** What the session of a refresh is given: a prompt that asks for nothing, since only the limit values its stream hands over are read. */
+export const REFRESH_PROMPT = "Reply with the single word OK.";
+
 /** How many of the headless sessions that ended the daemon keeps, where the options name no number. */
 export const HEADLESS_KEPT = 50;
 
@@ -259,6 +265,8 @@ export interface DaemonOptions {
   endWaitMs?: number;
   /** How long a headless session may work, from its start, before the daemon stops it; `HEADLESS_LIMIT_MS` when absent. */
   headlessLimitMs?: number;
+  /** How long a refresh of an account's usage may run, from its start, before the daemon stops it; `REFRESH_LIMIT_MS` when absent. */
+  refreshLimitMs?: number;
   /** How many of the headless sessions that ended the daemon keeps, apart from the ones still working; `HEADLESS_KEPT` when absent. */
   keptHeadless?: number;
   /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer; `ROUNDS_CEILING` of `chain.ts` when absent. */
@@ -373,6 +381,9 @@ export class Daemon {
   private nextId = 1;
   // The headless sessions, by an id counted apart from the panes'. They live in memory alone.
   private readonly headless = new Map<number, HeadlessSession>();
+  // The last refresh of each account's usage since the daemon started, by the account's id, and what stops each one that runs.
+  private readonly refreshes = new Map<number, AccountRefresh>();
+  private readonly refreshStops = new Map<number, () => Promise<void>>();
   private nextHeadlessId = 1;
   // The ids of the permission requests that wait for the person, counted across every session since the daemon started.
   private nextPermissionId = 1;
@@ -698,6 +709,8 @@ export class Daemon {
       if (session.info.state === "working") this.enter(session, "failed", "daemon");
       if (session.run) stops.push(session.run.stop());
     }
+    for (const stop of this.refreshStops.values()) stops.push(stop());
+    this.refreshStops.clear();
     // A broad gate's command is ended as a stage's session is: its chain's run waits for the command's process, and the close waits for that run.
     for (const id of this.gates.keys()) {
       const stopping = this.stopGate(id, "daemon", "the daemon closed");
@@ -773,7 +786,7 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, accounts: this.accounts.listed(), defaultAccountId: this.accounts.defaultId() });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage() });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -976,6 +989,10 @@ export class Daemon {
       }
       case "changeAccount": {
         void this.changeAccount(socket, message);
+        return;
+      }
+      case "refreshUsage": {
+        void this.refreshUsage(socket, message);
         return;
       }
       case "readSignIn": {
@@ -1597,14 +1614,14 @@ export class Daemon {
     return this.accounts.setLogin(account.id, status);
   }
 
-  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, and a working headless session. */
+  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, a working headless session, and a refresh of its usage. */
   private runningUnder(id: number): string[] {
     const titleOf = (workItemId: number | null): string => (workItemId === null ? "" : (this.store.workItem(workItemId)?.item.title ?? ""));
     const panes = [...this.sessions.values()]
       .filter(({ info }) => info.alive && info.accountId === id)
       .map(({ info }) => (info.signsIn === id ? "its sign-in pane" : `the ${this.options.paneKinds.find((offered) => offered.kind === info.kind)?.label ?? info.kind} pane in "${titleOf(info.workItemId)}"`));
     const headless = [...this.headless.values()].filter(({ info }) => info.state === "working" && info.accountId === id).map(({ info }) => `a session asked in "${titleOf(info.workItemId)}"`);
-    return [...panes, ...headless];
+    return [...panes, ...headless, ...(this.refreshes.get(id)?.state === "running" ? ["a refresh of its usage"] : [])];
   }
 
   /**
@@ -1753,7 +1770,93 @@ export class Daemon {
 
   /** Sends every client the accounts and the default one, after either changed. */
   private broadcastAccounts(): void {
-    this.broadcast({ type: "accounts", accounts: this.accounts.listed(), defaultAccountId: this.accounts.defaultId() });
+    this.broadcast({ type: "accounts", ...this.accountsMessage() });
+  }
+
+  /** The accounts as a message carries them: each with its refresh, the default one, and whether the adapter refreshes usage. */
+  private accountsMessage(): { accounts: Account[]; defaultAccountId: number; refreshesUsage: boolean } {
+    return { accounts: this.accounts.listed((id) => this.refreshes.get(id) ?? null), defaultAccountId: this.accounts.defaultId(), refreshesUsage: this.options.roleAdapter.features.includes("limit-refresh") };
+  }
+
+  /**
+   * Refreshes an account's usage at a request, the person's press: refused
+   * while something runs under the account, which hands over its values
+   * itself, and while a refresh of it runs. Otherwise the daemon starts one
+   * session through the adapter under the account, as a headless session of
+   * it would be launched but with no role and as a refresh, in the empty
+   * folder of its run folder, so no repository's file is read. It keeps the
+   * limit values the session hands over, and ends the session at its result
+   * or after `REFRESH_LIMIT_MS`. The refresh is no headless session of a
+   * work item, so it is listed with its account and gets no entry in the
+   * ledger.
+   */
+  private async refreshUsage(socket: WebSocket, message: Extract<ClientMessage, { type: "refreshUsage" }>): Promise<void> {
+    const now = this.options.now ?? Date.now;
+    let id: number;
+    let cwd: string;
+    const adapter = this.options.roleAdapter;
+    try {
+      const { id: named } = message as { id: unknown };
+      if (typeof named !== "number") throw new Error("A refresh of usage names the account.");
+      id = named;
+      if (!this.accounts.holds(id)) throw new Error(`No account ${String(id)} is kept.`);
+      if (!adapter.features.includes("limit-refresh")) throw new Error(`The ${adapter.name} adapter does not refresh an account's usage.`);
+      if (this.refreshes.get(id)?.state === "running") throw new Error(`The usage of "${this.accountNamed(id)}" is being refreshed already.`);
+      const running = this.runningUnder(id);
+      if (running.length > 0) throw new Error(`The usage of "${this.accountNamed(id)}" is not refreshed while something runs under it, which hands over its values itself: ${running.join("; ")}.`);
+      cwd = this.accounts.refreshFolder();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    const account = this.accounts.account(id);
+    const accountDir = account !== undefined && adapter.features.includes("accounts") ? account.folder : undefined;
+    this.furnish(id);
+    this.refreshes.set(id, { state: "running", startedAt: now() });
+    // The answer first, so the client that asked knows its request was carried out when the accounts carry the refresh.
+    this.send(socket, { type: "done", requestId: message.requestId });
+    this.broadcastAccounts();
+    let handed = 0;
+    let usage: Usage | null = null;
+    let run: RoleRun | undefined;
+    let ended = false;
+    const stopRun = (): Promise<void> => run?.stop() ?? Promise.resolve();
+    const end = (error: string | null): void => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(limit);
+      this.refreshStops.delete(id);
+      void stopRun();
+      if (this.closed) return;
+      // An account removed while its refresh ran keeps nothing of it.
+      if (this.accounts.holds(id)) this.refreshes.set(id, { state: "ended", at: now(), handed, usage, error });
+      else this.refreshes.delete(id);
+      this.broadcastAccounts();
+    };
+    const limit = setTimeout(() => end("The refresh gave no result within a minute and was stopped."), this.options.refreshLimitMs ?? REFRESH_LIMIT_MS);
+    this.refreshStops.set(id, () => {
+      ended = true;
+      clearTimeout(limit);
+      return stopRun();
+    });
+    const onEvent = (event: RoleEvent): void => {
+      if (ended) return;
+      if (event.type === "limit") {
+        handed += 1;
+        this.accounts.setLimit(id, event, now());
+      } else if (event.type === "permission") run?.answer(event.id, { allow: false, reason: "A refresh of usage holds no tool." });
+      else if (event.type === "result") {
+        usage = event.usage;
+        end(event.isError ? event.text || "The refresh's session ended with an error." : null);
+      } else if (event.type === "exit") end(`The refresh's session exited with code ${String(event.exitCode)} and gave no result.`);
+    };
+    try {
+      run = await adapter.start({ prompt: REFRESH_PROMPT, cwd, refresh: true, ...(accountDir === undefined ? {} : { accountDir }) }, onEvent);
+      // A refresh that ended while the adapter was starting, at its limit or at the daemon's close, stopped no run.
+      if (ended) void run.stop();
+    } catch (error) {
+      end(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** The worktree of the work item a request names; where it has none to run in (`whyNoRun`), the request is answered with an error. */
@@ -1919,6 +2022,11 @@ export class Daemon {
       this.headlessChanged(session);
     };
     const onEvent = (event: RoleEvent): void => {
+      // What a session says of its account's limit is kept whenever it says it, so an account that runs sessions shows its values with no refresh.
+      if (event.type === "limit") {
+        if (this.accounts.setLimit(session.account.id, event, (this.options.now ?? Date.now)())) this.broadcastAccounts();
+        return;
+      }
       if (event.type === "exit") {
         // A session that left the list is told to nobody again.
         if (this.headless.get(info.id) !== session) return;

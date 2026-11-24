@@ -43,11 +43,37 @@ describe("the fake adapter", () => {
     expect((await runWhole(fakeAdapter({ fail: "exit" }), "Q")).map((event) => event.type)).toEqual(["session", "exit"]);
   });
 
-  it("declares its name and the three features, or the list it was told to declare in their place", () => {
+  it("declares its name and the four features, or the list it was told to declare in their place", () => {
     expect(fakeAdapter().name).toBe("fake");
-    expect(fakeAdapter().features).toEqual(["role-tools", "permission-requests", "accounts"]);
+    expect(fakeAdapter().features).toEqual(["role-tools", "permission-requests", "accounts", "limit-refresh"]);
     expect(fakeAdapter({ features: ["role-tools"] }).features).toEqual(["role-tools"]);
     expect(fakeAdapter({ features: [] }).features).toEqual([]);
+  });
+
+  it("reports the limits it was given for the prompt, the role and whether the session is a refresh, after the answer and before the result, and none where it was given none (scenario 15)", async () => {
+    const given: [string, string | undefined, boolean][] = [];
+    const adapter = fakeAdapter({
+      limits: (prompt, role, refresh) => {
+        given.push([prompt, role?.role, refresh]);
+        return refresh ? [{ status: "near", used: 0.9, resetsAt: null, window: "five_hour" }] : [];
+      },
+    });
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      adapter
+        .start({ prompt: "OK?", cwd: "/nowhere", refresh: true }, (event) => {
+          events.push(event);
+          if (event.type === "exit") resolve();
+        })
+        .catch(reject);
+    });
+    expect(events.map((event) => event.type)).toEqual(["session", "text", "limit", "result", "exit"]);
+    expect(events[2]).toEqual({ type: "limit", status: "near", used: 0.9, resetsAt: null, window: "five_hour" });
+    expect((await run(adapter, "Q", { role: "proofer", stage: "round" })).map((event) => event.type)).toEqual(["text", "result", "exit"]);
+    expect(given).toEqual([
+      ["OK?", undefined, true],
+      ["Q", "proofer", false],
+    ]);
   });
 
   it("answers a prompt with a text that quotes it, then the result and exit 0", async () => {

@@ -20,7 +20,9 @@ export type RoleEvent =
   // The agent asks to make one call, and makes none of it before `RoleRun.answer` is called with this `id`. `path` is the file a read or a write names, and null otherwise. `text` is what a person reads of the call: the path, the command, or the call's input, 2,000 characters at most, and a cut text ends with a mark that says so.
   | { type: "permission"; id: string; tool: string; action: PermissionAction; path: string | null; text: string }
   // The agent no longer waits for an answer to the request `id`.
-  | { type: "permission-withdrawn"; id: string };
+  | { type: "permission-withdrawn"; id: string }
+  // What the agent's stream says of the usage limit of the account the session runs under, each value null where the agent gave none: whether the limit is far (`ok`), near or reached, the part of it used as a fraction from 0 to 1, the time in milliseconds since the epoch at which it resets, and the limit's name where the agent names one.
+  | { type: "limit"; status: "ok" | "near" | "reached" | null; used: number | null; resetsAt: number | null; window: string | null };
 
 export interface RoleRun {
   /**
@@ -32,8 +34,8 @@ export interface RoleRun {
   answer(id: string, answer: { allow: true } | { allow: false; reason: string }): void;
 }
 
-/** A feature an adapter can declare: it sets a session's tools by its role, it reports permission requests and takes their answers, and it launches a session under the account whose config folder it is given. */
-export type RoleFeature = "role-tools" | "permission-requests" | "accounts";
+/** A feature an adapter can declare: it sets a session's tools by its role, it reports permission requests and takes their answers, it launches a session under the account whose config folder it is given, and it starts the short session that refreshes an account's usage (`refresh`). */
+export type RoleFeature = "role-tools" | "permission-requests" | "accounts" | "limit-refresh";
 
 export interface RoleAdapter {
   readonly name: string;
@@ -46,10 +48,13 @@ export interface RoleAdapter {
    * the adapter's agent takes a role through; without it the session has no
    * role. With `accountDir`, which the daemon gives only an adapter that
    * declares `accounts`, the session runs under the login that config folder
-   * holds. The promise rejects, with a message a person can read, where no
-   * session started.
+   * holds. With `refresh`, which the daemon gives only an adapter that
+   * declares `limit-refresh` and never with a role, the session holds no
+   * tool, takes one turn and writes no transcript, and is started only for
+   * the `limit` events its stream hands over. The promise rejects, with a
+   * message a person can read, where no session started.
    */
-  start(options: { prompt: string; cwd: string; role?: RoleStage; accountDir?: string }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
+  start(options: { prompt: string; cwd: string; role?: RoleStage; accountDir?: string; refresh?: true }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
   /**
    * What a person should know of the adapter's agent before any session
    * starts, as a sentence a window shows as it is, or null where there is

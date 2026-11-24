@@ -21,7 +21,7 @@ export interface FakeAdapterOptions {
   asks?: (prompt: string, role?: RoleStage) => FakeAsk[];
   /** What a session does in its folder before the first piece of its answer, after its requests were answered: it is called with the folder, the prompt and the role the session was started with, if any, and awaited. A case's crafter commits a fix and appends a close block through it. */
   work?: (cwd: string, prompt: string, role?: RoleStage) => void | Promise<void>;
-  /** The features the adapter declares, in place of all three. */
+  /** The features the adapter declares, in place of all four. */
   features?: readonly RoleFeature[];
   /** `start`: no session starts. `result`: the turn ends with an error, and exit 1. `exit`: the process exits 1 without a result. */
   fail?: "start" | "result" | "exit";
@@ -37,6 +37,8 @@ export interface FakeAdapterOptions {
   logins?: AccountLogins;
   /** What the turn used, for the prompt and the role the session was started with, if any, on the result of a session that succeeds. Without it, and on the result of a session told to fail, the result carries no usage. */
   usage?: (prompt: string, role?: RoleStage) => Usage | null;
+  /** The limit values a session's stream hands over, for the prompt and the role it was started with, if any, and whether it was started as a refresh: each is reported as a `limit` event after the pieces of the answer and before its result. None when absent. */
+  limits?: (prompt: string, role: RoleStage | undefined, refresh: boolean) => Omit<Extract<RoleEvent, { type: "limit" }>, "type">[];
   /** The id and the model a session reports as its own, for the prompt and the role it was started with, if any. Without it each session reports the id `fake-<n>`, counted from 1 in each adapter, and the model `fake`. */
   session?: (prompt: string, role?: RoleStage) => { id: string; model: string | null };
 }
@@ -45,11 +47,11 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
   let sessions = 0;
   return {
     name: "fake",
-    features: options.features ?? ["role-tools", "permission-requests", "accounts"],
+    features: options.features ?? ["role-tools", "permission-requests", "accounts", "limit-refresh"],
     notice: () => Promise.resolve(options.notice ?? null),
     defaultLoginFolder: () => options.defaultLoginFolder ?? null,
     ...(options.logins ? { logins: options.logins } : {}),
-    start({ prompt, cwd, role, accountDir }, listener) {
+    start({ prompt, cwd, role, accountDir, refresh }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const asks = options.asks?.(prompt, role) ?? [];
       const under = accountDir === undefined ? "" : ` under the config folder ${accountDir}`;
@@ -94,6 +96,7 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
         await options.work?.(cwd, prompt, role);
         if (stopped) return;
         for (const text of pieces) await report({ type: "text", text });
+        for (const limit of options.limits?.(prompt, role, refresh === true) ?? []) await report({ type: "limit", ...limit });
         await report({ type: "result", text: [...said, ...pieces].join(""), isError: false, usage: options.usage?.(prompt, role) ?? null });
         return report({ type: "exit", exitCode: 0, errorOutput });
       };

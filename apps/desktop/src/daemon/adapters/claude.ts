@@ -74,8 +74,10 @@ function firstOf(text: string): string {
  * reads the bundle's other documents. A launch with no role keeps Claude
  * Code's default tools, less the three the CLI adds where a host answers its
  * prompts, which ask a person something no stream of this session carries.
+ * A refresh of an account's usage, which has no role, holds no tool at all,
+ * takes one turn and writes no transcript.
  */
-export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] }): string[] {
+export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] }, refresh = false): string[] {
   return [
     "-p",
     "--input-format",
@@ -93,7 +95,7 @@ export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: strin
     "default",
     "--permission-prompt-tool",
     "stdio",
-    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : ["--disallowedTools", "AskUserQuestion,EnterPlanMode,ExitPlanMode"]),
+    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : refresh ? ["--tools", "", "--max-turns", "1", "--no-session-persistence"] : ["--disallowedTools", "AskUserQuestion,EnterPlanMode,ExitPlanMode"]),
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
@@ -303,10 +305,53 @@ function usageOf(record: Record<string, unknown>, keyed: boolean): Usage | null 
   };
 }
 
+/** How the stream names a limit's state, as the reference's `SDKRateLimitEvent` names it, read into the neutral event's. */
+const LIMIT_STATUS: Readonly<Record<string, "ok" | "near" | "reached">> = { allowed: "ok", allowed_warning: "near", rejected: "reached" };
+
+const recordOrNothing = (value: unknown): Record<string, unknown> | undefined => (typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined);
+
+/**
+ * The limit events of a `rate_limit_event` line, from its `rate_limit_info`.
+ * The reference's type names `status`, `utilization` and `resetsAt`, and no
+ * window. The run recorded in `test/fixtures/claude-stream.jsonl`, a turn far
+ * from any limit, carried the line with `rateLimitType` naming its window and
+ * `unifiedWindows` holding each window's three values, and the line is read
+ * as that run printed it: one event for each window of `unifiedWindows`,
+ * named by its key, and where it holds none, one event of the line's own
+ * values named by `rateLimitType`. A value the line does not hold in the
+ * reference's form is null: a status the reference does not name, a
+ * utilization outside 0 to 1, since nothing says what another range would
+ * mean, and a reset at or before the epoch. `resetsAt` is read as seconds
+ * since the epoch, as Claude Code's status line gives a reset, and a value
+ * too large for seconds before the year 5000 as milliseconds.
+ */
+function limitsOf(record: Record<string, unknown>): RoleEvent[] {
+  const info = recordOrNothing(record.rate_limit_info);
+  if (info === undefined) return [];
+  const limitOf = (values: Record<string, unknown>, window: unknown): RoleEvent => {
+    const { status, utilization, resetsAt } = values;
+    const used = numberOf(utilization);
+    const resets = numberOf(resetsAt);
+    return {
+      type: "limit",
+      status: typeof status === "string" && Object.hasOwn(LIMIT_STATUS, status) ? LIMIT_STATUS[status]! : null,
+      used: used !== null && used >= 0 && used <= 1 ? used : null,
+      resetsAt: resets === null || resets <= 0 ? null : resets < 1e11 ? resets * 1000 : resets,
+      window: typeof window === "string" && window !== "" ? window : null,
+    };
+  };
+  const windows = Object.entries(recordOrNothing(info.unifiedWindows) ?? {}).flatMap(([window, values]) => {
+    const held = recordOrNothing(values);
+    return held === undefined ? [] : [limitOf(held, window)];
+  });
+  return windows.length > 0 ? windows : [limitOf(info, info.rateLimitType)];
+}
+
 /**
  * Maps one line of the output stream to neutral events: the text blocks of an
- * `assistant` message, the `result` line with what the turn used, a request
- * to use a tool, and the withdrawal of one. Every other line is dropped, a
+ * `assistant` message, the `result` line with what the turn used, what a
+ * `rate_limit_event` line says of the account's limit, a request to use a
+ * tool, and the withdrawal of one. Every other line is dropped, a
  * control line of another kind among them, and so is a line that is not
  * JSON. The `init` line gives no event here: a run reports its `session`
  * from `sessionOf`, once. `held` is the tools a role launch named, and nothing for a launch
@@ -327,6 +372,7 @@ export function eventsForLine(line: string, held?: readonly string[], keyed = fa
     if (!Array.isArray(content)) return [];
     return content.filter(isTextBlock).map((block) => ({ type: "text", text: block.text }));
   }
+  if (record.type === "rate_limit_event") return limitsOf(record);
   if (record.type === "result") {
     return [
       {
@@ -428,14 +474,14 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
 
   return {
     name: "claude",
-    features: ["role-tools", "permission-requests", "accounts"],
-    async start({ prompt, cwd, role, accountDir }, listener) {
+    features: ["role-tools", "permission-requests", "accounts", "limit-refresh"],
+    async start({ prompt, cwd, role, accountDir, refresh }, listener) {
       const launch = role && launchOf(role);
       const { cli, path, configDir } = await located();
       // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
       // signal to the group also reaches what the CLI started in it, such as a tool's shell. The account's folder, and
       // under System default the folder the login shell names, as a pane of the work item would run under it.
-      const child = spawn(cli, claudeArgs(cwd, launch), { cwd, env: claudeEnv(env, path, accountDir ?? configDir), stdio: ["pipe", "pipe", "pipe"], detached: true });
+      const child = spawn(cli, claudeArgs(cwd, launch, refresh === true && launch === undefined), { cwd, env: claudeEnv(env, path, accountDir ?? configDir), stdio: ["pipe", "pipe", "pipe"], detached: true });
       await new Promise<void>((resolve, reject) => {
         child.once("spawn", resolve);
         child.once("error", reject);
