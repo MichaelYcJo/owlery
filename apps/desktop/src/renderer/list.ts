@@ -2,11 +2,12 @@
 // inbox screen, the history screen over the work items whose agent
 // finished, and the archived screen over the archived work items of one
 // repository. Each is a copy of the page's `list-screen` template.
-import { byId, changedSince, detail, entries, held, lineMarkIcons, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
+import { byId, changedSince, detail, drawSeal, entries, held, lineMarkIcons, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
 import {
   ageOf,
   ahead,
   archivedHead,
+  decisionMark,
   archivedIn,
   emptyList,
   filterChoices,
@@ -17,6 +18,7 @@ import {
   keyHints,
   lastHere,
   lineBadge,
+  lineSince,
   lineText,
   markRanges,
   matchSentence,
@@ -24,7 +26,9 @@ import {
   moveSelection,
   pinnedFirst,
   repoNameOf,
+  sealShown,
   selectedLine,
+  setupMark,
   workItemEntries,
   type Entry,
   type StateFilter,
@@ -72,11 +76,14 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
   const previewAhead = piece("preview-ahead");
   const previewRepo = piece("preview-repo");
   const previewDetail = piece("preview-detail");
+  const previewSealWords = piece("preview-seal-words");
+  // The seal's place is made once, and drawn again for each work item the preview shows.
+  const previewSeal = sealPlace("preview", null);
   // The work items in the order their lines are displayed, and the one whose line is selected: the preview shows it, and J, K and Enter act on it.
   let displayed: number[] = [];
   let selected: number | undefined;
 
-  piece("preview-seal").replaceWith(sealPlace("preview"));
+  piece("preview-seal").replaceWith(previewSeal);
   piece("preview-keys").replaceChildren(...keyHints(name, mac).map((keys) => part("key", keys)));
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
@@ -105,11 +112,13 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     const entry = own().find(({ workItem }) => workItem.id === selected);
     previewContent.hidden = !entry;
     if (!entry) return;
-    showState(previewState, entry.line.state, entry.session?.stateSince);
+    showState(previewState, entry.line.state, lineSince(entry.workItem, entry.session));
     previewTitle.textContent = entry.line.title;
     previewBranch.textContent = entry.line.branch;
     previewAhead.textContent = ahead(entry.workItem).sentence;
     previewRepo.textContent = repoNameOf(entry.workItem);
+    drawSeal(previewSeal, entry.workItem.seal);
+    previewSealWords.textContent = sealShown(entry.workItem.seal).words;
     // The commits the branch gained since the look carry a dot.
     previewDetail.replaceChildren(...detail(entry, gainedSince(entry.workItem, held.lastLook)));
   }
@@ -133,11 +142,18 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     button.dataset.workItem = String(workItem.id);
     const first = part("first", "");
     // A pin and a mute each put a mark after the title.
-    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(session?.stateSince, Date.now())));
-    // The second row's text is the branch while a search is typed, with the letters that match marked.
+    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(lineSince(workItem, session), Date.now())));
+    // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question, otherwise the oldest call its headless sessions ask the person to allow, otherwise the sentence of its chain where the chain stopped, and otherwise the stage its chain runs, in short.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
-    second.append(marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []), part("badge", lineBadge(workItem, held.lastLook)), sealPlace("line"));
+    // After the text, how many decisions made without asking the person has not seen, the look not holding them, and how many reversals wait for a stage; then the setup's words while it runs and where it failed.
+    second.append(
+      marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []),
+      part("decided", decisionMark(workItem, held.lastLook)),
+      part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)),
+      part("badge", lineBadge(workItem, held.lastLook)),
+      sealPlace("line", workItem.seal),
+    );
     button.append(first, second);
     // A line of the archived screen opens no view: its press selects it.
     button.addEventListener("click", () => (name === "archived" ? select(workItem.id) : actions.openView(workItem.id)));

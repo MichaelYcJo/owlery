@@ -10,8 +10,8 @@
 // the hidden ones, the screen of its archived work items and its removal,
 // with its two choices to delete from disk, and the dialog that asks before
 // the daemon ends, for a restart or for a complete quit, at a choice of the
-// application menu. How a menu is drawn is ./menu. The theme
-// and its control are ./theme, and the choice of when the Mac is kept awake
+// application menu. How a menu is drawn is ./menu. The theme, the appearance
+// and their two controls are ./theme, and the choice of when the Mac is kept awake
 // with its control is ./keep-awake. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
@@ -23,7 +23,7 @@ import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
-import { initSummary, pressMain, showSummary } from "./summary";
+import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import {
   agentKind,
@@ -33,25 +33,37 @@ import {
   baseKey,
   baseMenu,
   baseSays,
-  changesSince,
+  changedSet,
+  changedSetAfter,
   commandKey,
   daemonEnding,
   daemonLists,
   daemonNotice,
+  decisionLines,
   deleteChoice,
   deleteSays,
   deletionOf,
   hiddenRepositories,
   inboxKey,
   lateSays,
+  lacksRecords,
   lossSections,
   menuKey,
   menuTarget,
+  chainNotifications,
   notificationFor,
+  parkNotifications,
+  permissionNotifications,
+  sealNotifications,
+  pullRequestNotifications,
   notificationOpens,
+  PLAN_AWAITED,
   planAnswer,
   planLine,
   REGISTER_ONLY_SAYS,
+  recordsDialog,
+  recordsOf,
+  registered,
   registerFields,
   removalChoice,
   removalOf,
@@ -60,6 +72,7 @@ import {
   runningSessions,
   settingsBases,
   settingsFields,
+  shownSetup,
   workItemFields,
   workItemMenu,
   unanswered,
@@ -68,11 +81,12 @@ import {
   type FormPlan,
   type MenuAction,
   type PlanAnswered,
+  type RecordsPlanned,
   type Removal,
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeHeadless, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSeal, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -132,6 +146,7 @@ const titleField = byId<HTMLInputElement>("work-item-title");
 const planPlace = byId("work-item-plan");
 const branchPlace = byId("work-item-branch");
 const worktreePlace = byId("work-item-worktree");
+const setupPlace = byId("work-item-setup");
 const baseField = byId<HTMLSelectElement>("work-item-base");
 const baseStatePlace = byId("work-item-base-state");
 const kindField = byId<HTMLSelectElement>("work-item-kind");
@@ -151,6 +166,8 @@ const iconDialog = byId<HTMLDialogElement>("icon-dialog");
 const iconField = byId<HTMLInputElement>("icon-field");
 const groupDialog = byId<HTMLDialogElement>("group-dialog");
 const groupName = byId<HTMLInputElement>("group-name");
+const reverseDialog = byId<HTMLDialogElement>("reverse-dialog");
+const reverseMessage = byId<HTMLInputElement>("reverse-message");
 const hiddenDialog = byId<HTMLDialogElement>("hidden-dialog");
 const removeDialog = byId<HTMLDialogElement>("remove-dialog");
 const sessionsDialog = byId<HTMLDialogElement>("sessions-dialog");
@@ -160,6 +177,8 @@ const deleteForce = byId<HTMLInputElement>("delete-force");
 const removeDelete = byId<HTMLInputElement>("remove-delete");
 const removeForce = byId<HTMLInputElement>("remove-force");
 const removeTrash = byId<HTMLInputElement>("remove-trash");
+const recordsPlaceDialog = byId<HTMLDialogElement>("records-dialog");
+const recordsGate = byId<HTMLInputElement>("records-gate");
 
 /** A dialog that waits on the daemon's answer to one request: where its refusal is shown, and the button that sent it. */
 interface Asking {
@@ -171,9 +190,11 @@ const FORM: Asking = { dialog: workItemDialog, error: formError, button: createB
 const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
 const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button: byId<HTMLButtonElement>("group-submit") };
+const REVERSE: Asking = { dialog: reverseDialog, error: byId("reverse-error"), button: byId<HTMLButtonElement>("reverse-submit") };
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
+const RECORDS: Asking = { dialog: recordsPlaceDialog, error: byId("records-error"), button: byId<HTMLButtonElement>("records-submit") };
 // The dialog that asks before the daemon ends waits on the main process's answer, not on the daemon's: the main process is the one that stops the daemon.
 const DAEMON: Asking = { dialog: daemonDialog, error: byId("daemon-error"), button: byId<HTMLButtonElement>("daemon-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
@@ -182,6 +203,8 @@ const asking = new Map<number, Asking>();
 let settingsOf: number | undefined;
 let iconOf: number | undefined;
 let groupOf: number | undefined;
+// The decision the dialog that reverses one was opened on, with its work item.
+let reversing: { workItemId: number; decisionId: number } | undefined;
 let removing: number | undefined;
 // What the removal's dialog names, which is what its request tells the daemon the person was told of.
 let removal: Removal | undefined;
@@ -198,6 +221,23 @@ let deleting: number | undefined;
 let deleteLoss: WorkItemLoss | null = null;
 let deleteLossRequest: number | undefined;
 let deletion: ReturnType<typeof archivalOf> | undefined;
+// The repository the dialog of the records place is open on, and the broad gate command the person typed or the daemon proposed, which the field shows while a setup would write a `config.json`.
+let recordsRepository: number | undefined;
+let recordsCommand = "";
+// Whether the person typed in the field since the dialog opened: a command the daemon proposes fills only a field nobody typed in.
+let recordsTyped = false;
+// The dialog's latest plan: its request and the command it was asked for, what the daemon answered, or null until it answers, and the command that answer is of. The plan the files were last drawn from is kept, so a key in the field redraws none of them.
+let recordsPlanRequest: number | undefined;
+let recordsAskedFor = "";
+let recordsPlan: RecordsPlanned | null = null;
+let recordsPlannedFor: string | null = null;
+let recordsDrawn: RecordsPlanned | null | undefined;
+let recordsPlanTimer: ReturnType<typeof setTimeout> | undefined;
+// The registration the form waits on, with the folder it named, and the registration whose repository the lists did not hold when it was answered, with the repositories they held then and the time until which the `inbox` that follows the answer is awaited: that `inbox` lists the repository, and an answer that changed nothing is followed by none.
+let registering: { requestId: number; folder: string } | undefined;
+let registeredLate: { folder: string; before: readonly Repository[]; until: number } | undefined;
+// How long after a registration's answer an `inbox` is read as the one that follows it. The daemon sends the two one after the other.
+const REGISTERED_WAIT_MS = 1000;
 // What the dialog that asks before the daemon ends is open for: a restart, or a complete quit.
 let ending: DaemonEnd | undefined;
 // The plan the settings dialog asked for, to list the repository's bases: its request, and what the daemon answered.
@@ -248,7 +288,7 @@ function openArchived(repositoryId: number): void {
   lists.archived.show();
 }
 
-/** Puts the summary screen in front, with the changes of this load. */
+/** Puts the summary screen in front, with the work items this load chose, each as the lists now give it. */
 function openSummary(): void {
   leaveView();
   bringToFront("summary");
@@ -452,6 +492,9 @@ function pressMenu(action: MenuAction): void {
       return;
     case "icon":
       openIcon(action.id);
+      return;
+    case "records":
+      openRecords(action.id);
       return;
     case "hide":
       send({ type: "setRepository", requestId: request(), id: action.id, hidden: true });
@@ -695,6 +738,22 @@ function openGroup(repositoryId: number): void {
   groupName.focus();
 }
 
+/**
+ * Opens the dialog that takes the message a person reverses a decision
+ * with, as a press of "Reverse" on the decision's line in its work item's
+ * view asks. The dialog names the decision, and its field is empty. Nothing
+ * opens for a decision the window no longer lists as standing.
+ */
+function openReverse(workItemId: number, decisionId: number): void {
+  const workItem = held.workItems.find((item) => item.id === workItemId);
+  const line = workItem && decisionLines(workItem, Date.now()).find((listed) => listed.id === decisionId);
+  if (!line || line.reversed !== null || !opened(REVERSE)) return;
+  reversing = { workItemId, decisionId };
+  byId("reverse-decision").textContent = `${line.kind}: ${line.says}`;
+  reverseMessage.value = "";
+  reverseMessage.focus();
+}
+
 function openHidden(): void {
   if (dialogOpen()) return;
   showHidden();
@@ -892,8 +951,127 @@ function deleteNamed(): void {
   ask(DELETE, (requestId) => ({ type: "deleteWorkItem", requestId, id, stamp: loss.stamp, force, running: told.running }));
 }
 
-/** After a refusal of what a dialog sent: the delete dialog and the removal's dialog each read anew what a delete would lose, since a refusal says the loss the person read may no longer stand. */
+/**
+ * Draws the dialog of the records place, from the daemon's lists as they are
+ * now and from the plan the daemon answered with, in the words of ./view's
+ * `recordsDialog`: what is out of scope, the commit, each file with its
+ * text, the field of the broad gate command, how an administrator makes the
+ * seal check required, and the buttons. It closes the
+ * dialog where the window's lists no longer hold the repository.
+ */
+function showRecords(): void {
+  const repository = repositoryOf(recordsRepository);
+  if (!repository) {
+    if (recordsPlaceDialog.open) recordsPlaceDialog.close();
+    return;
+  }
+  const words = recordsDialog(repository, recordsPlan, recordsCommand, recordsPlannedFor);
+  const say = (id: string, text: string): void => {
+    byId(id).textContent = text;
+    byId(id).hidden = text === "";
+  };
+  byId("records-head").textContent = words.head;
+  byId("records-scope").textContent = words.scope;
+  say("records-commit", words.commit);
+  say("records-blocked", words.blocked);
+  byId("records-holds").hidden = words.holds.length === 0;
+  byId("records-holds").querySelector("ul")?.replaceWith(namedLines(words.holds, true));
+  if (recordsDrawn !== recordsPlan) {
+    recordsDrawn = recordsPlan;
+    byId("records-files").replaceChildren(
+      ...words.files.map((file) => {
+        const part = document.createElement(file.text === null ? "p" : "section");
+        if (file.text === null) {
+          part.className = "says";
+          part.textContent = file.says;
+          return part;
+        }
+        const path = document.createElement("span");
+        path.className = "path";
+        path.textContent = file.path;
+        const text = document.createElement("pre");
+        text.textContent = file.text;
+        part.append(path, text);
+        return part;
+      }),
+    );
+  }
+  byId("records-gate-label").hidden = !words.gate.shown;
+  byId("records-gate-name").textContent = words.gate.label;
+  recordsGate.disabled = !words.gate.enabled;
+  // The field keeps what the person types, and shows the key's own value where the file stands.
+  if (recordsGate.value !== words.gate.value) recordsGate.value = words.gate.value;
+  say("records-gate-says", words.gate.shown ? words.gate.says : "");
+  say("records-required", words.required);
+  RECORDS.button.hidden = !words.submit.shown;
+  RECORDS.button.textContent = words.submit.label;
+  RECORDS.button.disabled = !words.submit.enabled || waiting(RECORDS);
+  byId("records-cancel").textContent = words.cancel;
+}
+
+/** Asks the daemon what a setup of the dialog's repository would write, with the command the dialog holds. Until it answers, the plan the dialog shows is of another command, and its button is off. */
+function askRecordsPlan(): void {
+  const id = recordsRepository;
+  if (id === undefined) return;
+  recordsPlanRequest = request();
+  recordsAskedFor = recordsCommand;
+  send({ type: "planRecords", requestId: recordsPlanRequest, id, broadGate: recordsCommand });
+}
+
+/**
+ * Takes the daemon's answer to the plan the dialog of the records place
+ * waits on: a plan, which the dialog then shows, or a refusal. A command the
+ * daemon proposes fills the field where the person typed none, and the plan
+ * is asked again for it. It answers whether the plan was the dialog's.
+ */
+function takeRecordsPlan(requestId: number, answered: RecordsPlanned): boolean {
+  if (requestId !== recordsPlanRequest) return false;
+  recordsPlanRequest = undefined;
+  if (!recordsPlaceDialog.open) return true;
+  recordsPlan = answered;
+  recordsPlannedFor = recordsAskedFor;
+  if (!("error" in answered) && answered.proposedBroadGate !== null && !recordsTyped && recordsCommand === "") {
+    recordsCommand = answered.proposedBroadGate;
+    askRecordsPlan();
+  }
+  showRecords();
+  return true;
+}
+
+/** Opens the dialog of the records place on a repository, with the keyboard on the button that writes nothing, and asks the daemon for the plan. A repository of a daemon of an earlier build has no such dialog. */
+function openRecords(repositoryId: number): void {
+  const repository = repositoryOf(repositoryId);
+  if (!repository || recordsOf(repository) === null || !opened(RECORDS)) return;
+  recordsRepository = repositoryId;
+  recordsCommand = "";
+  recordsTyped = false;
+  recordsPlan = null;
+  recordsPlannedFor = null;
+  recordsDrawn = undefined;
+  askRecordsPlan();
+  showRecords();
+  byId("records-cancel").focus();
+}
+
+/** Sends the setup the dialog holds, with the stamp of the plan it shows, so the daemon writes what the person read and nothing else. */
+function setUpRecordsPlace(): void {
+  const repository = repositoryOf(recordsRepository);
+  const plan = recordsPlan;
+  if (!repository || plan === null || "error" in plan || !recordsDialog(repository, plan, recordsCommand, recordsPlannedFor).submit.enabled) return;
+  const command = recordsCommand;
+  ask(RECORDS, (requestId) => ({ type: "setUpRecords", requestId, id: repository.id, broadGate: command, stamp: plan.stamp }));
+}
+
+/** Opens the dialog of the records place for the repository a registration was answered for, where it lacks a part of the place. Where the lists hold no repository at the folder typed, the `inbox` that follows the answer lists the one the daemon added, and `takeLists` opens the dialog then. */
+function afterRegistration(folder: string): void {
+  const found = registered(folder, held.repositories, held.repositories);
+  if (!found) registeredLate = { folder, before: held.repositories, until: Date.now() + REGISTERED_WAIT_MS };
+  else if (lacksRecords(found)) openRecords(found.id);
+}
+
+/** After a refusal of what a dialog sent: the delete dialog and the removal's dialog each read anew what a delete would lose, since a refusal says the loss the person read may no longer stand. The dialog of the records place asks for its plan anew, for the same reason. */
 function readAgain(): void {
+  if (recordsPlaceDialog.open) askRecordsPlan();
   if (deleteDialog.open) readDeleteLoss();
   if (removeDialog.open) {
     forgetRemoveLosses();
@@ -1033,11 +1211,14 @@ function onNotificationClick(session: Pick<SessionInfo, "id" | "workItemId">): v
   if (opens) openView(opens.workItemId, opens.pane ?? undefined);
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each call a headless session began to wait for the person to allow, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
+  const heldBefore = [...held.workItems, ...held.archived];
   held.sessions = next.sessions;
   held.workItems = next.workItems;
+  // A seal the daemon read after `ready` joins the changed set once, where it was given or broke since the look. No other change after `ready` joins it.
+  if (held.lastLook) held.changed = changedSetAfter(held.lastLook, held.changed, held.workItems);
   takeRepositories(next);
   for (const session of held.sessions) {
     // A pane on the stage of a focused window is one the person is looking at, whether or not it has the keyboard.
@@ -1046,18 +1227,36 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     if (!notification) continue;
     new Notification(notification.title, { body: notification.body }).onclick = () => onNotificationClick(session);
   }
+  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a request's, on a stopped chain's, on a broken seal's or on a pull request's brings the window forward and opens the work item's view, where its questions and its requests are answered and its chain is started again, where the lists still hold it.
+  const looking = front === "view" && document.hasFocus() ? held.viewing : undefined;
+  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...permissionNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...sealNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
+    new Notification(told.title, { body: told.body }).onclick = () => {
+      void window.owlery.comeForward();
+      if (held.workItems.some((workItem) => workItem.id === told.workItemId)) openView(told.workItemId);
+    };
+  }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
   showSidebar();
   // The archived screen lists the archived work items of a repository the daemon keeps.
   if (front === "archived" && !repositoryOf(held.archivedOf)) openList("inbox");
   else listInFront()?.show();
   if (front === "view") showView();
+  // The summary in front says each line as the lists now give it, and the keyboard stays where it was.
+  if (front === "summary") redrawSummary();
   // A dialog that names what the daemon lists says the lists as they are now.
   if (hiddenDialog.open) showHidden();
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
   if (deleteDialog.open) showDelete();
   if (daemonDialog.open) showDaemonEnding();
+  if (recordsPlaceDialog.open) showRecords();
+  // The repository a registration added is in these lists, and not in the ones its answer found.
+  const late = registeredLate;
+  registeredLate = undefined;
+  if (late && Date.now() <= late.until) {
+    const found = registered(late.folder, late.before, held.repositories);
+    if (found && lacksRecords(found)) openRecords(found.id);
+  }
 }
 
 /** Draws the form as its choice "Register the repository only" has it: with the choice taken, the name, the base and the kind of pane are off, the form shows no plan, and its button reads "Register". */
@@ -1091,11 +1290,12 @@ function openWorkItemForm(folder?: string): void {
   askPlan();
 }
 
-/** Draws what the form holds of its plan: the branch and the folder under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
+/** Draws what the form holds of its plan: the branch, the folder and the setup under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
 function showPlan(): void {
   if (registerOnly.checked) {
     branchPlace.textContent = "";
     worktreePlace.textContent = "";
+    setupPlace.textContent = "";
     planPlace.classList.remove("failed");
     baseField.disabled = true;
     baseStatePlace.textContent = "";
@@ -1104,6 +1304,7 @@ function showPlan(): void {
   const line = planLine(formPlan, repoField.value);
   branchPlace.textContent = line.branch;
   worktreePlace.textContent = line.worktree;
+  setupPlace.textContent = line.setup;
   planPlace.classList.toggle("failed", line.failed);
   const menu = baseMenu(formPlan, baseChoice, repoField.value);
   const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
@@ -1200,6 +1401,12 @@ function createWorkItem(): void {
     formError.textContent = fields.error;
     return;
   }
+  // The daemon runs the setup command only as the form named it, so nothing is created before the plan of this folder has answered.
+  const shown = shownSetup(formPlan, repoField.value);
+  if (shown === null) {
+    formError.textContent = PLAN_AWAITED;
+    return;
+  }
   const kind = held.paneKinds.find((offered) => offered.kind === kindField.value);
   if (!kind) return;
   const requestId = request();
@@ -1210,7 +1417,7 @@ function createWorkItem(): void {
   createdSays = "";
   // One creation per answer: the button stays off until the daemon answers.
   createButton.disabled = true;
-  send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize() });
+  send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize(), setupCommand: shown.setupCommand });
 }
 
 /** Registers the repository of the form's folder, with no work item: the daemon's answer closes the form, and its refusal is shown in it, as a creation's is. */
@@ -1220,7 +1427,10 @@ function registerRepository(): void {
     formError.textContent = fields.error;
     return;
   }
-  ask(FORM, (requestId) => ({ type: "addRepository", requestId, folder: fields.folder }));
+  ask(FORM, (requestId) => {
+    registering = { requestId, folder: fields.folder };
+    return { type: "addRepository", requestId, folder: fields.folder };
+  });
 }
 
 function onMessage(message: ServerMessage): void {
@@ -1238,14 +1448,16 @@ function onMessage(message: ServerMessage): void {
       // A daemon of an earlier build, and one that can hold nothing, send no such choice, and the control is then hidden.
       held.keepAwake = message.keepAwake ?? null;
       showKeepAwake();
-      // The counts of this `ready` were read from git at this window's hello, so the changes are worked out here, once.
-      held.changes = held.lastLook ? changesSince(held.lastLook, held.workItems, held.sessions, held.paneKinds) : [];
+      // A daemon of an earlier build sends no notice of its agent.
+      held.agentNotice = message.agentNotice ?? null;
+      // The counts of this `ready` were read from git at this window's hello, so the work items the summary lists are chosen here, and held until the next load. What each line says is worked out again at each drawing.
+      held.changed = held.lastLook ? changedSet(held.lastLook, held.workItems, held.sessions, held.paneKinds) : { ids: [], unread: [] };
       showPaneButtons();
       // The form's choice among the kinds of pane, the first that reports its agent's state chosen.
       const preferred = agentKind(held.paneKinds);
       kindField.replaceChildren(...held.paneKinds.map(({ kind, label }) => new Option(label, kind, kind === preferred, kind === preferred)));
       // The app opens on the summary where a work item changed since the person last looked, and on the inbox otherwise.
-      if (held.changes.length > 0) openSummary();
+      if (held.changed.ids.length > 0) openSummary();
       else openList("inbox");
       // The dialog that asks before the daemon ends can be open before the lists are here, in a window the menu's click made.
       if (daemonDialog.open) showDaemonEnding();
@@ -1258,6 +1470,11 @@ function onMessage(message: ServerMessage): void {
       // The daemon's choice changed, here or in another client, or its hold began or ended.
       held.keepAwake = message.keepAwake;
       showKeepAwake();
+      showStatus();
+      return;
+    case "agentNotice":
+      // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
+      held.agentNotice = message.notice;
       showStatus();
       return;
     case "started":
@@ -1276,11 +1493,15 @@ function onMessage(message: ServerMessage): void {
         if (workItemDialog.open) workItemDialog.close();
       }
       takeStarted(message.session);
+      // The setup pane's output is sent to this window too, and drawn only once its tab is pressed, from the replay.
+      const setupPane = message.workItem.setup?.paneId ?? null;
+      if (setupPane !== null) detachUnshown(setupPane);
       openView(message.workItem.id);
       return;
     }
     case "workItemPlan": {
-      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase };
+      // A daemon of an earlier build names no setup.
+      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false };
       if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
     }
@@ -1289,6 +1510,9 @@ function onMessage(message: ServerMessage): void {
       return;
     case "renamePlan":
       takeRenamePlan(message.requestId, { branch: message.branch, blocked: message.blocked });
+      return;
+    case "recordsPlan":
+      takeRecordsPlan(message.requestId, message.plan);
       return;
     case "workItemLoss":
       if (!takeDeleteLoss(message.requestId, { loss: message.loss })) takeRemoveLoss(message.requestId, { loss: message.loss });
@@ -1304,7 +1528,18 @@ function onMessage(message: ServerMessage): void {
           if (failure !== null) tell(failure);
         });
       }
+      if (registering?.requestId === message.requestId) {
+        // The form closes first, and the dialog of the records place then opens for a repository that lacks a part of it.
+        const { folder } = registering;
+        registering = undefined;
+        if (answered(message.requestId, null)) afterRegistration(folder);
+        return;
+      }
       if (answered(message.requestId, null)) return;
+      // The answers a person sent to a parked work item's questions were taken.
+      if (takeAnswers(message.requestId, null)) return;
+      // The chain a press of "Get a seal" asked for has started.
+      if (takeSeal(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -1315,6 +1550,22 @@ function onMessage(message: ServerMessage): void {
       return;
     case "headless":
       takeHeadlessSession(message.headless);
+      return;
+    case "gateOutput":
+      // What a broad gate's command printed, for the line whose "Show output" asked.
+      takeGateOutput(message.requestId, { text: message.text, cut: message.cut });
+      return;
+    case "sealRecords":
+      // The records of the seal of the view's work item, which its back asked for. An answer to an earlier ask is let go.
+      takeSealRecords(message.requestId, message.records);
+      return;
+    case "ledger":
+      // So is the ledger's part of that work item.
+      takeLedger(message.requestId, { entries: message.entries, unread: message.unread });
+      return;
+    case "headlessDropped":
+      // The daemon drops only a session that ended, so no dialog that names the running sessions changes.
+      dropHeadless(message.id);
       return;
     case "error":
       // Nothing was created or started.
@@ -1329,6 +1580,15 @@ function onMessage(message: ServerMessage): void {
       if (takeSettingsPlan(message.requestId, { error: message.message })) return;
       // A read of a loss that was refused is its dialog's to show.
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
+      // The refusal of the answers to a parked work item's questions is its view's section's to show.
+      if (takeAnswers(message.requestId, message.message)) return;
+      // The refusal of a chain's start is its view's to show, under "Get a seal".
+      if (takeSeal(message.requestId, message.message)) return;
+      // The refusal of a read of the records or of the ledger is the back's to show, in its place.
+      if (takeBackRefusal(message.requestId, message.message)) return;
+      // A refused plan of the records place is its dialog's to show.
+      if (takeRecordsPlan(message.requestId, { error: message.message })) return;
+      if (registering?.requestId === message.requestId) registering = undefined;
       // A removal that was refused moves no folder to the Trash.
       if (trashing?.requestId === message.requestId) trashing = undefined;
       if (answered(message.requestId, message.message)) {
@@ -1416,7 +1676,7 @@ initSidebar(
   MAC,
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
-initView(() => openList("inbox"), MAC, openView);
+initView(() => openList("inbox"), MAC, openView, openReverse);
 initKeepAwake();
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
@@ -1510,6 +1770,13 @@ byId<HTMLFormElement>("group-form").addEventListener("submit", (event) => {
   const repoId = groupOf;
   if (repoId !== undefined) ask(GROUP, (requestId) => ({ type: "addGroup", requestId, repoId, name: groupName.value }));
 });
+byId("reverse-cancel").addEventListener("click", () => reverseDialog.close());
+byId<HTMLFormElement>("reverse-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  // The daemon stores the message without the white space at its ends, and refuses an empty one. Its `done` closes the dialog, and the `inbox` after it carries the decision as reversed.
+  const of = reversing;
+  if (of !== undefined) ask(REVERSE, (requestId) => ({ type: "reverseDecision", requestId, ...of, message: reverseMessage.value }));
+});
 byId("hidden-close").addEventListener("click", () => hiddenDialog.close());
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());
 byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {
@@ -1528,6 +1795,25 @@ deleteForce.addEventListener("change", showDelete);
 byId<HTMLFormElement>("delete-form").addEventListener("submit", (event) => {
   event.preventDefault();
   deleteNamed();
+});
+byId("records-cancel").addEventListener("click", () => recordsPlaceDialog.close());
+recordsGate.addEventListener("input", () => {
+  recordsCommand = recordsGate.value;
+  recordsTyped = true;
+  showRecords();
+  // Keys closer together than the wait ask once, after the last of them, as the form's plan does.
+  clearTimeout(recordsPlanTimer);
+  recordsPlanTimer = setTimeout(askRecordsPlan, PLAN_WAIT_MS);
+});
+recordsPlaceDialog.addEventListener("close", () => {
+  if (recordsPlaceDialog.open) return;
+  clearTimeout(recordsPlanTimer);
+  recordsRepository = undefined;
+  recordsPlanRequest = undefined;
+});
+byId<HTMLFormElement>("records-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  setUpRecordsPlace();
 });
 byId("sessions-cancel").addEventListener("click", () => sessionsDialog.close());
 byId<HTMLFormElement>("sessions-form").addEventListener("submit", (event) => {

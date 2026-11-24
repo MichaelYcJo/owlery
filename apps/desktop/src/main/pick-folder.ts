@@ -14,3 +14,14 @@ export async function pickFolder(open: OpenFolderDialog): Promise<string | null>
   if (result.canceled) return null;
   return result.filePaths[0] ?? null;
 }
+
+/**
+ * Who opens the folder dialog for this start of the app: nobody in the
+ * background, so a start a test or an agent makes shows no sheet on the
+ * screen of the person at the machine (#148), and the system's dialog
+ * otherwise. In the background the answer is that no folder was chosen.
+ */
+export function chooseFolderDialog(background: boolean, system: OpenFolderDialog): OpenFolderDialog {
+  if (background) return async () => ({ canceled: true, filePaths: [] });
+  return system;
+}

@@ -1,24 +1,46 @@
 // A work item's view: its header, its tabs with the terminals of the panes
-// on the stage and the strip under them, and its right column, which says what the
-// daemon sends of the work item above the "Ask" section and the seal's
-// place. The pool of terminal screens the window holds lives here, and so
+// on the stage, or the back of its seal in the stage's place behind a tab of
+// its own, and the strip under them, and its right column, which says what the
+// daemon sends of the work item, the questions it is parked with, which it
+// answers there, and the decisions made for it without asking among it,
+// above the "Ask" section, where the calls its headless sessions ask the
+// person to allow are answered, and the seal's place with "Get a seal",
+// which starts the work item's chain, with the work item's pull request
+// under it. The pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
-import { byId, detail, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
+import type { HeadlessInfo, LedgerEntry, PaneKind, SealRecords, SessionInfo, WorkItem } from "../shared/protocol";
+import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
+  answersFor,
   askButton,
+  askedSection,
+  BACK_READING,
+  BACK_TAB,
+  backKey,
+  backShown,
+  CARD_LEAVE_MS,
+  CARD_SHOW_MS,
   cardStaysAt,
   closeAsks,
   droppedText,
+  GATE_HEAD,
+  GATE_OUTPUT_SHOWS,
+  type GateLine,
+  type GateOutput,
+  gateLine,
+  hasBack,
+  headlessKey,
   headlessLines,
   type LinkAct,
   linkCard,
   linkClick,
   type LinkTarget,
+  lineSince,
+  opensToBack,
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
@@ -26,11 +48,16 @@ import {
   type PaneMenuAct,
   paneTabs,
   pathCandidates,
+  pullRequestFacts,
   pathTarget,
   recentKept,
+  refusedSeal,
   replayStep,
   repoNameOf,
   screenMoves,
+  sealButton,
+  type SealRefusal,
+  sealShown,
   type ScreenTurns,
   screenTurns,
   stageOf,
@@ -40,6 +67,7 @@ import {
   viewFacts,
   webTarget,
   withHeadless,
+  withoutHeadless,
 } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
@@ -70,6 +98,28 @@ let sideBySide = false;
 let askingIn: number | undefined;
 // The request the "Ask" field is waiting on: the field keeps its prompt until the daemon has taken it.
 let askRequest: number | undefined;
+// The key of the section of questions as it is drawn (./view, `askedSection`). The section is drawn again only where the key differs, so what a person chose and typed in it stays through the lists the daemon sends meanwhile.
+let questionsDrawn: string | undefined;
+// The key of the "Ask" section's lines as they are drawn (./view, `headlessKey`). They are drawn again only where the key differs, so a button the keyboard is on stays through the lists the daemon sends meanwhile.
+let askDrawn: string | undefined;
+// The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
+let answersRequest: number | undefined;
+// The address of the pull request the view shows, which a press of its row opens.
+let pullRequestUrl: string | undefined;
+// The request a press of "Get a seal" is waiting on, with its work item: the button stays off until the daemon answers.
+let sealRequest: { requestId: number; workItemId: number } | undefined;
+// What the window last read of a broad gate's output (./view, `GateOutput`), which stands under the line of the run it was read of.
+let gateRead: GateOutput | null = null;
+// The request a press of "Show output" is waiting on, with the work item and the run whose line was pressed.
+let gateRequest: { requestId: number; workItemId: number; startedAt: number } | undefined;
+// The daemon's refusal of the last "Get a seal", and the work item it refused it for.
+let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
+// Whether the back of the seal is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
+let backFront = false;
+// What the back's place last drew, so a list that changes nothing of it draws nothing again and a selection in it stays.
+let backDrawn: string | undefined;
+// What the back asked the daemon while it is in front, and the answers: the work item, the key it was asked at (./view, `backKey`), each request, each answer, and the daemon's refusal of either. The answers are let go when a pane comes in front or the view is left.
+let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
 // The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
@@ -78,9 +128,8 @@ let asking: number | undefined;
 let mac = false;
 // What puts a work item's view in front, for a click on a link that is another work item's worktree.
 let openWorkItem: (workItemId: number) => void = () => {};
-// How long the pointer rests on a link before its card shows, and how long the card stays once the pointer is on neither the link nor the card, which is the time the pointer has to go from one to the other.
-const CARD_SHOW_MS = 300;
-const CARD_LEAVE_MS = 200;
+// What a press of "Reverse" on a decision of the view's work item does: it opens the dialog that takes the message.
+let reverseDecision: (workItemId: number, decisionId: number) => void = () => {};
 // The target of the link the pointer is on, for the card that shows once the pointer has rested there.
 let cardFor: LinkTarget | undefined;
 // Where the pointer is in the window, as its last move said. The card shows at it.
@@ -105,11 +154,27 @@ const tabs = byId("tabs");
 const paneButtons = byId("pane-buttons");
 const noPanes = byId("no-panes");
 const stage = byId("stage");
+const back = byId("back");
 const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
 const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
 const headlessList = byId<HTMLUListElement>("headless");
+const questionsSection = byId("questions");
+const questionsHead = byId("questions-head");
+const questionsAge = byId("questions-age");
+const questionsList = byId("questions-list");
+const questionsError = byId("questions-error");
+const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
+const getSeal = byId<HTMLButtonElement>("get-seal");
+const sealHead = byId("view-seal-head");
+const sealWhy = byId("view-seal-why");
+// The seal's place at the view's foot is made once, and drawn again for each work item the view shows.
+const viewSeal = sealPlace("view", null);
+const sealSays = byId("seal-says");
+const sealRefusal = byId("seal-refusal");
+const pullRequestSection = byId("view-pull-request");
+const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
@@ -129,7 +194,7 @@ function terminalColours(): { background: string; foreground: string; cursor: st
   return { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") };
 }
 
-/** Gives every screen of the pool the colours of the theme now in use, after the theme changed. */
+/** Gives every screen of the pool the colours of the theme now in use, after the theme or the appearance changed. */
 export function showTerminalColours(): void {
   for (const screen of pool) screen.term.options.theme = terminalColours();
 }
@@ -620,19 +685,338 @@ function showAsk(workItem: WorkItem): void {
   askSubmit.title = button.title;
 }
 
-/** Draws the "Ask" section of the view on screen: the button as the field stands, and the work item's headless sessions. */
+/** One of the two buttons of a call a session asks the person to allow, which sends the person's answer to the request `id` of the work item. `data-answer` names the request and the answer, so a redraw finds the same button again. */
+function answerButton(workItemId: number, id: number, allow: boolean): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = "quiet";
+  button.textContent = allow ? "Allow" : "Refuse";
+  button.title = allow ? "Allow this one call" : "Refuse this call: the agent is told the person refused it";
+  button.dataset.answer = `${id}:${allow ? "allow" : "refuse"}`;
+  button.addEventListener("click", () => send({ type: "answerPermission", requestId: request(), workItemId, id, allow }));
+  return button;
+}
+
+/** The broad gate's line of the "Ask" section, in the form of a headless session's line: the mark and the word of its state, the words "Broad gate" with the command, "Stop" while the command runs, "Show output" where the daemon kept what it printed, the failure of a gate that failed, and what the window last read of this run's output. */
+function gateItem(workItemId: number, line: GateLine): HTMLLIElement {
+  const item = document.createElement("li");
+  item.className = "gate";
+  const prompt = part("prompt", `${GATE_HEAD} `);
+  // The command is plain text, never markup.
+  prompt.append(part("command", line.command));
+  const head = row(headlessIcon(line.state, line.words), prompt, part(`state ${line.state}`, line.words));
+  if (line.stop) {
+    const stop = document.createElement("button");
+    stop.className = "quiet";
+    stop.textContent = "Stop";
+    stop.title = "Stop the broad gate's command";
+    stop.dataset.answer = "gate:stop";
+    stop.addEventListener("click", () => send({ type: "stopGate", requestId: request(), workItemId }));
+    head.append(stop);
+  }
+  if (line.output) {
+    const show = document.createElement("button");
+    show.className = "quiet";
+    show.textContent = GATE_OUTPUT_SHOWS;
+    show.title = "Show what the broad gate's command printed";
+    show.dataset.answer = "gate:output";
+    show.addEventListener("click", () => {
+      gateRequest = { requestId: request(), workItemId, startedAt: line.startedAt };
+      send({ type: "readGateOutput", requestId: gateRequest.requestId, workItemId });
+    });
+    head.append(show);
+  }
+  item.append(head, part("answer", line.text));
+  if (line.printed) {
+    if (line.printed.note) item.append(part("output-note", line.printed.note));
+    // What the command printed is plain text, never markup, whole, with its line breaks kept by the style.
+    item.append(part("error-output", line.printed.text));
+  }
+  return item;
+}
+
+/**
+ * Takes what the daemon answered a press of "Show output" with, and answers
+ * whether the request was that press's: the text stands under the line of
+ * the run whose line was pressed, where the view still draws that run.
+ */
+export function takeGateOutput(requestId: number, output: { text: string; cut: boolean }): boolean {
+  if (requestId !== gateRequest?.requestId) return false;
+  gateRead = { workItemId: gateRequest.workItemId, startedAt: gateRequest.startedAt, ...output };
+  gateRequest = undefined;
+  showAskSection();
+  return true;
+}
+
+/**
+ * Draws the "Ask" section of the view on screen: the button as the field
+ * stands, the line of the work item's newest broad gate, first, and the
+ * work item's headless sessions. The line of a working session offers
+ * "Stop", which asks the daemon to stop it; the daemon answers
+ * `done`, and the `headless` that follows carries the session as failed. A
+ * session that waits for the person to allow a call says "Needs you" with
+ * the waiting mark, and shows each call it waits on as a card with "Allow"
+ * and "Refuse"; the daemon answers `done`, and the `inbox` that follows
+ * carries the work item without the request. The lines are drawn again only
+ * where the section's key is another (./view, `headlessKey`), so every
+ * `inbox` that changes nothing they show leaves them, and the keyboard, as
+ * they are. Where they are drawn again while the keyboard is on a request's
+ * button or on a button of the gate's line, the same button takes it back,
+ * where it is still drawn.
+ */
 function showAskSection(): void {
   const workItem = viewed();
   if (!workItem) return;
   showAsk(workItem);
+  const lines = headlessLines(held.headless, workItem);
+  const gate = gateLine(workItem, gateRead);
+  const key = headlessKey(workItem.id, lines, gate);
+  if (key === askDrawn) return;
+  askDrawn = key;
+  const focused = document.activeElement;
+  const kept = focused instanceof HTMLElement && headlessList.contains(focused) ? focused.dataset.answer : undefined;
   headlessList.replaceChildren(
-    ...headlessLines(held.headless, workItem.id).map((line) => {
+    ...(gate ? [gateItem(workItem.id, gate)] : []),
+    ...lines.map((line) => {
       const item = document.createElement("li");
-      // The answer is plain text, never markup, and its line breaks are kept by the style.
-      item.append(row(headlessIcon(line.state), part("prompt", line.prompt), part(`state ${line.state}`, line.state)), part("answer", line.text));
+      const head = row(headlessIcon(line.mark, line.words), part("prompt", line.prompt), part(`state ${line.mark}`, line.words));
+      if (line.stop) {
+        const stop = document.createElement("button");
+        stop.className = "quiet";
+        stop.textContent = "Stop";
+        stop.title = "Stop this session";
+        stop.addEventListener("click", () => send({ type: "stopHeadless", requestId: request(), id: line.id }));
+        head.append(stop);
+      }
+      item.append(head);
+      for (const ask of line.asks) {
+        const card = document.createElement("section");
+        card.className = "permission";
+        const asks = document.createElement("h3");
+        asks.textContent = ask.head;
+        const answers = part("answers", "");
+        answers.append(answerButton(workItem.id, ask.id, true), answerButton(workItem.id, ask.id, false));
+        // The call's text is plain text, never markup, whole, with its line breaks kept by the style.
+        card.append(asks, part("call", ask.text), answers);
+        item.append(card);
+      }
+      // The answer and the error output are plain text, never markup, and their line breaks are kept by the style.
+      item.append(part("answer", line.text));
+      if (line.errorOutput) item.append(part("error-output", line.errorOutput));
       return item;
     }),
   );
+  if (kept !== undefined) headlessList.querySelector<HTMLElement>(`button[data-answer="${kept}"]`)?.focus();
+}
+
+/**
+ * Draws the section that holds the questions the view's work item is parked
+ * with: every question at once, each with who asks where the record says
+ * it, its grounds, its options as radio buttons, what each implies, and a
+ * field for another answer, the question's default chosen. A question that
+ * names no option has the field alone. While the work item is parked the
+ * section carries the class of what needs the person, and the theme gives
+ * it that edge. After the answer the section lists each question with its
+ * answer, until the look the window holds has each as answered. It is
+ * hidden from then on, and for a work item that never was parked. The age
+ * is said anew at each call. The questions are drawn again only where the
+ * section's key is another, so a choice and a typed answer stay, with the
+ * keyboard and a composition under way, through every `inbox` that arrives
+ * meanwhile.
+ */
+function showQuestions(workItem: WorkItem): void {
+  const section = askedSection(workItem, Date.now(), held.lastLook);
+  questionsSection.hidden = !section;
+  if (!section) {
+    questionsDrawn = undefined;
+    questionsList.replaceChildren();
+    return;
+  }
+  questionsSection.classList.toggle("waiting", section.parked);
+  questionsHead.textContent = section.head;
+  questionsAge.textContent = section.age;
+  if (section.key === questionsDrawn) return;
+  questionsDrawn = section.key;
+  answersRequest = undefined;
+  questionsError.textContent = "";
+  questionsSubmit.hidden = !section.parked;
+  questionsSubmit.disabled = false;
+  questionsList.replaceChildren(
+    ...section.questions.map((question) => {
+      // A question's text, an option and an answer are plain text, never markup.
+      if (!section.parked) {
+        const answered = document.createElement("div");
+        answered.className = "question";
+        answered.append(part("asks", question.asks), part("answer", question.answer ?? ""));
+        return answered;
+      }
+      const field = document.createElement("fieldset");
+      field.className = "question";
+      field.dataset.question = String(question.id);
+      const asks = document.createElement("legend");
+      asks.className = "asks";
+      asks.textContent = question.asks;
+      const other = document.createElement("input");
+      other.className = "other-answer";
+      other.autocomplete = "off";
+      other.setAttribute("aria-label", `Another answer to: ${question.asks}`);
+      const choice = (value: string, checked: boolean, ...words: HTMLElement[]): HTMLElement => {
+        const label = document.createElement("label");
+        label.className = "option";
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = `question-${question.id}`;
+        radio.value = value;
+        radio.checked = checked;
+        label.append(radio, ...words);
+        return label;
+      };
+      // Who asks and why the question is the person's are plain text, never markup.
+      field.append(asks, part("by", question.by), part("grounds", question.grounds), ...question.options.map((option, index) => choice(String(index), index === question.chosen, part("label", option.label), part("mark", option.mark), part("implies", option.implies))));
+      if (question.options.length > 0) {
+        field.append(choice("other", false, part("label", "Another answer")));
+        // Words typed as another answer choose it.
+        other.addEventListener("input", () => {
+          const radio = field.querySelector<HTMLInputElement>('input[type="radio"][value="other"]');
+          if (radio) radio.checked = true;
+        });
+      }
+      field.append(other);
+      return field;
+    }),
+  );
+}
+
+/**
+ * Sends the answers of the section as "Send answers" asks: for each
+ * question the option chosen or the words typed as another answer. The
+ * daemon writes them into the work item's record, which ends the park, and
+ * the `inbox` after its `done` carries the questions as answered. It refuses
+ * an empty answer, and the section shows its refusal.
+ */
+function sendAnswers(): void {
+  const workItem = viewed();
+  const section = workItem && askedSection(workItem, Date.now(), held.lastLook);
+  // One request per answer: a second press before the daemon has answered would send the answers twice.
+  if (!workItem || !section?.parked || answersRequest !== undefined) return;
+  const fields = section.questions.map((question) => questionsList.querySelector<HTMLElement>(`[data-question="${question.id}"]`));
+  const choices = fields.map((field) => {
+    // A question that names no option has the field alone, whose words are its answer.
+    if (!field?.querySelector('input[type="radio"]')) return "other";
+    const chosen = field.querySelector<HTMLInputElement>('input[type="radio"]:checked');
+    return chosen ? (chosen.value === "other" ? "other" : Number(chosen.value)) : null;
+  });
+  const typed = fields.map((field) => field?.querySelector<HTMLInputElement>("input.other-answer")?.value ?? "");
+  answersRequest = request();
+  questionsError.textContent = "";
+  questionsSubmit.disabled = true;
+  send({ type: "answerQuestions", requestId: answersRequest, workItemId: workItem.id, answers: answersFor(section.questions, choices, typed) });
+}
+
+/**
+ * Draws the view's foot for the view's work item: the seal's place and its
+ * words for the seal its branch's head holds (./view, `sealShown`), with
+ * the seal's sentence under its head where the seal is broken, and
+ * "Get a seal" (./view, `sealButton`): the button where the daemon sent the
+ * work item's chain, in its words for that seal, the chain's sentence above
+ * it and the daemon's refusal of the last press under it, while the chain
+ * stands as it stood at that refusal.
+ */
+function showSeal(workItem: WorkItem): void {
+  drawSeal(viewSeal, workItem.seal);
+  const shown = sealShown(workItem.seal);
+  sealHead.textContent = shown.words;
+  // The daemon's sentence is plain text, never markup.
+  sealWhy.textContent = shown.why;
+  const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
+  getSeal.textContent = button.words;
+  getSeal.hidden = !button.offered;
+  getSeal.disabled = !button.enabled;
+  getSeal.title = button.title;
+  sealSays.textContent = button.says;
+  sealRefusal.textContent = button.refusal;
+}
+
+/**
+ * Draws the view's work item's pull request under the seal's place (./view,
+ * `pullRequestFacts`), or hides the section where it has none: its number
+ * and its state on a row that opens it, the result of its checks, a row for
+ * each check, which opens the check where GitHub gave it an address, how
+ * many more checks GitHub listed, and why the last read failed. Each address
+ * goes to the main process, which opens an `http` or `https` one alone, and
+ * none in an app started in the background.
+ */
+function showPullRequest(workItem: WorkItem): void {
+  const facts = pullRequestFacts(workItem);
+  pullRequestSection.hidden = facts === null;
+  pullRequestUrl = facts?.url;
+  if (facts === null) {
+    pullRequestList.replaceChildren();
+    return;
+  }
+  byId("pull-request-number").textContent = facts.head;
+  byId("pull-request-state").textContent = facts.state;
+  byId("pull-request-open").title = `Open ${facts.head} on GitHub`;
+  byId("pull-request-checks").textContent = facts.checks;
+  pullRequestList.replaceChildren(
+    ...facts.rows.map(({ name, mark, words, link }) => {
+      const item = document.createElement("li");
+      const check = document.createElement(link === null ? "div" : "button");
+      check.className = "row check";
+      // A check's name is plain text, never markup.
+      check.append(headlessIcon(mark, words), part("name", name), part(`words state ${mark}`, words));
+      if (link !== null) {
+        (check as HTMLButtonElement).type = "button";
+        check.title = `Open the check ${name} on GitHub`;
+        check.addEventListener("click", () => void window.owlery.openLink(link));
+      }
+      item.append(check);
+      return item;
+    }),
+  );
+  byId("pull-request-more").textContent = facts.foot;
+  byId("pull-request-failure").textContent = facts.failure;
+}
+
+/** Asks the daemon to start the chain of the work item whose view is on screen, as a press of "Get a seal" does. The daemon answers `done` once the chain has started, and the `inbox` that follows carries it. */
+function askSeal(): void {
+  const workItem = viewed();
+  // One request per answer: a second press before the daemon has answered would ask for a second start.
+  if (!workItem || sealRequest !== undefined || !sealButton(workItem, false, null).enabled) return;
+  sealRequest = { requestId: request(), workItemId: workItem.id };
+  send({ type: "getSeal", requestId: sealRequest.requestId, workItemId: workItem.id });
+  showSeal(workItem);
+}
+
+/**
+ * Takes the daemon's answer to a press of "Get a seal", `refusal` being its
+ * refusal or null for `done`, and answers whether the request was that
+ * press's. A refusal is shown under the button, with the button on again,
+ * and is kept with the chain as the window holds it at the answer.
+ */
+export function takeSeal(requestId: number, refusal: string | null): boolean {
+  if (requestId !== sealRequest?.requestId) return false;
+  const { workItemId } = sealRequest;
+  sealRefused = refusal === null ? undefined : { workItemId, refusal: refusedSeal(held.workItems.find((item) => item.id === workItemId), refusal) };
+  sealRequest = undefined;
+  const workItem = viewed();
+  if (workItem) showSeal(workItem);
+  return true;
+}
+
+/**
+ * Takes the daemon's answer to the section's request, `refusal` being its
+ * refusal or null for `done`, and answers whether the request was the
+ * section's. A refusal is shown in the section, with "Send answers" on
+ * again. After `done` the keyboard goes back to the pane in front, since
+ * the `inbox` that follows takes the section's controls away.
+ */
+export function takeAnswers(requestId: number, refusal: string | null): boolean {
+  if (requestId !== answersRequest) return false;
+  answersRequest = undefined;
+  questionsSubmit.disabled = false;
+  questionsError.textContent = refusal ?? "";
+  if (refusal === null) screenOf(front)?.term.focus();
+  return true;
 }
 
 /**
@@ -649,24 +1033,24 @@ function closePane(session: SessionInfo): void {
   }
   const workItem = held.workItems.find((item) => item.id === session.workItemId);
   asking = session.id;
-  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds)} is working. Closing the pane ends its session.`;
+  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null)} is working. Closing the pane ends its session.`;
   // The keyboard starts on "Cancel", the dialog's first button.
   closeDialog.showModal();
 }
 
-/** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view, it does nothing. */
+/** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
   if (session) closePane(session);
 }
 
-/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. */
-function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean): HTMLElement {
+/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
+function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean, setupPane: number | null): HTMLElement {
   const tab = document.createElement("span");
   tab.className = `tab${shown ? " shown" : ""}${active ? " active" : ""}`;
   const label = document.createElement("button");
   label.className = "label";
-  label.textContent = tabLabel(session, listed, held.paneKinds);
+  label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
@@ -675,6 +1059,7 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   close.title = `End ${label.textContent} and close its tab.`;
   label.addEventListener("click", () => {
     if (held.viewing === undefined) return;
+    backFront = false;
     broughtToFront(held.viewing, session.id);
     showView();
   });
@@ -683,11 +1068,91 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   return tab;
 }
 
+/** The back's tab, first in the strip and with no close mark, marked where the back is in front, `active`. A press puts the back in front. */
+function backTab(active: boolean): HTMLElement {
+  const tab = document.createElement("span");
+  tab.className = `tab back${active ? " active" : ""}`;
+  const label = document.createElement("button");
+  label.className = "label";
+  label.textContent = BACK_TAB;
+  label.addEventListener("click", () => {
+    if (held.viewing === undefined) return;
+    backFront = true;
+    showView();
+  });
+  tab.append(label);
+  return tab;
+}
+
+/**
+ * Draws the back of the seal of the view's work item in the back's place
+ * (./view, `backShown`; ./shared, `backParts`), and asks the daemon for its
+ * records and its ledger, both at once, where nothing was asked for this
+ * work item yet or a later list gives another key. While a second ask waits,
+ * the back drawn from the first answers stays, and a list that changes
+ * nothing the back draws draws nothing again.
+ */
+function showBack(workItem: WorkItem): void {
+  const key = backKey(workItem);
+  if (backAsked?.workItemId !== workItem.id || backAsked.key !== key) {
+    backAsked = { workItemId: workItem.id, key, recordsRequest: request(), ledgerRequest: request(), records: null, ledger: null, refusal: null };
+    send({ type: "readSealRecords", requestId: backAsked.recordsRequest, workItemId: workItem.id });
+    send({ type: "readLedger", requestId: backAsked.ledgerRequest, workItemId: workItem.id });
+  }
+  const shown = backShown(backAsked);
+  if (shown === BACK_READING && back.dataset.workItem === String(workItem.id) && back.childElementCount > 0) return;
+  const drawn = JSON.stringify([workItem.id, shown, workItem.seal ?? null]);
+  if (drawn === backDrawn) return;
+  backDrawn = drawn;
+  back.dataset.workItem = String(workItem.id);
+  back.replaceChildren(...backParts(shown, workItem.seal));
+}
+
+/** Lets the back's answers go and empties its place, as when a pane comes in front or the view is left. */
+function dropBack(): void {
+  backAsked = undefined;
+  backDrawn = undefined;
+  delete back.dataset.workItem;
+  back.replaceChildren();
+}
+
+/** Takes an answer the back asked for and draws the back again where it is in front, and answers whether the request was the back's. */
+function takeBackAnswer(requestId: number, took: (asked: NonNullable<typeof backAsked>) => void): boolean {
+  if (backAsked === undefined || (requestId !== backAsked.recordsRequest && requestId !== backAsked.ledgerRequest)) return false;
+  took(backAsked);
+  const workItem = viewed();
+  if (backFront && workItem?.id === backAsked.workItemId) showBack(workItem);
+  return true;
+}
+
+/** Takes the daemon's `sealRecords`, and answers whether it answered the back. */
+export function takeSealRecords(requestId: number, records: SealRecords): boolean {
+  return takeBackAnswer(requestId, (asked) => {
+    if (requestId === asked.recordsRequest) asked.records = records;
+  });
+}
+
+/** Takes the daemon's `ledger`, and answers whether it answered the back. */
+export function takeLedger(requestId: number, ledger: { entries: LedgerEntry[]; unread: number }): boolean {
+  return takeBackAnswer(requestId, (asked) => {
+    if (requestId === asked.ledgerRequest) asked.ledger = ledger;
+  });
+}
+
+/** Takes the daemon's refusal of either of the back's requests, which the back's place then says, and answers whether the request was the back's. */
+export function takeBackRefusal(requestId: number, refusal: string): boolean {
+  return takeBackAnswer(requestId, (asked) => {
+    asked.refusal = refusal;
+  });
+}
+
 /**
  * Draws the view of the work item on screen: its header, its tabs, the
  * panes on the stage, each on a screen of the pool, with the strip under
- * them, its right column and its "Ask" section. The stage holds the pane in
- * front, or up to four panes as tiles where "Side by side" is pressed. It
+ * them, its right column, the questions it is parked with among it, and its
+ * "Ask" section. The stage holds the pane in
+ * front, or up to four panes as tiles where "Side by side" is pressed, and
+ * gives way to the back of the seal while the back's tab is in front. It
  * starts no process.
  */
 export function showView(): void {
@@ -698,12 +1163,13 @@ export function showView(): void {
   }
   const { workItem, line } = entry;
   const now = Date.now();
-  const state = stateWithAge(line.state, entry.session?.stateSince, now);
+  const since = lineSince(workItem, entry.session);
+  const state = stateWithAge(line.state, since, now);
   viewTitle.textContent = line.title;
   viewBranch.textContent = line.branch;
   viewRepo.textContent = repoNameOf(workItem);
   viewFactsTitle.textContent = line.title;
-  showState(viewState, line.state, entry.session?.stateSince);
+  showState(viewState, line.state, since);
   viewFactList.replaceChildren(
     ...viewFacts(entry, held.paneKinds, now).flatMap(({ label, value }) => {
       const term = document.createElement("dt");
@@ -713,14 +1179,24 @@ export function showView(): void {
       return [term, said];
     }),
   );
-  viewDetail.replaceChildren(...detail(entry, 0));
+  showQuestions(workItem);
+  showSeal(workItem);
+  showPullRequest(workItem);
+  viewDetail.replaceChildren(...detail(entry, 0, { reverse: (decisionId) => reverseDecision(workItem.id, decisionId), runSetup: (command) => runSetup(workItem.id, command) }));
   stripWorktree.textContent = workItem.worktree;
   stripState.textContent = state;
   stripState.className = `state ${stateClass(line.state)}`;
   const listed = paneTabs(workItem, held.sessions);
-  const { front: target, shown } = stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
-  tabs.replaceChildren(...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id))));
-  noPanes.hidden = listed.length > 0;
+  const backed = hasBack(workItem);
+  if (!backed) backFront = false;
+  // With the back in front no pane is on the stage, and the stage gives way to the back's place.
+  const { front: target, shown } = backFront ? { front: undefined, shown: [] } : stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
+  tabs.replaceChildren(...(backed ? [backTab(backFront)] : []), ...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id), workItem.setup?.paneId ?? null)));
+  noPanes.hidden = listed.length > 0 || backFront;
+  stage.hidden = backFront;
+  back.hidden = !backFront;
+  if (backFront) showBack(workItem);
+  else dropBack();
   stageShows(shown);
   if (target !== front) {
     front = target;
@@ -738,8 +1214,13 @@ export function enterView(workItemId: number, pane?: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
+  // A press whose answer never came, as where the daemon ended first, holds the button off no longer.
+  sealRequest = undefined;
   held.viewing = workItemId;
   front = undefined;
+  // A view entered with no pane opens to the back where the work item holds a seal (./view, `opensToBack`).
+  backFront = opensToBack(held.workItems.find((item) => item.id === workItemId), pane);
+  if (backAsked?.workItemId !== workItemId) dropBack();
   if (pane !== undefined) broughtToFront(workItemId, pane);
 }
 
@@ -748,6 +1229,8 @@ export function leaveView(): number | undefined {
   const left = held.viewing;
   held.viewing = undefined;
   front = undefined;
+  backFront = false;
+  dropBack();
   stageShows([]);
   return left;
 }
@@ -758,12 +1241,20 @@ export function takeStarted(session: SessionInfo): void {
   if (!held.sessions.some((known) => known.id === session.id)) held.sessions = [...held.sessions, session];
   if (session.workItemId === null) return;
   broughtToFront(session.workItemId, session.id);
-  if (held.viewing === session.workItemId) showView();
+  if (held.viewing !== session.workItemId) return;
+  // A pane started in the view on screen comes in front, in place of the back.
+  backFront = false;
+  showView();
 }
 
 /** Asks the daemon for no more output of a pane this window started, where the pane did not come onto the stage: the daemon sends a pane's output to the window that started it. */
 export function detachUnshown(id: number): void {
   if (!screenOf(id)) send({ type: "detach", id });
+}
+
+/** Asks the daemon to run a work item's setup again, as the view's "Run setup again" does, with the command the view named, which the daemon runs only where `.worktreesetup` still holds it: its answer, `started`, puts the new setup pane in front, and its refusal is said in the status line. */
+function runSetup(workItemId: number, command: string | null): void {
+  send({ type: "runSetup", requestId: request(), workItemId, ...startSize(), setupCommand: command });
 }
 
 /** Asks the field's prompt in the work item whose view is on screen. */
@@ -786,9 +1277,16 @@ export function takeHeadless(headless: HeadlessInfo, requestId?: number): void {
   showAskSection();
 }
 
-/** Takes the daemon's refusal of a request: where it was the "Ask" field's, the field may ask again. */
+/** Takes a headless session the daemon took off its list, as its bound keeps the sessions that ended last, out of the window's sessions and the "Ask" section. */
+export function dropHeadless(id: number): void {
+  held.headless = withoutHeadless(held.headless, id);
+  showAskSection();
+}
+
+/** Takes the daemon's refusal of a request: where it was the "Ask" field's, the field may ask again, and where it was a press of "Show output", no answer is waited for. */
 export function requestRefused(requestId: number): void {
   if (requestId === askRequest) askRequest = undefined;
+  if (requestId === gateRequest?.requestId) gateRequest = undefined;
 }
 
 /**
@@ -814,10 +1312,11 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void): void {
+export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void): void {
   leave = onLeave;
   mac = isMac;
   openWorkItem = openView;
+  reverseDecision = reverse;
   // The card stays while the pointer is on it, and leaves a moment after the pointer left it for somewhere that is not its link.
   linkCardElement.addEventListener("mouseenter", () => clearTimeout(cardLeaveTimer));
   linkCardElement.addEventListener("mouseleave", cardLeaves);
@@ -847,7 +1346,11 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     },
     { capture: true },
   );
-  byId("view-seal-place").replaceWith(sealPlace("view"));
+  byId("view-seal-place").replaceWith(viewSeal);
+  getSeal.addEventListener("click", askSeal);
+  byId("pull-request-open").addEventListener("click", () => {
+    if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
+  });
   askField.addEventListener("input", () => {
     const workItem = viewed();
     if (workItem) showAsk(workItem);
@@ -855,6 +1358,10 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   askForm.addEventListener("submit", (event) => {
     event.preventDefault();
     ask();
+  });
+  byId<HTMLFormElement>("questions-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendAnswers();
   });
   byId("close-pane-cancel").addEventListener("click", () => closeDialog.close());
   byId("close-pane-confirm").addEventListener("click", () => {
@@ -865,6 +1372,8 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   closeDialog.addEventListener("close", () => screenOf(front)?.term.focus());
   sideBySideButton.addEventListener("click", () => {
     sideBySide = !sideBySide;
+    // The panes come in front, side by side or not, in place of the back.
+    backFront = false;
     sideBySideButton.setAttribute("aria-pressed", String(sideBySide));
     if (held.viewing === undefined) return;
     showView();

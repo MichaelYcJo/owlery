@@ -6,7 +6,7 @@
 # Setup: `seal pr-checks install` writes this file to
 # .github/workflows/hygiene.yml, at first setup under the answer "shared,
 # with pull-request checks" or at any time later, and only when nothing is
-# there yet; an existing file is never overwritten. It pins `v0.38.2`
+# there yet; an existing file is never overwritten. It pins `v0.38.4`
 # below to the plugin version installed at that moment, so the checks come
 # from the release that wrote the file. The line moves when a person edits
 # it, or runs `seal pr-checks remove` and then `seal pr-checks install`.
@@ -20,7 +20,7 @@
 # declares nothing owes nothing. `seal pr-checks remove` takes the copy out.
 #
 # Done by hand instead: a person copies this file to
-# .github/workflows/hygiene.yml and replaces v0.38.2 with the tag of the
+# .github/workflows/hygiene.yml and replaces v0.38.4 with the tag of the
 # plugin release the repository runs.
 
 name: hygiene
@@ -69,7 +69,7 @@ jobs:
       - name: the plugin, at the release this file was written against
         shell: bash
         run: |
-          git clone --quiet --depth 1 --branch v0.38.2 \
+          git clone --quiet --depth 1 --branch v0.38.4 \
             https://github.com/MichaelYcJo/AgenticSeal.git "$RUNNER_TEMP/agentic"
 
       # A work item routed "through the review chain" has to carry the round

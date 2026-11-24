@@ -1,32 +1,45 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
-import { fakeAdapter } from "../src/daemon/adapters/fake";
+import { type FakeAsk, fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
-import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
+import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
+import { type DecisionRecord, RECORD_FILE, readDecisionRecord, withApplied, withCarried, withDecision, withReversal } from "../src/daemon/decision-record";
+import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
+import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
-import type { HeadlessInfo, KeepAwake, ServerMessage, WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
+import { client as chainClient, commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
+import { VIEW_FIELDS } from "../src/daemon/github";
 
 const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
-const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null };
+const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null };
 /** What a branch just cut holds since its base. */
-const NOTHING_NEW = { aheadOfBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
-const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "branch", "changes", "commits", "createdAt", "groupId", "id", "muted", "newCommits", "pinned", "repo", "repoId", "repoName", "title", "worktree"];
-/** What a work item holds of the fields a person sets, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null };
+const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
+const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
+const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
+const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
+/** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
+/** What a work item holds of its record of decisions and questions where its worktree holds none. */
+const NO_RECORD = { decisions: [], questions: [], unread: [] };
+/** What a work item holds of its records of the chain where its worktree holds none of them. */
+const NOTHING_RECORDED = { framed: false, rounds: 0, gate: null, verdict: null };
 /** What a repository holds of the fields a person sets, before any is set. */
-const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [] };
+/** What a repository holds of the records place where its checkout holds none. */
+const NO_RECORDS = { root: null, check: null, broadGate: null };
+const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS };
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -160,6 +173,14 @@ async function runFolderWithWorkItem(made: { repo: string; root: string; base: s
   return { runDir, workItem };
 }
 
+/** A daemon whose run folder lists one work item, number 1, in which a pane starts. */
+async function daemonWithWorkItem(options: Partial<DaemonOptions> = {}) {
+  const made = temporaryRepository();
+  cleanups.push(made.remove);
+  const { runDir, workItem } = await runFolderWithWorkItem(made, "Pane work");
+  return { ...(await daemon({ runDir, worktreesRoot: made.root, ...options })), workItem };
+}
+
 /** Every file under a folder with its bytes, and the repository's refs and worktrees as git prints them. */
 function onDisk(repo: string, ...folders: string[]): unknown[] {
   const files = (folder: string) =>
@@ -188,9 +209,9 @@ describe("the daemon's local server", () => {
   });
 
   it("refuses a client that sends anything before the token", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const c = await client(url, null);
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     await c.until(() => c.closed());
     expect(c.closed()?.code).toBe(4001);
   });
@@ -205,19 +226,19 @@ describe("the daemon's local server", () => {
 
 describe("sessions", () => {
   it("starts a session and streams its output", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, workItemId: 1 });
     const started = await c.message("started", (m) => m.requestId === 7);
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === started.session.id && m.data.includes("first")) ? true : undefined));
   });
 
   it("keeps a session alive when its client leaves, and replays the output the client missed", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const first = await client(url);
     await first.message("ready");
-    first.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1 });
+    first.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await first.message("started");
     await first.until(() => (first.messages.some((m) => m.type === "output" && m.data.includes("first")) ? true : undefined));
     first.socket.close();
@@ -226,7 +247,7 @@ describe("sessions", () => {
     await new Promise((r) => setTimeout(r, 500));
     const second = await client(url);
     const ready = await second.message("ready");
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE }]);
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE }]);
     second.send({ type: "attach", id: session.id });
     const replay = await second.message("replay");
     expect(replay.data).toContain("first");
@@ -234,13 +255,13 @@ describe("sessions", () => {
   });
 
   it("sends a reconnecting client each line once: what it missed in the replay, the rest live", async () => {
-    // Prints a numbered line every 20 ms, so lines are printed between the client's ready and its attach.
-    const { url } = await daemon({
-      commandFor: () => ({ command: "/bin/sh", args: ["-c", "i=0; while [ $i -lt 40 ]; do echo line-$i; i=$((i+1)); sleep 0.02; done; sleep 30"], env: {} }),
+    // Prints forty numbered lines in five bursts of eight, 100 ms apart, so lines are printed between the client's ready and its attach. Each pause starts a `sleep` process, which takes about 45 ms on GitHub's macOS runner, so the lines come in bursts and not one pause each: forty starts there took the case past its five seconds.
+    const { url } = await daemonWithWorkItem({
+      commandFor: () => ({ command: "/bin/sh", args: ["-c", "i=0; while [ $i -lt 40 ]; do echo line-$i; i=$((i+1)); [ $((i % 8)) -ne 0 ] || sleep 0.1; done; sleep 30"], env: {} }),
     });
     const first = await client(url);
     await first.message("ready");
-    first.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    first.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await first.message("started");
     first.socket.close();
 
@@ -254,22 +275,22 @@ describe("sessions", () => {
   });
 
   it("sends a session's output only to the clients that opened or attached it", async () => {
-    const { url } = await daemon();
+    const { url } = await daemonWithWorkItem();
     const opener = await client(url);
     await opener.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     await opener.until(() => (opener.messages.some((m) => m.type === "output" && m.data.includes("first")) ? true : undefined));
     expect(bystander.messages.filter((m) => m.type === "output")).toEqual([]);
   });
 
   it("sends a client that detached no further output of the session while the other client still receives it, and after its next attach a replay of what was printed meanwhile and the output after it", async () => {
     // The pane answers each line it is sent, so the case decides when it prints.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
     const stays = await client(url);
     await stays.message("ready");
-    stays.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    stays.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await stays.message("started");
     const leaves = await client(url);
     await leaves.message("ready");
@@ -295,10 +316,10 @@ describe("sessions", () => {
 
   it("forgets a session's kept output at a forget, so the next replay holds only what the session printed afterwards, and changes nothing for an id it does not list", async () => {
     // The pane answers each line it is sent, so the case decides when it prints.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'while read line; do echo "got-$line."; done'], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const printed = (text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
     const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay");
@@ -321,10 +342,10 @@ describe("sessions", () => {
 
   it("keeps the modes a session's program set at a forget that asks for them, first in the next replay, and keeps nothing at a forget that does not ask", async () => {
     // The pane asks for pastes in brackets, and then answers each line it is sent.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'printf "\\033[?2004h"; while read line; do echo "got-$line."; done'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'printf "\\033[?2004h"; while read line; do echo "got-$line."; done'], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const printed = (text: string) => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(text)) ? true : undefined);
     const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay");
@@ -346,12 +367,12 @@ describe("sessions", () => {
   });
 
   it("ends a session's output with the exit line, on a line of its own: sent to the clients that receive the session, and last in a later replay", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf last; exit 3"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf last; exit 3"], env: {} }) });
     const opener = await client(url);
     await opener.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    opener.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await opener.message("started");
     await opener.message("exit");
     const sent = opener.messages.flatMap((m) => (m.type === "output" && m.id === session.id ? [m.data] : [])).join("");
@@ -368,10 +389,10 @@ describe("sessions", () => {
   });
 
   it("takes a size sent for a session whose process exited, changes nothing, and goes on answering", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("exit");
     // A window that shows an exited pane fits its screen and tells the size, as it does for a live one. The pseudo-terminal is closed by then.
@@ -381,20 +402,20 @@ describe("sessions", () => {
   });
 
   it("tells every client when a session ends, and lists it as ended", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 3"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const exit = await c.message("exit");
     expect(exit).toEqual({ type: "exit", id: session.id, exitCode: 3 });
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: null, ...NO_STATE }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: 1, ...NO_STATE }]);
   });
 
   it("gives each session's process the pane's id and the hook socket", async () => {
     const seen: number[] = [];
-    const { url } = await daemon({
+    const { url } = await daemonWithWorkItem({
       commandFor: (_kind, id) => {
         seen.push(id);
         return { command: "/bin/sh", args: ["-c", 'echo "pane=$OWLERY_PANE_ID"; sleep 30'], env: { OWLERY_PANE_ID: String(id) } };
@@ -402,7 +423,7 @@ describe("sessions", () => {
     });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     expect(seen).toEqual([session.id]);
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.data.includes(`pane=${session.id}`)) ? true : undefined));
@@ -429,7 +450,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -443,37 +464,59 @@ describe("work items", () => {
 
   it("carries only the fields the protocol names, none of them a vendor's", async () => {
     const { repo, root } = repository();
-    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
+    const { daemon: d, url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Keys", kind: "shell", cols: 80, rows: 24 });
     const created = await c.message("workItemCreated");
+    // Two decisions, one of them reversed, a park with a question that names options, and a block the reader refuses, so that the lists carry a decision, a question, an option and an unread line.
+    const directory = withDirectory(created.workItem);
+    d.decided(created.workItem.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." });
+    d.decided(created.workItem.id, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file." });
+    c.send({ type: "reverseDecision", requestId: 2, workItemId: created.workItem.id, decisionId: 1, message: "Frame it first." });
+    await c.message("done", (m) => m.requestId === 2);
+    d.park(created.workItem.id, { by: "sealer", questions: [{ asks: "Which base?", grounds: "No document names it.", options: [{ label: "main", implies: "The default." }], default: "main" }] });
+    writeFileSync(join(directory, RECORD_FILE), `${readFileSync(join(directory, RECORD_FILE), "utf8")}\n\`\`\`seal\n\`\`\`\n`);
+    // A verdict, so that what the records say of the chain carries one.
+    writeFileSync(join(directory, "guarantee.md"), `\`\`\`seal\ntarget: ${"a".repeat(40)} against main\nVerdict: withheld reason: The suite failed.\n\`\`\`\n`);
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
     expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
     expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
     expect(Object.keys(created.workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
-    // A commit, so that the lists carry one and a changed file.
+    // The daemon commits the reversal, so the lists carry a commit and a changed file. The case's own commit waits for it, since two commits of one worktree do not run at once.
+    await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
     writeFileSync(join(created.workItem.worktree, "one.txt"), "one\n");
     git(created.workItem.worktree, "add", "one.txt");
     git(created.workItem.worktree, "commit", "--quiet", "-m", "add one");
-    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
+    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 2);
     // A look, so that `ready` carries one; the `attach` after it is answered once the daemon has handled both.
     c.send({ type: "looked" });
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
-    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name"]);
+    expect(Object.keys(ready).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
+    expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
     expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
     for (const lists of [inbox, ready, ready.lastLook!]) {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      expect(Object.keys(workItem).sort()).toEqual(WORK_ITEM_FIELDS);
+      // The look keeps nothing of what the records say of the chain, and keeps the seal reading the lists carried.
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded") : WORK_ITEM_FIELDS);
+      if (lists !== ready.lastLook) {
+        expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
+        expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
+      }
       expect(Object.keys(workItem.commits![0]!).sort()).toEqual(["added", "at", "hash", "removed", "subject"]);
       expect(Object.keys(workItem.changes!).sort()).toEqual(["added", "files", "list", "removed"]);
       expect(Object.keys(workItem.changes!.list[0]!).sort()).toEqual(["added", "path", "removed"]);
+      const DECISION_FIELDS = ["by", "grounds", "id", "kind", "landed", "reversal", "says", "since", "state"];
+      expect(workItem.decisions.map((decision) => Object.keys(decision).sort())).toEqual([DECISION_FIELDS, DECISION_FIELDS]);
+      expect(workItem.questions.map((question) => Object.keys(question).sort())).toEqual([["answer", "asks", "by", "default", "grounds", "id", "options", "since"]]);
+      expect(Object.keys(workItem.questions[0]!.options[0]!).sort()).toEqual(["implies", "label"]);
+      expect(workItem.unread.map((unread) => Object.keys(unread).sort())).toEqual([["line", "why"]]);
     }
   });
 
@@ -534,11 +577,11 @@ describe("work items", () => {
       const { workItem } = await c.message("workItemCreated", (m) => m.requestId === requestId);
       expect(git(repo, "for-each-ref", "--format=%(upstream)", `refs/heads/${workItem.branch}`).trim()).toBe("");
       expect(git(repo, "rev-parse", `refs/heads/${workItem.branch}`).trim()).toBe(workItem.baseCommit);
-      return [workItem.baseBranch, workItem.baseCommit, workItem.aheadOfBase];
+      return [workItem.baseBranch, workItem.baseCommit, workItem.aheadOfBase, workItem.behindBase];
     };
-    expect(await create(1, "feature")).toEqual(["feature", feature, 0]);
-    expect(await create(2, "origin/remote-only")).toEqual(["origin/remote-only", remoteOnly, 0]);
-    expect(await create(3, "origin/shadow")).toEqual(["origin/shadow", feature, 0]);
+    expect(await create(1, "feature")).toEqual(["feature", feature, 0, 0]);
+    expect(await create(2, "origin/remote-only")).toEqual(["origin/remote-only", remoteOnly, 0, 0]);
+    expect(await create(3, "origin/shadow")).toEqual(["origin/shadow", feature, 0, 0]);
   });
 
   it("answers a creation whose base is none of the repository's with an error that names it, and creates no branch, folder or list entry", async () => {
@@ -584,8 +627,8 @@ describe("work items", () => {
     };
     // A work item's own branch is a local branch, and a base as any other.
     const planned = await plan(2, { title: "Fix the login bug" });
-    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main" });
-    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "localBases", "remoteBases", "requestId", "type", "worktree"]);
+    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main", setupCommand: null, includes: false });
+    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "includes", "localBases", "remoteBases", "requestId", "setupCommand", "type", "worktree"]);
     // The name sent names the branch where the title leaves no slug, and a generated name where neither does.
     expect(await plan(3, { title: "로그인 버그", name: "amber-heron" })).toMatchObject({ branch: "owlery/amber-heron", worktree: join(root, "project", "amber-heron") });
     const name = generateName(() => 0.5);
@@ -623,6 +666,8 @@ describe("work items", () => {
       localBases: ["feature", "main", "recent", "origin/shadow"],
       remoteBases: ["origin/main", "origin/remote-only", "origin/older"],
       defaultBase: "origin/main",
+      setupCommand: null,
+      includes: false,
     });
     expect(existsSync(root)).toBe(false);
   });
@@ -740,15 +785,25 @@ describe("work items", () => {
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
   });
 
-  it("starts a pane named no work item where it does today, the daemon's folder", async () => {
-    const { base, root } = repository();
-    const { url } = await daemon({ commandFor: printsItsFolder, worktreesRoot: root, cwd: base });
+  it("refuses a start that names no work item with an error, and starts nothing, a start that asks to continue among them", async () => {
+    const asked: unknown[][] = [];
+    const { url } = await daemon({
+      commandFor: (...given) => {
+        asked.push(given);
+        return printsItsFolder();
+      },
+    });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
-    const { session } = await c.message("started");
-    expect(session.workItemId).toBeNull();
-    await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${base}\r`)) ? true : undefined));
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "a pane opens in a work item" });
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, continueLatest: true });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "a pane opens in a work item" });
+    // A work item's id that is no number names none either.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: "1" });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "a pane opens in a work item" });
+    expect(asked).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([]);
   });
 
   it("starts a pane on the latest conversation where the start asks it of a kind that continues: its command is the one asked to continue, in the work item's worktree, and the pane is of the kind asked and takes its agent's state", async () => {
@@ -781,7 +836,7 @@ describe("work items", () => {
 
   it("asks the command of a pane to continue nothing where the start does not ask it", async () => {
     const asked: unknown[][] = [];
-    const { url } = await daemon({
+    const { url } = await daemonWithWorkItem({
       commandFor: (...given) => {
         asked.push(given);
         return printsItsFolder();
@@ -789,14 +844,14 @@ describe("work items", () => {
     });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     expect(asked).toEqual([["claude", session.id, { continueLatest: false }]]);
   });
 
   it("answers a start that asks a kind that does not continue to continue with an error, and starts nothing", async () => {
     const asked: unknown[][] = [];
-    const { url } = await daemon({
+    const { url } = await daemonWithWorkItem({
       commandFor: (...given) => {
         asked.push(given);
         return printsItsFolder();
@@ -804,7 +859,7 @@ describe("work items", () => {
     });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, continueLatest: true });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 7, continueLatest: true, workItemId: 1 });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 7, message: "a pane of kind shell continues no conversation" });
     expect(asked).toEqual([]);
     expect((await (await client(url)).message("ready")).sessions).toEqual([]);
@@ -830,6 +885,254 @@ describe("work items", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     expect(await c.message("error")).toEqual({ type: "error", requestId: 2, message: `the folder of work item ${workItem.id} is gone: ${workItem.worktree}` });
     expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([session.id]);
+  });
+});
+
+describe("the setup of a new worktree", () => {
+  /** The app's setup command, with `/bin/sh` in place of the person's login shell. */
+  const setupCommandFor = (command: string, id: number) => ({ command: "/bin/sh", args: ["-c", command], env: { OWLERY_PANE_ID: String(id) } });
+
+  /** A temporary repository whose `.gitignore` ignores `.env`, `.env.*` and `node_modules/`, holding the ignored `.env`, and naming the files given at the top of its main checkout. */
+  function repositoryNaming(files: { include?: string; command?: string }) {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n");
+    git(made.repo, "add", ".gitignore");
+    git(made.repo, "commit", "--quiet", "-m", "ignore");
+    writeFileSync(join(made.repo, ".env"), "KEY=main\n");
+    if (files.include !== undefined) writeFileSync(join(made.repo, ".worktreeinclude"), files.include);
+    if (files.command !== undefined) writeFileSync(join(made.repo, ".worktreesetup"), files.command);
+    return made;
+  }
+
+  /** A daemon and a client, and the answer to a creation of a Claude Code pane's work item in the repository, which carries `shown`, or where none is given the command `.worktreesetup` holds, as the form shows it from its plan. */
+  async function createdIn(made: { repo: string; root: string }, options: Partial<DaemonOptions> = {}, shown?: string | null) {
+    const { url, daemon: d } = await daemon({ worktreesRoot: made.root, setupCommandFor, now: () => 1234, ...options });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up", kind: "claude", cols: 80, rows: 24, setupCommand: shown === undefined ? (await readSetup(made.repo)).command : shown });
+    return { url, d, c, answer: await c.message("workItemCreated", (m) => m.requestId === 1) };
+  }
+
+  /** The first inbox in which the work item's setup no longer runs. */
+  const setupEnded = (c: Awaited<ReturnType<typeof client>>, paneId?: number) => c.message("inbox", (m) => [...m.workItems, ...m.archived].some((w) => w.setup !== null && w.setup.state !== "running" && (paneId === undefined || w.setup.paneId === paneId)));
+
+  it("copies the included ignored paths and runs the command in a shell pane of the work item, started before the pane the creation names, sends the creating client its output, and records its success", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "echo setting-up; echo made > made.txt" });
+    const { c, answer } = await createdIn(made);
+    const setup = answer.workItem.setup!;
+    expect(setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "echo setting-up; echo made > made.txt", paneId: answer.session.id - 1, state: "running", exitCode: null, failure: null, startedAt: 1234, endedAt: null });
+    expect(Object.keys(setup).sort()).toEqual(SETUP_FIELDS);
+    // The answer carries the pane the creation named.
+    expect(answer.session).toMatchObject({ kind: "claude", workItemId: answer.workItem.id });
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toEqual({ ...setup, state: "succeeded", exitCode: 0, endedAt: 1234 });
+    expect(ended.sessions.map(({ id, kind, workItemId }) => [id, kind, workItemId])).toEqual([[setup.paneId, "shell", answer.workItem.id], [answer.session.id, "claude", answer.workItem.id]]);
+    expect(c.messages.some((m) => m.type === "output" && m.id === setup.paneId && m.data.includes("setting-up"))).toBe(true);
+    expect(readFileSync(join(answer.workItem.worktree, "made.txt"), "utf8")).toBe("made\n");
+    expect(readFileSync(join(answer.workItem.worktree, ".env"), "utf8")).toBe("KEY=main\n");
+  });
+
+  it("records a command that exits with another code than 0 as failed, and leaves the work item listed, the pane the creation named alive, and a new pane able to start", async () => {
+    const { c, answer } = await createdIn(repositoryNaming({ command: "exit 3" }));
+    const ended = await setupEnded(c);
+    expect(ended.workItems.map((w) => w.id)).toEqual([answer.workItem.id]);
+    expect(ended.workItems[0]!.setup).toMatchObject({ copied: [], state: "failed", exitCode: 3, failure: null });
+    expect(ended.sessions.find((s) => s.id === answer.session.id)?.alive).toBe(true);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: answer.workItem.id });
+    expect((await c.message("started", (m) => m.requestId === 2)).session).toMatchObject({ alive: true, workItemId: answer.workItem.id });
+  });
+
+  it("records a command whose process a signal ended as failed, with the signal, though its exit code reads 0", async () => {
+    const { c } = await createdIn(repositoryNaming({ command: "kill -TERM $$" }));
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 0, failure: "The setup command was ended by SIGTERM." });
+  });
+
+  it("runs the command though an included path failed to copy, and records the setup as failed with the path and why", async () => {
+    const made = repositoryNaming({ include: ".env\n.env.secret\n", command: "echo ran > ran.txt" });
+    writeFileSync(join(made.repo, ".env.secret"), "SECRET=1\n");
+    chmodSync(join(made.repo, ".env.secret"), 0o000);
+    cleanups.push(() => chmodSync(join(made.repo, ".env.secret"), 0o600));
+    const { c, answer } = await createdIn(made);
+    const ended = await setupEnded(c);
+    expect(ended.workItems[0]!.setup).toMatchObject({ copied: [".env"], copiedCount: 1, failedCopies: [{ path: ".env.secret", why: expect.stringContaining("EACCES") }], state: "failed", exitCode: 0, failure: null });
+    expect(readFileSync(join(answer.workItem.worktree, "ran.txt"), "utf8")).toBe("ran\n");
+  });
+
+  it("gives a work item in a repository that names neither file no setup, the one pane the creation named, and a worktree that holds no ignored file", async () => {
+    const made = repositoryNaming({});
+    const { url, answer } = await createdIn(made);
+    expect(answer.workItem.setup).toBeNull();
+    const ready = await (await client(url)).message("ready");
+    expect(ready.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    expect((await readLoss(made.repo, answer.workItem.branch, answer.workItem.worktree)).ignored).toEqual([]);
+  });
+
+  it("runs at a creation no command but the one the creation carries: where .worktreesetup changed after the plan, or the creation carries none, it copies, starts no setup pane and says why", async () => {
+    const changed = ".worktreesetup changed after the setup was shown, so no command ran.";
+    const made = repositoryNaming({ include: ".env\n", command: "echo ran > ran.txt" });
+    const { url, c, answer } = await createdIn(made, {}, "pnpm install\n");
+    expect(answer.workItem.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "echo ran > ran.txt", paneId: null, state: "failed", exitCode: null, failure: changed, startedAt: 1234, endedAt: 1234 });
+    // A client that carries no command showed none.
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Unshown", kind: "shell", cols: 80, rows: 24 });
+    const second = await c.message("workItemCreated", (m) => m.requestId === 2);
+    expect(second.workItem.setup).toMatchObject({ command: "echo ran > ran.txt", paneId: null, state: "failed", failure: changed });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id, second.session.id]);
+  });
+
+  it("records a setup whose pane the person closed, and one whose work item was archived, as failed: its pane ended before its command did", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const { c, answer } = await createdIn(made);
+    const closed = answer.workItem.setup!.paneId!;
+    c.send({ type: "close", id: closed });
+    const afterClose = await setupEnded(c, closed);
+    expect(afterClose.workItems[0]!.setup).toMatchObject({ paneId: closed, state: "failed", failure: "The setup pane ended before its command did." });
+    expect(afterClose.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Archived", kind: "shell", cols: 80, rows: 24, setupCommand: "sleep 30" });
+    const second = await c.message("workItemCreated", (m) => m.requestId === 2);
+    const archived = second.workItem.setup!.paneId!;
+    c.send({ type: "archiveWorkItem", requestId: 3, id: second.workItem.id, running: { panes: [archived, second.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    const after = await c.message("inbox", (m) => m.archived.some((w) => w.id === second.workItem.id));
+    expect(after.archived[0]!.setup).toMatchObject({ paneId: archived, state: "failed", failure: "The setup pane ended before its command did." });
+  });
+
+  it("keeps a setup running while its command runs, though another pane of the work item exits", async () => {
+    const { c, answer } = await createdIn(repositoryNaming({ command: "sleep 30" }), { commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 4"], env: {} }) });
+    const exited = await c.message("inbox", (m) => m.sessions.some((s) => s.id === answer.session.id && !s.alive));
+    expect(exited.workItems[0]!.setup).toMatchObject({ paneId: answer.workItem.setup!.paneId, state: "running", exitCode: null });
+  });
+
+  it("leaves a setup that runs as the daemon stops for the next daemon to read as failed, since the daemon stopped before it ended, and naming no pane", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { d, answer } = await createdIn(made, { runDir });
+    await d.close();
+    // The killed pane's exit has had time to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor });
+    const ready = await (await client(url)).message("ready");
+    expect(ready.workItems[0]!.setup).toEqual({ ...answer.workItem.setup, paneId: null, state: "failed", failure: "The daemon stopped before the setup command ended." });
+  });
+
+  it("names after a restart no pane of the setup, so the pane the next daemon gives the same id is no setup pane, and a run again leaves it listed", async () => {
+    const made = repositoryNaming({ command: "true" });
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { d, c, answer } = await createdIn(made, { runDir });
+    const old = answer.workItem.setup!.paneId!;
+    await setupEnded(c);
+    await d.close();
+    // The next daemon counts its pane ids from 1 again, and its panes exit at once.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, setupCommandFor, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const next = await client(url);
+    expect((await next.message("ready")).workItems[0]!.setup).toMatchObject({ paneId: null, state: "succeeded" });
+    next.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: answer.workItem.id });
+    const pane = (await next.message("started", (m) => m.requestId === 2)).session.id;
+    expect(pane).toBe(old);
+    await next.message("inbox", (m) => m.sessions.some((s) => s.id === pane && !s.alive));
+    next.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "true" });
+    const started = await next.message("started", (m) => m.requestId === 3);
+    const ended = await setupEnded(next, started.session.id);
+    expect(ended.sessions.map((s) => s.id)).toEqual([pane, started.session.id]);
+  });
+
+  it("runs the setup again at a person's request: copies what is missing, takes the earlier setup pane off the lists, runs only the command the press carries, answers with the new pane, and records the new setup in place of the old", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "test -e fixed" });
+    const { c, answer } = await createdIn(made);
+    const first = answer.workItem.setup!.paneId!;
+    expect((await setupEnded(c, first)).workItems[0]!.setup).toMatchObject({ state: "failed", exitCode: 1 });
+    writeFileSync(join(made.repo, ".worktreesetup"), "touch fixed");
+    // The press carries the command the view showed, which the file no longer holds: the earlier pane leaves the lists, and no command runs.
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "test -e fixed" });
+    await c.message("done", (m) => m.requestId === 2);
+    const refused = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === "touch fixed");
+    expect(refused.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: "touch fixed", paneId: null, state: "failed", exitCode: null, failure: ".worktreesetup changed after the setup was shown, so no command ran.", startedAt: 1234, endedAt: 1234 });
+    expect(refused.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+    expect(existsSync(join(answer.workItem.worktree, "fixed"))).toBe(false);
+    // The next press carries the command the view shows now.
+    rmSync(join(answer.workItem.worktree, ".env"));
+    c.send({ type: "runSetup", requestId: 3, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: "touch fixed" });
+    const started = await c.message("started", (m) => m.requestId === 3);
+    expect(started.session).toMatchObject({ kind: "shell", alive: true, workItemId: answer.workItem.id });
+    const ended = await setupEnded(c, started.session.id);
+    expect(ended.workItems[0]!.setup).toEqual({ copied: [".env"], copiedCount: 1, failedCopies: [], command: "touch fixed", paneId: started.session.id, state: "succeeded", exitCode: 0, failure: null, startedAt: 1234, endedAt: 1234 });
+    expect(ended.sessions.map((s) => s.id)).toEqual([answer.session.id, started.session.id]);
+    expect(readFileSync(join(answer.workItem.worktree, ".env"), "utf8")).toBe("KEY=main\n");
+    // Where only .worktreeinclude stands and the press shows no command, the setup ends by the copy and the answer is `done`.
+    rmSync(join(made.repo, ".worktreesetup"));
+    c.send({ type: "runSetup", requestId: 4, workItemId: answer.workItem.id, cols: 80, rows: 24, setupCommand: null });
+    await c.message("done", (m) => m.requestId === 4);
+    const copied = await c.message("inbox", (m) => m.workItems[0]?.setup?.command === null);
+    expect(copied.workItems[0]!.setup).toEqual({ copied: [], copiedCount: 0, failedCopies: [], command: null, paneId: null, state: "succeeded", exitCode: null, failure: null, startedAt: 1234, endedAt: 1234 });
+    expect(copied.sessions.map((s) => s.id)).toEqual([answer.session.id]);
+  });
+
+  it("refuses to run the setup again while its command runs, for a work item it does not list, in a repository that names neither file now, and in an archived work item, and changes nothing", async () => {
+    const made = repositoryNaming({ command: "sleep 30" });
+    const { url, c, answer } = await createdIn(made);
+    const id = answer.workItem.id;
+    const held = async () => {
+      const ready = await (await client(url)).message("ready");
+      return [ready.sessions, ready.workItems, ready.archived];
+    };
+    const refused = async (requestId: number, workItemId: number) => {
+      const before = await held();
+      c.send({ type: "runSetup", requestId, workItemId, cols: 80, rows: 24 });
+      const { message } = await c.message("error", (m) => m.requestId === requestId);
+      expect(await held()).toEqual(before);
+      return message;
+    };
+    expect(await refused(2, id)).toBe(`The setup of work item ${id} is still running.`);
+    expect(await refused(3, 99)).toBe("no work item 99");
+    c.send({ type: "close", id: answer.workItem.setup!.paneId! });
+    await setupEnded(c);
+    rmSync(join(made.repo, ".worktreesetup"));
+    expect(await refused(4, id)).toBe(`${made.repo} names no setup: it holds neither .worktreeinclude nor .worktreesetup.`);
+    writeFileSync(join(made.repo, ".worktreesetup"), "true");
+    c.send({ type: "archiveWorkItem", requestId: 5, id, running: { panes: [answer.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 5);
+    expect(await refused(6, id)).toBe(`work item ${id} is archived, restore it first`);
+  });
+
+  it("records a setup whose pane could not start as failed, and says why", async () => {
+    const { url, answer } = await createdIn(repositoryNaming({ command: "true" }), {
+      setupCommandFor: () => {
+        throw new Error("no shell here");
+      },
+    });
+    expect(answer.workItem.setup).toMatchObject({ command: "true", paneId: null, state: "failed", exitCode: null, failure: "The setup pane could not start: no shell here", endedAt: 1234 });
+    expect((await (await client(url)).message("ready")).sessions.map((s) => s.id)).toEqual([answer.session.id]);
+  });
+
+  it("starts no setup pane where an archive of the work item began while the setup ran again copied, and says so", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "true" });
+    const { url, c, answer } = await createdIn(made);
+    await setupEnded(c);
+    const held = heldGit(made.base, '[ "$1" = check-ignore ]');
+    c.send({ type: "runSetup", requestId: 2, workItemId: answer.workItem.id, cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    c.send({ type: "archiveWorkItem", requestId: 3, id: answer.workItem.id, running: { panes: [answer.session.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    held.release();
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(`work item ${answer.workItem.id} is archived, restore it first`);
+    const ready = await (await client(url)).message("ready");
+    expect(ready.sessions.filter((s) => s.alive)).toEqual([]);
+    expect(ready.archived[0]!.setup).toEqual(answer.workItem.setup && { ...answer.workItem.setup, state: "succeeded", exitCode: 0, endedAt: 1234 });
+  });
+
+  it("names in a plan the command .worktreesetup holds, whole, and whether .worktreeinclude stands", async () => {
+    const made = repositoryNaming({ include: ".env\n", command: "pnpm install\n" });
+    const { url } = await daemon({ worktreesRoot: made.root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "planWorkItem", requestId: 1, repo: made.repo, title: "Planned" });
+    expect(await c.message("workItemPlan", (m) => m.requestId === 1)).toMatchObject({ branch: "owlery/planned", setupCommand: "pnpm install\n", includes: true });
+    rmSync(join(made.repo, ".worktreeinclude"));
+    c.send({ type: "planWorkItem", requestId: 2, repo: made.repo, title: "Planned" });
+    expect(await c.message("workItemPlan", (m) => m.requestId === 2)).toMatchObject({ setupCommand: "pnpm install\n", includes: false });
   });
 });
 
@@ -997,18 +1300,19 @@ describe("repositories", () => {
     const ready = await c.message("ready");
     expect(ready.repositories).toEqual([
       { id: 1, folder: "/r/project", name: "The project", ...PLAIN, customName: "The project" },
-      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }] },
+      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }], records: NO_RECORDS },
     ]);
     expect(ready.workItems.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.pinned, w.muted, w.groupId, w.archivedAt])).toEqual([
       [1, 1, "/r/project", "The project", false, false, null, null],
       [3, 4, "/r/docs", "docs", true, true, 3, null],
     ]);
     expect(ready.archived.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.archivedAt])).toEqual([[2, 1, "/r/project", "The project", 50]]);
-    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS);
-    // An inbox carries the same lists: a pane's start sends one.
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    // The daemon reads no archived work item's branch, so one it has not read since it started carries no `seal`.
+    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS.filter((key) => key !== "seal"));
+    // An inbox carries the same lists: a change to a work item sends one.
+    c.send({ type: "setWorkItem", requestId: 1, id: 1, pinned: true });
     const inbox = await c.message("inbox");
-    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([ready.repositories, ready.workItems, ready.archived]);
+    expect([inbox.repositories, inbox.workItems, inbox.archived]).toEqual([ready.repositories, ready.workItems.map((w) => (w.id === 1 ? { ...w, pinned: true } : w)), ready.archived]);
     // The look holds the work items an inbox lists, so none that is archived.
     c.send({ type: "looked" });
     await settled(c);
@@ -1345,7 +1649,7 @@ describe("repositories", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -1372,7 +1676,7 @@ describe("repositories", () => {
     let stopped = 0;
     const inner = fakeAdapter({ delayMs: 60_000 });
     // The adapter takes a moment to start a run, as one that launches a process does.
-    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await new Promise((r) => setTimeout(r, 300)); const run = await inner.start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -1384,7 +1688,7 @@ describe("repositories", () => {
     c.send({ type: "removeRepository", requestId: 3, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 3);
     // Every client was told that the session failed, and why, before it left the lists.
-    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "failed" ? [m.headless.error] : []))).toEqual(["ended when a removal of its repository began"]);
+    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "failed" ? [[m.headless.error, m.headless.stopped]] : []))).toEqual([["ended when a removal of its repository began", "request"]]);
     expect(stopped).toBe(0);
     await c.until(() => (stopped === 1 ? true : undefined));
   });
@@ -1518,6 +1822,109 @@ describe("repositories", () => {
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id });
     expect((await answer(4))?.type).toBe("started");
     expect((await (await client(url)).message("ready")).repositories.map((r) => r.id)).toEqual([1]);
+  });
+});
+
+describe("the records place of a repository", () => {
+  const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  const status = (repo: string): string => git(repo, "status", "--porcelain=v1", "--untracked-files=all");
+
+  function repository() {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    return made;
+  }
+
+  /** A daemon of version 1.2.3 that keeps one repository, number 1, and a client that was told so. Its pass over the branches comes once, at the hello, so an `inbox` a case waits for is the answer's own. */
+  async function kept() {
+    const made = repository();
+    const { url } = await daemon({ worktreesRoot: made.root, version: "1.2.3", commitPollMs: 60_000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    const inbox = await c.message("inbox");
+    return { ...made, url, c, inbox };
+  }
+
+  it("answers planRecords with a recordsPlan that names the branch, the subject, each file with its text and a stamp, and writes nothing; a repository it does not keep is an error", async () => {
+    const { repo, c, inbox } = await kept();
+    expect(inbox.repositories[0]?.records).toEqual(NO_RECORDS);
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const answer = await c.message("recordsPlan");
+    expect(answer).toMatchObject({ requestId: 2, id: 1, plan: { branch: "main", subject: SUBJECT, blocked: null, proposedBroadGate: null } });
+    expect(answer.plan.stamp).toMatch(/^[0-9a-f]{64}$/);
+    expect(answer.plan.files.map((file) => file.path)).toEqual(["seal/README.md", "seal/config.json", WORKFLOW]);
+    expect(answer.plan.files[1]?.text).toContain('"Broad gate": "pnpm test"');
+    // The workflow is written for the version the daemon was given.
+    expect(answer.plan.files[2]?.text).toBe(workflowText("1.2.3"));
+    expect(status(repo)).toBe("");
+    expect(existsSync(join(repo, "seal"))).toBe(false);
+    c.send({ type: "planRecords", requestId: 3, id: 9, broadGate: "pnpm test" });
+    expect(await c.message("error", (m) => m.requestId === 3)).toMatchObject({ message: "no repository 9" });
+    c.send({ type: "setUpRecords", requestId: 4, id: 9, broadGate: "pnpm test", stamp: answer.plan.stamp });
+    expect(await c.message("error", (m) => m.requestId === 4)).toMatchObject({ message: "no repository 9" });
+  });
+
+  it("sets up at setUpRecords with the plan's stamp: one commit of the plan's files alone, answered with done before the inbox, whose repository carries the root, the workflow and the command", async () => {
+    const { repo, c } = await kept();
+    writeFileSync(join(repo, "other.txt"), "staged by the person\n");
+    git(repo, "add", "other.txt");
+    const before = git(repo, "rev-parse", "HEAD").trim();
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const { plan } = await c.message("recordsPlan");
+    c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
+    const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
+    expect(inbox.repositories[0]?.records).toEqual({ root: "seal", check: WORKFLOW, broadGate: "pnpm test" });
+    expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "recordsPlan", "done", "inbox"]);
+    expect(c.messages[4]).toEqual({ type: "done", requestId: 3 });
+    expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "seal/README.md", "seal/config.json"]);
+    expect(status(repo)).toBe("A  other.txt\n");
+  });
+
+  it("refuses a setup the person did not read: a commit landed since the plan, so the old stamp is answered with an error and the tree holds no file of the setup", async () => {
+    const { repo, c } = await kept();
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "pnpm test" });
+    const { plan } = await c.message("recordsPlan");
+    const landed = commitFile(repo, "landed.txt");
+    c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
+    expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "The repository changed since the plan was read. Read the plan again." });
+    expect(git(repo, "rev-parse", "HEAD").trim()).toBe(landed);
+    expect(existsSync(join(repo, "seal"))).toBe(false);
+    expect(existsSync(join(repo, ".github"))).toBe(false);
+    expect(status(repo)).toBe("");
+    // A setup that names no stamp is refused before git is asked.
+    c.send({ type: "setUpRecords", requestId: 4, id: 1, broadGate: "pnpm test" });
+    expect(await c.message("error", (m) => m.requestId === 4)).toMatchObject({ message: "a setup of the records place names the broad gate command and the stamp of the plan the person read" });
+  });
+
+  it("reads what a repository holds of the records place at its addition and in the pass that reads the branches, from the working tree, and a daemon given no version refuses the plan", async () => {
+    const made = repository();
+    mkdirSync(join(made.repo, "seal"));
+    writeFileSync(join(made.repo, "seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 30 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    // Not committed: the place is read from the working tree.
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: null });
+    writeFileSync(join(made.repo, "seal", "config.json"), JSON.stringify({ "Broad gate": "make check" }));
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    // A client that connects later is told the same in its `ready`.
+    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    expect(await c.message("error", (m) => m.requestId === 2)).toMatchObject({ message: "This build of Owlery names no version, so it cannot write the workflow of the pull request check." });
+  });
+
+  it("reads the records place of a repository a creation adds, so the inbox that lists the repository says what it holds", async () => {
+    const made = repository();
+    mkdirSync(join(made.repo, "agentic-seal"));
+    writeFileSync(join(made.repo, "agentic-seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 60_000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "First", kind: "shell", cols: 80, rows: 24 });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "agentic-seal", check: null, broadGate: null });
   });
 });
 
@@ -1886,7 +2293,7 @@ describe("what a person sets on a work item", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { stop: () => { stopped++; run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
@@ -1899,7 +2306,7 @@ describe("what a person sets on a work item", () => {
     c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 4);
     expect(stopped).toBe(1);
-    const failed = { ...headless, state: "failed", error: "ended when the work item was archived" };
+    const failed = { ...headless, state: "failed", error: "ended when the work item was archived", stopped: "request" };
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
     c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
     await c.message("done", (m) => m.requestId === 5);
@@ -2144,7 +2551,7 @@ describe("what a person sets on a work item", () => {
     expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: CHANGED });
     expect([readFileSync(join(workItem.worktree, "late.txt"), "utf8"), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual(["late\n", `+ ${workItem.branch}`]);
     const still = await (await client(url)).message("ready");
-    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive]), still.headless]).toEqual([[workItem.id], [[session.id, false]], [{ ...headless, state: "failed", error: "ended when a delete of its work item began" }]]);
+    expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive]), still.headless]).toEqual([[workItem.id], [[session.id, false]], [{ ...headless, state: "failed", error: "ended when a delete of its work item began", stopped: "request" }]]);
     // The loss the person reads next names the file, and a delete with its stamp needs the force.
     const next = await lossOf(c, workItem.id);
     expect(next.untracked).toEqual(["late.txt"]);
@@ -2153,6 +2560,50 @@ describe("what a person sets on a work item", () => {
     c.send({ type: "deleteWorkItem", requestId: 4, id: workItem.id, stamp: next.stamp, force: true, running: NONE_RUNNING });
     await c.message("done", (m) => m.requestId === 4);
     expect([existsSync(workItem.worktree), (await (await client(url)).message("ready")).headless]).toEqual([false, []]);
+  });
+
+  it("reads the loss once more only after the headless runs the delete stopped have ended, so a file a run wrote as it ended refuses the delete", async () => {
+    const made = repository();
+    const inner = fakeAdapter({ delayMs: 60_000 });
+    // The run writes a file into the work item's folder as it ends, a moment after its stop.
+    const roleAdapter: RoleAdapter = {
+      name: inner.name,
+      features: inner.features, notice: inner.notice,
+      start: async (options, listener) => {
+        const run = await inner.start(options, listener);
+        return {
+          ...run,
+          stop: async () => {
+            await run.stop();
+            await new Promise((r) => setTimeout(r, 300));
+            if (existsSync(options.cwd)) writeFileSync(join(options.cwd, "late.txt"), "late\n");
+          },
+        };
+      },
+    };
+    const { c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    await allExited(url);
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    const loss = await lossOf(c, workItem.id);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [], headless: [headless.id] } });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: CHANGED });
+    expect(readFileSync(join(workItem.worktree, "late.txt"), "utf8")).toBe("late\n");
+  });
+
+  it("goes on with a delete past a headless run whose end it waited for in vain: only a pane that outlives the wait refuses it", async () => {
+    const made = repository();
+    const inner = fakeAdapter({ delayMs: 60_000 });
+    // The run never says it has ended.
+    const roleAdapter: RoleAdapter = { name: inner.name, features: inner.features, notice: inner.notice, start: async (options, listener) => { await inner.start(options, listener); return { stop: () => new Promise<void>(() => {}), answer: () => {} }; } };
+    const { c, url, workItem } = await withWorkItem(made, { roleAdapter, endWaitMs: 300, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    await allExited(url);
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    const loss = await lossOf(c, workItem.id);
+    c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [], headless: [headless.id] } });
+    await c.message("done", (m) => m.requestId === 2);
+    expect(existsSync(workItem.worktree)).toBe(false);
   });
 
   it("refuses a delete where a pane's process has not exited within the wait, and removes nothing; starts no pane and no headless session in the work item, and archives it at no request, while the delete is under way; and starts one again after", async () => {
@@ -2323,15 +2774,15 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     d.agentEvent(session.id, "Stop", {});
     const last = await c.message("inbox", (m) => stateOf(m, session.id) === "finished");
-    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
+    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
     expect(last.workItems).toEqual([workItem]);
   });
 
   it("sends an inbox when the state changes, and none for an event that leaves it as it was", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, "UserPromptSubmit", {});
     d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash" });
@@ -2345,12 +2796,12 @@ describe("the inbox", () => {
   });
 
   it("keeps a pane of a kind that reports no state at none, whatever arrives under its id", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const shell = (await c.message("started", (m) => m.requestId === 1)).session;
-    c.send({ ...START, kind: "claude", requestId: 2 });
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
     const agent = (await c.message("started", (m) => m.requestId === 2)).session;
     d.agentEvent(shell.id, "UserPromptSubmit", {});
     d.agentEvent(agent.id, "UserPromptSubmit", {});
@@ -2359,26 +2810,26 @@ describe("the inbox", () => {
   });
 
   it("lists a session that waits as waiting to a client that connects later", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, "Notification", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.socket.close();
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
   });
 
   it("carries with a session's state the time it began, and the tool or the text the event that began it carried, until the state changes", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     /** The session as a client that says hello now is given it. */
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash", tool_input: { command: "ls" } });
@@ -2401,10 +2852,10 @@ describe("the inbox", () => {
   });
 
   it("keeps 2000 characters of a state's text, and cuts inside no character", async () => {
-    const { daemon: d, url } = await daemon();
+    const { daemon: d, url } = await daemonWithWorkItem();
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const text = async () => (await (await client(url)).message("ready")).sessions[0]?.stateText;
     d.agentEvent(session.id, "Stop", { last_assistant_message: "x".repeat(2000) });
@@ -2423,10 +2874,10 @@ describe("the inbox", () => {
 
   it("keeps what the event that began a state said: a later event that leaves the state as it was changes neither its time, its text nor its tool", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
@@ -2442,19 +2893,65 @@ describe("the inbox", () => {
     expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "waiting", "working"]);
   });
 
+  /** A call of Claude Code's question tool, with one question and its two options. */
+  const ASKING = { tool_name: "AskUserQuestion", tool_input: { questions: [{ question: "Which library formats the dates?", header: "Dates", multiSelect: false, options: [{ label: "date-fns", description: "Small functions." }, { label: "dayjs", description: "One object." }] }] } };
+  const ASKED = [{ asks: "Which library formats the dates?", options: [{ label: "date-fns", implies: "Small functions." }, { label: "dayjs", implies: "One object." }], multiple: false }];
+
+  it("lists a session whose agent asks a question as waiting from the call that asks, with the question as its text and its questions, and keeps them through the events that follow until the call ends", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    clock = 200;
+    d.agentEvent(session.id, "PreToolUse", ASKING);
+    const waiting = { ...session, state: "waiting", stateSince: 200, stateText: "Which library formats the dates?", stateTool: null, stateQuestions: ASKED };
+    expect(await listed()).toEqual(waiting);
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+    clock = 300;
+    d.agentEvent(session.id, "PermissionRequest", ASKING);
+    clock = 400;
+    d.agentEvent(session.id, "Notification", { message: "Claude needs your permission to use AskUserQuestion" });
+    expect(await listed()).toEqual(waiting);
+    clock = 500;
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "AskUserQuestion", tool_input: ASKING.tool_input });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 500, stateText: null, stateTool: null, stateQuestions: null });
+    clock = 600;
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", tool_input: { command: "ls" } });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 500, stateText: null, stateTool: null, stateQuestions: null });
+    // One inbox for the pane's start and one per state.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting", "working"]);
+  });
+
+  it("keeps 2000 characters of a question's text, of an option's label and of what it implies", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const long = (letter: string) => `${letter.repeat(2000)}and more`;
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "AskUserQuestion", tool_input: { questions: [{ question: long("q"), options: [{ label: long("l"), description: long("d") }] }] } });
+    const listed = (await (await client(url)).message("ready")).sessions[0];
+    expect(listed?.stateText).toBe("q".repeat(2000));
+    expect(listed?.stateQuestions).toEqual([{ asks: "q".repeat(2000), options: [{ label: "l".repeat(2000), implies: "d".repeat(2000) }], multiple: false }]);
+  });
+
   /** A pane whose process prints nothing and stays alive, as a CLI that asks a question before its session starts sends no event. */
   const SILENT = { commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }) };
 
   it("lists a pane that sent no event in the time after its start as waiting, from the clock's value then and with no text and no tool, and tells every client once", async () => {
     let clock = 100;
-    const { url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
     // The time is the one the silence was called at, and not the pane's start.
     clock = 700;
     const waiting = { ...session, state: "waiting", stateSince: 700, stateText: null, stateTool: null };
@@ -2466,10 +2963,10 @@ describe("the inbox", () => {
   });
 
   it.each(["SessionStart", "SubagentStop"])("never calls a pane waiting by silence once an event arrived under its id: %s, though it leaves no state", async (hook) => {
-    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 200 });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 200 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, hook, {});
     await pause(450);
@@ -2480,10 +2977,10 @@ describe("the inbox", () => {
 
   it("takes the waiting of a silent pane away at its session's start, and gives a prompt after it working with the prompt's time", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
@@ -2499,10 +2996,10 @@ describe("the inbox", () => {
 
   it("keeps the time of the silence, and neither a text nor a tool, where an event that maps to waiting arrives while the pane waits by silence", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemon({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     clock = 200;
@@ -2512,10 +3009,10 @@ describe("the inbox", () => {
   });
 
   it("keeps a silent pane of a kind that reports no state at none, and sends no inbox for its silence", async () => {
-    const { url } = await daemon({ ...SILENT, silentStartMs: 60 });
+    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await pause(300);
     expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, ...NO_STATE }]);
@@ -2523,10 +3020,10 @@ describe("the inbox", () => {
   });
 
   it("never calls a pane waiting whose process exited before the time passed", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), silentStartMs: 300 });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), silentStartMs: 300 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("exit");
     await pause(550);
@@ -2537,10 +3034,10 @@ describe("the inbox", () => {
 
   it("sends nothing for the silence of a pane a client closed before the time passed", async () => {
     // The pane's shell ignores the signal a close sends, so its end does not come before the time passes.
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 200 });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 200 });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     c.send({ type: "close", id: session.id });
     await c.message("inbox", (m) => m.sessions.length === 0);
@@ -2553,10 +3050,10 @@ describe("the inbox", () => {
   it("calls no pane waiting after the daemon closed, though the pane's process outlives the close", async () => {
     let read = 0;
     // The shell ignores the signal here too.
-    const { daemon: d, url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 150, now: () => ++read });
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 150, now: () => ++read });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     await c.message("started");
     await d.close();
     const before = read;
@@ -2593,7 +3090,7 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Answered first", kind: "shell", cols: 80, rows: 24 });
     await c.message("inbox", (m) => m.workItems.length === 1);
-    c.send({ ...START, kind: "shell", requestId: 2 });
+    c.send({ ...START, kind: "shell", requestId: 2, workItemId: 1 });
     await c.message("inbox", (m) => m.sessions.length === 2);
     const order = c.messages.flatMap((m) => (m.type === "workItemCreated" || m.type === "started" || m.type === "inbox" ? [m.type] : []));
     expect(order).toEqual(["workItemCreated", "inbox", "started", "inbox"]);
@@ -2601,29 +3098,29 @@ describe("the inbox", () => {
 
   it("lists a session that has exited as not alive, with the state it last had, and tells every client", async () => {
     // The pane ends when its input closes or a line arrives, so the case decides when.
-    const { daemon: d, url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }) });
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    c.send({ ...START, kind: "claude", requestId: 1 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     d.agentEvent(session.id, "PermissionRequest", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.send({ type: "input", id: session.id, data: "go\n" });
-    const ended = { id: session.id, kind: "claude", alive: false, workItemId: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null };
+    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null };
     for (const each of [c, bystander]) expect((await each.message("inbox", (m) => m.sessions[0]?.alive === false)).sessions).toEqual([ended]);
   });
 
   it("closes a pane: its process ends, and the session is in no later list", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'echo "pid=$$."; sleep 30'], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", 'echo "pid=$$."; sleep 30'], env: {} }) });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
     await bystander.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const kept = (await c.message("started", (m) => m.requestId === 1)).session;
-    c.send({ ...START, kind: "shell", requestId: 2 });
+    c.send({ ...START, kind: "shell", requestId: 2, workItemId: 1 });
     const closed = (await c.message("started", (m) => m.requestId === 2)).session;
     const pid = await c.until(() => {
       const printed = c.messages.flatMap((m) => (m.type === "output" && m.id === closed.id ? [m.data] : [])).join("");
@@ -2654,10 +3151,10 @@ describe("the inbox", () => {
   });
 
   it("closes a pane whose process has already ended, taking it off the lists", async () => {
-    const { url } = await daemon({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
     await c.message("exit");
     c.send({ type: "close", id: session.id });
@@ -2696,7 +3193,7 @@ describe("the inbox", () => {
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Amended", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
     const watched = watchedGit(base);
-    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the cut, and for the commits ahead of the base branch. */
+    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the cut, and for the commits ahead of the base branch and behind it. */
     const threeReads = async (): Promise<void> => {
       const reads = watched.calls("rev-list");
       await c.until(() => (watched.calls("rev-list") >= reads + 6 ? true : undefined));
@@ -2717,24 +3214,29 @@ describe("the inbox", () => {
     expect(inboxes(c).map((m) => m.workItems[0]?.commits?.[0]?.subject)).toEqual([undefined, "add one.txt", "add one, said better"]);
   });
 
-  it("tells every client how far a work item's branch is ahead of its base branch: not by the commits the base gained and the branch merged in, and by none once the base holds the branch", async () => {
+  it("tells every client how far a work item's branch is ahead of its base branch and how far behind it: behind by a commit the base gained while the branch's head stayed, not ahead by the commits the base gained and the branch merged in, and by none either way once the base holds the branch", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
-    expect([workItem.baseBranch, workItem.aheadOfBase]).toEqual(["main", 0]);
-    const counts = (m: Inbox) => [m.workItems[0]?.aheadOfBase, m.workItems[0]?.newCommits];
+    expect([workItem.baseBranch, workItem.aheadOfBase, workItem.behindBase]).toEqual(["main", 0, 0]);
+    const counts = (m: Inbox) => [m.workItems[0]?.aheadOfBase, m.workItems[0]?.behindBase, m.workItems[0]?.newCommits];
     commit(workItem.worktree, "own.txt");
-    await c.message("inbox", (m) => counts(m).join() === "1,1");
+    await c.message("inbox", (m) => counts(m).join() === "1,0,1");
+    const head = git(workItem.worktree, "rev-parse", "HEAD").trim();
     commit(repo, "on-main.txt");
+    // The branch's head and its counts since the cut stay, and the inbox is for the base that moved.
+    const behind = await c.message("inbox", (m) => counts(m).join() === "1,1,1");
+    expect(git(workItem.worktree, "rev-parse", "HEAD").trim()).toBe(head);
+    expect(behind.workItems[0]?.commits?.map((each) => each.subject)).toEqual(["add own.txt"]);
     git(workItem.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
     // Three commits since the cut: the branch's own, the base's and the merge. The base holds its own.
-    await c.message("inbox", (m) => counts(m).join() === "2,3");
+    await c.message("inbox", (m) => counts(m).join() === "2,0,3");
     git(repo, "merge", "--quiet", "--ff-only", workItem.branch);
     // The branch's head and its count stay, and the inbox is for the base that moved.
-    await c.message("inbox", (m) => counts(m).join() === "0,3");
+    await c.message("inbox", (m) => counts(m).join() === "0,0,3");
   });
 
   it("tells every client how far a work item's branch is ahead of a remote's branch: by its own commit, by none once a fetch brought that commit to the remote's branch, and by no count once a fetch pruned it", async () => {
@@ -2744,20 +3246,20 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead of the remote", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
-    expect([workItem.baseBranch, workItem.aheadOfBase]).toEqual(["origin/main", 0]);
-    const counts = (m: Inbox) => [m.workItems[0]?.baseBranch, m.workItems[0]?.aheadOfBase, m.workItems[0]?.newCommits].join();
+    expect([workItem.baseBranch, workItem.aheadOfBase, workItem.behindBase]).toEqual(["origin/main", 0, 0]);
+    const counts = (m: Inbox) => [m.workItems[0]?.baseBranch, m.workItems[0]?.aheadOfBase, m.workItems[0]?.behindBase, m.workItems[0]?.newCommits].join();
     commit(workItem.worktree, "own.txt");
-    await c.message("inbox", (m) => counts(m) === "origin/main,1,1");
+    await c.message("inbox", (m) => counts(m) === "origin/main,1,0,1");
     git(origin, "pull", "--quiet", "--ff-only", repo, workItem.branch);
     git(repo, "fetch", "--quiet", "origin");
-    await c.message("inbox", (m) => counts(m) === "origin/main,0,1");
+    await c.message("inbox", (m) => counts(m) === "origin/main,0,0,1");
     git(origin, "checkout", "--quiet", "-b", "renamed");
     git(origin, "branch", "--quiet", "-D", "main");
     git(repo, "fetch", "--quiet", "--prune", "origin");
-    await c.message("inbox", (m) => counts(m) === "origin/main,,1");
+    await c.message("inbox", (m) => counts(m) === "origin/main,,,1");
   });
 
-  it("gives a work item cut from no branch, and one whose base branch is gone, no count of commits ahead", async () => {
+  it("gives a work item cut from no branch, and one whose base branch is gone, no count of commits ahead and none behind", async () => {
     const { repo, root } = repository();
     git(repo, "checkout", "--quiet", "--detach");
     // No local branch and no remote: the repository has no default base.
@@ -2767,16 +3269,16 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "From a commit", kind: "shell", cols: 80, rows: 24 });
     const detached = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
-    expect([detached.baseBranch, detached.aheadOfBase]).toEqual([null, null]);
+    expect([detached.baseBranch, detached.aheadOfBase, detached.behindBase]).toEqual([null, null, null]);
     git(repo, "checkout", "--quiet", "-b", "feature");
     c.send({ type: "createWorkItem", requestId: 2, repo, title: "From a feature", kind: "shell", cols: 80, rows: 24 });
     const cut = (await c.message("workItemCreated", (m) => m.requestId === 2)).workItem;
-    expect([cut.baseBranch, cut.aheadOfBase]).toEqual(["feature", 0]);
+    expect([cut.baseBranch, cut.aheadOfBase, cut.behindBase]).toEqual(["feature", 0, 0]);
     commit(detached.worktree, "one.txt");
     git(repo, "checkout", "--quiet", "--detach");
     git(repo, "branch", "--quiet", "-D", "feature");
     const inbox = await c.message("inbox", (m) => m.workItems[1]?.aheadOfBase === null && m.workItems[0]?.newCommits === 1);
-    expect(inbox.workItems.map((w) => [w.baseBranch, w.aheadOfBase, w.newCommits])).toEqual([[null, null, 1], ["feature", null, 0]]);
+    expect(inbox.workItems.map((w) => [w.baseBranch, w.aheadOfBase, w.behindBase, w.newCommits])).toEqual([[null, null, null, 1], ["feature", null, null, 0]]);
   });
 
   it("lists the 20 newest of a work item's commits, beside the count of all of them", async () => {
@@ -2801,7 +3303,10 @@ describe("the inbox", () => {
     git(repo, "worktree", "remove", "--force", workItem.worktree);
     git(repo, "branch", "--quiet", "-D", workItem.branch);
     const gone = await c.message("inbox", (m) => m.workItems[0]?.newCommits === null);
-    expect(gone.workItems).toEqual([{ ...workItem, aheadOfBase: null, newCommits: null, commits: null, changes: null }]);
+    // Nor a seal: what was read of the branch went with it, so the work item carries no `seal`.
+    const { seal: _seal, ...read } = workItem;
+    expect(gone.workItems).toEqual([{ ...read, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }]);
+    expect("seal" in gone.workItems[0]!).toBe(false);
   });
 
   it("sends no inbox while the counts stay as they were", async () => {
@@ -2877,7 +3382,7 @@ describe("the inbox", () => {
     const watched = watchedGit(made.base, 0.2);
     const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 5000 });
     const c = await client(url);
-    c.send({ ...START, kind: "shell", requestId: 1 });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
     c.socket.close();
     await c.until(() => c.closed());
     watched.stop();
@@ -2888,7 +3393,7 @@ describe("the inbox", () => {
     expect(c.messages).toEqual([]);
   });
 
-  it("gives a work item from before the base commit was recorded no count, beside one that has it", async () => {
+  it("gives a work item from before the base commit was recorded no count and no `seal`, beside one that has them", async () => {
     const { repo, root, base } = repository();
     const runDir = join(base, "run");
     mkdirSync(runDir);
@@ -2900,10 +3405,1169 @@ describe("the inbox", () => {
     writeFileSync(join(runDir, "work-items.json"), JSON.stringify([{ id: 1, title: "Before", createdAt: 1, ...old }, { id: 2, title: "After", createdAt: 2, ...after }]));
     const { url } = await daemon({ runDir, worktreesRoot: root, commitPollMs: 20 });
     const c = await client(url);
-    expect((await c.message("ready")).workItems.map((w) => [w.baseCommit, w.newCommits, w.commits?.length ?? null, w.changes?.files ?? null])).toEqual([[null, null, null, null], [after.baseCommit, 1, 1, 1]]);
+    const ready = await c.message("ready");
+    expect(ready.workItems.map((w) => [w.baseCommit, w.newCommits, w.commits?.length ?? null, w.changes?.files ?? null])).toEqual([[null, null, null, null], [after.baseCommit, 1, 1, 1]]);
+    expect(ready.workItems.map((w) => ("seal" in w ? w.seal : "none"))).toEqual(["none", null]);
     commit(after.worktree, "again.txt");
     const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 2);
     expect(inbox.workItems[0]).toMatchObject({ id: 1, baseCommit: null, newCommits: null, commits: null, changes: null });
+    expect("seal" in inbox.workItems[0]!).toBe(false);
+  });
+});
+
+// A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
+const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
+
+/** A daemon on a run folder of a temporary repository, a client of it, and a work item the client created under each title, each with the shell pane its creation opened. */
+async function withWorkItems(titles: readonly string[], options: Partial<DaemonOptions> = {}) {
+  const made = temporaryRepository();
+  cleanups.push(made.remove);
+  const runDir = join(made.base, "run");
+  mkdirSync(runDir, { recursive: true });
+  const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: silent, ...options });
+  const c = await client(url);
+  await c.message("ready");
+  const created = [];
+  for (const [index, title] of titles.entries()) {
+    c.send({ type: "createWorkItem", requestId: 100 + index, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
+    created.push(await c.message("workItemCreated", (m) => m.requestId === 100 + index));
+  }
+  await c.message("inbox", (m) => m.workItems.length === titles.length);
+  c.messages.length = 0;
+  return { d, url, c, made, runDir, workItems: created.map((m) => m.workItem), sessions: created.map((m) => m.session) };
+}
+
+/** Sends a start the daemon refuses, and waits for the refusal: every message the daemon sent for what was asked before has then arrived. */
+let refused = 900;
+async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
+  const requestId = refused++;
+  c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId, workItemId: 999 });
+  await c.message("error", (m) => m.requestId === requestId);
+}
+
+/** Makes a work item's directory in its worktree, uncommitted: the records root with its marker, and a `routing.md` under `threads/<name>` that names the work item's branch. Gives the directory. */
+function withDirectory(workItem: { worktree: string; branch: string }, name = "1-item"): string {
+  const directory = join(workItem.worktree, "seal", "threads", name);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(workItem.worktree, "seal", "README.md"), `${MARKER}\n`);
+  writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${workItem.branch} |\n`);
+  return directory;
+}
+
+/** The record of a work item's directory as the reader reads its file, or null where no file stands. */
+function recordIn(directory: string): DecisionRecord | null {
+  const file = join(directory, RECORD_FILE);
+  return existsSync(file) ? readDecisionRecord(readFileSync(file, "utf8")) : null;
+}
+
+/** The file of a work item's record as bytes, or null where none stands. */
+const bytesIn = (directory: string): string | null => (existsSync(join(directory, RECORD_FILE)) ? readFileSync(join(directory, RECORD_FILE), "base64") : null);
+
+/** What the daemon writes to its log from here until the case ends, a line for each call. */
+function logged(): string[] {
+  const said: string[] = [];
+  const error = console.error;
+  console.error = (...parts: unknown[]) => void said.push(parts.join(" "));
+  cleanups.push(() => {
+    console.error = error;
+  });
+  return said;
+}
+
+type Lists = { workItems: WorkItem[]; archived: WorkItem[] };
+const itemOf = (lists: Lists, id: number): WorkItem | undefined => [...lists.workItems, ...lists.archived].find((w) => w.id === id);
+describe("the decisions made without asking", () => {
+  const DEFAULT = { kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default." } as const;
+  const ROUTE = { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file, apps/desktop/src/renderer/view.ts." } as const;
+  /** A decision as the daemon sends one that stands as made. */
+  const made = (id: number, decision: { kind: string; says: string; grounds: string }, since: number, by: string | null = null) => ({ id, ...decision, by, state: "decided", reversal: null, landed: null, since });
+
+  it("writes a decision into the record of one work item and tells every client: that work item holds it with the id 1, the texts given and the daemon's time, the other holds none, no session changes, and the other's headless session finishes; a second decision takes the id 2", async () => {
+    const { d, url, c, workItems, sessions } = await withWorkItems(["Decided for", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 100 }) });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "ask", requestId: 1, workItemId: b.id, prompt: "Still there?" });
+    const { headless } = await c.message("asked");
+    c.messages.length = 0;
+    other.messages.length = 0;
+    const decision = d.decided(a.id, DEFAULT);
+    // It returned at once: the session it left alone is still working.
+    expect(decision).toEqual(made(1, DEFAULT, 1234));
+    expect(recordIn(directory)).toMatchObject({ decisions: [{ id: 1, kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds, by: null, state: { is: "decided" } }], questions: [], refusals: [], notices: [] });
+    for (const told of [c, other]) {
+      const inbox = await told.message("inbox");
+      expect(inbox.workItems).toEqual([{ ...a, decisions: [decision] }, b]);
+      expect(inbox.sessions).toEqual(sessions);
+      // Nothing but the lists is sent for it, and no headless session was told as changed by it.
+      expect(told.messages.filter((m) => m.type !== "headless").map((m) => m.type)).toEqual(["inbox"]);
+    }
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working")).headless).toMatchObject({ workItemId: b.id, state: "finished", stopped: null });
+    expect(d.decided(a.id, { ...ROUTE, by: "orchestrator" })).toEqual(made(2, ROUTE, 1234, "orchestrator"));
+    const later = await (await client(url)).message("ready");
+    expect([itemOf(later, a.id)?.decisions, itemOf(later, b.id)?.decisions, later.sessions]).toEqual([[decision, made(2, ROUTE, 1234, "orchestrator")], [], sessions]);
+    expect(recordIn(directory)?.decisions.map(({ id, by }) => [id, by])).toEqual([[1, null], [2, "orchestrator"]]);
+  });
+
+  it("writes what was decided, its grounds and who decided without the white space at their ends, 2000 characters of each at most and each on one line, and takes each of the four kinds", async () => {
+    const { d, workItems } = await withWorkItems(["Decided for"], { now: () => 5 });
+    const id = workItems[0]!.id;
+    withDirectory(workItems[0]!);
+    expect(d.decided(id, { kind: "scope", says: `  ${"가".repeat(2001)}\n`, grounds: `\t${"g".repeat(1999)}😀 `, by: ` ${"b".repeat(2001)}\n` })).toEqual({ ...made(1, { kind: "scope", says: "가".repeat(2000), grounds: "g".repeat(1999) }, 5), by: "b".repeat(2000) });
+    expect(d.decided(id, { ...DEFAULT, says: "Start\r\nfrom main." })?.says).toBe("Start from main.");
+    expect((["route", "default", "answered"] as const).map((kind) => d.decided(id, { ...DEFAULT, kind })?.kind)).toEqual(["route", "default", "answered"]);
+  });
+
+  it("writes nothing and tells no client for a work item it does not keep, one whose worktree holds no directory, one whose worktree holds two directories that name its branch, a kind that is none of the four, what was decided or grounds that are empty or no text, and who decided that is empty or no text", async () => {
+    const { d, c, url, runDir, workItems } = await withWorkItems(["Decided for", "No directory", "Two directories"]);
+    const [a, none, two] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    const twice = [withDirectory(two, "1-first"), withDirectory(two, "2-second")];
+    const loose = d.decided.bind(d) as (workItemId: unknown, decision: unknown) => unknown;
+    const said = logged();
+    expect(loose(99, DEFAULT)).toBeUndefined();
+    expect(loose(String(a.id), DEFAULT)).toBeUndefined();
+    expect(loose(none.id, DEFAULT)).toBeUndefined();
+    expect(loose(two.id, DEFAULT)).toBeUndefined();
+    for (const decision of [{ ...DEFAULT, kind: "guess" }, { ...DEFAULT, kind: undefined }, { ...DEFAULT, says: "" }, { ...DEFAULT, says: " \n\t" }, { ...DEFAULT, says: 3 }, { ...DEFAULT, grounds: "  " }, { ...DEFAULT, grounds: null }, { ...DEFAULT, by: " " }, { ...DEFAULT, by: 3 }, null]) {
+      expect(loose(a.id, decision)).toBeUndefined();
+    }
+    // An inbox for any of them would have arrived before the refusal of a start sent after them.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["error"]);
+    expect([directory, ...twice].map(bytesIn)).toEqual([null, null, null]);
+    // Each was refused before the record's writer was asked, so the log holds no line of a write that failed.
+    expect(said).toEqual([]);
+    expect(readdirSync(join(none.worktree)).includes("seal")).toBe(false);
+    expect(["decisions.json", "asked.json"].map((file) => existsSync(join(runDir, file)))).toEqual([false, false]);
+    expect((await (await client(url)).message("ready")).workItems.map(({ decisions, questions, unread }) => ({ decisions, questions, unread }))).toEqual([NO_RECORD, NO_RECORD, NO_RECORD]);
+    // The call as the refusals above would have it taken, so the method is the one under test.
+    expect(loose(a.id, DEFAULT)).toMatchObject({ id: 1 });
+  });
+
+  it("reads the record as the store: a second daemon on the run folder lists two decisions, one reversed, and an open question as the file holds them, and the run folder holds neither `decisions.json` nor `asked.json`; a block written into the file by hand, uncommitted, arrives in an inbox after the next pass; and a block the reader refuses is sent as unread with its line and the reader's reason, the blocks around it listed", async () => {
+    const { d, c, made: repository, runDir, workItems } = await withWorkItems(["Recorded"], { now: () => 1000 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const file = join(directory, RECORD_FILE);
+    d.decided(a.id, ROUTE);
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "Frame it first." });
+    await c.message("done", (m) => m.requestId === 1);
+    await d.close();
+
+    const later = await daemon({ runDir, worktreesRoot: repository.root, now: () => 5000, commitPollMs: 30 });
+    const lc = await client(later.url);
+    const ready = await lc.message("ready");
+    const held = [{ ...made(1, ROUTE, 1000), state: "reversed", reversal: "Frame it first." }, made(2, DEFAULT, 1000)];
+    const question = { id: 3, asks: "May it push?", grounds: "A push needs the person's approval.", by: "sealer", options: [], default: null, answer: null, since: 1000 };
+    expect(itemOf(ready, a.id)).toMatchObject({ decisions: held, questions: [question], unread: [] });
+    expect(["decisions.json", "asked.json"].map((name) => existsSync(join(runDir, name)))).toEqual([false, false]);
+    expect(git(a.worktree, "status", "--porcelain", "--", "seal")).toContain("seal/");
+
+    // A stage writes a block without the daemon's method: the next pass reads it.
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md, milestone 2." }));
+    const inbox = await lc.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 3);
+    expect(itemOf(inbox, a.id)?.decisions.at(-1)).toEqual(made(4, { kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md, milestone 2." }, 5000));
+
+    // A block with a blank line inside is refused at that line. The blocks around it are still read, and the next block takes an id above the refused one's.
+    const before = readFileSync(file, "utf8");
+    const fence = "```";
+    const broken = `${fence}seal\ndecision: 5 default\n\ndecided: x\ngrounds: y\nstate: decided\n${fence}\n`;
+    // The text ends with a line end, so its count of lines is one under the split's, and the broken block opens after one blank line.
+    const opener = before.split("\n").length + 1;
+    writeFileSync(file, withDecision(`${before}\n${broken}`, { kind: "answered", decided: "The tree answers it.", grounds: "docs/product.md." }));
+    const after = await lc.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(after, a.id)?.unread).toEqual([{ line: opener + 2, why: "a blank line inside a `seal` block: its lines are fields, one after another, and the block is not read past it" }]);
+    expect(itemOf(after, a.id)?.decisions.map(({ id, kind }) => [id, kind])).toEqual([[1, "route"], [2, "default"], [4, "scope"], [6, "answered"]]);
+    expect(itemOf(after, a.id)?.questions).toEqual([question]);
+    // A pass that reads the record as it read it last sends nothing.
+    await settled(lc);
+    lc.messages.length = 0;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lc.messages).toEqual([]);
+  });
+
+  it("sends a fence that opens like a `seal` block and is not one as unread, at its line, beside the refusals in the order of the file", async () => {
+    const { d, c, workItems } = await withWorkItems(["Noticed"], { now: () => 1, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const fence = "```";
+    writeFileSync(join(directory, RECORD_FILE), `${fence}seal x\ndecision: 1 default\n${fence}\n\n${fence}seal\n${fence}\n`);
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)?.unread.map(({ line, why }) => [line, why.slice(0, 22)])).toEqual([[1, "not read: ````seal x` "], [5, "an empty `seal` block:"]]);
+    expect(itemOf(inbox, a.id)?.decisions).toEqual([]);
+    // Nothing is decided on either: the next decision is written, and both lines stay named.
+    expect(d.decided(a.id, DEFAULT)).toMatchObject({ id: 1 });
+  });
+
+  it("reverses a decision at a `reverseDecision`: the block reads `reversed` with the message as typed, the answer comes before the inbox that carries it with a new time, and a second reversal, an id that is a question's, an id the record does not hold, a message of white space, a work item it does not keep and one with no directory are each refused with the file byte for byte as it stood and no inbox after", async () => {
+    let clock = 1000;
+    const { d, c, url, workItems } = await withWorkItems(["Decided for", "Another", "No directory"], { now: () => clock });
+    const [a, b, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(b)] as const;
+    const first = d.decided(a.id, DEFAULT)!;
+    const second = d.decided(b.id, ROUTE)!;
+    d.park(b.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    await c.message("inbox", (m) => itemOf(m, b.id)?.questions.length === 1);
+    const other = await client(url);
+    await other.message("ready");
+    c.messages.length = 0;
+    clock = 2000;
+    const typed = "기본값 말고 main에서 시작해 주세요";
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: first.id, message: `  ${typed}\n` });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    const reversed = { ...first, state: "reversed", reversal: typed, since: 2000 };
+    expect([itemOf(inbox, a.id)?.decisions, itemOf(inbox, b.id)?.decisions]).toEqual([[reversed], [second]]);
+    expect(recordIn(directories[0])?.decisions.map(({ state }) => state)).toEqual([{ is: "reversed", message: typed }]);
+    // Every client is told, and the one that asked alone is answered.
+    expect(itemOf(await other.message("inbox"), a.id)?.decisions).toEqual([reversed]);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+
+    c.messages.length = 0;
+    clock = 3000;
+    const bytes = directories.map(bytesIn);
+    const refusals = [
+      [2, { workItemId: a.id, decisionId: first.id, message: "again" }, "decision 1 is reversed, and only a decision that stands decided is reversed"],
+      [3, { workItemId: b.id, decisionId: 2, message: "a question's id" }, "the record holds no decision 2"],
+      [4, { workItemId: b.id, decisionId: 9, message: "of none" }, "the record holds no decision 9"],
+      [5, { workItemId: b.id, decisionId: second.id, message: " \n\t" }, "Say why the decision is reversed."],
+      [6, { workItemId: 99, decisionId: second.id, message: "nowhere" }, "no work item 99"],
+      [7, { workItemId: none.id, decisionId: 1, message: "no record" }, `Work item ${none.id} has no record of decisions.`],
+      [8, { workItemId: b.id, decisionId: second.id, message: 3 }, "a reversal names a work item, a decision of it and a message"],
+      [9, { workItemId: b.id, decisionId: String(second.id), message: "no id" }, "a reversal names a work item, a decision of it and a message"],
+    ] as const;
+    for (const [requestId, fields, message] of refusals) {
+      c.send({ type: "reverseDecision", requestId, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message });
+    }
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(refusals.map(() => "error").concat("error"));
+    expect(directories.map(bytesIn)).toEqual(bytes);
+    const ready = await (await client(url)).message("ready");
+    expect([itemOf(ready, a.id)?.decisions, itemOf(ready, b.id)?.decisions]).toEqual([[reversed], [second]]);
+    // The message as the refusals above would have it taken, so the case is the one under test.
+    c.send({ type: "reverseDecision", requestId: 20, workItemId: b.id, decisionId: second.id, message: "가".repeat(2001) });
+    expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
+    // A message is cut as every text the daemon writes is.
+    expect(recordIn(directories[1])?.decisions[0]?.state).toEqual({ is: "reversed", message: "가".repeat(2000) });
+  });
+
+  it("sends each decision as its block stands: an applied one with its commit and a carried one with its home, each with the person's message", async () => {
+    const { c, workItems } = await withWorkItems(["Taken in"], { now: () => 1, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    let text = withDecision(withDecision("", { kind: "default", decided: "Start from main.", grounds: "The default base.", by: "orchestrator" }), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." });
+    text = withCarried(withReversal(withApplied(withReversal(text, 1, "Start from the release branch."), 1, "abc1234"), 2, "Take the phone in."), 2, "#53");
+    writeFileSync(join(directory, RECORD_FILE), text);
+    const inbox = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 2);
+    expect(itemOf(inbox, a.id)?.decisions).toEqual([
+      { id: 1, kind: "default", says: "Start from main.", grounds: "The default base.", by: "orchestrator", state: "applied", reversal: "Start from the release branch.", landed: "abc1234", since: 1 },
+      { id: 2, kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md.", by: null, state: "carried", reversal: "Take the phone in.", landed: "#53", since: 1 },
+    ]);
+  });
+
+  it("keeps each block's time as its own: a later pass and a second daemon send the time of the first read, a reversal gives the decision the time of that read and leaves the question's, a block that leaves the file leaves `record-times.json`, and a daemon that starts with the file removed gives every block its start's time", async () => {
+    let clock = 1000;
+    const { d, c, made: repository, runDir, workItems } = await withWorkItems(["Timed"], { now: () => clock, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const file = join(directory, RECORD_FILE);
+    const times = (): unknown => JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8"));
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] });
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "decided", since: 1000 }, 2: { state: "open", since: 1000 } } } });
+    expect(statSync(join(runDir, "record-times.json")).mode & 0o777).toBe(0o600);
+    // A pass at a later clock reads both again, and neither time moves. The block a pass at that clock finds first is the mark that it ran.
+    clock = 2000;
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." }));
+    const passed = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions.length === 2);
+    expect([itemOf(passed, a.id)?.decisions.map(({ since }) => since), itemOf(passed, a.id)?.questions.map(({ since }) => since)]).toEqual([[1000, 2000], [1000]]);
+
+    clock = 3000;
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    await c.message("done", (m) => m.requestId === 1);
+    const reversed = await c.message("inbox", (m) => itemOf(m, a.id)?.decisions[0]?.state === "reversed");
+    expect([itemOf(reversed, a.id)?.decisions.map(({ since }) => since), itemOf(reversed, a.id)?.questions.map(({ since }) => since)]).toEqual([[3000, 2000], [1000]]);
+    await d.close();
+
+    clock = 4000;
+    const second = await daemon({ runDir, worktreesRoot: repository.root, now: () => clock, commitPollMs: 30 });
+    const sc = await client(second.url);
+    const ready = await sc.message("ready");
+    expect([itemOf(ready, a.id)?.decisions.map(({ since }) => since), itemOf(ready, a.id)?.questions.map(({ since }) => since)]).toEqual([[3000, 2000], [1000]]);
+    // The question's block leaves the file: a record of the two decisions alone is put in its place.
+    const kept = readFileSync(file, "utf8");
+    const from = kept.indexOf("```seal\nquestion:");
+    const until = kept.indexOf("```\n", from + 3) + 4;
+    writeFileSync(file, kept.slice(0, from) + kept.slice(until));
+    await sc.message("inbox", (m) => itemOf(m, a.id)?.questions.length === 0);
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "reversed", since: 3000 }, 3: { state: "decided", since: 2000 } } } });
+    await second.daemon.close();
+
+    rmSync(join(runDir, "record-times.json"));
+    clock = 5000;
+    const third = await daemon({ runDir, worktreesRoot: repository.root, now: () => clock });
+    const again = await (await client(third.url)).message("ready");
+    expect(itemOf(again, a.id)?.decisions.map(({ id, since }) => [id, since])).toEqual([[1, 5000], [3, 5000]]);
+    expect(times()).toEqual({ workItems: { [a.id]: { 1: { state: "reversed", since: 5000 }, 3: { state: "decided", since: 5000 } } } });
+  });
+
+  it("lists an archived work item under `archived` with what its record holds, the blocks written since the last pass among them, reads it again at its own start, and takes a work item's times out of `record-times.json` at its delete and at its repository's removal", async () => {
+    const { d, c, made: repository, runDir, workItems, sessions } = await withWorkItems(["Archived", "Deleted", "Removed"], { now: () => 9 });
+    const [archived, deleted, removed] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const times = (): { workItems: Record<string, unknown> } => JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8")) as { workItems: Record<string, unknown> };
+    const directory = withDirectory(archived);
+    for (const each of [deleted, removed]) withDirectory(each);
+    const kept = d.decided(archived.id, DEFAULT)!;
+    d.decided(deleted.id, ROUTE);
+    d.decided(removed.id, ROUTE);
+    const [question] = d.park(archived.id, { questions: [{ asks: "May it push?", grounds: "A push needs the person's approval." }] })!;
+    // A block a stage wrote after the daemon's last read is read at the archive, since no pass reads an archived work item.
+    const file = join(directory, RECORD_FILE);
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md." }));
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
+    const inbox = await c.message("inbox", (m) => m.archived.length === 1);
+    const late = made(3, { kind: "scope", says: "Leave the phone out.", grounds: "docs/roadmap.md." }, 9);
+    expect(inbox.archived[0]).toMatchObject({ id: archived.id, decisions: [kept, late], questions: [question] });
+    expect(inbox.workItems.map(({ id }) => id)).toEqual([deleted.id, removed.id]);
+    expect(Object.keys(times().workItems)).toEqual([String(archived.id), String(deleted.id), String(removed.id)]);
+
+    c.send({ type: "readLoss", requestId: 2, id: deleted.id });
+    const { loss } = await c.message("workItemLoss", (m) => m.requestId === 2);
+    c.send({ type: "deleteWorkItem", requestId: 3, id: deleted.id, stamp: loss.stamp, force: true, running: { panes: [sessions[1]!.id], headless: [] } });
+    await c.message("done", (m) => m.requestId === 3);
+    expect(Object.keys(times().workItems)).toEqual([String(archived.id), String(removed.id)]);
+    expect(d.decided(deleted.id, DEFAULT)).toBeUndefined();
+    await d.close();
+
+    // A daemon that starts reads the archived work item's record, which no pass of it reads.
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "answered", decided: "The tree answers it.", grounds: "docs/product.md." }));
+    const later = await daemon({ runDir, worktreesRoot: repository.root, commandFor: silent, now: () => 20 });
+    const lc = await client(later.url);
+    const ready = await lc.message("ready");
+    expect(ready.archived[0]).toMatchObject({ id: archived.id, decisions: [kept, late, made(4, { kind: "answered", says: "The tree answers it.", grounds: "docs/product.md." }, 20)], questions: [question] });
+
+    lc.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [archived.id, removed.id], running: NONE_RUNNING });
+    await lc.message("done", (m) => m.requestId === 4);
+    expect(times()).toEqual({ workItems: {} });
+  });
+
+  it("leaves `record-times.json` at its start as it stood, the entries under an id its repositories do not hold among them, and drops what stands under an id, and under no other, where a new work item is given that id", async () => {
+    const repository = temporaryRepository();
+    cleanups.push(repository.remove);
+    const runDir = join(repository.base, "run");
+    mkdirSync(runDir);
+    // The entries a list of repositories that was lost left behind: under the id the first work item made will take, and under another.
+    const stray = JSON.stringify({ workItems: { 1: { 1: { state: "decided", since: 5 } }, 99: { 1: { state: "open", since: 6 } } } });
+    writeFileSync(join(runDir, "record-times.json"), stray);
+    const { url } = await daemon({ runDir, worktreesRoot: repository.root, commandFor: silent, now: () => 11, commitPollMs: 30 });
+    const c = await client(url);
+    await c.message("ready");
+    expect(readFileSync(join(runDir, "record-times.json"), "utf8")).toBe(stray);
+    c.send({ type: "createWorkItem", requestId: 1, repo: repository.repo, title: "Made anew", kind: "shell", cols: 80, rows: 24 });
+    const next = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    expect(next).toMatchObject({ id: 1, ...NO_RECORD });
+    // A record whose first block has the id and the state of the stray entry: its time is this daemon's, not the entry's.
+    const directory = withDirectory(next);
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: "Start from main.", grounds: "The default base." }));
+    const inbox = await c.message("inbox", (m) => itemOf(m, 1)?.decisions.length === 1);
+    expect(itemOf(inbox, 1)?.decisions[0]?.since).toBe(11);
+    expect(JSON.parse(readFileSync(join(runDir, "record-times.json"), "utf8"))).toEqual({ workItems: { 1: { 1: { state: "decided", since: 11 } }, 99: { 1: { state: "open", since: 6 } } } });
+  });
+
+  it("stays up where a record cannot be read or written: the work item is sent with one unread line that says why, a decision and a park return nothing, a reversal is refused with what refused it, and its log says so; and holds the times in memory where `record-times.json` cannot be written", async () => {
+    const { d, c, runDir, workItems } = await withWorkItems(["Unreadable", "Times unwritten"], { now: () => 7, commitPollMs: 30 });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    const said = logged();
+    // A folder stands where the record goes, so it is neither read nor replaced.
+    mkdirSync(join(directory, RECORD_FILE));
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: "the record cannot be read: decisions.md is not a plain file" }] });
+    expect(d.decided(a.id, DEFAULT)).toBeUndefined();
+    expect(d.park(a.id, { questions: [{ asks: "May it push?", grounds: "It needs an approval." }] })).toBeUndefined();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("decisions.md is not a plain file");
+    expect(said.filter((line) => line === "the record was not written: decisions.md is not a plain file")).toHaveLength(2);
+
+    mkdirSync(join(runDir, "record-times.json"));
+    expect(d.decided(b.id, DEFAULT)).toMatchObject({ id: 1, since: 7 });
+    expect(said.filter((line) => line.startsWith("the times of the records were not written: "))).toHaveLength(1);
+    expect(d.decided(b.id, ROUTE)).toMatchObject({ id: 2, since: 7 });
+  });
+
+  it("reads a record that is a link as one unread line that says so, and lists nothing of the file the link leads to; a reversal of it is refused with the same words, and the link stays a link to a file that reads as it did", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Linked"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    // A file outside the worktree that reads as a record with one decision.
+    const outside = join(repository.base, "outside.md");
+    const text = withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds });
+    writeFileSync(outside, text);
+    symlinkSync(outside, join(directory, RECORD_FILE));
+    const refusal = "decisions.md is a link, and Owlery reads it only as a file of its own";
+    const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) + (itemOf(m, a.id)?.decisions.length ?? 0) > 0);
+    expect(itemOf(inbox, a.id)).toMatchObject({ decisions: [], questions: [], unread: [{ line: 1, why: `the record cannot be read: ${refusal}` }] });
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe(refusal);
+    expect([lstatSync(join(directory, RECORD_FILE)).isSymbolicLink(), readFileSync(outside, "utf8")]).toEqual([true, text]);
+  });
+});
+
+describe("the questions a work item is parked with", () => {
+  const BASE = { asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main" };
+  const FREE = { asks: "May the session push to the remote?", grounds: "A push needs the person's approval." };
+  const ASKING = { by: "sealer", questions: [BASE, FREE] };
+  /** The two questions of `ASKING` as the daemon sends them open, numbered from `first`. */
+  const open = (since: number, first = 1) => [
+    { id: first, ...BASE, by: "sealer", answer: null, since },
+    { id: first + 1, ...FREE, by: "sealer", options: [], default: null, answer: null, since },
+  ];
+  const TYPED = "둘 다 아니고, 세 번째 방법으로";
+
+  it("parks one work item with its questions as open blocks and tells every client, and holds nothing else: the other work item holds none and its headless session finishes, a pane starts in each of the two, an `ask` in the parked one is taken, a third work item is created, and a second park of the parked one adds its question", async () => {
+    const { d, url, c, made, workItems, sessions } = await withWorkItems(["Parked", "Goes on"], { now: () => 1234, roleAdapter: fakeAdapter({ delayMs: 150 }) });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    const other = await client(url);
+    await other.message("ready");
+    c.send({ type: "ask", requestId: 1, workItemId: b.id, prompt: "Still there?" });
+    const { headless } = await c.message("asked");
+    c.messages.length = 0;
+    other.messages.length = 0;
+    const questions = d.park(a.id, ASKING);
+    expect(questions).toEqual(open(1234));
+    expect(recordIn(directory)).toMatchObject({ decisions: [], questions: [{ id: 1, asks: BASE.asks, grounds: BASE.grounds, by: "sealer", options: BASE.options, default: "main", state: { is: "open" } }, { id: 2, asks: FREE.asks, by: "sealer", options: [], default: null, state: { is: "open" } }], refusals: [] });
+    for (const told of [c, other]) {
+      const inbox = await told.message("inbox");
+      expect(inbox.workItems).toEqual([{ ...a, questions }, b]);
+      expect(inbox.sessions).toEqual(sessions);
+      // Nothing but the lists is sent for it.
+      expect(told.messages.filter((m) => m.type !== "headless").map((m) => m.type)).toEqual(["inbox"]);
+    }
+    // While the work item is parked, every request is served as before, in it and beside it.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: b.id });
+    expect((await c.message("started", (m) => m.requestId === 2)).session).toMatchObject({ workItemId: b.id, alive: true });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: a.id });
+    expect((await c.message("started", (m) => m.requestId === 3)).session).toMatchObject({ workItemId: a.id, alive: true });
+    c.send({ type: "ask", requestId: 4, workItemId: a.id, prompt: "And in the parked one?" });
+    expect((await c.message("asked", (m) => m.requestId === 4)).headless).toMatchObject({ workItemId: a.id, state: "working" });
+    c.send({ type: "createWorkItem", requestId: 5, repo: made.repo, title: "A third", kind: "shell", cols: 80, rows: 24 });
+    const third = (await c.message("workItemCreated", (m) => m.requestId === 5)).workItem;
+    expect(third.questions).toEqual([]);
+    // The session that was working when the park returned finishes, after the lists that carry the park.
+    const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working");
+    expect(finished.headless).toMatchObject({ workItemId: b.id, state: "finished", stopped: null });
+    expect(c.messages.findIndex((m) => m.type === "inbox")).toBeLessThan(c.messages.indexOf(finished));
+    // A park of a work item that is already parked is not refused: its question is a third open block.
+    const more = d.park(a.id, { questions: [{ asks: "And the credential?", grounds: "No session holds the token." }] });
+    expect(more).toEqual([{ id: 3, asks: "And the credential?", grounds: "No session holds the token.", by: null, options: [], default: null, answer: null, since: 1234 }]);
+    const later = await (await client(url)).message("ready");
+    expect([itemOf(later, a.id)?.questions, itemOf(later, b.id)?.questions, itemOf(later, third.id)?.questions]).toEqual([[...questions!, ...more!], [], []]);
+  });
+
+  it("writes who asks and each text of a question without the white space at its ends, 2000 characters of each at most, in one write of the file, and reads a question given no options and no default as one with neither", async () => {
+    const { d, workItems } = await withWorkItems(["Parked"], { now: () => 5 });
+    withDirectory(workItems[0]!);
+    const long = "가".repeat(2001);
+    const cut = "가".repeat(2000);
+    const questions = d.park(workItems[0]!.id, {
+      by: `  ${long}\n`,
+      questions: [
+        { asks: `\t${"q".repeat(1999)}😀 `, grounds: ` ${long} `, options: [{ label: ` ${long} `, implies: `\n${long}` }, { label: "second", implies: "" }], default: ` ${long}\n` },
+        { asks: " One more? ", grounds: " It needs\nan approval. ", options: [{ label: "yes", implies: " Then it goes on. " }], default: null },
+        { asks: "Free?", grounds: "A credential." },
+      ],
+    });
+    expect(questions).toEqual([
+      { id: 1, asks: "q".repeat(1999), grounds: cut, by: cut, options: [{ label: cut, implies: cut }, { label: "second", implies: "" }], default: cut, answer: null, since: 5 },
+      { id: 2, asks: "One more?", grounds: "It needs an approval.", by: cut, options: [{ label: "yes", implies: "Then it goes on." }], default: null, answer: null, since: 5 },
+      { id: 3, asks: "Free?", grounds: "A credential.", by: cut, options: [], default: null, answer: null, since: 5 },
+    ]);
+  });
+
+  it("writes nothing and tells no client for a work item it does not keep, an archived one, one with no directory, a call with no question, a question with an empty text or empty grounds, two options of one question with one label, a default that names no option, an option with no label, a field of another type and an asker that is empty", async () => {
+    const { d, c, url, workItems, sessions } = await withWorkItems(["Parked", "Archived", "No directory"], { now: () => 7 });
+    const [a, archived, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(archived)];
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[1]!.id], headless: [] } });
+    await c.message("inbox", (m) => m.archived.length === 1);
+    c.messages.length = 0;
+    const loose = d.park.bind(d) as (workItemId: unknown, asking: unknown) => unknown;
+    const said = logged();
+    expect(loose(99, ASKING)).toBeUndefined();
+    expect(loose(String(a.id), ASKING)).toBeUndefined();
+    expect(loose(archived.id, ASKING)).toBeUndefined();
+    expect(loose(none.id, ASKING)).toBeUndefined();
+    const refused = [
+      null,
+      { by: "sealer" },
+      { ...ASKING, questions: [] },
+      { ...ASKING, questions: {} },
+      { ...ASKING, questions: [BASE, null] },
+      { ...ASKING, questions: [BASE, { ...FREE, asks: "" }] },
+      { ...ASKING, questions: [BASE, { ...FREE, asks: " \n\t" }] },
+      { ...ASKING, questions: [{ ...FREE, asks: 3 }] },
+      { ...ASKING, questions: [BASE, { ...FREE, grounds: " " }] },
+      { ...ASKING, questions: [BASE, { asks: FREE.asks }] },
+      { ...ASKING, questions: [{ ...BASE, options: [BASE.options[0], { label: " main ", implies: "The same label." }] }] },
+      { ...ASKING, questions: [{ ...BASE, default: "develop" }] },
+      { ...ASKING, questions: [{ ...BASE, default: 0 }] },
+      { ...ASKING, questions: [{ ...FREE, default: "main" }] },
+      { ...ASKING, questions: [{ ...BASE, options: {} }] },
+      { ...ASKING, questions: [{ ...BASE, options: [null, BASE.options[1]] }] },
+      // No default, so the empty label is what refuses it, and not a default that names no option.
+      { ...ASKING, questions: [{ ...BASE, default: null, options: [{ label: " ", implies: "x" }, BASE.options[1]] }] },
+      { ...ASKING, questions: [{ ...BASE, options: [{ label: 3, implies: "x" }, BASE.options[1]] }] },
+      { ...ASKING, questions: [{ ...BASE, options: [{ label: "main" }, BASE.options[1]] }] },
+      { ...ASKING, by: "" },
+      { ...ASKING, by: "  " },
+      { ...ASKING, by: 3 },
+    ];
+    for (const asking of refused) expect(loose(a.id, asking), JSON.stringify(asking)).toBeUndefined();
+    // An inbox for any of them would have arrived before the refusal of a start sent after them.
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(["error"]);
+    expect(directories.map(bytesIn)).toEqual([null, null]);
+    // Each was refused before the record's writer was asked, so the log holds no line of a write that failed.
+    expect(said).toEqual([]);
+    const ready = await (await client(url)).message("ready");
+    expect([itemOf(ready, a.id)?.questions, ready.archived[0]?.questions]).toEqual([[], []]);
+    // The call as the refusals above would have it taken, so the method is the one under test.
+    expect(loose(a.id, ASKING)).toEqual(open(7));
+  });
+
+  it("writes nothing of a park whose second question the record's writer refuses, the first question neither", async () => {
+    const { d, workItems } = await withWorkItems(["Parked"], { now: () => 7 });
+    const directory = withDirectory(workItems[0]!);
+    d.decided(workItems[0]!.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
+    const bytes = bytesIn(directory);
+    const said = logged();
+    // A label that holds a backtick is no label the record's grammar takes.
+    expect(d.park(workItems[0]!.id, { questions: [FREE, { ...FREE, options: [{ label: "a`b", implies: "" }] }] })).toBeUndefined();
+    expect(bytesIn(directory)).toBe(bytes);
+    expect(said.filter((line) => line.startsWith("the record was not written: "))).toHaveLength(1);
+  });
+
+  it("ends the park at an `answerQuestions`: each open block reads `answered` with its answer as typed, cut as every text is, the answer comes before the inbox that carries it, and the answered blocks stay in the record beside the questions of a later park", async () => {
+    let clock = 1000;
+    const { d, c, url, workItems } = await withWorkItems(["Parked", "Another"], { now: () => clock });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    d.park(a.id, ASKING);
+    await c.message("inbox");
+    const other = await client(url);
+    await other.message("ready");
+    c.messages.length = 0;
+    clock = 2000;
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: a.id, answers: [{ questionId: 2, answer: `  ${TYPED}\n` }, { questionId: 1, answer: "main" }] });
+    const inbox = await c.message("inbox");
+    expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
+    expect(c.messages[0]).toEqual({ type: "done", requestId: 1 });
+    const answered = [{ ...open(1000)[0]!, answer: "main", since: 2000 }, { ...open(1000)[1]!, answer: TYPED, since: 2000 }];
+    expect([itemOf(inbox, a.id)?.questions, itemOf(inbox, b.id)?.questions]).toEqual([answered, []]);
+    expect(recordIn(directory)?.questions.map(({ state }) => state)).toEqual([{ is: "answered", answer: "main" }, { is: "answered", answer: TYPED }]);
+    // Every client is told, and the one that asked alone is answered.
+    expect(itemOf(await other.message("inbox"), a.id)?.questions).toEqual(answered);
+    expect(other.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+
+    clock = 3000;
+    const again = d.park(a.id, { by: "proofer", questions: [{ asks: `${"답".repeat(2001)}?`, grounds: "An approval." }] });
+    expect(again).toEqual([{ id: 3, asks: "답".repeat(2000), grounds: "An approval.", by: "proofer", options: [], default: null, answer: null, since: 3000 }]);
+    // The answered questions need no answer again: the message answers the open one alone.
+    clock = 4000;
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 3, answer: "가".repeat(2001) }] });
+    await c.message("done", (m) => m.requestId === 2);
+    expect(recordIn(directory)?.questions.map(({ id, state }) => [id, state])).toEqual([[1, { is: "answered", answer: "main" }], [2, { is: "answered", answer: TYPED }], [3, { is: "answered", answer: "가".repeat(2000) }]]);
+  });
+
+  it("refuses an `answerQuestions` that leaves an open question out, answers an id that is no open question of the record or one question twice, gives an empty answer, names a work item with no open question, one with no directory or one it does not keep, or is of another shape, with the file byte for byte as it stood and no inbox after", async () => {
+    let clock = 1000;
+    const { d, c, url, workItems } = await withWorkItems(["Parked", "Never parked", "Answered", "No directory"], { now: () => clock });
+    const [a, b, answered, none] = workItems as [(typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0], (typeof workItems)[0]];
+    const directories = [withDirectory(a), withDirectory(b), withDirectory(answered)];
+    d.decided(a.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
+    d.park(a.id, ASKING);
+    d.park(answered.id, { by: "proofer", questions: [FREE] });
+    c.send({ type: "answerQuestions", requestId: 1, workItemId: answered.id, answers: [{ questionId: 1, answer: "Yes." }] });
+    await c.message("inbox", (m) => itemOf(m, answered.id)?.questions[0]?.answer === "Yes.");
+    const bytes = directories.map(bytesIn);
+    c.messages.length = 0;
+    clock = 2000;
+    // The decision took the id 1, so the two questions of the park are 2 and 3.
+    const both = [{ questionId: 2, answer: "main" }, { questionId: 3, answer: TYPED }];
+    const shape = "an answer names a work item and gives an answer to each of its open questions";
+    const refusals = [
+      [2, { workItemId: a.id, answers: [both[0]] }, "Question 3 has no answer."],
+      [3, { workItemId: a.id, answers: [] }, "Question 2 has no answer."],
+      [4, { workItemId: a.id, answers: [...both, { questionId: 9, answer: "a third" }] }, `Work item ${a.id} holds no open question 9.`],
+      [5, { workItemId: a.id, answers: [...both, { questionId: 1, answer: "a decision's id" }] }, `Work item ${a.id} holds no open question 1.`],
+      [6, { workItemId: a.id, answers: [...both, { questionId: 3, answer: "again" }] }, "Question 3 is answered twice."],
+      [7, { workItemId: a.id, answers: [both[0], { questionId: 3, answer: " \n\t" }] }, "Give an answer to question 3."],
+      [8, { workItemId: b.id, answers: both }, `Work item ${b.id} waits for no answer.`],
+      [9, { workItemId: answered.id, answers: [{ questionId: 1, answer: "another" }] }, `Work item ${answered.id} waits for no answer.`],
+      [10, { workItemId: none.id, answers: both }, `Work item ${none.id} has no record of decisions.`],
+      [11, { workItemId: 99, answers: both }, "no work item 99"],
+      [12, { workItemId: String(a.id), answers: both }, shape],
+      [13, { workItemId: a.id, answers: { 2: "main", 3: TYPED } }, shape],
+      [14, { workItemId: a.id, answers: [both[0], null] }, shape],
+      [15, { workItemId: a.id, answers: [both[0], { questionId: "3", answer: TYPED }] }, shape],
+      [16, { workItemId: a.id, answers: [both[0], { questionId: 3, answer: 3 }] }, shape],
+    ] as const;
+    for (const [requestId, fields, message] of refusals) {
+      c.send({ type: "answerQuestions", requestId, ...fields });
+      expect(await c.message("error", (m) => m.requestId === requestId)).toEqual({ type: "error", requestId, message });
+    }
+    await settled(c);
+    expect(c.messages.map((m) => m.type)).toEqual(refusals.map(() => "error").concat("error"));
+    expect(directories.map(bytesIn)).toEqual(bytes);
+    const ready = await (await client(url)).message("ready");
+    expect([itemOf(ready, a.id)?.questions, itemOf(ready, b.id)?.questions]).toEqual([open(1000, 2), []]);
+    // The message as the refusals above would have it taken, so the case is the one under test.
+    c.send({ type: "answerQuestions", requestId: 20, workItemId: a.id, answers: both });
+    expect(await c.message("done", (m) => m.requestId === 20)).toEqual({ type: "done", requestId: 20 });
+  });
+
+  it("takes an answer for an archived work item, lists it under `archived` with its questions as answered, and reads its record again at its restore, in the inbox that lists it as restored", async () => {
+    const { d, c, workItems, sessions } = await withWorkItems(["Archived"], { now: () => 9 });
+    const archived = workItems[0]!;
+    const directory = withDirectory(archived);
+    d.park(archived.id, ASKING);
+    c.send({ type: "archiveWorkItem", requestId: 1, id: archived.id, running: { panes: [sessions[0]!.id], headless: [] } });
+    expect((await c.message("inbox", (m) => m.archived.length === 1)).archived[0]?.questions).toEqual(open(9));
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: archived.id, answers: [{ questionId: 1, answer: "main" }, { questionId: 2, answer: TYPED }] });
+    await c.message("done", (m) => m.requestId === 2);
+    expect((await c.message("inbox", (m) => m.archived[0]?.questions[0]?.answer === "main")).archived[0]?.questions.map(({ answer }) => answer)).toEqual(["main", TYPED]);
+    // A block a stage wrote while the work item was archived, which no pass read.
+    const file = join(directory, RECORD_FILE);
+    writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "default", decided: "Start from main.", grounds: "The default base." }));
+    c.messages.length = 0;
+    c.send({ type: "restoreWorkItem", requestId: 3, id: archived.id });
+    const restored = await c.message("inbox");
+    expect([restored.archived, restored.workItems.map(({ decisions }) => decisions.map(({ id, since }) => [id, since]))]).toEqual([[], [[[3, 9]]]]);
+  });
+});
+
+describe("what a work item's records say of its chain", () => {
+  const FENCE = "```";
+  const A = "a".repeat(40);
+  const B = "b".repeat(40);
+  const run = (tree: string): string => `${FENCE}seal\nrun: ${tree} against ${"c".repeat(40)}\n${FENCE}\n`;
+  const verdict = (commit: string, says: string): string => `${FENCE}seal\ntarget: ${commit} against main\nVerdict: ${says}\n${FENCE}\n`;
+  /** A file of the directory, the folders above it made. */
+  const put = (directory: string, path: string, text: string): void => {
+    mkdirSync(join(directory, path, ".."), { recursive: true });
+    writeFileSync(join(directory, path), text);
+  };
+
+  it("sends a work item whose worktree holds no directory of its own with no frame, no round, no gate and no verdict, at its creation, in `ready` and in an `inbox`", async () => {
+    const { c, url, workItems } = await withWorkItems(["No directory"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    expect(a.recorded).toEqual(NOTHING_RECORDED);
+    expect(itemOf(await (await client(url)).message("ready"), a.id)?.recorded).toEqual(NOTHING_RECORDED);
+    c.send({ type: "setWorkItem", requestId: 1, id: a.id, pinned: true });
+    expect(itemOf(await c.message("inbox"), a.id)?.recorded).toEqual(NOTHING_RECORDED);
+  });
+
+  it("reads the records of a work item's directory at every pass, uncommitted and once committed alike, the last block of the gate's record and of the guarantee, and a reason of 2000 characters at most, and sends every client the lists where they read otherwise and nothing where they read the same", async () => {
+    const { c, url, workItems } = await withWorkItems(["Recorded", "Another"], { commitPollMs: 30 });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    const other = await client(url);
+    await other.message("ready");
+    put(directory, "frame/design.md", "# Design\n");
+    for (const n of [1, 2, 3]) put(directory, `trail/rounds/round-${n}.md`, `# Round ${n}\n`);
+    put(directory, "trail/gate.md", `${run(A)}\n${run(B)}`);
+    put(directory, "guarantee.md", `${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "sealed")}`);
+    expect(git(a.worktree, "status", "--porcelain", "--", "seal")).toContain("?? seal/");
+    const said = { framed: true, rounds: 3, gate: B, verdict: { is: "sealed", commit: B, says: null } };
+    for (const told of [c, other]) {
+      const inbox = await told.message("inbox", (m) => itemOf(m, a.id)?.recorded?.rounds === 3);
+      expect([itemOf(inbox, a.id)?.recorded, itemOf(inbox, b.id)?.recorded]).toEqual([said, NOTHING_RECORDED]);
+    }
+
+    // Committed, the records read the same: the inbox the new commit sends carries them as they were.
+    git(a.worktree, "add", "seal");
+    git(a.worktree, "commit", "--quiet", "-m", "records");
+    const committed = await c.message("inbox", (m) => itemOf(m, a.id)?.newCommits === 1);
+    expect(itemOf(committed, a.id)?.recorded).toEqual(said);
+    // A pass that reads the records as it read them last sends nothing.
+    await settled(c);
+    c.messages.length = 0;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(c.messages).toEqual([]);
+
+    // A record that reads otherwise is sent, and a reason is cut at 2000 characters.
+    put(directory, "guarantee.md", verdict(A, `withheld reason: ${"가".repeat(2001)}`));
+    const withheld = await c.message("inbox", (m) => itemOf(m, a.id)?.recorded?.verdict?.is === "withheld");
+    expect(itemOf(withheld, a.id)?.recorded).toEqual({ ...said, verdict: { is: "withheld", commit: A, says: "가".repeat(2000) } });
+  });
+});
+
+describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
+  const NAME = "1795396351-sealed-work";
+  /** A daemon whose one work item's branch the case seals by committing the records, and the work item once the lists carry its seal as `sealed`. */
+  async function sealed() {
+    const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 50 });
+    const a = workItems[0]!;
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    // The case sends nothing from here on: what the lists carry, the daemon read by itself.
+    const seal = await c.until(() => (c.workItem(a.id)?.seal?.state === "sealed" ? c.workItem(a.id)?.seal : undefined));
+    expect(seal).toEqual({ state: "sealed", commit: gate, why: null });
+    return { made, c, a, gate };
+  }
+  const broken = (c: Awaited<ReturnType<typeof sealed>>["c"], id: number) => c.until(() => (c.workItem(id)?.seal?.state === "broken" ? c.workItem(id)?.seal : undefined));
+
+  it("turns a sealed work item broken within the read interval after a commit made with git in its worktree, and no message of a client asks for it", async () => {
+    const { c, a, gate } = await sealed();
+    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+    git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
+    expect(await broken(c, a.id)).toEqual({ state: "broken", commit: gate, why: `\`feature.txt\` changed after the sealed commit \`${gate.slice(0, 7)}\`.` });
+  });
+
+  it("turns it broken when the branch is moved from the repository's main checkout with git update-ref, which no worktree's checkout makes", async () => {
+    const { made, c, a, gate } = await sealed();
+    const at = git(made.repo, "rev-parse", `refs/heads/${a.branch}`).trim();
+    // A commit of the branch's tree with one file changed, made in the main checkout through an index of its own.
+    const index = join(made.base, "moved.index");
+    const env = { ...process.env, GIT_INDEX_FILE: index };
+    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: made.repo, input: "Changed from the main checkout\n", encoding: "utf8" }).stdout.trim();
+    spawnSync("git", ["read-tree", at], { cwd: made.repo, env });
+    spawnSync("git", ["update-index", "--cacheinfo", `100644,${blob},feature.txt`], { cwd: made.repo, env });
+    const tree = spawnSync("git", ["write-tree"], { cwd: made.repo, env, encoding: "utf8" }).stdout.trim();
+    const moved = spawnSync("git", ["commit-tree", tree, "-p", at, "-m", "fix: change the greeting elsewhere"], { cwd: made.repo, encoding: "utf8" }).stdout.trim();
+    git(made.repo, "update-ref", `refs/heads/${a.branch}`, moved, at);
+    expect(await broken(c, a.id)).toEqual({ state: "broken", commit: gate, why: `\`feature.txt\` changed after the sealed commit \`${gate.slice(0, 7)}\`.` });
+  });
+
+  it("sends a broken seal's sentence cut at 2000 characters, where it quotes a long line of a record the reader refuses", async () => {
+    const { c, a, gate } = await sealed();
+    const record = `seal/threads/${NAME}/trail/rounds/round-2.md`;
+    mkdirSync(join(a.worktree, record, ".."), { recursive: true });
+    writeFileSync(join(a.worktree, record), roundRecord(`# Review round 2: ${NAME}`, "x".repeat(3000)));
+    git(a.worktree, "add", record);
+    git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
+    const seal = await broken(c, a.id);
+    expect([seal?.commit, seal?.why?.length]).toEqual([gate, 2000]);
+    expect(seal?.why).toMatch(new RegExp(`^The records at the head do not read: the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: \`target: x+$`, "u"));
+  });
+
+  it("sends a work item with no `seal` until it has read the branch, so a `ready` that goes out before git answered carries none, and the lists that follow the read carry the seal, or null where the head holds none", async () => {
+    const stood = await standing(cleanups, ["Sealed work", "Unsealed work"], { commitPollMs: 60_000 });
+    const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    await stood.d.close();
+    // Each git call waits a fifth of a second, four times the wait of the daemon that starts now, so its `ready` goes out before it has read either branch.
+    watchedGit(stood.made.base, 0.2);
+    const c = await chainClient((await stood.start({ readyWaitMs: 50 })).url, cleanups);
+    const ready = await c.message("ready");
+    expect(ready.workItems.map((w) => [w.id, "seal" in w])).toEqual([[a.id, false], [b.id, false]]);
+    const read = await c.until(() => {
+      const [sealedItem, unsealedItem] = [c.workItem(a.id), c.workItem(b.id)];
+      return sealedItem?.seal?.state === "sealed" && unsealedItem !== undefined && "seal" in unsealedItem ? [sealedItem.seal, unsealedItem.seal] : undefined;
+    });
+    expect(read).toEqual([{ state: "sealed", commit: gate, why: null }, null]);
+  });
+
+  it("sends no seal for a work item whose head holds none, though a pane of it prints `Verdict: sealed` and its stored chain rests", async () => {
+    const stood = await standing(cleanups, ["Sealed work"], { commitPollMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf 'Verdict: sealed\\n'; sleep 30"], env: {} }) });
+    const a = stood.workItems[0]!;
+    // The records of a chain that has a gate's run and no guarantee, and a stored chain that rests, which the store's file is given.
+    commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit, seal: false });
+    expect((await stood.c.asked({ type: "setWorkItem", requestId: 9, id: a.id, pinned: true })).type).toBe("done");
+    await stood.d.close();
+    const file = join(stood.runDir, "repositories.json");
+    const stored = JSON.parse(readFileSync(file, "utf8")) as { repositories: { workItems: { id: number; chain?: unknown }[] }[] };
+    Object.assign(stored.repositories[0]?.workItems.find(({ id }) => id === a.id) ?? {}, { chain: { state: "rested", says: "The sealer sealed ccccccc, after round 1.", since: 3, stages: [] } });
+    writeFileSync(file, JSON.stringify(stored));
+    const c = await chainClient((await stood.start()).url, cleanups);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: a.id });
+    const { session } = await c.message("started");
+    await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes("Verdict: sealed")) ? true : undefined));
+    // The read of the branch has run once it lists the commits of the records, and the chain still rests.
+    const read = await c.until(() => {
+      const item = c.workItem(a.id);
+      return item?.commits?.some(({ subject }) => subject === "chore: record the broad gate's run") ? item : undefined;
+    });
+    expect(read.chain).toMatchObject({ state: "rested" });
+    expect(read.seal).toBeNull();
+  });
+});
+
+describe("the records of the back of a seal", { timeout: 60_000 }, () => {
+  const NAME = "1795400730-sealed-work";
+  const headOf = (folder: string): string => git(folder, "rev-parse", "HEAD").trim();
+
+  it("answers a `readSealRecords` with what the records of the work item's directory say at its branch's head, with the empty value for a work item with no directory, and with an error for an id it lists no work item under and for a branch whose head it cannot read", async () => {
+    const { made, c, workItems } = await standing(cleanups, ["Sealed work", "No directory", "Gone branch"], { commitPollMs: 60_000 });
+    const [a, b, gone] = workItems as [(typeof workItems)[number], (typeof workItems)[number], (typeof workItems)[number]];
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    const sealed = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
+    expect(sealed).toMatchObject({ type: "sealRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, brokenBy: null, refusals: [], unreadRefusals: 0 } });
+    expect(sealed.type === "sealRecords" ? sealed.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
+    expect(await c.asked({ type: "readSealRecords", requestId: 2, workItemId: b.id })).toEqual({
+      type: "sealRecords",
+      requestId: 2,
+      workItemId: b.id,
+      records: { head: headOf(b.worktree), record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 },
+    });
+    expect(await c.asked({ type: "readSealRecords", requestId: 3, workItemId: 99 })).toEqual({ type: "error", requestId: 3, message: "no work item 99" });
+    git(made.repo, "update-ref", "-d", `refs/heads/${gone.branch}`);
+    expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(gone.branch) });
+  });
+
+  it("names the commit that broke a broken seal, read with the seal the head holds, and sends a finding's words cut at 2000 characters", async () => {
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 60_000 });
+    const a = workItems[0]!;
+    commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+    git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
+    const broke = headOf(a.worktree);
+    // A round recorded after the break, whose finding's symptom and severity are long.
+    const record = `seal/threads/${NAME}/trail/rounds/round-2.md`;
+    const fence = "```";
+    writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}seal`, `target: ${broke} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}seal`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
+    git(a.worktree, "add", record);
+    git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
+    const answer = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
+    expect(answer).toMatchObject({ type: "sealRecords", records: { brokenBy: { commit: broke, subject: "fix: change the greeting" } } });
+    const found = answer.type === "sealRecords" ? answer.records.rounds[1]?.findings[0] : undefined;
+    expect([found?.says, found?.severity.length]).toEqual(["가".repeat(2000), 2000]);
+  });
+});
+
+describe("the commit of a person's word", () => {
+  const DEFAULT = { kind: "default", says: "Start from main.", grounds: "The default base." } as const;
+  const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";
+  /** How many commits the worktree's branch holds. */
+  const commitsIn = (worktree: string): number => Number(git(worktree, "rev-list", "--count", "HEAD"));
+  /** The newest commit of the worktree's branch: its subject, the rest of its message, who wrote and who committed it, and the paths it changed. */
+  const newest = (worktree: string) => ({
+    subject: git(worktree, "log", "-1", "--format=%s").trim(),
+    body: git(worktree, "log", "-1", "--format=%b").trim(),
+    by: git(worktree, "log", "-1", "--format=%an <%ae>, %cn <%ce>").trim(),
+    paths: git(worktree, "show", "--name-only", "--format=", "HEAD").trim().split("\n"),
+  });
+  /** What git says of the worktree's changes, a line for each path. */
+  const status = (worktree: string): string[] => git(worktree, "status", "--porcelain", "--untracked-files=all").split("\n").filter((line) => line !== "").sort();
+
+  it("commits a reversal where no session of the work item is working: one new commit whose only path is `decisions.md`, under the person's identity, with the subject that names the decision and the trailer that names the work item's directory, and a change staged beside it and one not staged stand as they stood; an `answerQuestions` gives a commit of its own, which the daemon's close waits for", async () => {
+    const { d, c, workItems } = await withWorkItems(["Reversed"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795330500-reversed");
+    const record = "seal/threads/1795330500-reversed/decisions.md";
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May the session push?", grounds: "A push needs the person's approval." }] });
+    writeFileSync(join(a.worktree, "staged.txt"), "staged\n");
+    git(a.worktree, "add", "staged.txt");
+    writeFileSync(join(a.worktree, "README.md"), "changed and not staged\n");
+    const stood = status(a.worktree);
+    expect(stood).toEqual([" M README.md", "?? seal/README.md", `?? ${record}`, "?? seal/threads/1795330500-reversed/routing.md", "A  staged.txt"]);
+    expect(commitsIn(a.worktree)).toBe(1);
+
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "기본값 말고 main에서 시작해 주세요" });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's reversal of decision 1", body: "Seal-Routing: 1795330500-reversed", by: WHO, paths: [record] });
+    expect(git(a.worktree, "show", `HEAD:${record}`)).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "기본값 말고 main에서 시작해 주세요" });
+    // The record is committed and nothing else moved: the staged file is still staged and not committed, and the other change is still not staged.
+    const left = stood.filter((line) => line !== `?? ${record}`);
+    expect(status(a.worktree)).toEqual(left);
+
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "Yes, push." }] });
+    await c.message("done", (m) => m.requestId === 2);
+    // No wait but the close's: the commit under way has ended when the close has.
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(3);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's answers", body: "Seal-Routing: 1795330500-reversed", by: WHO, paths: [record] });
+    expect(git(a.worktree, "show", `HEAD:${record}`)).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(status(a.worktree)).toEqual(left);
+  });
+
+  it("rewrites the `Branch` row of the work item's `routing.md` at a rename of its branch, in a commit of that file alone with the trailer that names the directory, so the work item still carries its decision at the reads after it; a rename of the name alone writes and commits nothing", async () => {
+    const { d, c, url, workItems } = await withWorkItems(["First name"], { commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795388700-renamed");
+    const routing = "seal/threads/1795388700-renamed/routing.md";
+    const stood = readFileSync(join(directory, "routing.md"), "utf8");
+    d.decided(a.id, DEFAULT);
+    await c.message("inbox", (m) => m.workItems[0]?.decisions.length === 1);
+
+    c.send({ type: "renameWorkItem", requestId: 1, id: a.id, title: "Another name", branch: false });
+    await c.message("done", (m) => m.requestId === 1);
+    await settled(c);
+    expect([readFileSync(join(directory, "routing.md"), "utf8"), commitsIn(a.worktree)]).toEqual([stood, 1]);
+
+    c.send({ type: "renameWorkItem", requestId: 2, id: a.id, title: "Second name", branch: true });
+    await c.message("done", (m) => m.requestId === 2);
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(stood).toContain(`| Branch | ${a.branch} |\n`);
+    expect(readFileSync(join(directory, "routing.md"), "utf8")).toBe(stood.replace(`| Branch | ${a.branch} |`, "| Branch | owlery/second-name |"));
+    expect(newest(a.worktree)).toEqual({ subject: "chore: name the renamed branch in the work item's routing", body: "Seal-Routing: 1795388700-renamed", by: WHO, paths: [routing] });
+    expect(git(a.worktree, "show", `HEAD:${routing}`)).toBe(readFileSync(join(directory, "routing.md"), "utf8"));
+    expect(status(a.worktree)).toEqual(["?? seal/README.md", "?? seal/threads/1795388700-renamed/decisions.md"]);
+    // The record is read again at each interval, by the branch's new name.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const later = (await (await client(url)).message("ready")).workItems[0];
+    expect([later?.branch, later?.decisions.map((decision) => decision.says)]).toEqual(["owlery/second-name", ["Start from main."]]);
+  });
+
+  it("refuses a rename of the branch while the work item's chain is running, with the branch, the routing and the name as they were, takes a rename of the name alone meanwhile, and renames the branch once the chain rests", async () => {
+    // The fake proofer's answer holds no round record, so the chain stops when round 1's session ends.
+    const { c, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
+    const a = workItems[0]!;
+    const directory = withDirectory(a, "1795388700-renamed");
+    // A chain starts only on a branch whose records name a broad gate command.
+    writeFileSync(join(a.worktree, "seal", "config.json"), '{ "Broad gate": "true" }\n');
+    git(a.worktree, "add", "--all");
+    git(a.worktree, "commit", "--quiet", "-m", "chore: add the records and declare the routing");
+    const stood = readFileSync(join(directory, "routing.md"), "utf8");
+    const chainOf = (): WorkItem["chain"] | undefined => c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems : [])).at(-1)?.chain;
+
+    c.send({ type: "getSeal", requestId: 1, workItemId: a.id });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "renameWorkItem", requestId: 2, id: a.id, title: "Second name", branch: true });
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe("The work item's chain is running, and it finds the work item's records by the branch's name. Rename the branch once the chain rests.");
+    expect(chainOf()?.state).toBe("running");
+    expect([git(a.worktree, "symbolic-ref", "--short", "HEAD").trim(), readFileSync(join(directory, "routing.md"), "utf8"), commitsIn(a.worktree)]).toEqual([a.branch, stood, 2]);
+    c.send({ type: "renameWorkItem", requestId: 3, id: a.id, title: "Second name", branch: false });
+    await c.message("done", (m) => m.requestId === 3);
+    expect((await c.message("inbox", (m) => m.workItems[0]?.title === "Second name")).workItems[0]).toMatchObject({ title: "Second name", branch: a.branch });
+
+    await c.until(() => (chainOf()?.state === "stopped" ? true : undefined), 10_000);
+    c.send({ type: "renameWorkItem", requestId: 4, id: a.id, title: "Second name", branch: true });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(git(a.worktree, "symbolic-ref", "--short", "HEAD").trim()).toBe("owlery/second-name");
+  });
+
+  /** Runs git in a worktree where the command is expected to stop on a conflict, and gives its exit code. */
+  const stopping = (worktree: string, ...args: string[]): number | null => spawnSync("git", args, { cwd: worktree, encoding: "utf8" }).status;
+  /**
+   * Each state of a worktree in which a person's word is refused before it is written and nothing is committed, with the commands that bring it about and the reason the refusal gives.
+   * The work item's branch holds the commit "mine" and the branch `theirs` the commit "theirs", which change one line of `README.md` each, so each of the two taken onto the other stops on a conflict.
+   */
+  const NOT_COMMITTED: { name: string; bring: (worktree: string) => void; says: (branch: string) => string }[] = [
+    { name: "on a detached HEAD", bring: (worktree) => void git(worktree, "checkout", "--quiet", "--detach"), says: (branch) => `the worktree is not on the branch ${branch}` },
+    { name: "on another branch", bring: (worktree) => void git(worktree, "checkout", "--quiet", "theirs"), says: (branch) => `the worktree is not on the branch ${branch}` },
+    { name: "in a rebase that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "rebase", "theirs")).toBe(1), says: () => "a rebase is under way in the worktree" },
+    { name: "in a merge that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "merge", "theirs")).toBe(1), says: () => "a merge is under way in the worktree" },
+    { name: "in a cherry-pick that stopped on a conflict", bring: (worktree) => expect(stopping(worktree, "cherry-pick", "theirs")).toBe(1), says: () => "a cherry-pick is under way in the worktree" },
+    { name: "in a revert that has not been committed", bring: (worktree) => void git(worktree, "revert", "--no-commit", "HEAD"), says: () => "a revert is under way in the worktree" },
+    {
+      name: "in a `git am` that stopped on a conflict",
+      bring: (worktree) => {
+        writeFileSync(join(worktree, "..", "theirs.patch"), git(worktree, "format-patch", "-1", "theirs", "--stdout"));
+        expect(stopping(worktree, "am", join(worktree, "..", "theirs.patch"))).not.toBe(0);
+      },
+      says: () => "a rebase or a `git am` is under way in the worktree",
+    },
+  ];
+
+  /** The refusal of a person's word for the reason given, as the window shows it. */
+  const refusal = (why: string): string => `Nothing was written: ${why}. Send it again once the worktree is on its branch and nothing is under way in it.`;
+
+  it.each(NOT_COMMITTED)("refuses a reversal and an answer where the worktree is $name: each is answered with an `error` that says why, the record stands byte for byte as it stood, no inbox follows, no branch and no HEAD moves, the index stands as it stood, and the log holds nothing", async ({ bring, says }) => {
+    const { d, c, workItems } = await withWorkItems(["Elsewhere"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    d.decided(a.id, DEFAULT);
+    d.park(a.id, { by: "sealer", questions: [{ asks: "May the session push?", grounds: "A push needs the person's approval." }] });
+    git(a.worktree, "checkout", "--quiet", "-b", "theirs");
+    writeFileSync(join(a.worktree, "README.md"), "theirs\n");
+    git(a.worktree, "commit", "--quiet", "-am", "theirs");
+    git(a.worktree, "checkout", "--quiet", a.branch);
+    writeFileSync(join(a.worktree, "README.md"), "mine\n");
+    git(a.worktree, "commit", "--quiet", "-am", "mine");
+    bring(a.worktree);
+    /** Where every branch and the worktree's HEAD stand, and what git says of the worktree's changes. */
+    const stands = (): unknown[] => [git(a.worktree, "for-each-ref", "refs/heads"), git(a.worktree, "rev-parse", "HEAD"), status(a.worktree), readFileSync(join(directory, RECORD_FILE), "utf8")];
+    const stood = stands();
+    const said = logged();
+    await settled(c);
+    const before = c.messages.length;
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: refusal(says(a.branch)) });
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "Yes, push." }] });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: refusal(says(a.branch)) });
+    await settled(c);
+    // The third is the refusal `settled` waits for.
+    expect(c.messages.slice(before).map((m) => m.type)).toEqual(["error", "error", "error"]);
+    await d.close();
+    expect(said).toEqual([]);
+    expect(stands()).toEqual(stood);
+  });
+
+  it("commits nothing where the worktree leaves its branch after a word was written: a HEAD detached while an earlier commit is held leaves the later word written and answered `done`, moves the work item's branch nowhere, and the log says why", async () => {
+    const { d, c, made: repository, workItems } = await withWorkItems(["Left"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    for (const says of ["One.", "Two."]) d.decided(a.id, { ...DEFAULT, says });
+    // The hook holds the first commit until the case lets it go.
+    const [started, go] = [join(repository.base, "hook-started"), join(repository.base, "hook-go")];
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${go}' ]; do sleep 0.05; done\n`, { mode: 0o755 });
+    const said = logged();
+    const reverse = (decisionId: number): void => c.send({ type: "reverseDecision", requestId: decisionId, workItemId: a.id, decisionId, message: `Not ${String(decisionId)}.` });
+    reverse(1);
+    await c.until(() => (existsSync(started) ? true : undefined), 3000);
+    // The second word is written while the worktree is on its branch, and its commit waits behind the first.
+    reverse(2);
+    expect(await c.message("done", (m) => m.requestId === 2)).toEqual({ type: "done", requestId: 2 });
+    // HEAD is detached where it stands, with no read of the index the held commit has locked.
+    git(a.worktree, "update-ref", "--no-deref", "HEAD", git(a.worktree, "rev-parse", "HEAD").trim());
+    const branchAt = (): string => git(a.worktree, "rev-parse", `refs/heads/${a.branch}`);
+    const stood = branchAt();
+    writeFileSync(go, "");
+    await d.close();
+    expect(said).toEqual([`the person's word was not committed: the worktree is not on the branch ${a.branch}`]);
+    expect(branchAt()).toBe(stood);
+    // The held commit, which passed its checks on the branch, is the one commit made, and the second word is in the file alone.
+    expect(git(a.worktree, "log", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the person's reversal of decision 1", "first"]);
+    expect(recordIn(directory)?.decisions.map(({ state }) => state)).toEqual([1, 2].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+  });
+
+  it("takes the words of one worktree in the order they came: twelve reversals sent one behind another are each answered `done` in that order, though git is asked where the worktree stands for each", async () => {
+    const { d, c, workItems } = await withWorkItems(["In order"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const ids = Array.from({ length: 12 }, (_, index) => index + 1);
+    for (const id of ids) d.decided(a.id, { ...DEFAULT, says: `Decision ${String(id)}.` });
+    await settled(c);
+    const before = c.messages.length;
+    for (const id of ids) c.send({ type: "reverseDecision", requestId: id, workItemId: a.id, decisionId: id, message: `Not ${String(id)}.` });
+    await c.until(() => (c.messages.filter((m) => m.type === "done").length === ids.length ? true : undefined), 10000);
+    expect(c.messages.slice(before).flatMap((m) => (m.type === "done" ? [m.requestId] : []))).toEqual(ids);
+    await d.close();
+    expect(recordIn(directory)?.decisions.map(({ state }) => state)).toEqual(ids.map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+  });
+
+  it("waits at its close for a word whose worktree is still being read: a reversal sent just before the close is written and committed when the close has ended", async () => {
+    const { d, c, workItems } = await withWorkItems(["Closing"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    d.decided(a.id, DEFAULT);
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    // A socket's messages are taken in the order they came, so the answer to the second says the daemon has the first, whose read of the worktree by git takes longer than that answer.
+    c.send({ type: "setWorkItem", requestId: 2, id: a.id, pinned: true });
+    await c.message("done", (m) => m.requestId === 2);
+    await d.close();
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 1");
+  });
+
+  it("leaves the record written and not committed while a headless session of the work item is working, and while a pane of it is: the other work item's word is committed meanwhile, and the first commit made once nothing works carries what was left", async () => {
+    // A pane of the kind that reports its state ends by itself after a second and a half, and every other pane stays.
+    const commandFor = (kind: string) => (kind === "claude" ? { command: "/bin/sh", args: ["-c", "sleep 1.5"], env: {} } : silent());
+    const { d, c, workItems } = await withWorkItems(["Worked in", "Quiet"], { roleAdapter: fakeAdapter({ delayMs: 400 }), commandFor });
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    for (const says of ["One.", "Two.", "Three."]) d.decided(a.id, { ...DEFAULT, says });
+    for (const says of ["One.", "Two."]) d.decided(b.id, { ...DEFAULT, says });
+    const reverse = async (requestId: number, workItemId: number, decisionId: number): Promise<void> => {
+      c.send({ type: "reverseDecision", requestId, workItemId, decisionId, message: `Not ${String(decisionId)}.` });
+      await c.message("done", (m) => m.requestId === requestId);
+    };
+
+    // A headless session works in the first work item, and none in the second.
+    c.send({ type: "ask", requestId: 1, workItemId: a.id, prompt: "Quick?" });
+    await c.message("asked", (m) => m.requestId === 1);
+    await reverse(2, a.id, 1);
+    await reverse(3, b.id, 1);
+    await c.until(() => (commitsIn(b.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(b.worktree).subject).toBe("chore: record the person's reversal of decision 1");
+    await c.message("headless", (m) => m.headless.state === "finished");
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "Not 1." });
+
+    // A pane of the first work item says it is working.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: a.id });
+    const { session } = await c.message("started", (m) => m.requestId === 4);
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await reverse(5, a.id, 2);
+    await reverse(6, b.id, 2);
+    await c.until(() => (commitsIn(b.worktree) === 3 ? true : undefined), 3000);
+    expect(commitsIn(a.worktree)).toBe(1);
+    // The pane's process ends while the pane still says it is working, and a pane that is not alive holds no commit. The commits of one worktree run one after another, so this one is made after the daemon left the second reversal.
+    await c.message("exit", (m) => m.id === session.id);
+    await reverse(7, a.id, 3);
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 3");
+    const committed = readDecisionRecord(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md"));
+    expect(committed.decisions.map(({ state }) => state)).toEqual([1, 2, 3].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+    expect(recordIn(directory)).toEqual(committed);
+  });
+
+  it("makes the commits of one worktree one after another, each of the file as it stands at its turn: two reversals written while a commit is under way wait for it, the first of them is committed with the second's word in it, the second's turn commits nothing, and the log holds nothing", async () => {
+    const { d, c, made: repository, workItems } = await withWorkItems(["Thrice"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    for (const says of ["One.", "Two.", "Three."]) d.decided(a.id, { ...DEFAULT, says });
+    // The hook holds the first commit, which has the index locked, until the case lets it go.
+    const [started, go] = [join(repository.base, "hook-started"), join(repository.base, "hook-go")];
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${go}' ]; do sleep 0.05; done\n`, { mode: 0o755 });
+    const said = logged();
+    const reverse = (decisionId: number): void => c.send({ type: "reverseDecision", requestId: decisionId, workItemId: a.id, decisionId, message: `Not ${String(decisionId)}.` });
+    reverse(1);
+    await c.until(() => (existsSync(started) ? true : undefined), 3000);
+    reverse(2);
+    reverse(3);
+    await c.message("done", (m) => m.requestId === 3);
+    writeFileSync(go, "");
+    await d.close();
+    expect(git(a.worktree, "log", "--format=%s").trim().split("\n")).toEqual(["chore: record the person's reversal of decision 2", "chore: record the person's reversal of decision 1", "first"]);
+    const committed = (commit: string): unknown[] => readDecisionRecord(git(a.worktree, "show", `${commit}:seal/threads/1-item/decisions.md`)).decisions.map(({ state }) => state.is);
+    expect([committed("HEAD~1"), committed("HEAD")]).toEqual([["reversed", "decided", "decided"], ["reversed", "reversed", "reversed"]]);
+    expect(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md")).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(said).toEqual([]);
+  });
+
+  it("says in the log why a record that git ignores was not committed, and answers `done`", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Ignored"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    writeFileSync(join(repository.repo, ".git", "info", "exclude"), "seal/\n");
+    const said = logged();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (said.length > 0 ? true : undefined), 3000);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^the person's word was not committed: .*ignored/s);
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+  });
+
+  it("answers `done` and keeps the record written where the commit fails: a `pre-commit` hook that exits 1 leaves the branch with no new commit and the record not staged, and the log holds git's words, the hook's among them", async () => {
+    const { c, made: repository, workItems } = await withWorkItems(["Hooked"]);
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    // A worktree runs the hooks of its repository.
+    writeFileSync(join(repository.repo, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'the hook says no' >&2\nexit 1\n", { mode: 0o755 });
+    const said = logged();
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    const stood = status(a.worktree);
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
+    expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });
+    await c.until(() => (said.length > 0 ? true : undefined), 3000);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^the person's word was not committed: /);
+    expect(said[0]).toContain("the hook says no");
+    expect(commitsIn(a.worktree)).toBe(1);
+    expect(recordIn(directory)?.decisions[0]?.state).toEqual({ is: "reversed", message: "No." });
+    expect(status(a.worktree)).toEqual(stood);
   });
 });
 
@@ -2931,6 +4595,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
+  /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep, and with its seal reading. */
+  const asLooked = ({ recorded: _recorded, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
@@ -2952,24 +4618,24 @@ describe("the last look", () => {
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash" });
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const ready = await (await client(url)).message("ready");
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash" }]);
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [asLooked(workItem)] });
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash", stateQuestions: null }]);
   });
 
   it("replaces the look with the one of a later `looked`, from whichever client", async () => {
     let clock = 100;
-    const { url } = await daemon({ now: () => clock });
+    const { url } = await daemonWithWorkItem({ now: () => clock });
     const one = await client(url);
     await one.message("ready");
     await looked(one);
-    expect(await lookNow(url)).toEqual({ at: 100, sessions: [], workItems: [] });
+    expect(await lookNow(url)).toEqual({ at: 100, sessions: [], workItems: [expect.objectContaining({ id: 1 })] });
     const two = await client(url);
     await two.message("ready");
-    two.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    two.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await two.message("started");
     clock = 200;
     await looked(two);
-    expect(await lookNow(url)).toEqual({ at: 200, sessions: [session], workItems: [] });
+    expect(await lookNow(url)).toEqual({ at: 200, sessions: [session], workItems: [expect.objectContaining({ id: 1 })] });
   });
 
   it("tells a client of the look only in its `ready`: a `looked` is answered with nothing and sent to nobody", async () => {
@@ -2997,8 +4663,8 @@ describe("the last look", () => {
     expect(ready.workItems[0]?.newCommits).toBe(1);
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
-    // The look holds the work item as it is sent, the commit read at the hello among it.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, aheadOfBase: 1, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] } }] });
+    // The look holds the work item as it is sent, the commit read at the hello among it, and the head read with no seal.
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, permissions: [], aheadOfBase: 1, behindBase: 0, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {
@@ -3019,7 +4685,7 @@ describe("the last look", () => {
     const { url } = await daemon({ runDir, worktreesRoot: root, now: () => 5678 });
     const ready = await (await client(url)).message("ready");
     // The look keeps the session it was taken with, which the daemon that starts no longer holds.
-    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null }], workItems: [workItem] });
+    expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [asLooked(workItem)] });
     expect(ready.sessions).toEqual([]);
   });
 
@@ -3064,17 +4730,18 @@ describe("headless sessions", () => {
 
   /** A fake adapter that also records where each session was started, and how many runs were stopped. */
   function watched(inner: RoleAdapter = fakeAdapter()) {
-    const seen = { started: [] as { prompt: string; cwd: string }[], stopped: 0 };
+    const seen = { started: [] as { prompt: string; cwd: string; role?: RoleStage }[], stopped: 0 };
     const adapter: RoleAdapter = {
       name: inner.name,
-      features: inner.features,
+      features: inner.features, notice: inner.notice,
       start: async (options, listener) => {
         seen.started.push(options);
         const run = await inner.start(options, listener);
         return {
+          ...run,
           stop: () => {
             seen.stopped++;
-            run.stop();
+            return run.stop();
           },
         };
       },
@@ -3086,7 +4753,7 @@ describe("headless sessions", () => {
     const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ pieces: () => ["A barn ", "owl."] }) }, 2);
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?" });
-    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, costUsd: null, startedAt: 1234 };
+    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
     expect(await one.message("asked")).toEqual({ type: "asked", requestId: 5, headless: working });
     for (const c of [one, two]) {
       await c.message("headless", (m) => m.headless.state === "finished");
@@ -3111,28 +4778,119 @@ describe("headless sessions", () => {
     expect(seen.started).toEqual([{ prompt: "Where am I?", cwd: workItem.worktree }]);
   });
 
-  it("carries the cost the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+  it("launches a role: an ask with a pair the protocol lists starts the session as that role, and `asked`, every `headless` and a later `ready` carry the pair and the answer names it", async () => {
+    const { adapter, seen } = watched();
+    const { clients, url, workItem } = await withWorkItem({ roleAdapter: adapter }, 2);
+    const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
+    const role = { role: "proofer", stage: "round" } as const;
+    one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?", role });
+    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role });
+    for (const c of [one, two]) {
+      const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+      expect(headless.answer).toBe('As the proofer at the stage round, you asked: "Which owl?"');
+      expect(told(c).map((h) => h.role)).toEqual([role, role, role]);
+    }
+    expect(seen.started).toEqual([{ prompt: "Which owl?", cwd: workItem.worktree, role }]);
+    expect((await (await client(url)).message("ready")).headless.map((h) => h.role)).toEqual([role]);
+  });
+
+  it("launches each pair the protocol lists, and keeps of the pair the role and the stage alone", async () => {
+    const { adapter, seen } = watched();
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    expect(ROLE_STAGES).toEqual([
+      { role: "proofer", stage: "round" },
+      { role: "crafter", stage: "fix-pass" },
+      { role: "sealer", stage: "seal" },
+      { role: "orchestrator", stage: "judgment" },
+    ]);
+    for (const [index, pair] of ROLE_STAGES.entries()) {
+      c.send({ type: "ask", requestId: index + 1, workItemId: workItem.id, prompt: "Q", role: { ...pair, more: "not kept" } });
+      expect((await c.message("asked", (m) => m.requestId === index + 1)).headless.role).toEqual(pair);
+    }
+    expect(seen.started.map((started) => started.role)).toEqual([...ROLE_STAGES]);
+  });
+
+  it("refuses an ask whose role and stage are no pair the protocol lists, saying which, and starts nothing", async () => {
+    const { adapter, seen } = watched();
+    const { c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const refused = async (requestId: number, role: unknown) => {
+      c.send({ type: "ask", requestId, workItemId: workItem.id, prompt: "Q", role });
+      return (await c.message("error", (m) => m.requestId === requestId)).message;
+    };
+    expect(await refused(1, { role: "proofer", stage: "seal" })).toBe("no role proofer at the stage seal");
+    expect(await refused(2, { role: "framer", stage: "round" })).toBe("no role framer at the stage round");
+    expect(await refused(3, { role: "sealer" })).toBe("no role sealer at the stage undefined");
+    expect(await refused(4, "proofer")).toBe("no role undefined at the stage undefined");
+    expect(await refused(5, null)).toBe("no role undefined at the stage undefined");
+    expect(seen.started).toEqual([]);
+    expect(c.messages.some((m) => m.type === "asked" || m.type === "headless")).toBe(false);
+    expect((await (await client(url)).message("ready")).headless).toEqual([]);
+  });
+
+  it("starts a session with no role where the ask names none: its role is null, and the adapter is given none", async () => {
+    const { adapter, seen } = watched();
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+    expect(headless.role).toBeNull();
+    expect(headless.answer).toBe('You asked: "Q"');
+    expect(seen.started).toEqual([{ prompt: "Q", cwd: workItem.worktree }]);
+  });
+
+  it("holds a role session to its limit and to a client's stop as any other", async () => {
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter, headlessLimitMs: 150 });
+    const role = { role: "sealer", stage: "seal" } as const;
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role });
+    const limited = (await c.message("headless", (m) => m.headless.id === 1 && m.headless.state === "failed")).headless;
+    expect([limited.stopped, limited.error, limited.role]).toEqual(["limit", "the session reached its time limit and was stopped", role]);
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Q", role });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    c.send({ type: "stopHeadless", requestId: 3, id: headless.id });
+    const stopped = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
+    expect([stopped.stopped, stopped.role]).toEqual(["request", role]);
+    expect(seen.stopped).toBe(2);
+  });
+
+  it("carries the usage the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+    const usage: Usage = { costUsd: 0.25, converted: false, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: 0, costUsd: 0.25 }] };
     const roleAdapter: RoleAdapter = {
       name: "priced",
       features: [],
+      notice: () => Promise.resolve(null),
       start: (_options, listener) => {
         setTimeout(() => {
           listener({ type: "text", text: "Let me look. " });
           listener({ type: "text", text: "An owl." });
-          listener({ type: "result", text: "An owl.", isError: false, costUsd: 0.25 });
+          listener({ type: "result", text: "An owl.", isError: false, usage });
           listener({ type: "text", text: " And more." });
-          listener({ type: "exit", exitCode: 0 });
+          listener({ type: "exit", exitCode: 0, errorOutput: "" });
         }, 0);
-        return Promise.resolve({ stop: () => {} });
+        return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
       },
     };
     const { c, workItem } = await withWorkItem({ roleAdapter });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
     const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
-    expect(headless).toMatchObject({ answer: "An owl.", costUsd: 0.25, error: null });
+    expect(headless).toMatchObject({ answer: "An owl.", usage, error: null });
     // The result closes the answer: the text that arrives after it changes nothing.
     await pause(100);
     expect(told(c).map((h) => h.answer)).toEqual(["", "Let me look. ", "Let me look. An owl.", "An owl."]);
+  });
+
+  it("keeps the id and the model a session's adapter reports on its own record of the session, and sends neither in any message: not with the session, not in the ledger, and not in the lists of a client that connects later", async () => {
+    const { daemon: d, url, c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ session: () => ({ id: "s-kept-7f3", model: "owl-judge-9" }) }) });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role: { role: "sealer", stage: "seal" } });
+    const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
+    // The record is the daemon's own and no message reads it, so the case reads the field: the seal's stage writes both values into the verdict block.
+    const kept = (d as unknown as { headless: Map<number, { named: { id: string; model: string | null } | null }> }).headless.get(headless.id)?.named;
+    expect(kept).toEqual({ id: "s-kept-7f3", model: "owl-judge-9" });
+    c.send({ type: "readLedger", requestId: 2, workItemId: workItem.id });
+    expect((await c.message("ledger")).entries).toHaveLength(1);
+    const late = await client(url);
+    expect((await late.message("ready")).headless.map((each) => each.id)).toEqual([headless.id]);
+    const sent = JSON.stringify([...c.messages, ...late.messages]);
+    for (const word of ["s-kept-7f3", "owl-judge-9"]) expect(sent, word).not.toContain(word);
   });
 
   it("says a session failed, with the adapter's message, where the adapter does not start", async () => {
@@ -3142,7 +4900,7 @@ describe("headless sessions", () => {
     expect((await one.message("asked")).headless.state).toBe("working");
     for (const c of [one, two]) {
       const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
-      expect(headless).toMatchObject({ id: 1, state: "failed", answer: "", error: "the fake adapter was told not to start", costUsd: null });
+      expect(headless).toMatchObject({ id: 1, state: "failed", answer: "", error: "the fake adapter was told not to start", usage: null });
     }
   });
 
@@ -3178,7 +4936,7 @@ describe("headless sessions", () => {
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, costUsd: null, startedAt: 1234 });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
   });
 
   it("lists no headless session where none was asked, and counts them apart from the panes", async () => {
@@ -3193,16 +4951,23 @@ describe("headless sessions", () => {
     expect((await (await client(url)).message("ready")).headless.map((h) => [h.id, h.prompt, h.state])).toEqual([[1, "One", "finished"], [2, "Two", "finished"]]);
   });
 
-  it("carries only the fields the protocol names, the adapter's name not among them", async () => {
-    const { c, url, workItem } = await withWorkItem();
+  it("carries only the fields the protocol names, the adapter's name not among them, and a usage only with its mark", async () => {
+    const usage: Usage = { costUsd: 0.5, converted: true, models: [{ model: "owl-1", inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, costUsd: 0.5 }] };
+    const { c, url, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ usage: () => usage }) });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
     const asked = await c.message("asked");
     const changed = await c.message("headless", (m) => m.headless.state === "finished");
     const ready = await (await client(url)).message("ready");
-    const fields = ["answer", "costUsd", "error", "id", "prompt", "startedAt", "state", "workItemId"];
+    const fields = ["answer", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "usage", "workItemId"];
     expect(Object.keys(asked).sort()).toEqual(["headless", "requestId", "type"]);
     expect(Object.keys(changed).sort()).toEqual(["headless", "type"]);
-    for (const info of [asked.headless, changed.headless, ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
+    for (const info of [asked.headless, ...told(c), ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
+    // The cost travels with whether it is a value converted at API prices, and nothing else of the agent's travels beside it.
+    for (const info of [changed.headless, ready.headless[0]!]) {
+      expect(info.usage).toEqual(usage);
+      expect(Object.keys(info.usage!).sort()).toEqual(["converted", "costUsd", "models"]);
+      expect(Object.keys(info.usage!.models[0]!).sort()).toEqual(["cacheReadTokens", "cacheWriteTokens", "costUsd", "inputTokens", "model", "outputTokens"]);
+    }
     expect(JSON.stringify([asked, changed, ready.headless])).not.toContain("fake");
   });
 
@@ -3224,9 +4989,9 @@ describe("headless sessions", () => {
     expect((await (await client(url)).message("ready")).headless).toEqual([]);
   });
 
-  it("stops every run still going when the daemon closes", async () => {
+  it("stops every run still going when the daemon closes, and none of them again at its limit", async () => {
     const { adapter, seen } = watched(fakeAdapter({ delayMs: 5000 }));
-    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter, headlessLimitMs: 300 });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "One" });
     c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Two" });
     await c.message("asked", (m) => m.requestId === 2);
@@ -3234,6 +4999,35 @@ describe("headless sessions", () => {
     expect(seen.stopped).toBe(0);
     await d.close();
     expect(seen.stopped).toBe(2);
+    await pause(400);
+    expect(seen.stopped).toBe(2);
+  });
+
+  it("waits at its close until each run it stopped has ended", async () => {
+    const inner = fakeAdapter({ delayMs: 60_000 });
+    let ended = 0;
+    // The run's process takes a moment to end after its stop.
+    const roleAdapter: RoleAdapter = {
+      name: inner.name,
+      features: inner.features, notice: inner.notice,
+      start: async (options, listener) => {
+        const run = await inner.start(options, listener);
+        return {
+          ...run,
+          stop: async () => {
+            await run.stop();
+            await pause(300);
+            ended++;
+          },
+        };
+      },
+    };
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    await c.message("asked");
+    await pause(20);
+    await d.close();
+    expect(ended).toBe(1);
   });
 
   it("stops a run that starts only after the daemon closed", async () => {
@@ -3242,13 +5036,15 @@ describe("headless sessions", () => {
     const roleAdapter: RoleAdapter = {
       name: "slow",
       features: [],
+      notice: () => Promise.resolve(null),
       start: async (options, listener) => {
         await pause(150);
         const run = await inner.start(options, listener);
         return {
+          ...run,
           stop: () => {
             stopped++;
-            run.stop();
+            return run.stop();
           },
         };
       },
@@ -3260,6 +5056,869 @@ describe("headless sessions", () => {
     expect(stopped).toBe(0);
     await pause(300);
     expect(stopped).toBe(1);
+  });
+
+  /** An adapter that answers the prompt "Quick?" at once and any other after a minute, and counts the runs it stopped. */
+  function quickOrSlow() {
+    const slow = fakeAdapter({ delayMs: 60_000 });
+    const quick = fakeAdapter();
+    return watched({ name: "fake", features: [], notice: quick.notice, start: (options, listener) => (options.prompt === "Quick?" ? quick : slow).start(options, listener) });
+  }
+
+  it("carries what the agent's process printed on its error stream: every client sees the failed session with it, and `ready` lists it so", async () => {
+    const printed = "error: unknown option '--no-such-option'\n";
+    const { clients, url, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ fail: "exit", errorOutput: printed }) }, 2);
+    const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
+    one.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const { headless } = await one.message("asked");
+    const failed = { ...headless, state: "failed", error: "the session exited with code 1 and gave no result", errorOutput: printed };
+    for (const c of [one, two]) expect((await c.message("headless", (m) => m.headless.state === "failed")).headless).toEqual(failed);
+    expect((await (await client(url)).message("ready")).headless).toEqual([failed]);
+  });
+
+  it("writes into a session that ended the error output its exit carries, and tells every client only where it changed", async () => {
+    const { c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ fail: "result", errorOutput: "a trace" }) });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    await c.message("headless", (m) => m.headless.errorOutput === "a trace");
+    expect(told(c).map((h) => [h.state, h.error, h.errorOutput])).toEqual([
+      ["working", null, ""],
+      ["failed", "the fake adapter was told to fail", ""],
+      ["failed", "the fake adapter was told to fail", "a trace"],
+    ]);
+  });
+
+  it("stops a session still working at its limit: it fails with the limit's error and says the limit stopped it, its run is stopped, and the daemon may then go idle", async () => {
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
+    let idle = 0;
+    // The pane ends at once, so only the headless session can keep the daemon.
+    const { c, workItem } = await withWorkItem({ roleAdapter: adapter, headlessLimitMs: 200, idleExitMs: 100, onIdle: () => idle++, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    const { headless } = await c.message("asked");
+    const failed = (await c.message("headless", (m) => m.headless.state === "failed")).headless;
+    expect(failed).toEqual({ ...headless, state: "failed", error: "the session reached its time limit and was stopped", stopped: "limit" });
+    expect(seen.stopped).toBe(1);
+    c.socket.close();
+    await c.until(() => (idle === 1 ? true : undefined));
+    // Where the options name no limit, a session works an hour at most.
+    expect(HEADLESS_LIMIT_MS).toBe(60 * 60_000);
+  });
+
+  it("stops at its limit a session whose adapter is still starting, once it has started, and leaves alone a session that ended before its limit", async () => {
+    const inner = quickOrSlow();
+    let stopped = 0;
+    // The prompt "Slow to start?" waits for its adapter for 400 ms, past the limit.
+    const roleAdapter: RoleAdapter = {
+      name: "fake",
+      features: [],
+      notice: () => Promise.resolve(null),
+      start: async (options, listener) => {
+        if (options.prompt === "Slow to start?") await pause(400);
+        const run = await inner.adapter.start(options, listener);
+        return {
+          ...run,
+          stop: () => {
+            stopped++;
+            return run.stop();
+          },
+        };
+      },
+    };
+    const { c, workItem } = await withWorkItem({ roleAdapter, headlessLimitMs: 200 });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
+    const quick = (await c.message("headless", (m) => m.headless.state === "finished")).headless;
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Slow to start?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toMatchObject({ stopped: "limit" });
+    expect(stopped).toBe(0);
+    await c.until(() => (stopped === 1 ? true : undefined));
+    await pause(300);
+    expect(stopped).toBe(1);
+    expect(told(c).filter((h) => h.id === quick.id).map((h) => h.state)).toEqual(["working", "working", "finished"]);
+  });
+
+  it("stops a working session at a client's request: it answers `done`, and every client sees the session failed with the request's error and saying a request stopped it; a session that ended is left as it is, and an id it does not list is refused", async () => {
+    const { adapter, seen } = quickOrSlow();
+    const { clients, url, workItem } = await withWorkItem({ roleAdapter: adapter }, 2);
+    const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
+    one.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
+    const finished = (await one.message("headless", (m) => m.headless.state === "finished")).headless;
+    one.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which file?" });
+    const { headless } = await one.message("asked", (m) => m.requestId === 2);
+    one.send({ type: "stopHeadless", requestId: 3, id: headless.id });
+    expect(await one.message("done", (m) => m.requestId === 3)).toEqual({ type: "done", requestId: 3 });
+    const failed = { ...headless, state: "failed", error: "the session was stopped at a request before it finished", stopped: "request" };
+    for (const c of [one, two]) expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
+    expect(seen.stopped).toBe(1);
+    const before = one.messages.length;
+    one.send({ type: "stopHeadless", requestId: 4, id: finished.id });
+    one.send({ type: "stopHeadless", requestId: 5, id: headless.id });
+    await one.message("done", (m) => m.requestId === 5);
+    one.send({ type: "stopHeadless", requestId: 6, id: 99 });
+    expect(await one.message("error", (m) => m.requestId === 6)).toEqual({ type: "error", requestId: 6, message: "no headless session 99" });
+    await pause(100);
+    expect(one.messages.slice(before).map((m) => m.type)).toEqual(["done", "done", "error"]);
+    expect(seen.stopped).toBe(1);
+    expect((await (await client(url)).message("ready")).headless).toEqual([finished, failed]);
+  });
+
+  it("keeps the sessions that ended last, as many as it is told, and every one still working: the one that ended first leaves the list, and every client is told", async () => {
+    const quick = fakeAdapter();
+    let finishSlow = (): void => {};
+    // The prompt "Slow?" ends when the case says so, and any other at once.
+    const roleAdapter: RoleAdapter = {
+      name: "fake",
+      features: [],
+      notice: () => Promise.resolve(null),
+      start: async (options, listener) => {
+        if (options.prompt !== "Slow?") return quick.start(options, listener);
+        finishSlow = () => {
+          listener({ type: "result", text: "slow", isError: false, usage: null });
+          listener({ type: "exit", exitCode: 0, errorOutput: "" });
+        };
+        return { stop: () => Promise.resolve(), answer: () => {} };
+      },
+    };
+    const { clients, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 2 }, 2);
+    const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
+    const dropped = (c: { messages: ServerMessage[] }) => c.messages.flatMap((m) => (m.type === "headlessDropped" ? [m.id] : []));
+    const ask = async (requestId: number, prompt: string) => {
+      one.send({ type: "ask", requestId, workItemId: workItem.id, prompt });
+      return (await one.message("asked", (m) => m.requestId === requestId)).headless.id;
+    };
+    const finishedOne = (id: number) => one.message("headless", (m) => m.headless.id === id && m.headless.state === "finished");
+    const slow = await ask(1, "Slow?");
+    for (const [requestId, prompt] of [[2, "A"], [3, "B"]] as const) await finishedOne(await ask(requestId, prompt));
+    await pause(50);
+    expect(dropped(one)).toEqual([]);
+    const fourth = await ask(4, "C");
+    await finishedOne(fourth);
+    for (const c of [one, two]) await c.until(() => (dropped(c).length === 1 ? true : undefined));
+    // The session that started first ends last, so the second session ended first and leaves first, and the first is kept.
+    finishSlow();
+    for (const c of [one, two]) await c.until(() => (dropped(c).length === 2 ? true : undefined));
+    expect([dropped(one), dropped(two)]).toEqual([[2, 3], [2, 3]]);
+    expect((await (await client(url)).message("ready")).headless.map((h) => h.id)).toEqual([slow, fourth]);
+    // Where the options name no number, the daemon keeps fifty.
+    expect(HEADLESS_KEPT).toBe(50);
+  });
+
+  it("counts toward the bound no session that left the list with its work item", async () => {
+    const { c, url, workItem } = await withWorkItem({ keptHeadless: 1, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+    // The pane ends at once, so the removal names no running session.
+    await c.message("exit");
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    c.send({ type: "removeRepository", requestId: 2, id: 1, workItems: [workItem.id], running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 2);
+    const other = temporaryRepository();
+    cleanups.push(other.remove);
+    c.send({ type: "createWorkItem", requestId: 3, repo: other.repo, title: "Asked next", kind: "shell", cols: 80, rows: 24 });
+    const next = (await c.message("workItemCreated", (m) => m.requestId === 3)).workItem;
+    c.send({ type: "ask", requestId: 4, workItemId: next.id, prompt: "Q" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 4);
+    await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+    await pause(100);
+    expect(c.messages.some((m) => m.type === "headlessDropped")).toBe(false);
+    expect((await (await client(url)).message("ready")).headless.map((h) => h.id)).toEqual([headless.id]);
+  });
+
+  it("changes nothing at an exit that arrives for a session it no longer lists", async () => {
+    const quick = fakeAdapter();
+    let exitFirst = (): void => {};
+    // The first session gives its result at once, and its process exits, printing on its error stream, only when the case says so.
+    const roleAdapter: RoleAdapter = {
+      name: "fake",
+      features: [],
+      notice: () => Promise.resolve(null),
+      start: async (options, listener) => {
+        if (options.prompt !== "First?") return quick.start(options, listener);
+        setTimeout(() => listener({ type: "result", text: "first", isError: false, usage: null }), 0);
+        exitFirst = () => listener({ type: "exit", exitCode: 0, errorOutput: "late" });
+        return { stop: () => Promise.resolve(), answer: () => {} };
+      },
+    };
+    const { c, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 1 });
+    c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "First?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Second?" });
+    await c.message("headlessDropped");
+    const before = c.messages.length;
+    exitFirst();
+    await pause(100);
+    expect(c.messages.slice(before)).toEqual([]);
+    expect((await (await client(url)).message("ready")).headless.map((h) => [h.id, h.errorOutput])).toEqual([[2, ""]]);
+  });
+
+  it("changes nothing at a start that fails after its session ended: a session a stop ended keeps what ended it, and one that left the list is told to nobody and counts toward the bound no more", async () => {
+    const quick = fakeAdapter();
+    const rejects: (() => void)[] = [];
+    // A start for the prompt "Slow?" fails only when the case says so, and any other prompt is answered at once.
+    const roleAdapter: RoleAdapter = {
+      name: "fake",
+      features: [],
+      notice: () => Promise.resolve(null),
+      start: (options, listener) =>
+        options.prompt !== "Slow?" ? quick.start(options, listener) : new Promise((_, reject) => rejects.push(() => reject(new Error("the login shell found no CLI")))),
+    };
+    const { c, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 1 });
+    const ask = async (requestId: number, prompt: string) => {
+      c.send({ type: "ask", requestId, workItemId: workItem.id, prompt });
+      return (await c.message("asked", (m) => m.requestId === requestId)).headless.id;
+    };
+    const stop = async (requestId: number, id: number) => {
+      c.send({ type: "stopHeadless", requestId, id });
+      await c.message("done", (m) => m.requestId === requestId);
+    };
+    const listed = async () => (await (await client(url)).message("ready")).headless.map((h) => [h.id, h.error, h.stopped]);
+    // What the daemon told of headless sessions after the client's `before`th message. The work item's pane prints meanwhile.
+    const toldSince = (before: number) => c.messages.slice(before).filter((m) => m.type === "headless" || m.type === "headlessDropped");
+    // A session stopped while its adapter starts, and still listed.
+    const first = await ask(1, "Slow?");
+    await stop(2, first);
+    let before = c.messages.length;
+    rejects[0]!();
+    await pause(100);
+    expect(toldSince(before)).toEqual([]);
+    expect(await listed()).toEqual([[first, "the session was stopped at a request before it finished", "request"]]);
+    // A session stopped while its adapter starts, then dropped by the bound once a later session ended.
+    const second = await ask(3, "Slow?");
+    await stop(4, second);
+    const third = await ask(5, "Quick?");
+    await c.message("headless", (m) => m.headless.id === third && m.headless.state === "finished");
+    await c.message("headlessDropped", (m) => m.id === second);
+    before = c.messages.length;
+    rejects[1]!();
+    await pause(100);
+    expect(toldSince(before)).toEqual([]);
+    expect((await listed()).map(([id]) => id)).toEqual([third]);
+  });
+
+  describe("the ledger", () => {
+    type Client = Awaited<ReturnType<typeof client>>;
+    const USAGE: Usage = { costUsd: 0.25, converted: true, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, costUsd: 0.25 }] };
+    const ENTRY_FIELDS = ["branch", "chain", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
+    const PROOFER = { role: "proofer", stage: "round" } as const;
+
+    /** A run folder the case's daemons share, removed after the case. */
+    function runFolder(): string {
+      const runDir = mkdtempSync(join(tmpdir(), "owlery-ledger-"));
+      cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
+      return runDir;
+    }
+
+    let nextRequest = 1000;
+    /** The answer a client is given to a `readLedger` of the work item. */
+    async function ledgerOf(c: Client, workItemId: unknown) {
+      const requestId = nextRequest++;
+      c.send({ type: "readLedger", requestId, workItemId });
+      type Answer = Extract<ServerMessage, { type: "ledger" | "error" }>;
+      return c.until(() => c.messages.find((m): m is Answer => (m.type === "ledger" || m.type === "error") && m.requestId === requestId));
+    }
+
+    /** Asks a prompt and waits until the session has ended. */
+    async function asked(c: Client, workItemId: number, prompt: string, role?: RoleStage): Promise<HeadlessInfo> {
+      const requestId = nextRequest++;
+      c.send({ type: "ask", requestId, workItemId, prompt, ...(role ? { role } : {}) });
+      const { headless } = await c.message("asked", (m) => m.requestId === requestId);
+      return (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working")).headless;
+    }
+
+    it("keeps one entry for each session that ends, with a role and without: its work item, its repository and branch, its stage, no chain's stage, since no chain asked it, its two times, how it ended and the usage its result reported", async () => {
+      let clock = 1000;
+      // The clock moves on while each turn runs, so a session's end is read after its start.
+      const usage = (prompt: string): Usage => {
+        clock += 500;
+        return prompt === "Which owl?" ? USAGE : { ...USAGE, costUsd: 0.5 };
+      };
+      const { c, workItem } = await withWorkItem({ now: () => clock, roleAdapter: fakeAdapter({ usage }) });
+      clock = 1500;
+      await asked(c, workItem.id, "Which owl?", PROOFER);
+      clock = 3000;
+      await asked(c, workItem.id, "And you?");
+      const answer = await ledgerOf(c, workItem.id);
+      const kept = { workItemId: workItem.id, repo: workItem.repo, branch: workItem.branch, state: "finished", stopped: null };
+      expect(answer).toEqual({
+        type: "ledger",
+        requestId: answer.requestId,
+        workItemId: workItem.id,
+        entries: [
+          { ...kept, stage: PROOFER, chain: null, startedAt: 1500, endedAt: 2000, usage: USAGE },
+          { ...kept, stage: null, chain: null, startedAt: 3000, endedAt: 3500, usage: { ...USAGE, costUsd: 0.5 } },
+        ],
+        unread: 0,
+      });
+      for (const entry of (answer as Extract<ServerMessage, { type: "ledger" }>).entries) expect(Object.keys(entry).sort()).toEqual(ENTRY_FIELDS);
+    });
+
+    it("outlives the daemon in a file of its run folder the user alone can read, commits nothing in the work item's worktree or the main checkout, and gives a work item no entry of an earlier one under its id", async () => {
+      const runDir = runFolder();
+      const { daemon: first, c, workItem } = await withWorkItem({ runDir, roleAdapter: fakeAdapter({ usage: () => USAGE }) });
+      expect(workItem.id).toBe(1);
+      const status = () => [git(workItem.worktree, "status", "--porcelain", "--ignored"), git(workItem.repo, "status", "--porcelain", "--ignored")];
+      const before = status();
+      await asked(c, workItem.id, "Which owl?", PROOFER);
+      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, chain: null, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [kept], unread: 0 });
+      expect(status()).toEqual(before);
+      await first.close();
+      expect(statSync(join(runDir, "ledger.jsonl")).mode & 0o777).toBe(0o600);
+      // A line of an earlier work item 1, whose stage started before this one was created: the id was given again after `repositories.json` was lost.
+      const earlier = { workItemId: 1, repo: "/earlier", branch: "owlery/earlier", stage: null, startedAt: 5, endedAt: 6, state: "finished", stopped: null, usage: null };
+      appendFileSync(join(runDir, "ledger.jsonl"), `${JSON.stringify(earlier)}\n{not json\n`);
+      const { url } = await daemon({ runDir });
+      const later = await client(url);
+      await later.message("ready");
+      expect(await ledgerOf(later, workItem.id)).toMatchObject({ workItemId: 1, entries: [kept], unread: 1 });
+      expect(readFileSync(join(runDir, "ledger.jsonl"), "utf8")).toBe(`${JSON.stringify(kept)}\n${JSON.stringify(earlier)}\n{not json\n`);
+    });
+
+    it("enters a session its limit stopped with no usage", async () => {
+      const { c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ delayMs: 60_000, usage: () => USAGE }), headlessLimitMs: 150 });
+      expect((await asked(c, workItem.id, "Q", PROOFER)).stopped).toBe("limit");
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [{ stage: PROOFER, state: "failed", stopped: "limit", usage: null }], unread: 0 });
+    });
+
+    it("enters a session a request stopped with no usage", async () => {
+      const { c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ delayMs: 60_000, usage: () => USAGE }) });
+      c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+      const { headless } = await c.message("asked");
+      c.send({ type: "stopHeadless", requestId: 2, id: headless.id });
+      await c.message("headless", (m) => m.headless.state === "failed");
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [{ stage: null, state: "failed", stopped: "request", usage: null }], unread: 0 });
+    });
+
+    it("enters each session still working when the daemon closes, once, as stopped by the daemon with no usage, though its run's exit follows the stop", async () => {
+      const runDir = runFolder();
+      const inner = fakeAdapter({ delayMs: 60_000, usage: () => USAGE });
+      // The run reports its process's exit as soon as it is stopped, as a process that ends at the signal does.
+      const roleAdapter: RoleAdapter = {
+        name: inner.name,
+        features: inner.features,
+        notice: inner.notice,
+        start: async (options, listener) => {
+          const run = await inner.start(options, listener);
+          return {
+            ...run,
+            stop: () => {
+              listener({ type: "exit", exitCode: 143, errorOutput: "" });
+              return run.stop();
+            },
+          };
+        },
+      };
+      let clock = 1000;
+      const { daemon: first, c, workItem } = await withWorkItem({ runDir, roleAdapter, now: () => clock });
+      c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role: PROOFER });
+      await c.message("asked");
+      await pause(20);
+      clock = 4000;
+      await first.close();
+      const later = await client((await daemon({ runDir })).url);
+      await later.message("ready");
+      expect(await ledgerOf(later, workItem.id)).toMatchObject({ entries: [{ stage: PROOFER, startedAt: 1000, endedAt: 4000, state: "failed", stopped: "daemon", usage: null }], unread: 0 });
+    });
+
+    it("keeps what a failed session reported: the usage of an error result, no usage for an exit with no result, and no entry for a start the adapter rejected", async () => {
+      const roleAdapter: RoleAdapter = {
+        name: "scripted",
+        features: [],
+        notice: () => Promise.resolve(null),
+        start: (options, listener) => {
+          if (options.prompt === "Rejected?") return Promise.reject(new Error("the login shell found no CLI"));
+          setTimeout(() => {
+            if (options.prompt === "Error?") listener({ type: "result", text: "the turn failed", isError: true, usage: USAGE });
+            listener({ type: "exit", exitCode: 1, errorOutput: "" });
+          }, 0);
+          return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
+        },
+      };
+      const { c, workItem } = await withWorkItem({ roleAdapter });
+      for (const prompt of ["Error?", "Exited?", "Rejected?"]) expect((await asked(c, workItem.id, prompt)).state).toBe("failed");
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({
+        entries: [
+          { state: "failed", stopped: null, usage: USAGE },
+          { state: "failed", stopped: null, usage: null },
+        ],
+        unread: 0,
+      });
+    });
+
+    it("keeps a deleted work item's entries in its file, and answers a read of the deleted work item with an error", async () => {
+      const runDir = runFolder();
+      const { c, workItem } = await withWorkItem({ runDir });
+      const { session } = await c.message("workItemCreated");
+      await asked(c, workItem.id, "Q");
+      const written = readFileSync(join(runDir, "ledger.jsonl"), "utf8");
+      expect(written.split("\n").map((line) => (line === "" ? line : (JSON.parse(line) as { workItemId: number }).workItemId))).toEqual([workItem.id, ""]);
+      c.send({ type: "readLoss", requestId: 2, id: workItem.id });
+      const { loss } = await c.message("workItemLoss", (m) => m.requestId === 2);
+      c.send({ type: "deleteWorkItem", requestId: 3, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [] } });
+      await c.message("done", (m) => m.requestId === 3);
+      expect(readFileSync(join(runDir, "ledger.jsonl"), "utf8")).toBe(written);
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ type: "error", message: `no work item ${workItem.id}` });
+    });
+
+    it("answers a read of an archived work item as of any other, and a read of an id it lists no work item under with an error", async () => {
+      const { c, workItem } = await withWorkItem();
+      const { session } = await c.message("workItemCreated");
+      await asked(c, workItem.id, "Q");
+      const { entries } = (await ledgerOf(c, workItem.id)) as Extract<ServerMessage, { type: "ledger" }>;
+      expect(entries).toHaveLength(1);
+      c.send({ type: "archiveWorkItem", requestId: 2, id: workItem.id, running: { panes: [session.id], headless: [] } });
+      await c.message("done", (m) => m.requestId === 2);
+      expect(await ledgerOf(c, workItem.id)).toMatchObject({ type: "ledger", workItemId: workItem.id, entries, unread: 0 });
+      expect(await ledgerOf(c, 42)).toMatchObject({ type: "error", message: "no work item 42" });
+      expect(await ledgerOf(c, String(workItem.id))).toMatchObject({ type: "error", message: `no work item ${workItem.id}` });
+    });
+  });
+
+  describe("permission requests", () => {
+    type Inbox = Extract<ServerMessage, { type: "inbox" }>;
+    type Client = Awaited<ReturnType<typeof client>>;
+    const SHELL: FakeAsk = { tool: "Bash", action: "run", path: null, text: "printf x >> README.md" };
+    const CRAFTER = { role: "crafter", stage: "fix-pass" } as const;
+    /** The requests an `inbox` carries on a work item. */
+    const asksIn = (m: Inbox, workItemId: number): PermissionAsk[] | undefined => m.workItems.find((item) => item.id === workItemId)?.permissions;
+    /** Every request every `inbox` and `ready` the client received carried, on any work item. */
+    const everAsked = (c: Client): PermissionAsk[] => c.messages.flatMap((m) => (m.type === "inbox" || m.type === "ready" ? [...m.workItems, ...m.archived].flatMap((item) => item.permissions) : []));
+    /** A fake adapter whose sessions raise the requests the case sets afterwards, once it knows its work item's folder. */
+    function asking(options: Parameters<typeof fakeAdapter>[0] = {}) {
+      const held = { asks: [] as FakeAsk[] };
+      return { held, adapter: fakeAdapter({ ...options, asks: () => held.asks }) };
+    }
+    /** Asks one session and gives the lines its answer holds once it finished: what the daemon answered each request with, then the fake's own text. */
+    async function answersOf(c: Client, workItemId: number, role?: RoleStage): Promise<string[]> {
+      c.send({ type: "ask", requestId: 50, workItemId, prompt: "Q", ...(role ? { role } : {}) });
+      const { headless } = await c.message("asked", (m) => m.requestId === 50);
+      const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+      return finished.headless.answer.split("\n").slice(0, -1);
+    }
+    const OUTSIDE = (role: string, path: string) => `Owlery lets the ${role} write only inside the work item's worktree, and ${path} is outside it. Do not work around it: say in your report which step needed the write.`;
+    const NO_WRITE = (role: string) => `Owlery gives the ${role} no call that writes a file. Do not work around it: say in your report which step needed the write.`;
+    const NO_COMMAND = (role: string) => `Owlery gives the ${role} no command that asks for permission. Do not work around it: say in your report which step needed the command.`;
+    const NO_CALL = (role: string) => `Owlery's rule for the ${role} does not allow this call. Do not work around it: say in your report which step needed it.`;
+
+    it("answers a crafter's request by its grant: a write inside the worktree and a command are allowed, a write anywhere else and every other call are refused with the reason, and nothing waits for the person", async () => {
+      const { held, adapter } = asking();
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      const { worktree } = workItem;
+      const outside = join(worktree, "..", "..", "outside");
+      mkdirSync(outside);
+      mkdirSync(join(worktree, "src"));
+      symlinkSync(outside, join(worktree, "link"));
+      symlinkSync(join(outside, "not-there.txt"), join(worktree, "dangling"));
+      symlinkSync(join(worktree, "src"), join(worktree, "inner"));
+      symlinkSync(join(worktree, "src"), join(outside, "in"));
+      mkdirSync(join(worktree, "~"));
+      mkdirSync(join(worktree, "deep", "er"), { recursive: true });
+      symlinkSync(outside, join(worktree, "deep", "out"));
+      symlinkSync(join(worktree, "deep", "er"), join(worktree, "hop"));
+      symlinkSync(outside, join(worktree, " out"));
+      // A link out under five folders of 200-character names: the path to it is longer than the system reads, as the worktree's own and as the text read from the worktree. No call can make a path that long whole, so the lower three folders are made beside the worktree and moved under the upper two.
+      const names = ["a", "b", "c", "d", "e"].map((letter) => letter.repeat(200));
+      const lower = join(outside, "..", "lower");
+      mkdirSync(join(lower, ...names.slice(2)), { recursive: true });
+      symlinkSync(outside, join(lower, ...names.slice(2), "link"));
+      mkdirSync(join(worktree, names[0]!, names[1]!), { recursive: true });
+      renameSync(join(lower, names[2]!), join(worktree, names[0]!, names[1]!, names[2]!));
+      const deep = `${names.join("/")}/link/a.txt`;
+      // A link out in a folder that cannot be searched, so nothing reads the link.
+      mkdirSync(join(worktree, "closed"));
+      symlinkSync(outside, join(worktree, "closed", "link"));
+      chmodSync(join(worktree, "closed"), 0o600);
+      // The case's folders are removed by their whole paths, so the long path is made short and the closed folder opened first.
+      cleanups.push(() => {
+        renameSync(join(worktree, names[0]!, names[1]!, names[2]!), join(lower, names[2]!));
+        chmodSync(join(worktree, "closed"), 0o700);
+      });
+      const write = (path: string | null): FakeAsk => ({ tool: "Write", action: "write", path, text: path ?? "{}" });
+      held.asks = [
+        // Inside: a path of the worktree, a relative one, a file and a folder that are not there yet, a link that stays inside, a `..` in the part that is there, a link outside that points in, a folder of the worktree named `~`, and a path with a space before it that is inside with the space and without.
+        write(join(worktree, "README.md")),
+        write("src/new.ts"),
+        write(join(worktree, "new-folder", "deep", "new.ts")),
+        write("inner/new.ts"),
+        { tool: "Edit", action: "write", path: "src/../README.md", text: "src/../README.md" },
+        write(`${outside}/in/new.ts`),
+        write("./~/a.txt"),
+        write(" src/new.ts"),
+        // Outside: another folder, a way out through `..`, the folder above, through a link, through a link and back, through a link whose target is not there, a folder whose name opens with the worktree's, the bundle's, and a write that names no file.
+        write(join(outside, "a.txt")),
+        write("../outside.txt"),
+        write(".."),
+        write("link/a.txt"),
+        write("link/../b.txt"),
+        write("dangling"),
+        write(`${worktree}-2/a.txt`),
+        write("/app/dist/bundle/skills/core/SKILL.md"),
+        // Outside by one reading of several, each path written as text because `join` would settle its `..`: a `..` in the part that is not there, which climbs back to a link that leads out, relative and whole; the same after a link that stays inside, where neither reading follows the link the `..` reaches once the missing folder is made; a `..` after a link outside that points in, which the text settles to the link's own folder; a home folder as `~` names it, the person's and another's, with a space before it too; a path a space hides the root of; a link whose name opens with a space; and a path cut at a null character, which names the link.
+        write("missing/../link/a.txt"),
+        write(`${worktree}/missing/../link/a.txt`),
+        write("hop/missing/../../out/a.txt"),
+        write(`${outside}/in/../c.txt`),
+        write("~/a.txt"),
+        write("~"),
+        write("~other/a.txt"),
+        write(" ~/a.txt"),
+        write(` ${outside}/a.txt`),
+        write(" out/a.txt"),
+        write("link\u0000/a.txt"),
+        // Outside because the system cannot read a part of the path, so no link past that part is read: a link out under folders deeper than the system reads a path, as text and whole; a link out in a folder that cannot be searched; a file named as a folder; and a path inside the worktree written longer than the system reads.
+        write(deep),
+        write(`${worktree}/${deep}`),
+        write("closed/link/a.txt"),
+        write("README.md/a.txt"),
+        write(`${"./".repeat(600)}src/new.ts`),
+        write(null),
+        SHELL,
+        { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" },
+        { tool: "WebFetch", action: "other", path: null, text: "{}" },
+      ];
+      expect(await answersOf(c, workItem.id, CRAFTER)).toEqual([
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Edit",
+        "allowed: Write",
+        "allowed: Write",
+        "allowed: Write",
+        `refused: Write: ${OUTSIDE("crafter", join(outside, "a.txt"))}`,
+        `refused: Write: ${OUTSIDE("crafter", "../outside.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "..")}`,
+        `refused: Write: ${OUTSIDE("crafter", "link/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "link/../b.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "dangling")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${worktree}-2/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "/app/dist/bundle/skills/core/SKILL.md")}`,
+        `refused: Write: ${OUTSIDE("crafter", "missing/../link/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${worktree}/missing/../link/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "hop/missing/../../out/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${outside}/in/../c.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "~/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "~")}`,
+        `refused: Write: ${OUTSIDE("crafter", "~other/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", " ~/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", ` ${outside}/a.txt`)}`,
+        `refused: Write: ${OUTSIDE("crafter", " out/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "link\u0000/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", deep)}`,
+        `refused: Write: ${OUTSIDE("crafter", `${worktree}/${deep}`)}`,
+        `refused: Write: ${OUTSIDE("crafter", "closed/link/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", "README.md/a.txt")}`,
+        `refused: Write: ${OUTSIDE("crafter", `${"./".repeat(600)}src/new.ts`)}`,
+        `refused: Write: ${NO_CALL("crafter")}`,
+        "allowed: Bash",
+        `refused: Read: ${NO_CALL("crafter")}`,
+        `refused: WebFetch: ${NO_CALL("crafter")}`,
+      ]);
+      expect(everAsked(c)).toEqual([]);
+    });
+
+    it.each([
+      ["proofer", { role: "proofer", stage: "round" }],
+      ["sealer", { role: "sealer", stage: "seal" }],
+      ["orchestrator", { role: "orchestrator", stage: "judgment" }],
+    ] as const)("refuses every request of a %s, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report, and nothing waits for the person", async (name, role) => {
+      const { held, adapter } = asking();
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      held.asks = [{ tool: "Edit", action: "write", path: join(workItem.worktree, "README.md"), text: "README.md" }, SHELL, { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" }, { tool: "WebFetch", action: "other", path: null, text: "{}" }];
+      const answers = await answersOf(c, workItem.id, role);
+      expect(answers).toEqual([`refused: Edit: ${NO_WRITE(name)}`, `refused: Bash: ${NO_COMMAND(name)}`, `refused: Read: ${NO_CALL(name)}`, `refused: WebFetch: ${NO_CALL(name)}`]);
+      for (const answer of answers) expect(answer).toMatch(/Do not work around it: say in your report which step needed /);
+      expect(everAsked(c)).toEqual([]);
+    });
+
+    /** A daemon whose one client asked a session with no role that raises one request, once the request waits. */
+    async function waiting(options: Partial<DaemonOptions> = {}, asks: FakeAsk[] = [SHELL]) {
+      const { held, adapter } = asking();
+      held.asks = asks;
+      const made = await withWorkItem({ roleAdapter: adapter, ...options }, 2);
+      const { c, workItem } = made;
+      c.send({ type: "ask", requestId: 60, workItemId: workItem.id, prompt: "Q" });
+      const { headless } = await c.message("asked", (m) => m.requestId === 60);
+      const inbox = await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === asks.filter((ask) => !ask.withdraw).length);
+      return { ...made, held, headless, asked: asksIn(inbox, workItem.id)! };
+    }
+    /** Waits for an `inbox` that arrives after the client's `since`th message and carries no request on the work item. */
+    const cleared = (c: Client, since: number, workItemId: number) => c.until(() => c.messages.slice(since).find((m) => m.type === "inbox" && asksIn(m, workItemId)?.length === 0));
+
+    it("keeps a request of a session with no role for the person: every client's `inbox` carries it on its work item with the session's id, the session stays working, and a client that connects later is given it", async () => {
+      const { clients, c, url, workItem, headless, asked } = await waiting();
+      expect(asked).toEqual([{ id: 1, headlessId: headless.id, tool: "Bash", action: "run", text: "printf x >> README.md", at: 1234 }]);
+      // Another work item of the repository holds none of it.
+      c.send({ type: "createWorkItem", requestId: 64, repo: workItem.repo, title: "Beside it", kind: "shell", cols: 80, rows: 24 });
+      const beside = (await c.message("workItemCreated", (m) => m.requestId === 64)).workItem;
+      expect(beside.permissions).toEqual([]);
+      await clients[1]!.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+      await pause(100);
+      expect(told(clients[0]!).map((h) => h.state)).toEqual(["working"]);
+      const later = await (await client(url)).message("ready");
+      expect(later.workItems.map((item) => [item.id, item.permissions])).toEqual([[workItem.id, asked], [beside.id, []]]);
+      expect(later.headless.map((h) => h.state)).toEqual(["working"]);
+      // The request names no adapter and no path of the adapter's event.
+      expect(Object.keys(asked[0]!).sort()).toEqual(["action", "at", "headlessId", "id", "text", "tool"]);
+    });
+
+    it("allows the call at a person's allowance: the daemon answers `done` before the `inbox` that carries the work item with no request, and the session goes on with the call allowed", async () => {
+      const { clients, c, workItem, headless, asked } = await waiting();
+      const other = clients[1]!;
+      await other.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+      const [before, otherBefore] = [c.messages.length, other.messages.length];
+      c.send({ type: "answerPermission", requestId: 61, workItemId: workItem.id, id: asked[0]!.id, allow: true });
+      const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+      expect(finished.headless.answer).toBe('allowed: Bash\nYou asked: "Q"');
+      const after = c.messages.slice(before).filter((m) => m.type === "done" || m.type === "inbox");
+      expect(after[0]).toEqual({ type: "done", requestId: 61 });
+      expect(asksIn(after[1] as Inbox, workItem.id)).toEqual([]);
+      // Every client is told, and only the one that answered is told `done`.
+      await cleared(other, otherBefore, workItem.id);
+      expect(other.messages.some((m) => m.type === "done")).toBe(false);
+    });
+
+    it("refuses the call at a person's refusal, with the sentence that says the person refused it", async () => {
+      const { c, workItem, headless, asked } = await waiting();
+      const before = c.messages.length;
+      c.send({ type: "answerPermission", requestId: 61, workItemId: workItem.id, id: asked[0]!.id, allow: false });
+      const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+      expect(finished.headless.answer).toBe('refused: Bash: The person refused this call.\nYou asked: "Q"');
+      const after = c.messages.slice(before).filter((m) => m.type === "done" || m.type === "inbox");
+      expect(after[0]).toEqual({ type: "done", requestId: 61 });
+      expect(asksIn(after[1] as Inbox, workItem.id)).toEqual([]);
+    });
+
+    it("lists the requests of a work item the oldest first, each under an id of the daemon's own, and an allowance covers the one call it names: the same call of the same session waits on", async () => {
+      // Two sessions of the work item raise the same two requests each, under the adapter's same ids, a moment apart: the first of each, then the second of each.
+      const { held, adapter } = asking({ delayMs: 150 });
+      held.asks = [SHELL, SHELL];
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      c.send({ type: "ask", requestId: 60, workItemId: workItem.id, prompt: "Q" });
+      c.send({ type: "ask", requestId: 62, workItemId: workItem.id, prompt: "Q" });
+      const headless = (await c.message("asked", (m) => m.requestId === 60)).headless;
+      const second = (await c.message("asked", (m) => m.requestId === 62)).headless;
+      const four = asksIn(await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 4), workItem.id)!;
+      expect(four.map((ask) => [ask.id, ask.headlessId, ask.text])).toEqual([[1, headless.id, SHELL.text], [2, second.id, SHELL.text], [3, headless.id, SHELL.text], [4, second.id, SHELL.text]]);
+      c.send({ type: "answerPermission", requestId: 63, workItemId: workItem.id, id: 1, allow: true });
+      const before = c.messages.length;
+      await c.message("done", (m) => m.requestId === 63);
+      const three = asksIn(await c.until(() => c.messages.slice(before).find((m): m is Inbox => m.type === "inbox" && asksIn(m, workItem.id)?.length === 3)), workItem.id)!;
+      expect(three.map((ask) => ask.id)).toEqual([2, 3, 4]);
+      await pause(400);
+      // The session took the one allowance and still works, waiting on the same call's second request.
+      expect(told(c).filter((h) => h.id === headless.id).map((h) => [h.state, h.answer])).toEqual([["working", ""], ["working", "allowed: Bash\n"]]);
+    });
+
+    it("answers an `answerPermission` for a request it does not hold with an error, and changes no list: an id no session waits on, a request of another work item, one already answered, and an answer that neither allows nor refuses", async () => {
+      const { c, url, workItem, asked } = await waiting({}, [SHELL, SHELL]);
+      const refusedWith = async (requestId: number, fields: object) => {
+        c.send({ type: "answerPermission", requestId, ...fields });
+        return (await c.message("error", (m) => m.requestId === requestId)).message;
+      };
+      expect(await refusedWith(70, { workItemId: workItem.id, id: 99, allow: true })).toBe("no permission request 99 waits in this work item");
+      expect(await refusedWith(71, { workItemId: workItem.id + 1, id: asked[0]!.id, allow: true })).toBe(`no permission request ${asked[0]!.id} waits in this work item`);
+      expect(await refusedWith(72, { workItemId: workItem.id, id: asked[0]!.id })).toBe("an answer to a permission request says whether it allows the call");
+      expect(await refusedWith(73, { workItemId: workItem.id, id: asked[0]!.id, allow: "yes" })).toBe("an answer to a permission request says whether it allows the call");
+      expect((await (await client(url)).message("ready")).workItems.find((item) => item.id === workItem.id)?.permissions).toEqual(asked);
+      c.send({ type: "answerPermission", requestId: 74, workItemId: workItem.id, id: asked[0]!.id, allow: false });
+      await c.message("done", (m) => m.requestId === 74);
+      await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+      const before = c.messages.length;
+      expect(await refusedWith(75, { workItemId: workItem.id, id: asked[0]!.id, allow: true })).toBe(`no permission request ${asked[0]!.id} waits in this work item`);
+      await pause(100);
+      // The work item's pane prints meanwhile.
+      expect(c.messages.slice(before).flatMap((m) => (m.type === "output" ? [] : [m.type]))).toEqual(["error"]);
+      expect((await (await client(url)).message("ready")).workItems.find((item) => item.id === workItem.id)?.permissions).toEqual([asked[1]]);
+    });
+
+    it("ends a request unanswered where a client stops its session: an `inbox` carries the work item with no request, and a later answer is an error", async () => {
+      const { c, workItem, headless, asked } = await waiting();
+      const before = c.messages.length;
+      c.send({ type: "stopHeadless", requestId: 80, id: headless.id });
+      await cleared(c, before, workItem.id);
+      c.send({ type: "answerPermission", requestId: 81, workItemId: workItem.id, id: asked[0]!.id, allow: true });
+      expect((await c.message("error", (m) => m.requestId === 81)).message).toBe(`no permission request ${asked[0]!.id} waits in this work item`);
+    });
+
+    it("ends a request unanswered where its session reaches its limit, which counts from the session's start whether or not it waits", async () => {
+      const { c, workItem, headless } = await waiting({ headlessLimitMs: 400 });
+      const before = c.messages.length;
+      const failed = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
+      expect([failed.stopped, failed.error]).toEqual(["limit", "the session reached its time limit and was stopped"]);
+      await cleared(c, before, workItem.id);
+    });
+
+    it("ends a request unanswered where its session's process exits, and where its turn ends with a result", async () => {
+      for (const last of ["exit", "result"] as const) {
+        let end = (): void => {};
+        // A session that asks once, and ends when the case says so with no answer given.
+        const roleAdapter: RoleAdapter = {
+          name: "fake",
+          features: [],
+          notice: () => Promise.resolve(null),
+          start: (_options, listener) => {
+            setTimeout(() => listener({ type: "permission", id: "r1", tool: "Bash", action: "run", path: null, text: "ls" }), 0);
+            end = () => listener(last === "exit" ? { type: "exit", exitCode: 3, errorOutput: "" } : { type: "result", text: "done", isError: false, usage: null });
+            return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
+          },
+        };
+        const { c, workItem } = await withWorkItem({ roleAdapter });
+        c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+        await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1);
+        const before = c.messages.length;
+        end();
+        await cleared(c, before, workItem.id);
+        const ended = c.messages.slice(before).flatMap((m) => (m.type === "headless" ? [m.headless.state] : []));
+        expect(ended, last).toEqual([last === "exit" ? "failed" : "finished"]);
+      }
+    });
+
+    it("ends a request unanswered where its work item is archived: the archived work item holds none", async () => {
+      const { c, url, workItem, headless } = await waiting({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
+      await c.message("exit");
+      c.send({ type: "archiveWorkItem", requestId: 90, id: workItem.id, running: { panes: [], headless: [headless.id] } });
+      await c.message("done", (m) => m.requestId === 90);
+      const ready = await (await client(url)).message("ready");
+      expect(ready.archived.map((item) => [item.id, item.permissions])).toEqual([[workItem.id, []]]);
+      expect(ready.headless.map((h) => [h.state, h.stopped])).toEqual([["failed", "request"]]);
+    });
+
+    it("takes a request its session withdrew off the list: an `inbox` carries the work item with no request, the session goes on, and a later answer is an error", async () => {
+      const { held, adapter } = asking({ delayMs: 150 });
+      held.asks = [{ ...SHELL, withdraw: true }];
+      const { c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
+      const held1 = asksIn(await c.message("inbox", (m) => asksIn(m, workItem.id)?.length === 1), workItem.id)!;
+      const before = c.messages.length;
+      await cleared(c, before, workItem.id);
+      // The withdrawal took it off, and not the session's end: the session still works.
+      expect(told(c).map((h) => h.state)).not.toContain("finished");
+      c.send({ type: "answerPermission", requestId: 2, workItemId: workItem.id, id: held1[0]!.id, allow: true });
+      expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(`no permission request ${held1[0]!.id} waits in this work item`);
+      expect((await c.message("headless", (m) => m.headless.state === "finished")).headless.answer).toBe('You asked: "Q"');
+    });
+
+    it("starts a role session only through an adapter that declares both features: it answers the ask with an error that names the adapter and what it lacks, starts nothing, and starts a session with no role all the same", async () => {
+      for (const [features, lacks] of [
+        [["role-tools"], "permission-requests"],
+        [["permission-requests"], "role-tools"],
+        [[], "role-tools and permission-requests"],
+      ] as const) {
+        const { adapter, seen } = watched(fakeAdapter({ features }));
+        const { c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
+        c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q", role: { role: "proofer", stage: "round" } });
+        expect(await c.message("error", (m) => m.requestId === 1), lacks).toEqual({ type: "error", requestId: 1, message: `the fake adapter cannot launch a role: it does not declare ${lacks}` });
+        expect(seen.started).toEqual([]);
+        expect((await (await client(url)).message("ready")).headless).toEqual([]);
+        c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Q" });
+        expect((await c.message("headless", (m) => m.headless.state === "finished")).headless.role).toBeNull();
+        expect(seen.started).toEqual([{ prompt: "Q", cwd: workItem.worktree }]);
+      }
+    });
+
+    it("holds in a look the requests that waited when a client sent `looked`, and gives them to a client that connects afterwards though the request was answered since", async () => {
+      const { c, url, workItem, asked } = await waiting();
+      c.send({ type: "looked" });
+      // `looked` has no answer: the refusal of the start sent after it arrives once the daemon has handled both.
+      c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 95, workItemId: 999 });
+      await c.message("error", (m) => m.requestId === 95);
+      c.send({ type: "answerPermission", requestId: 96, workItemId: workItem.id, id: asked[0]!.id, allow: true });
+      await c.message("done", (m) => m.requestId === 96);
+      const ready = await (await client(url)).message("ready");
+      expect(ready.lastLook?.workItems.find((item) => item.id === workItem.id)?.permissions).toEqual(asked);
+      expect(ready.workItems.find((item) => item.id === workItem.id)?.permissions).toEqual([]);
+    });
+  });
+});
+
+describe("the agent's notice", () => {
+  const NOTICE = "The fake agent is old.";
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const told = (c: { messages: ServerMessage[] }): (string | null)[] => c.messages.flatMap((m) => (m.type === "agentNotice" ? [m.notice] : []));
+
+  /** A fake adapter whose notices are answered by the case: each call waits for the answer the case gives it, by the call's place. */
+  function asked() {
+    const answers: ((notice: string | null) => void)[] = [];
+    const adapter: RoleAdapter = { ...fakeAdapter(), notice: () => new Promise((resolve) => answers.push(resolve)) };
+    return { adapter, asks: () => answers.length, answer: (call: number, notice: string | null) => answers[call]!(notice) };
+  }
+
+  it("is read from the adapter at the daemon's start, and `ready` carries it: the adapter's sentence, or null where it has none", async () => {
+    const old = await daemon({ roleAdapter: fakeAdapter({ notice: NOTICE }) });
+    expect((await (await client(old.url)).message("ready")).agentNotice).toBe(NOTICE);
+    const current = await daemon();
+    const c = await client(current.url);
+    expect((await c.message("ready")).agentNotice).toBeNull();
+    await pause(100);
+    expect(told(c)).toEqual([]);
+  });
+
+  it("does not wait for the adapter: a client that connected before the answer has a `ready` with none, and every client is sent the notice once it arrives", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    expect(asks()).toBe(1);
+    const first = await client(url);
+    const second = await client(url);
+    expect((await first.message("ready")).agentNotice).toBeNull();
+    expect((await second.message("ready")).agentNotice).toBeNull();
+    // No notice stands, so the two hellos asked nothing more.
+    expect(asks()).toBe(1);
+    answer(0, NOTICE);
+    for (const c of [first, second]) expect(await c.message("agentNotice")).toEqual({ type: "agentNotice", notice: NOTICE });
+    expect((await (await client(url)).message("ready")).agentNotice).toBe(NOTICE);
+  });
+
+  it("asks the adapter again at each hello while a notice stands, tells every client that it went, and asks no more once it has", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    answer(0, NOTICE);
+    const first = await client(url);
+    expect((await first.message("ready")).agentNotice).toBe(NOTICE);
+    await first.until(() => (asks() === 2 ? true : undefined));
+    // The person has not updated yet: the same answer changes nothing, and nobody is told again.
+    answer(1, NOTICE);
+    const second = await client(url);
+    expect((await second.message("ready")).agentNotice).toBe(NOTICE);
+    await second.until(() => (asks() === 3 ? true : undefined));
+    await pause(50);
+    expect([told(first), told(second)]).toEqual([[], []]);
+    answer(2, null);
+    for (const c of [first, second]) expect(await c.message("agentNotice")).toEqual({ type: "agentNotice", notice: null });
+    const third = await client(url);
+    expect((await third.message("ready")).agentNotice).toBeNull();
+    await pause(50);
+    expect(asks()).toBe(3);
+    expect([told(first), told(second), told(third)]).toEqual([[null], [null], []]);
+  });
+
+  it("keeps the answer of the adapter's last read where an earlier read answers after it", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    answer(0, NOTICE);
+    const first = await client(url);
+    await first.message("ready");
+    const second = await client(url);
+    await second.message("ready");
+    await second.until(() => (asks() === 3 ? true : undefined));
+    // The second hello's read found the CLI updated. The first hello's read began before the update and answers last.
+    answer(2, null);
+    await first.message("agentNotice", (m) => m.notice === null);
+    answer(1, NOTICE);
+    await pause(50);
+    expect(told(first)).toEqual([null]);
+    expect((await (await client(url)).message("ready")).agentNotice).toBeNull();
+  });
+
+  it("launches a session all the same while a notice stands", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { url } = await daemon({ worktreesRoot: made.root, roleAdapter: fakeAdapter({ notice: NOTICE }) });
+    const c = await client(url);
+    expect((await c.message("ready")).agentNotice).toBe(NOTICE);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Which owl?" });
+    const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
+    expect([headless.state, headless.answer]).toEqual(["finished", 'You asked: "Which owl?"']);
   });
 });
 
@@ -3276,10 +5935,10 @@ describe("idle exit", () => {
 
   it("stays while a session is alive, though no client is connected", async () => {
     let idle = 0;
-    const { url } = await daemon({ idleExitMs: 100, onIdle: () => idle++ });
+    const { url } = await daemonWithWorkItem({ idleExitMs: 100, onIdle: () => idle++ });
     const c = await client(url);
     await c.message("ready");
-    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     await c.message("started");
     c.socket.close();
     await new Promise((r) => setTimeout(r, 400));
@@ -3574,7 +6233,7 @@ describe("keeping the Mac awake", () => {
   /** A daemon given a counting holder, with two clients, and panes whose process ends when a line arrives. */
   async function held(options: Partial<DaemonOptions> = {}) {
     const { holdAwake, seen } = holder();
-    const { daemon: d, url } = await daemon({ holdAwake, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
+    const { daemon: d, url } = await daemonWithWorkItem({ holdAwake, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
     const c = await client(url);
     const ready = await c.message("ready");
     const bystander = await client(url);
@@ -3583,7 +6242,7 @@ describe("keeping the Mac awake", () => {
     /** Opens a pane of a kind that reports state. */
     const pane = async () => {
       const asked = requestId++;
-      c.send({ ...START, kind: "claude", requestId: asked });
+      c.send({ ...START, kind: "claude", requestId: asked, workItemId: 1 });
       return (await c.message("started", (m) => m.requestId === asked)).session;
     };
     /** Opens a pane whose agent then sends a prompt, and waits until the inbox lists it as working. */
@@ -3796,7 +6455,7 @@ describe("keeping the Mac awake", () => {
     const runDir = runFolder();
     const { url } = await daemon({ runDir });
     const c = await client(url);
-    expect(Object.keys(await c.message("ready")).sort()).toEqual(["archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(await c.message("ready")).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
     c.send({ type: "setKeepAwake", choice: "always" });
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 999 });
     await c.message("error", (m) => m.requestId === 1);
@@ -3818,5 +6477,154 @@ describe("keeping the Mac awake", () => {
     expect(seen.held).toBe(1);
     expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
     expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the choice of when to keep the Mac awake was not written: /)]);
+  });
+});
+
+// Each case's daemon reads a stored pull request through a stand-in for gh, so no case reaches GitHub.
+describe("the watch of an open pull request", () => {
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const VIEW = ["pr", "view", PULL_REQUEST_URL, "--json", VIEW_FIELDS];
+  const SECOND_URL = "https://github.com/owner/project/pull/2";
+  const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "seal" });
+
+  /**
+   * A daemon whose store holds one work item with an open pull request
+   * the stage pushed at the branch's head, a stand-in for gh, a counting
+   * holder of the Mac, a read every 100 milliseconds while the checks run
+   * and every minute otherwise, and no client.
+   */
+  async function watched(options: Partial<DaemonOptions> = {}, item: Record<string, unknown> = {}, other: Record<string, unknown> | null = null) {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const place = await createWorktree({ folder: made.repo, title: "Watched", root: made.root });
+    const at = git(place.worktree, "rev-parse", "HEAD").trim();
+    const stored: PullRequest = { number: 1, url: PULL_REQUEST_URL, state: "open", head: at, pushed: at, checks: "none", list: [], listCount: 0, readAt: 1, failure: null };
+    const plain = { id: 1, title: "Watched", branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch ?? null, pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: stored };
+    const workItems: Record<string, unknown>[] = [{ ...plain, ...item }];
+    if (other !== null) {
+      // A second work item, whose pull request is number 2.
+      const second = await createWorktree({ folder: made.repo, title: "Watched too", root: made.root });
+      workItems.push({ ...plain, id: 2, title: "Watched too", branch: second.branch, worktree: second.worktree, baseCommit: second.baseCommit, baseBranch: second.baseBranch ?? null, pullRequest: { ...stored, number: 2, url: SECOND_URL }, ...other });
+    }
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify([{ id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems }]));
+    const gh = ghStandIn(cleanups, made.base);
+    const seen = { held: 0 };
+    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, gh: gh.gh, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, prPollMs: 100, prRestPollMs: 60_000, now: () => 7, holdAwake: () => (seen.held++, { release: () => undefined }), ...options });
+    /** What gh pr view answers for this pull request, with its checks and anything else given. */
+    const answer = (rollup: unknown[], more: Record<string, unknown> = {}) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }) });
+    return { d, url, gh, seen, at, stored, answer };
+  }
+
+  /** The work item's pull request as the newest `ready` or `inbox` a client got lists it. */
+  const pullRequestIn = (c: Awaited<ReturnType<typeof client>>): PullRequest | null | undefined => {
+    const newest = c.messages.filter((m) => m.type === "ready" || m.type === "inbox").at(-1) as Extract<ServerMessage, { type: "inbox" }> | undefined;
+    return newest?.workItems[0]?.pullRequest;
+  };
+
+  it("reads the pull request at a client's hello and again while its checks run, with one call of gh and no agent, and holds neither the Mac nor a session for it", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    const c = await client(w.url);
+    const pending = await c.until(() => (pullRequestIn(c)?.checks === "pending" ? pullRequestIn(c) : undefined));
+    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: "https://github.com/owner/project/runs/Owlery seal" }], listCount: 1, readAt: 7 });
+    expect(w.gh.calls()[0]).toEqual(VIEW);
+    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")]);
+    const passed = await c.until(() => (pullRequestIn(c)?.checks === "passed" ? pullRequestIn(c) : undefined));
+    expect(passed?.list).toEqual([{ name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" }]);
+    // Each read is the one call, and none started a session or held the Mac.
+    for (const call of w.gh.calls()) expect(call).toEqual(VIEW);
+    expect(c.messages.some((m) => m.type === "headless")).toBe(false);
+    expect((await c.message("ready")).headless).toEqual([]);
+    expect(w.seen.held).toBe(0);
+    // The checks passed at the pushed commit, so the next read waits a minute.
+    const calls = w.gh.calls().length;
+    await pause(500);
+    expect(w.gh.calls()).toHaveLength(calls);
+    // A second client's hello reads it again at once.
+    const second = await client(w.url);
+    await second.message("ready");
+    await c.until(() => (w.gh.calls().length === calls + 1 ? true : undefined));
+  });
+
+  it("reads again soon while GitHub's head is not the commit the stage pushed, though the checks passed", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")], { headRefOid: "e".repeat(40) });
+    const c = await client(w.url);
+    await c.until(() => (w.gh.calls().length >= 3 ? true : undefined));
+    expect(pullRequestIn(c)).toMatchObject({ head: "e".repeat(40), pushed: w.at, checks: "passed" });
+  });
+
+  it("lists a failed check with its address, and gives the pull request the failed result", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")]);
+    const c = await client(w.url);
+    const failed = await c.until(() => (pullRequestIn(c)?.checks === "failed" ? pullRequestIn(c) : undefined));
+    expect(failed?.list).toEqual([
+      { name: "build", state: "failed", link: "https://github.com/owner/project/runs/build" },
+      { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" },
+    ]);
+  });
+
+  it("reads a merged and a closed pull request no more", async () => {
+    for (const [state, as] of [["MERGED", "merged"], ["CLOSED", "closed"]] as const) {
+      const w = await watched();
+      w.answer([run("Owlery seal", "IN_PROGRESS")], { state, mergedAt: state === "MERGED" ? "2026-11-23T10:00:00Z" : null });
+      const c = await client(w.url);
+      await c.until(() => (pullRequestIn(c)?.state === as ? true : undefined));
+      await pause(500);
+      expect(w.gh.calls(), state).toHaveLength(1);
+    }
+  });
+
+  it("keeps what the last read gave where gh fails, with one sentence that holds gh's first line, reads again after the longer wait, and clears the sentence at a read that succeeds", async () => {
+    const w = await watched({ prRestPollMs: 700 });
+    w.gh.answer("view", { err: "\nHTTP 502: Bad Gateway (https://api.github.com/graphql)\nmore\n", exit: 1 });
+    const c = await client(w.url);
+    const failed = await c.until(() => (pullRequestIn(c)?.failure ? pullRequestIn(c) : undefined));
+    expect(failed).toEqual({ ...w.stored, failure: "gh pr view exited with code 1: HTTP 502: Bad Gateway (https://api.github.com/graphql)" });
+    // Not after 100 milliseconds, as while checks run.
+    await pause(300);
+    expect(w.gh.calls()).toHaveLength(1);
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    const read = await c.until(() => (pullRequestIn(c)?.failure === null ? pullRequestIn(c) : undefined));
+    expect(read).toMatchObject({ checks: "pending", failure: null, readAt: 7 });
+    expect(w.gh.calls()).toHaveLength(2);
+    // An answer that does not read is a failed read too.
+    w.gh.answer("view", { out: "not json\n" });
+    expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
+    // So is an answer whose checks are no list.
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    await c.until(() => (pullRequestIn(c)?.failure === null ? true : undefined));
+    w.gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: w.at, mergedAt: null, statusCheckRollup: null }) });
+    expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
+  });
+
+  it("says where no gh stands on the PATH of the login shell, and keeps the pull request as the last read gave it", async () => {
+    const w = await watched({ gh: undefined, gateEnv: { PATH: "/usr/bin:/bin" } });
+    const c = await client(w.url);
+    const failed = await c.until(() => (pullRequestIn(c)?.failure ? pullRequestIn(c) : undefined));
+    expect(failed).toEqual({ ...w.stored, failure: "no gh stands on the PATH of the login shell, so Owlery cannot read the pull request; GitHub's CLI is at https://cli.github.com" });
+  });
+
+  it("calls gh for no work item while no client is connected, nor once its client left, nor for an archived work item", async () => {
+    const w = await watched();
+    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    await pause(400);
+    expect(w.gh.calls()).toHaveLength(0);
+    const c = await client(w.url);
+    await c.until(() => (w.gh.calls().length >= 2 ? true : undefined));
+    c.socket.close();
+    await pause(300);
+    const calls = w.gh.calls().length;
+    await pause(400);
+    expect(w.gh.calls()).toHaveLength(calls);
+    // Of two work items, the archived one's pull request is not read, and the other's is, in the same turn.
+    const archived = await watched({}, { archivedAt: 5 }, {});
+    archived.answer([run("Owlery seal", "IN_PROGRESS")], { number: 2, url: SECOND_URL });
+    const other = await client(archived.url);
+    await other.until(() => (archived.gh.calls().length >= 2 ? true : undefined));
+    expect(new Set(archived.gh.calls().map((call) => call[2]))).toEqual(new Set([SECOND_URL]));
   });
 });

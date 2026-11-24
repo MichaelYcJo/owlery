@@ -1,0 +1,449 @@
+// A work item's record of the decisions made for it without asking the person
+// and of the questions it was parked with: the file `decisions.md` of the
+// work item's directory, beside `routing.md`. Each decision and each question
+// is one `seal` block, read and built through `record-blocks.ts`, and a line
+// outside every block is prose.
+//
+// This module finds the work item's directory by the branch its `routing.md`
+// names, rewrites that name for a renamed branch, reads a record, and holds
+// one function for each write. A write takes the file's text and returns the new
+// text, changes one block, and leaves every other line as it is. It throws
+// for a change the states do not allow. `writeRecord` reads the file, applies
+// a write and puts the whole file back, through the writer of a work item's
+// records (`record-writer.ts`).
+//
+// The record holds no clock and nothing of what the person has seen: both are
+// the daemon's state.
+import { readdirSync } from "node:fs";
+import { basename, join } from "node:path";
+import { DECISION_BLOCK, QUESTION_BLOCK, assemble, field, gfmLines, read, stripped, walk, type Block, type Kind } from "./record-blocks";
+import { rootOf } from "./records-place";
+import { repositoryFileText } from "./repository-file";
+import { writeRecordFile } from "./record-writer";
+
+/** The record's file name, in the work item's directory. */
+export const RECORD_FILE = "decisions.md";
+/** The file name of a work item's routing declaration, in its directory. */
+export const ROUTING_FILE = "routing.md";
+
+const KINDS = [DECISION_BLOCK, QUESTION_BLOCK];
+
+export type DecisionKind = "route" | "default" | "scope" | "answered";
+
+/** Where a decision stands. Every state but `decided` holds the person's message. */
+export type DecisionState =
+  | { is: "decided" }
+  | { is: "reversed"; message: string }
+  | { is: "applied"; message: string; commit: string }
+  | { is: "carried"; message: string; home: string };
+
+/** One decision made for the work item without asking. `line` is the 1-based line of its block's opener. */
+export interface DecisionBlock {
+  id: number;
+  kind: DecisionKind;
+  decided: string;
+  grounds: string;
+  by: string | null;
+  state: DecisionState;
+  line: number;
+}
+
+/** One question the work item is or was parked with. `line` is the 1-based line of its block's opener. */
+export interface QuestionBlock {
+  id: number;
+  asks: string;
+  grounds: string;
+  by: string | null;
+  options: { label: string; implies: string }[];
+  default: string | null;
+  state: { is: "open" } | { is: "answered"; answer: string };
+  line: number;
+}
+
+/** What a record holds: its decisions and its questions, each in the file's order, each refusal of the reader at its line, and each thing named as not read. */
+export interface DecisionRecord {
+  decisions: DecisionBlock[];
+  questions: QuestionBlock[];
+  refusals: { line: number; why: string }[];
+  notices: { line: number; why: string }[];
+}
+
+/** What a new decision is written from. */
+export interface NewDecision {
+  kind: DecisionKind;
+  decided: string;
+  grounds: string;
+  by?: string | null;
+}
+
+/** What a new question is written from. */
+export interface NewQuestion {
+  asks: string;
+  grounds: string;
+  by?: string | null;
+  options?: { label: string; implies: string }[];
+  default?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// The work item's directory.
+
+/** The answers that make a `routing.md` a declaration, as `pr-check/lib/routing.py` spells them. */
+const REVIEW_ANSWERS = ["through the review chain", "straight to the PR"];
+const DESTINATION_ANSWERS = ["open the pull request", "stop before the pull request"];
+
+/** A file's text, or null where it is not read: where none stands, and where `repositoryFileText` refuses what stands, a link and a file over its bound among it. */
+function textOf(file: string): string | null {
+  try {
+    return repositoryFileText(file);
+  } catch {
+    return null;
+  }
+}
+
+/** The rows of a `routing.md` by their label, each with its value and the index of its line: the rows of two cells or more that a renderer shows. */
+function routingRows(text: string): Map<string, { value: string; index: number }[]> {
+  const lines = gfmLines(text);
+  const walked = walk(lines);
+  const rows = new Map<string, { value: string; index: number }[]>();
+  for (const [index, raw] of lines.entries()) {
+    // A line the walk is sure a renderer hides is no row. Where it is not sure, it calls the line live, and the row is read.
+    if (walked.kinds[index] !== "live") continue;
+    const line = stripped(raw);
+    if (!line.startsWith("|")) continue;
+    const [label, value] = line
+      .replace(/^\|+/, "")
+      .replace(/\|+$/, "")
+      .split("|")
+      .map((cell) => stripped(cell));
+    if (label === undefined || value === undefined || /^[:\- ]*$/.test(label)) continue;
+    rows.set(label, [...(rows.get(label) ?? []), { value, index }]);
+  }
+  return rows;
+}
+
+/**
+ * What a `routing.md` answers on one axis: the value of the row whose first
+ * cell is the label, or null where no such row stands or the label is
+ * written twice, as `declaredBranch` reads a row.
+ */
+export function routingAnswer(text: string, label: string): string | null {
+  const values = routingRows(text).get(label) ?? [];
+  return values.length === 1 ? (values[0]?.value ?? null) : null;
+}
+
+/**
+ * The branch a `routing.md` declares, or null where the text is no
+ * declaration, as `pr-check/lib/routing.py#parse` reads it: the rows of two
+ * cells or more that a renderer shows, a label written twice holding no value,
+ * and a declaration only where `Review` and `Destination` each hold an answer
+ * the check knows and `Branch` holds a name.
+ */
+export function declaredBranch(text: string): string | null {
+  const rows = routingRows(text);
+  const one = (label: string): string => {
+    const values = rows.get(label) ?? [];
+    return values.length === 1 ? (values[0]?.value ?? "") : "";
+  };
+  if (!REVIEW_ANSWERS.includes(one("Review")) || !DESTINATION_ANSWERS.includes(one("Destination"))) return null;
+  return one("Branch") || null;
+}
+
+/**
+ * Every directory under a worktree's `<root>/threads/` whose `routing.md`
+ * names the branch in its `Branch` row, in the order of their names. None
+ * where the worktree holds no records root. It reads the working tree,
+ * committed or not. A `routing.md` that is a link, that is no plain file, or
+ * that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
+ * the check reads it: the daemon reads each one in its pass, from a checkout
+ * it did not write.
+ */
+export function workItemDirectories(worktree: string, branch: string): string[] {
+  const root = rootOf(worktree);
+  if (root === null) return [];
+  const threads = join(worktree, root, "threads");
+  let names: string[];
+  try {
+    names = readdirSync(threads).sort();
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => {
+      const text = textOf(join(threads, name, ROUTING_FILE));
+      return text !== null && declaredBranch(text) === branch;
+    })
+    .map((name) => join(threads, name));
+}
+
+/**
+ * The work item's directory in a worktree: the one of `workItemDirectories`.
+ * Null where none names the branch, where more than one does, and where the
+ * worktree holds no records root, which is how the pull request check reads
+ * it (`pr-check/lib/routing.py#item_dir`).
+ */
+export function workItemDirectory(worktree: string, branch: string): string | null {
+  const naming = workItemDirectories(worktree, branch);
+  const [only] = naming;
+  return naming.length === 1 && only !== undefined ? only : null;
+}
+
+// ---------------------------------------------------------------------------
+// The reader.
+
+/** The id a decision block or a question block holds. */
+function idOf(block: Block): number {
+  return Number(field(block, block.kind.opener)?.groups.id);
+}
+
+/** The record's blocks as the block reader returns them, without each block whose id a block above it holds, which is refused at its opener. */
+function blocksOf(text: string): { blocks: Block[]; refusals: { line: number; why: string; block: number | null }[]; notices: { line: number; why: string }[] } {
+  const got = read(text, KINDS);
+  const seen = new Set<number>();
+  const blocks: Block[] = [];
+  const refusals = [...got.refusals];
+  for (const block of got.blocks) {
+    const id = idOf(block);
+    if (seen.has(id)) refusals.push({ line: block.line, why: `a block above holds the id ${id}: an id is given once over the record, so this block is not read`, block: block.line });
+    else {
+      seen.add(id);
+      blocks.push(block);
+    }
+  }
+  refusals.sort((a, b) => a.line - b.line);
+  return { blocks, refusals, notices: got.notices };
+}
+
+function decisionOf(block: Block): DecisionBlock {
+  const value = (key: string): string => field(block, key)?.value ?? "";
+  const state = field(block, "state:");
+  const word = /^[a-z]*/.exec(state?.value ?? "")?.[0];
+  const message = value("reversal:");
+  return {
+    id: idOf(block),
+    kind: field(block, "decision:")?.groups.kind as DecisionKind,
+    decided: value("decided:"),
+    grounds: value("grounds:"),
+    by: field(block, "by:")?.value ?? null,
+    state:
+      word === "reversed"
+        ? { is: "reversed", message }
+        : word === "applied"
+          ? { is: "applied", message, commit: state?.groups.commit ?? "" }
+          : word === "carried"
+            ? { is: "carried", message, home: state?.groups.home ?? "" }
+            : { is: "decided" },
+    line: block.line,
+  };
+}
+
+function questionOf(block: Block): QuestionBlock {
+  const value = (key: string): string => field(block, key)?.value ?? "";
+  const answer = field(block, "answer:");
+  return {
+    id: idOf(block),
+    asks: value("asks:"),
+    grounds: value("grounds:"),
+    by: field(block, "by:")?.value ?? null,
+    options: (block.fields.get("option:") ?? []).map((option) => ({ label: option.groups.label ?? "", implies: option.groups.implies ?? "" })),
+    default: field(block, "default:")?.groups.label ?? null,
+    state: answer === undefined ? { is: "open" } : { is: "answered", answer: answer.value },
+    line: block.line,
+  };
+}
+
+/**
+ * What the text of a `decisions.md` holds. A block the reader refuses is not
+ * returned: its refusal names it at its line, and the blocks around it are
+ * returned. Nothing is decided on a notice.
+ */
+export function readDecisionRecord(text: string): DecisionRecord {
+  const got = blocksOf(text);
+  return {
+    decisions: got.blocks.filter((block) => block.kind === DECISION_BLOCK).map(decisionOf),
+    questions: got.blocks.filter((block) => block.kind === QUESTION_BLOCK).map(questionOf),
+    refusals: got.refusals.map(({ line, why }) => ({ line, why })),
+    notices: got.notices,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The writes.
+
+/** The text's lines, each with its own line end. */
+const LINES_WITH_ENDS = /[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g;
+const LINE_END = /\r\n|\r|\n/;
+
+/** The start of a routing row's line to the end of its first cell, the second cell, and the rest. */
+const ROUTING_ROW = /^([^|]*\|+[^|]*\|)([^|\r\n]*)(.*)$/su;
+
+/**
+ * The text of a `routing.md` with its `Branch` row naming the branch given:
+ * the name in the row's second cell is replaced, and the cell's own spaces,
+ * the rest of the line and every other line stay as they are. It throws for
+ * a text that declares no branch, and for a name the row cannot hold, which
+ * the text would then not declare: one with a `|` in it, or with white space
+ * at an end.
+ */
+export function withBranch(text: string, branch: string): string {
+  const row = declaredBranch(text) === null ? undefined : routingRows(text).get("Branch")?.[0];
+  if (row === undefined) throw new Error("the routing declares no branch");
+  const lines = text.match(LINES_WITH_ENDS) ?? [];
+  const [, head = "", cell = "", rest = ""] = ROUTING_ROW.exec(lines[row.index] ?? "") ?? [];
+  const at = cell.indexOf(row.value);
+  lines[row.index] = `${head}${cell.slice(0, at)}${branch}${cell.slice(at + row.value.length)}${rest}`;
+  const next = lines.join("");
+  if (declaredBranch(next) !== branch) throw new Error(`the routing's \`Branch\` row cannot name the branch ${branch}`);
+  return next;
+}
+
+/** A value as a block's line holds it: the white space at its two ends taken off, and each run of line breaks inside it written as one space. */
+function oneLine(value: string): string {
+  return value.trim().replace(/(?:\r\n|\r|\n)+/g, " ");
+}
+
+/** The lines `assemble` builds between the opener and the closer. */
+function body(pairs: [string, string][]): string[] {
+  return assemble(pairs, KINDS).split("\n").slice(1, -2);
+}
+
+/** The id a new block takes: one above the highest id any block of the text holds, a block the reader refused among them where its first line names one. */
+function nextId(text: string): number {
+  const got = blocksOf(text);
+  const lines = gfmLines(text);
+  const ids = got.blocks.map(idOf);
+  for (const refusal of got.refusals) {
+    if (refusal.block === null) continue;
+    const named = /^(?:decision|question): ([1-9][0-9]{0,14})(?: |$)/.exec(lines[refusal.block] ?? "")?.[1];
+    if (named !== undefined) ids.push(Number(named));
+  }
+  return Math.max(0, ...ids) + 1;
+}
+
+/** The text with a new block of those pairs at its end, after a blank line. Throws where the record would not read the block there. */
+function appended(text: string, id: number, pairs: [string, string][]): string {
+  const end = LINE_END.exec(text)?.[0] ?? "\n";
+  let next = text;
+  if (next !== "" && !/[\r\n]$/.test(next)) next += end;
+  const last = gfmLines(next).at(-1);
+  if (last !== undefined && stripped(last) !== "") next += end;
+  next += assemble(pairs, KINDS).replaceAll("\n", end);
+  const got = blocksOf(next);
+  if (!got.blocks.some((block) => idOf(block) === id)) {
+    const why = got.refusals.at(-1)?.why ?? "a fence above it holds it";
+    throw new Error(`the record cannot take a new block: ${why}`);
+  }
+  return next;
+}
+
+/** The text with the lines between the block's opener and its closer replaced by those pairs. The opener, the closer and every line outside the block stay as they are. */
+function rewritten(text: string, block: Block, pairs: [string, string][]): string {
+  const lines = text.match(LINES_WITH_ENDS) ?? [];
+  const end = LINE_END.exec(lines[block.line - 1] ?? "")?.[0] ?? "\n";
+  return [...lines.slice(0, block.line), ...body(pairs).map((line) => `${line}${end}`), ...lines.slice(block.end - 1)].join("");
+}
+
+/** The block's lines as pairs, in the file's order, with the `state:` line replaced by the new state and the lines given placed directly after it. */
+function moved(block: Block, state: string, after: [string, string][] = []): [string, string][] {
+  const fields = [...block.fields].flatMap(([key, held]) => held.map((each) => ({ key, ...each }))).sort((a, b) => a.line - b.line);
+  return fields.flatMap(({ key, value }): [string, string][] => (key === "state:" ? [[key, state], ...after] : [[key, value]]));
+}
+
+/** The block of that kind and id, or a throw where the record holds none the reader returns. */
+function found(text: string, kind: Kind, id: number): Block {
+  const block = blocksOf(text).blocks.find((each) => each.kind === kind && idOf(each) === id);
+  if (block === undefined) throw new Error(`the record holds no ${kind.name} ${id}`);
+  return block;
+}
+
+/** The text with a new decision at its end, written `decided`. */
+export function withDecision(text: string, decision: NewDecision): string {
+  const id = nextId(text);
+  const by = decision.by ?? null;
+  return appended(text, id, [
+    ["decision:", `${id} ${decision.kind}`],
+    ["decided:", oneLine(decision.decided)],
+    ["grounds:", oneLine(decision.grounds)],
+    ...(by === null ? [] : ([["by:", oneLine(by)]] as [string, string][])),
+    ["state:", "decided"],
+  ]);
+}
+
+/** The text with a new question at its end, written `open`. */
+export function withQuestion(text: string, question: NewQuestion): string {
+  const id = nextId(text);
+  const by = question.by ?? null;
+  const fallback = question.default ?? null;
+  return appended(text, id, [
+    ["question:", `${id}`],
+    ["asks:", oneLine(question.asks)],
+    ["grounds:", oneLine(question.grounds)],
+    ...(by === null ? [] : ([["by:", oneLine(by)]] as [string, string][])),
+    ...(question.options ?? []).map(({ label, implies }): [string, string] => ["option:", `\`${oneLine(label)}\`${oneLine(implies) === "" ? "" : ` ${oneLine(implies)}`}`]),
+    ...(fallback === null ? [] : ([["default:", `\`${oneLine(fallback)}\``]] as [string, string][])),
+    ["state:", "open"],
+  ]);
+}
+
+/** The text with the person's reversal of a decision that stands `decided`: the state becomes `reversed`, and the message follows it. */
+export function withReversal(text: string, id: number, message: string): string {
+  const block = found(text, DECISION_BLOCK, id);
+  const state = decisionOf(block).state.is;
+  if (state !== "decided") throw new Error(`decision ${id} is ${state}, and only a decision that stands decided is reversed`);
+  return rewritten(text, block, moved(block, "reversed", [["reversal:", oneLine(message)]]));
+}
+
+/** The text with a `reversed` decision written `applied`, naming the commit that took the reversal in. */
+export function withApplied(text: string, id: number, commit: string): string {
+  const block = found(text, DECISION_BLOCK, id);
+  const state = decisionOf(block).state.is;
+  if (state !== "reversed") throw new Error(`decision ${id} is ${state}, and only a reversed decision is written applied`);
+  return rewritten(text, block, moved(block, `applied ${oneLine(commit)}`));
+}
+
+/** The text with a `reversed` decision written `carried`, naming the issue or the work item the reversal went to. */
+export function withCarried(text: string, id: number, home: string): string {
+  const block = found(text, DECISION_BLOCK, id);
+  const state = decisionOf(block).state.is;
+  if (state !== "reversed") throw new Error(`decision ${id} is ${state}, and only a reversed decision is written carried`);
+  return rewritten(text, block, moved(block, `carried ${oneLine(home)}`));
+}
+
+/** The text with the person's answer to an `open` question: the state becomes `answered`, and the answer follows it. */
+export function withAnswer(text: string, id: number, answer: string): string {
+  const block = found(text, QUESTION_BLOCK, id);
+  if (questionOf(block).state.is !== "open") throw new Error(`question ${id} is answered, and only an open question is answered`);
+  return rewritten(text, block, moved(block, "answered", [["answer:", oneLine(answer)]]));
+}
+
+/** What a record the module creates opens with. */
+function head(workItem: string): string {
+  return [
+    `# Decisions and questions: ${workItem}`,
+    "",
+    "Each `seal` block below is one decision made for this work item without asking the person, or one question it was parked with. A line outside a block is prose.",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Reads the record of the work item's directory, a folder of the worktree,
+ * applies the change and puts the whole file back, then returns the record
+ * as it now reads. Where no record stands, the change is given the head of a
+ * new one. A record that stands and cannot be read throws, and is left as it
+ * is: one that is a link, one that is no plain file and one over
+ * `REPOSITORY_FILE_BYTES` among them, as `repositoryFileText` refuses each,
+ * so a write never replaces a link it read with a file. The write goes
+ * through `record-writer.ts#writeRecordFile`, which throws, with nothing
+ * written, where the directory or a folder above it is a link or a link
+ * stands at the partial file's path. The write's rename does replace a link
+ * put at the record's path after the writer's check. A change that throws
+ * leaves the file as it is, and creates none.
+ */
+export function writeRecord(worktree: string, directory: string, change: (text: string) => string): DecisionRecord {
+  const file = join(directory, RECORD_FILE);
+  const before = repositoryFileText(file);
+  const after = change(before ?? head(basename(directory)));
+  if (after !== before) writeRecordFile(worktree, file, after);
+  return readDecisionRecord(after);
+}

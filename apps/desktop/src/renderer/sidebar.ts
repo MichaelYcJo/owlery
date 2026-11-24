@@ -3,8 +3,8 @@
 // work items, the button that says how many repositories are hidden, and
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
-import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, daemonStatus, filterChoices, hiddenRepositories, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, summaryCount, type StateFilter } from "./view";
+import { byId, changedSince, changes, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
+import { ageOf, bellSays, daemonStatus, filterChoices, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -82,9 +82,9 @@ export function untell(text: string): void {
   tell(noticeWithout(notice, text));
 }
 
-/** Draws the status line: the window's own notice first, then what there is to say of the daemon, then the daemon's state, once the daemon said it. */
+/** Draws the status line: the window's own notice first, then what there is to say of the daemon, then what the daemon said of its agent, then the daemon's state, once the daemon said it. */
 export function showStatus(): void {
-  const said = notice || held.daemonNotice;
+  const said = statusNotice(notice, held.daemonNotice, held.agentNotice);
   status.textContent = said || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false) : "");
   status.classList.toggle("notice", said !== "");
 }
@@ -137,11 +137,12 @@ export function showSidebar(inFront: Front = front): void {
   const all = entries();
   const left = narrowed();
   inboxCount.textContent = held.ready ? String(all.length) : "";
-  summaryNew.textContent = summaryCount(held.changes.length);
+  // The lines the summary draws now, so a work item of the changed set that the lists no longer hold is not counted.
+  summaryNew.textContent = summaryCount(changes().length);
   const waiting = all.filter(({ line }) => line.state === "waiting").length;
   bellCount.textContent = waiting > 0 ? String(waiting) : "";
   bell.classList.toggle("ringing", waiting > 0);
-  bell.title = waiting > 0 ? `${waiting} waiting for you. Show them alone.` : "Show the work items that wait for you alone.";
+  bell.title = bellSays(waiting);
   bell.setAttribute("aria-label", bell.title);
   filter.value = held.filter;
   const chosen = filterChoices().find((choice) => choice.value === held.filter);
@@ -178,7 +179,7 @@ export function showSidebar(inFront: Front = front): void {
       const listOf = (entries: typeof repository.entries): HTMLUListElement => {
         const list = document.createElement("ul");
         list.hidden = isFolded;
-        list.append(...entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, session?.stateSince)));
+        list.append(...entries.map(({ workItem, line, session, marks }) => workItemElement(workItem, line.title, marks, line.state, lineSince(workItem, session))));
         return list;
       };
       // The ungrouped work items first, then each group's under a heading of its name.

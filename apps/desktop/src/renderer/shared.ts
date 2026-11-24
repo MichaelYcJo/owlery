@@ -3,8 +3,9 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, SessionInfo, WorkItem } from "../shared/protocol";
-import { commitLines, fileLines, lineMarks, matchWorkItems, stateHeading, stateSays, stateWithAge, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
+import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
+import { APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -21,14 +22,16 @@ export const held = {
   apps: [] as InstalledApp[],
   /** What the status line says of the daemon in place of its state, or nothing: that the daemon is of another build, as the main process answered when this page asked for the daemon (./view, `daemonNotice`). A notice of the window's own stands before it. */
   daemonNotice: "",
-  /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since. */
+  /** What the daemon's adapter said a person should know of its agent, as `ready` and each `agentNotice` since said it, or null where it said nothing: the status line says it after the window's own notice and the daemon's (./view, `statusNotice`). */
+  agentNotice: null as string | null,
+  /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since, and taken out at the `headlessDropped` that names it. */
   headless: [] as HeadlessInfo[],
   /** The look the daemon held when this window said hello, or null where no person looked before. The window keeps none of its own. */
   lastLook: null as Look | null,
   /** When the daemon keeps the Mac awake and whether it does now, as `ready` and each `keepAwake` since said it, or null against a daemon that sends none: one of an earlier build, or one that can hold nothing. */
   keepAwake: null as KeepAwake | null,
-  /** The work items that changed since that look, worked out once, at `ready`, and held until the next load. */
-  changes: [] as Change[],
+  /** The work items the summary lists, worked out at `ready` from that look and the lists of the load, and held until the next load: the ids of the ones that changed since the look, and the ones `ready` carried without a seal reading, which join where their seal was then given or broke since the look (./view, `changedSet` and `changedSetAfter`). What each says is worked out again from the lists the window holds (`changes`). */
+  changed: { ids: [], unread: [] } as ChangedSet,
   /** The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox. */
   viewing: undefined as number | undefined,
   /** The repository whose archived work items the archived screen lists: the one it was last opened on, or nothing before it was opened. */
@@ -73,9 +76,14 @@ export function narrowed(): Entry[] {
   return matchWorkItems(entries(), held.query, held.filter);
 }
 
-/** Whether a work item changed since the person last looked: its title is then drawn in the strong ink. Nothing is marked where no look is recorded. */
+/** The changes the summary draws now: each work item of the changed set, as the lists the window holds give it, against the look of the hello (./view, `changesOf`). None where no look is recorded. */
+export function changes(): Change[] {
+  return held.lastLook ? changesOf(held.lastLook, held.changed.ids, held.workItems, held.sessions, held.paneKinds) : [];
+}
+
+/** Whether a work item changed since the person last looked: the changed set names it, and its title is then drawn in the strong ink. Nothing is marked where no look is recorded. */
 export function changedSince(workItemId: number): boolean {
-  return held.lastLook !== null && held.changes.some((change) => change.workItem.id === workItemId);
+  return held.lastLook !== null && held.changed.ids.includes(workItemId);
 }
 
 export function part(className: string, text: string): HTMLElement {
@@ -89,6 +97,22 @@ export function row(...parts: HTMLElement[]): HTMLElement {
   const element = document.createElement("span");
   element.className = "row";
   element.append(...parts);
+  return element;
+}
+
+/** A text of the back of a seal, its code in the fixed-width face (./view, `codeParts`). Each part is plain text, never markup. */
+export function withCode(className: string, text: string, tag = "span"): HTMLElement {
+  const element = document.createElement(tag);
+  element.className = className;
+  for (const { text: said, code } of codeParts(text)) {
+    if (!code) {
+      element.append(said);
+      continue;
+    }
+    const shown = document.createElement("code");
+    shown.textContent = said;
+    element.append(shown);
+  }
   return element;
 }
 
@@ -111,49 +135,54 @@ export function titleClass(workItemId: number): string {
   return changedSince(workItemId) ? "title changed" : "title";
 }
 
-const NO_SEAL = "No seal yet";
-
 /**
- * The seal's place: on a line a small disc, and in the preview and at the
- * foot of a view's right column the seal's own drawing, which the page's
- * style presses blank into the ground. No work item can be sealed yet, so
- * `data-seal` is `none` everywhere, and the place says so.
+ * The seal's place for a work item's seal (./view, `sealShown`): on a line
+ * the small mark, and in the preview and at the foot of a view's right
+ * column the seal's own drawing. `data-seal` says which form the page's
+ * style draws: pressed blank into the ground before a seal, the seal lit
+ * where it holds at the branch's head, and the seal parted in two where a
+ * later commit broke it. The place says its words to a pointer and to a
+ * screen reader.
  */
-export function sealPlace(where: "line" | "preview" | "view"): HTMLElement {
+export function sealPlace(where: "line" | "preview" | "view", seal: Seal | null | undefined): HTMLElement {
   const place = document.createElement("span");
   place.className = where === "line" ? "seal" : where === "preview" ? "seal drawn" : "seal drawn large";
-  place.dataset.seal = "none";
   place.setAttribute("role", "img");
-  place.setAttribute("aria-label", NO_SEAL);
-  place.title = NO_SEAL;
+  drawSeal(place, seal);
   return place;
 }
 
-/** The class that gives a state its colour. */
+/** Draws a seal's place again for another seal, as the preview and the view's foot do for each work item they show. */
+export function drawSeal(place: HTMLElement, seal: Seal | null | undefined): void {
+  const shown = sealShown(seal);
+  place.dataset.seal = shown.state;
+  place.setAttribute("aria-label", shown.words);
+  place.title = shown.words;
+}
+
+/** The class that gives a state its colour and its mark the theme's shapes. */
 export function stateClass(state: AgentState | null): AgentState | "no-agent" {
   return state ?? "no-agent";
 }
 
 const SVG = "http://www.w3.org/2000/svg";
 
-/** A line icon of the page, 16 units square, from the shapes given: each a path's data, or a circle as its centre and its radius, with a class where the style needs one. */
-export function icon(shapes: readonly (string | { circle: [number, number, number]; className?: string } | { path: string; className: string })[]): SVGElement {
+/** A line icon of the page, 16 units square, from the shapes given: each a path's data, or a circle as its centre and its radius. */
+export function icon(shapes: readonly (string | { circle: [number, number, number] })[]): SVGElement {
   const svg = document.createElementNS(SVG, "svg");
   svg.setAttribute("class", "icon");
   svg.setAttribute("viewBox", "0 0 16 16");
   svg.setAttribute("aria-hidden", "true");
   for (const shape of shapes) {
-    if (typeof shape !== "string" && "circle" in shape) {
+    if (typeof shape !== "string") {
       const circle = document.createElementNS(SVG, "circle");
       circle.setAttribute("cx", String(shape.circle[0]));
       circle.setAttribute("cy", String(shape.circle[1]));
       circle.setAttribute("r", String(shape.circle[2]));
-      if (shape.className) circle.setAttribute("class", shape.className);
       svg.append(circle);
     } else {
       const path = document.createElementNS(SVG, "path");
-      path.setAttribute("d", typeof shape === "string" ? shape : shape.path);
-      if (typeof shape !== "string") path.setAttribute("class", shape.className);
+      path.setAttribute("d", shape);
       svg.append(path);
     }
   }
@@ -185,24 +214,28 @@ export function lineMarkIcons(workItem: WorkItem): HTMLElement[] {
   });
 }
 
-// The shapes of a state's icon: a speech mark for a wait, a ring that turns for work, a check in a circle for an end, a crescent for no agent, and a triangle for a failure.
-type StateShape = "waiting" | "working" | "finished" | "no-agent" | "failed";
-const STATE_SHAPES: Record<StateShape, Parameters<typeof icon>[0]> = {
-  waiting: ["M3.2 3h9.6a1.7 1.7 0 0 1 1.7 1.7v4.6a1.7 1.7 0 0 1-1.7 1.7H8.4l-3.2 2.8V11h-2a1.7 1.7 0 0 1-1.7-1.7V4.7A1.7 1.7 0 0 1 3.2 3z"],
-  working: [{ circle: [8, 8, 5.6], className: "track" }, { path: "M8 2.4A5.6 5.6 0 0 1 13.6 8", className: "turn" }],
-  finished: [{ circle: [8, 8, 5.8] }, "M5.3 8.2l1.9 1.9 3.6-4"],
-  "no-agent": ["M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z"],
-  failed: ["M8 2.3l6 10.5H2z", "M8 6.6v2.8", "M8 11.1v.1"],
-};
+/** The states a mark is drawn for: an agent's three, a work item with no agent, and a headless session's failure. */
+type MarkedState = AgentState | HeadlessState | "no-agent";
+
+/** The parts of a state's mark: a line, a filled part, and for work the faint track and the part that turns. The page's style gives each the shape the theme in use holds for the state, so no shape stands here. */
+const MARK_PARTS = ["line", "fill", "track", "turn"] as const;
 
 /**
  * A state's icon, which says the state in its shape and its colour and, to a
  * pointer and a screen reader, in `words`. A failed headless session has an
  * icon of its own.
  */
-function iconOf(shape: StateShape, words: string): HTMLElement {
-  const element = part(`state-icon state ${shape}`, "");
-  element.append(icon(STATE_SHAPES[shape]));
+function iconOf(state: MarkedState, words: string): HTMLElement {
+  const element = part(`state-icon state ${state}`, "");
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  for (const name of MARK_PARTS) {
+    const path = document.createElementNS(SVG, "path");
+    path.setAttribute("class", name);
+    svg.append(path);
+  }
+  element.append(svg);
   element.setAttribute("role", "img");
   element.setAttribute("aria-label", words);
   element.title = words;
@@ -218,9 +251,9 @@ export function stateIcon(state: AgentState | null, changed = false): HTMLElemen
   return iconOf(stateClass(state), changed ? `${stateHeading(state)}, changed since you were last here` : stateHeading(state));
 }
 
-/** The icon of a headless session's state, named by the state's own word. */
-export function headlessIcon(state: HeadlessState): HTMLElement {
-  return iconOf(state, state);
+/** The icon of a headless session's line, `mark` being its state or `waiting` while it waits for the person, named by `words`, the line's words for it. */
+export function headlessIcon(mark: HeadlessState | "waiting", words: string): HTMLElement {
+  return iconOf(mark, words);
 }
 
 /** Draws a state in words where the preview and a view's right column say it: its icon, then the state with its age. */
@@ -265,16 +298,100 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
 }
 
 /**
- * What the preview and a view's right column say of a work item alike: what
- * its agent says, its commits and its changed files, each left out where the
- * daemon sent none. The first `gained` commits carry the dot of a commit the
- * branch gained since the person last looked.
+ * The approval line's section, or null for a work item that carries no
+ * record of its chain: the four places in order, each its mark, which says
+ * the place's whole words, the role's name and a note under the name. A
+ * rule after each name joins it to the next place, where the theme draws
+ * one, and the sealer's place holds the seal's place. Under the places
+ * stands each place's line of text, plain text and never markup, in the
+ * colour of a failure for a place that failed.
  */
-export function detail(entry: Entry, gained: number): HTMLElement[] {
+function approvalSection(entry: Entry): HTMLElement | null {
+  const places = approvalPlaces(entry.workItem);
+  if (places === null) return null;
+  const now = Date.now();
+  const line = document.createElement("ol");
+  line.className = "places";
+  line.append(
+    ...places.map((place) => {
+      const head = row(iconOf(place.state, placeWords(place, now)), part("name", place.name), place.role === "sealer" ? sealPlace("line", entry.workItem.seal) : part("join", ""));
+      const element = item(`place ${place.state}`, head, part("note", place.note));
+      element.dataset.role = place.role;
+      return element;
+    }),
+  );
+  const under = places.flatMap((place) => (place.under === null ? [] : [part(place.state === "failed" ? "under failed" : "under", place.under)]));
+  return section("approval", heading(APPROVAL_HEAD), line, ...under);
+}
+
+/**
+ * A question an agent asks in its pane, as the card of what it says lists
+ * it: the question, its choices as a numbered list in the agent's order,
+ * each with what it leads to, and under a question that takes more than one
+ * choice the words that say so. No choice is a button, since the person
+ * answers in the pane.
+ */
+function askedPart(question: AskedQuestion): HTMLElement {
+  const element = document.createElement("div");
+  element.className = "asked";
+  const note = choiceNote(question);
+  // The question and its choices are the agent's words, plain text, never markup.
+  element.append(part("asks", question.asks));
+  if (question.options.length > 0) {
+    const choices = document.createElement("ol");
+    choices.className = "choices";
+    choices.append(...question.options.map(({ label, implies }) => item("choice", part("label", label), part("implies", implies))));
+    element.append(choices);
+  }
+  if (note) element.append(part("hint", note));
+  return element;
+}
+
+/**
+ * What the preview and a view's right column say of a work item alike: what
+ * its agent says, the questions it asks with their choices in place of its
+ * text, its approval line, the decisions made for it in place of asking,
+ * its commits, its changed files and its setup, each left out where the
+ * daemon sent none.
+ * Under the decisions stands a line for each line of the work item's record
+ * that the daemon did not read, and the section is drawn for those lines
+ * alone where the record gave no decision. The first `gained` commits carry
+ * the dot of a commit the branch gained since the person last looked. A
+ * view gives both of `acts`, and a preview neither. Where `reverse` is
+ * given, each decision that stands offers "Reverse", whose press hands
+ * `reverse` the decision's id. Where `runSetup` is given, the setup offers
+ * "Run setup again" while it does not run, whose press calls `runSetup`
+ * with the command the section names, whole, the one the daemon may then
+ * run.
+ */
+export function detail(entry: Entry, gained: number, { reverse, runSetup }: { reverse?: (decisionId: number) => void; runSetup?: (command: string | null) => void } = {}): HTMLElement[] {
   const parts: HTMLElement[] = [];
   const says = stateSays(entry.session, held.paneKinds);
-  // The agent's words are plain text, never markup.
-  if (says) parts.push(section("says", heading(says.head), part("said", says.text)));
+  // The agent's words are plain text, never markup. Where the agent waits for the person the card says so by its class, and the theme gives that card its edge.
+  if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), ...(says.questions.length > 0 ? says.questions.map(askedPart) : [part("said", says.text)])));
+  const approval = approvalSection(entry);
+  if (approval) parts.push(approval);
+  const decisions = decisionLines(entry.workItem, Date.now());
+  const unread = unreadLines(entry.workItem);
+  if (decisions.length > 0 || unread.length > 0) {
+    const lines = decisions.map((line) => {
+      const head = row(part("kind", line.kind), part("by", line.by), part("age", line.age));
+      if (reverse && line.reversed === null) {
+        const button = document.createElement("button");
+        button.className = "quiet";
+        button.textContent = "Reverse";
+        button.title = "Reverse this decision, with a message";
+        button.addEventListener("click", () => reverse(line.id));
+        head.append(button);
+      }
+      // What was decided, its grounds and a person's message are plain text, never markup.
+      const element = item(line.reversed ? "decision reversed" : "decision", head, part("what", line.says), part("grounds", line.grounds));
+      if (line.reversed) element.append(part("reversal", line.reversed.head), part("message", line.reversed.message));
+      return element;
+    });
+    // The reader's reason is plain text, never markup.
+    parts.push(section("decisions", heading(DECISIONS_HEAD), ...(lines.length > 0 ? [listOf(lines)] : []), ...unread.map((text) => part("unread", text))));
+  }
   const commits = commitLines(entry.workItem, gained, Date.now());
   if (commits) {
     const lines = commits.lines.map((line) => {
@@ -292,6 +409,132 @@ export function detail(entry: Entry, gained: number): HTMLElement[] {
   if (files) {
     const lines = files.lines.map((line) => item("file", part("path", line.path), counts(line.counts)));
     parts.push(section("files", heading("Changes", part("sum", files.sum)), ...(lines.length > 0 ? [listOf(lines)] : []), ...(files.foot ? [part("hint foot", files.foot)] : [])));
+  }
+  const setup = setupSection(entry.workItem, Date.now());
+  if (setup) {
+    const head = heading(SETUP_HEAD);
+    if (runSetup && setup.runAgain) {
+      const button = document.createElement("button");
+      button.className = "quiet";
+      button.textContent = "Run setup again";
+      button.title = RUN_SETUP_SAYS;
+      const command = entry.workItem.setup?.command ?? null;
+      button.addEventListener("click", () => runSetup(command));
+      head.append(button);
+    }
+    // The paths, the reasons and the daemon's sentence are plain text, never markup.
+    const copied = setup.copied.map((path) => item("copied", part("path", path)));
+    const failed = setup.failed.map(({ path, why }) => item("not-copied", part("path", path), part("why", why)));
+    parts.push(section("setup", head, part("setup-says", setup.says), ...(setup.command ? [part("setup-command", `Command: ${setup.command}`)] : []), ...(copied.length > 0 ? [listOf(copied)] : []), ...(setup.more ? [part("hint foot", setup.more)] : []), ...(failed.length > 0 ? [listOf(failed)] : [])));
+  }
+  return parts;
+}
+
+/** One stage's line of the back: its name, how it ended, its time, its tokens, its cache and its cost, each in a cell under `STAGE_COLUMNS`. */
+function stageLine(line: StageLine): HTMLElement {
+  const cost = part("cost", "");
+  if (line.cost === "none") cost.append("No cost reported");
+  else if (line.cost !== null) cost.append(line.cost.amount, ...(line.cost.converted ? [" ", part("converted", "converted")] : []));
+  return item(
+    "stage",
+    part("name", line.name),
+    part(line.failed ? "ended failed" : "ended", line.ended ?? ""),
+    part("time", line.time),
+    part("tokens", line.tokens === null ? "" : `${line.tokens.input} / ${line.tokens.output}`),
+    part("cache", line.tokens === null ? "" : `${line.tokens.cacheRead} / ${line.tokens.cacheWritten}`),
+    cost,
+  );
+}
+
+/** A list of stages' lines under the words of their columns, or nothing where there is no stage. Every list of the back sets its cells in the same columns. */
+function stageLines(lines: readonly StageLine[]): HTMLElement[] {
+  if (lines.length === 0) return [];
+  const list = listOf([item("columns", ...STAGE_COLUMNS.map((words) => part("caption", words))), ...lines.map(stageLine)]);
+  list.className = "stages";
+  return [list];
+}
+
+/** One finding's line of a round: its number, its symptom and its close on the first row, its severity and its places under them, and the earlier finding or round it names. An open finding's close is drawn as one. */
+function findingLine(line: FindingLine): HTMLElement {
+  const places = part("places", "");
+  for (const place of line.places) {
+    const shown = document.createElement("code");
+    shown.textContent = place;
+    places.append(shown, " ");
+  }
+  return item("finding", part("number", `${String(line.number)}.`), withCode("says", line.says), withCode(line.open ? "close open" : "close", line.close), row(part("severity", line.severity), places), ...(line.names === null ? [] : [part("names", line.names)]));
+}
+
+/** One round's part of the back: its title with the commit it read, its findings or the sentence of a round with none, the lines of its record not read, and the stages that ran for it. */
+function roundPart(round: RoundPart): HTMLElement {
+  const element = document.createElement("section");
+  element.className = "round";
+  element.append(withCode("caption", round.title, "h3"));
+  if (round.findings.length > 0) {
+    const list = document.createElement("ol");
+    list.className = "findings";
+    list.append(...round.findings.map(findingLine));
+    element.append(list);
+  }
+  if (round.says !== null) element.append(withCode("round-says", round.says, "p"));
+  if (round.unread !== null) element.append(withCode("unread", round.unread, "p"));
+  element.append(...stageLines(round.stages));
+  return element;
+}
+
+/**
+ * The back of a seal as the window draws it in the back's place
+ * (../shared/seal-back, `Back`), from its top: the large seal, drawn from
+ * the work item's `seal` as the lists carry it, with the words of its state,
+ * a broken seal's sentence and the commit that broke it; the seal's record;
+ * the head's sentences; each round's part; the stages after the rounds; the
+ * sums; the line of the sessions outside the chain; the sentence on a
+ * converted cost; the refused calls; and the lines not read. Where `back` is
+ * a sentence, as before the answers come and where one was refused, the
+ * place holds that sentence alone. Every text is plain, never markup.
+ */
+export function backParts(back: Back | string, seal: Seal | null | undefined): HTMLElement[] {
+  if (typeof back === "string") return [part("back-waits", back)];
+  const shown = sealShown(seal);
+  const words = part("words", "");
+  words.append(withCode("head", shown.words, "h2"), ...(shown.why === "" ? [] : [withCode("why", shown.why, "p")]));
+  if (back.brokenBy !== null) {
+    const broken = withCode("broken-by", back.brokenBy.says, "p");
+    broken.append(" ", withCode("subject", back.brokenBy.subject));
+    words.append(broken);
+  }
+  const head = document.createElement("header");
+  head.className = "back-head";
+  head.append(sealPlace("view", seal), words);
+  const parts: HTMLElement[] = [head];
+  if (back.record.length > 0) {
+    const record = document.createElement("dl");
+    record.className = "back-record";
+    for (const { label, value } of back.record) record.append(withCode("", label, "dt"), withCode("", value, "dd"));
+    parts.push(record);
+  }
+  const says = document.createElement("div");
+  says.className = "back-says";
+  says.append(...back.head.map((sentence) => withCode("", sentence, "p")));
+  parts.push(says);
+  if (back.rounds.length > 0 || back.after.length > 0) {
+    const chain = document.createElement("div");
+    chain.className = "back-chain";
+    chain.append(...back.rounds.map(roundPart));
+    if (back.after.length > 0) {
+      const after = document.createElement("section");
+      after.className = "after";
+      after.append(...stageLines(back.after));
+      chain.append(after);
+    }
+    parts.push(chain);
+  }
+  const foot = [...back.sums.map((sentence) => withCode("sum", sentence, "p")), ...(back.outside === null ? [] : [withCode("outside", back.outside, "p")]), ...(back.converted === null ? [] : [withCode("converted-says", back.converted, "p")]), ...back.refused.map((line) => withCode("refused", line, "p")), ...back.unread.map((line) => withCode("unread", line, "p"))];
+  if (foot.length > 0) {
+    const element = document.createElement("div");
+    element.className = "back-foot";
+    element.append(...foot);
+    parts.push(element);
   }
   return parts;
 }

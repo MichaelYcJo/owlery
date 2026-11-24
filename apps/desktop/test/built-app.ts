@@ -3,10 +3,11 @@
 // reads the window as a person sees it starts here, and so does one that
 // reads what the main process holds, through that process's inspector.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WINDOW_SIZE } from "../src/main/window-size";
 
 const APP_DIR = join(__dirname, "..");
 
@@ -161,15 +162,35 @@ export class BuiltApp {
    * one under the system's temporary folder, so nothing is read from or
    * written to the person's own. The app starts in the background, with
    * `OWLERY_BACKGROUND` set to `1`, so its window takes neither the system's
-   * focus nor the person's keyboard. A caller that opens the app for a person
+   * focus nor the person's keyboard, lets the person's pointer through and
+   * draws nothing on the screen: the cases' pointer is the debugging port's
+   * alone, and the page draws its frames for the cases. A caller that opens the app for a person
    * to type in passes `keepBackground`, and the variable stays as the
    * caller's own environment has it. A caller that reads what the main
    * process holds, such as the menu Electron built, passes `inspectMain`,
    * and the app starts with the main process's inspector open on a port of
-   * its own, for `evaluateMain`.
+   * its own, for `evaluateMain`. An app started in the background has its
+   * window at the size the app makes it at (src/main/window-size.ts) on any
+   * screen, and the start fails where its page has another size: the cases
+   * read the screens as they are drawn at that size. A caller whose daemon
+   * is to start on state no message of the protocol puts there, such as a
+   * decision made without asking, passes `writeRun`: it is called with the
+   * daemon's run folder, made new and empty and readable by the user alone,
+   * before the app starts, and the daemon reads at its start what the
+   * function wrote there.
    */
-  static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false } = {}): Promise<BuiltApp> {
+  static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false, writeRun }: { keepBackground?: boolean; inspectMain?: boolean; writeRun?: (runDir: string) => void } = {}): Promise<BuiltApp> {
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
+    if (writeRun) {
+      const runDir = join(userData, "run");
+      mkdirSync(runDir, { mode: 0o700 });
+      try {
+        writeRun(runDir);
+      } catch (error) {
+        rmSync(userData, { recursive: true, force: true });
+        throw error;
+      }
+    }
     const port = await freePort();
     const mainPort = inspectMain ? await freePort() : undefined;
     const appEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
@@ -184,6 +205,10 @@ export class BuiltApp {
       const main = mainPort === undefined ? undefined : await DebugSession.open((await listed(mainPort, () => true, "the main process opened no inspector")).webSocketDebuggerUrl);
       const started = new BuiltApp(child, page, main, port, userData);
       started.focused = await started.evaluate<boolean>("document.hasFocus()");
+      if (!keepBackground) {
+        const size = await started.evaluate<[number, number]>("[window.innerWidth, window.innerHeight]");
+        if (size[0] !== WINDOW_SIZE.width || size[1] !== WINDOW_SIZE.height) throw new Error(`the window's page is ${size.join(" by ")} and not ${WINDOW_SIZE.width} by ${WINDOW_SIZE.height}`);
+      }
       return started;
     } catch (error) {
       child.kill("SIGTERM");

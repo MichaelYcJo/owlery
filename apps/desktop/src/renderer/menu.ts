@@ -8,7 +8,7 @@
 import { submenuPlace, type MenuAction, type MenuEntry, type MenuItem, type Submenu } from "./view";
 
 /** How long an open submenu stays once the pointer has come onto another item of the menu. On its way from the submenu's item to a lower item of the submenu the pointer crosses the menu's next items, and the submenu waits for it. */
-const SUBMENU_LEAVE_MS = 300;
+export const SUBMENU_LEAVE_MS = 300;
 
 /** The open menu: its element, where the keyboard goes when it closes, how each of its items that opens a submenu draws it, and the open submenu with the item it opened from. */
 let shown:

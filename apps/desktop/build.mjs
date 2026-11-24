@@ -1,10 +1,12 @@
-// Bundles the main process, the preload and the renderer into dist/, and copies the page and what it loads.
-import { copyFile, mkdir } from "node:fs/promises";
+// Bundles the main process, the daemon, the preload and the renderer into dist/, and copies the page, what it loads and the role bundle.
+import { copyFile, cp, mkdir, readFile, rm } from "node:fs/promises";
 import * as esbuild from "esbuild";
 
 await mkdir("dist", { recursive: true });
 
 const common = { bundle: true, sourcemap: true, logLevel: "warning" };
+// The app's version, read from package.json and from nowhere else: the daemon writes it into the workflow of a connected repository, which fetches the pull request check at that version's tag.
+const { version } = JSON.parse(await readFile("package.json", "utf8"));
 
 await Promise.all([
   esbuild.build({
@@ -22,6 +24,7 @@ await Promise.all([
     outfile: "dist/daemon.js",
     platform: "node",
     format: "cjs",
+    define: { OWLERY_VERSION: JSON.stringify(version) },
     external: ["node-pty", "ws", "bufferutil", "utf-8-validate"],
   }),
   esbuild.build({
@@ -49,3 +52,6 @@ await copyFile("assets/seals/owl.svg", "dist/owl.svg");
 await copyFile("assets/seals/owl-icon-cream.svg", "dist/owl-icon-cream.svg");
 // The app's icon, which the main process gives the macOS Dock: Owlery's emblem, the white owl on a black rounded square. It is Owlery's and not under this repository's licence (TRADEMARKS.md).
 await copyFile("assets/icon/app-icon.png", "dist/app-icon.png");
+// The role bundle, the plugin folder a role session loads for itself alone: the daemon finds it beside its own script. The folder is replaced whole, so a file the tree no longer holds does not stay in the build.
+await rm("dist/bundle", { recursive: true, force: true });
+await cp("role-bundle", "dist/bundle", { recursive: true });
