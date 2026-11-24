@@ -4,9 +4,9 @@
 
 | Item | Who must answer |
 |---|---|
-| The whole suite, and the broad gate's comparison of the two editions of each document, at the head of the branch | The orchestrator's broad gate, after the review rounds |
-| Whether `python3` on the `macos-latest` runner is 3.12 or newer after the `actions/setup-python` step of `.github/workflows/check.yml` (`frame/questions.md` Q3) | The first run of the workflow `check` on this work's pull request, which runs `test/pr-check.test.ts` |
-| The workflow `.github/workflows/owlery-seal.yml` as GitHub runs it: the cases read its text and run the script it names, and no case runs the YAML (`frame/questions.md` Q4) | #43's first run of the check on a connected repository |
+| closed The whole suite, and the broad gate's comparison of the two editions of each document, at the head of the branch | answered: the orchestrator's broad gate passed at `51a9f87`, the last run of this work item's `trail/gate.md` and the commit its sealer sealed |
+| closed Whether `python3` on the `macos-latest` runner is 3.12 or newer after the `actions/setup-python` step of `.github/workflows/check.yml` (`frame/questions.md` Q3) | answered: the `check` workflow passed on pull request #142 at the head it merged from |
+| closed The workflow `.github/workflows/owlery-seal.yml` as GitHub runs it: the cases read its text and run the script it names, and no case runs the YAML (`frame/questions.md` Q4) | re-homed to issue #48, under "Rows carried here by the settle of release 0.0.2" |
 
 ## Not done
 

@@ -4,11 +4,11 @@
 
 | Item | Who must answer |
 |---|---|
-| Whether the process of a real Claude Code pane ends when its daemon stops (`frame/questions.md` Q1, the row the settle of release 0.0.1 carried to #36) | The first real session of issue #61's work, or the owner by hand: after "Restart Daemon…" with a Claude Code pane open, `claude agents --json` lists no session whose `cwd` is that pane's worktree |
-| Whether the hook events of a subagent carry the pane's own `session_id` | The first real session of issue #61's work |
-| Whether Owlery's hook settings and a pane's environment reach a `claude --bg` session, and whether it outlives the process that attached to it (`frame/questions.md` Q2) | The first real session of issue #61's work |
-| Whether a daemon started from inside the packaged app's folder keeps opening panes and launching role sessions after the updater replaced that folder (`frame/questions.md` Q4) | Issue #78's work |
-| Whether a role session ends when its daemon crashes: the adapter starts the CLI detached, with its input already ended, and nothing signals it at a crash (`apps/desktop/src/daemon/adapters/claude.ts:273`, `:310`) | Issue #55's work, which picks a run up after a crash and must not start the cut stage beside a session that still runs |
+| closed Whether the process of a real Claude Code pane ends when its daemon stops (`frame/questions.md` Q1, the row the settle of release 0.0.1 carried to #36) | re-homed to issue #61, under "Rows carried here by the settle of release 0.0.2" |
+| closed Whether the hook events of a subagent carry the pane's own `session_id` | re-homed to issue #61, under "Rows carried here by the settle of release 0.0.2" |
+| closed Whether Owlery's hook settings and a pane's environment reach a `claude --bg` session, and whether it outlives the process that attached to it (`frame/questions.md` Q2) | re-homed to issue #61, under "Rows carried here by the settle of release 0.0.2" |
+| closed Whether a daemon started from inside the packaged app's folder keeps opening panes and launching role sessions after the updater replaced that folder (`frame/questions.md` Q4) | re-homed to issue #78, under "Rows carried here by the settle of release 0.0.2" |
+| closed Whether a role session ends when its daemon crashes: the adapter starts the CLI detached, with its input already ended, and nothing signals it at a crash (`apps/desktop/src/daemon/adapters/claude.ts:273`, `:310`) | re-homed to issue #55, under "Rows carried here by the settle of release 0.0.2" |
 
 ## Not done
 

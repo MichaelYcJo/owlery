@@ -4,7 +4,7 @@
 
 | Item | Who must answer |
 |---|---|
-| Whether a load heavier than the one measured (load average about 6, several agents and suites beside the run) still pushes either case past its new bound | The broad gate of each later work item of release 0.0.2, which runs the whole suite on the same machine |
+| closed Whether a load heavier than the one measured (load average about 6, several agents and suites beside the run) still pushes either case past its new bound | re-homed to issue #168, under "Rows carried here by the settle of release 0.0.2" |
 
 ## Not done
 

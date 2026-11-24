@@ -4,7 +4,7 @@
 
 | Item | Who must answer |
 |---|---|
-| The repository's broad gate at the branch's head, `pnpm -r run check` among it. The crafter ran only the documents' part of it by hand before the commit: each `docs/X.md` and its `docs/X.ko.md`, and `README.md` and `README.ko.md`, hold the same count of `#` heading lines and of `|` table lines, and `git grep -e '도장'` over `docs`, `README.md` and `README.ko.md` finds nothing (`trail/phases/phase-1.md`) | the orchestrator's broad gate |
+| closed The repository's broad gate at the branch's head, `pnpm -r run check` among it. The crafter ran only the documents' part of it by hand before the commit: each `docs/X.md` and its `docs/X.ko.md`, and `README.md` and `README.ko.md`, hold the same count of `#` heading lines and of table lines, the lines that open with a pipe, and `git grep -e '도장'` over `docs`, `README.md` and `README.ko.md` finds nothing (`trail/phases/phase-1.md`) | answered: the orchestrator's broad gate passed at `def6a6d`, the last run of this work item's `trail/gate.md` and the commit its sealer sealed |
 
 ## Not done
 
