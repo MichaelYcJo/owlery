@@ -586,8 +586,6 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     );
     // The app starts in the background, and the page of a window without the system's focus draws as one a person has left.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
-    // A pane that comes to wait or to finish behind another raises a notification, and none of this run reaches the system's.
-    await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
     for (const { title, kind, events, setup } of WORK_ITEMS) {
       if (STORED.includes(title)) {
@@ -684,8 +682,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     await app.click("#ask-submit");
     await app.until(`document.querySelector("#headless li .permission .call")?.textContent === "pnpm test -- redirect.test.ts"`, "the second prompt's request in the view", 15_000);
 
-    // The page loads again, and opens on the summary of the look taken before the seals. The new page is a new document: its `Notification` is replaced before its first script runs, and its focus is emulated again.
-    await app.cdp("Page.addScriptToEvaluateOnNewDocument", { source: `window.Notification = class { static permission = "granted"; }` });
+    // The page loads again, and opens on the summary of the look taken before the seals. The new page is a new document, and its focus is emulated again. Its preload tells it again that the app started in the background, so it keeps its notifications and raises none of the system's.
     await app.cdp("Page.reload");
     await app.until(`document.getElementById("summary-screen")?.hidden === false`, "the summary in front of the page loaded again", 20_000);
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });

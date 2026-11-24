@@ -13,9 +13,8 @@
 // backticks, which breaks the seal. In the
 // second one's worktree it commits the records of a seal and one commit
 // after them, which breaks the seal. The third has no seal, no round and no
-// chain. The page's `Notification` is replaced, so nothing reaches the
-// system's notifications, and its socket's `send` is wrapped, so the case
-// counts the messages the daemon receives from the page.
+// chain. The page's socket's `send` is wrapped, so the case counts the
+// messages the daemon receives from the page.
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -93,7 +92,6 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     // The login shell: it names the stand-in, and a pane it starts ends at once.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
-    await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
 
     // A second client of the daemon makes the three work items, one after the other.
