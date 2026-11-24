@@ -130,6 +130,9 @@ describe("the back of a seal, composed", () => {
       ["Fix pass on round 1", { input: "12,300", output: "20", cacheRead: "48,000", cacheWritten: "9,200" }, { amount: "$0.41", converted: false }, "$0.41"],
     ]);
     expect(back.sums).toEqual(["The chain's stages cost $0.28 converted and $0.41 charged."]);
+    // A usage that names no model gives no tokens, and a count no model reported reads `none`.
+    const counts = composeBack(records([round(1)]), [entry({ kind: "round", round: 1 }, { usage: { ...usage(0.1), models: [] } }), entry({ kind: "round", round: 1 }, { usage: usage(0.1, true, [null, 5, null, null]) })], 0);
+    expect(counts.rounds[0]?.stages.map(({ tokens }) => tokens)).toEqual([null, { input: "none", output: "5", cacheRead: "none", cacheWritten: "none" }]);
     expect(composeBack(records([round(1)]), [entry({ kind: "round", round: 1 }, { usage: usage(0.2, false) })], 0)).toMatchObject({ sums: ["The chain's stages cost $0.20 charged."], converted: null });
   });
 

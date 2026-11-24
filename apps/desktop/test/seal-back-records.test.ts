@@ -239,6 +239,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
     const { repo, read } = sealedBranch();
     let text = refusalsText(null, NAME, { kind: "round", round: 1, role: "proofer", calls: [{ tool: "Write", action: "write", rule: "no-write" }, { tool: "Bash", action: "run", rule: "no-command" }] });
     text = refusalsText(text, NAME, { kind: "ruling", round: 1, role: "orchestrator", calls: [{ tool: "Edit", action: "write", rule: "no-write" }] });
+    text = refusalsText(text, NAME, { kind: "fix-pass", round: 1, role: "crafter", calls: [{ tool: "Write", action: "write", rule: "outside-worktree" }] });
     text = refusalsText(text, NAME, { kind: "seal", round: 1, role: "sealer", calls: [{ tool: "Fetch", action: "other", rule: "other" }] });
     text += "| build 1 | crafter | Write | writes a file | no-write |\n| round 1 | proofer | Write | writes a file | sometimes |\n";
     write(repo, `${DIRECTORY}/trail/refusals.md`, text);
@@ -251,6 +252,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
         { kind: "round", round: 1, rule: "no-write" },
         { kind: "round", round: 1, rule: "no-command" },
         { kind: "ruling", round: 1, rule: "no-write" },
+        { kind: "fix-pass", round: 1, rule: "outside-worktree" },
         { kind: "seal", round: 1, rule: "other" },
       ],
       2,
