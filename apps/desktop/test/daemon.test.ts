@@ -11,7 +11,7 @@ import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
-import { paneCommands, setupPaneCommand, writeHookSettings } from "../src/daemon/hooks";
+import { paneCommands, writeHookSettings } from "../src/daemon/hooks";
 import { carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { type DecisionRecord, RECORD_FILE, readDecisionRecord, withApplied, withCarried, withDecision, withReversal } from "../src/daemon/decision-record";
@@ -6657,7 +6657,7 @@ describe("a Claude Code pane and the owl chain", () => {
     const stand = standInShell(made.base);
     const settings = writeHookSettings(runDir);
     const chain = writePaneChain(runDir, { node: process.execPath, script, bundleDir });
-    const { url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: paneCommands({ SHELL: stand.shell }, settings, join(runDir, "hooks.sock"), carriedIn(chain)), setupCommandFor: (command, id) => setupPaneCommand({ SHELL: stand.shell }, command, id) });
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: paneCommands({ SHELL: stand.shell }, settings, join(runDir, "hooks.sock"), carriedIn(chain)) });
     const c = await client(url);
     await c.message("ready");
     return { c, runDir, settings, chain, bundleDir, given: stand.given };
@@ -6702,29 +6702,14 @@ describe("a Claude Code pane and the owl chain", () => {
   it.each([
     ["AgenticSeal's check", ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`],
     ["no check", null, ""],
-  ])("launches a Claude Code pane of a work item whose worktree holds %s with the settings alone, and its setup pane with the command alone", async (_what, path, text) => {
+  ])("launches a Claude Code pane of a work item whose worktree holds %s with the settings alone", async (_what, path, text) => {
     const made = repositoryWith(path, text);
-    writeFileSync(join(made.repo, ".worktreesetup"), "echo set-up");
     const { c, settings, given } = await launching(made);
-    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "On no chain of Owlery's", kind: "claude", cols: 80, rows: 24, setupCommand: "echo set-up" });
-    const { workItem, session } = await c.message("workItemCreated");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "On no chain of Owlery's", kind: "claude", cols: 80, rows: 24 });
+    const { session } = await c.message("workItemCreated");
     const pane = await given(session.id);
     expect(pane.args).toEqual(["-l", "-i", "-c", `exec claude --settings '${settings}'`]);
     expect([pane.env.OWLERY_CHAIN, pane.env.OWLERY_BASE]).toEqual([undefined, undefined]);
-    const setup = await given(workItem.setup!.paneId!);
-    expect(setup.args).toEqual(["-l", "-i", "-c", "echo set-up"]);
-    expect([setup.env.OWLERY_CHAIN, setup.env.OWLERY_BASE]).toEqual([undefined, undefined]);
-  });
-
-  it("launches the setup pane of a work item on the owl chain with the command alone", async () => {
-    const made = repositoryWith(".github/workflows/owlery-seal.yml");
-    writeFileSync(join(made.repo, ".worktreesetup"), "echo set-up");
-    const { c, given } = await launching(made);
-    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up on the owl chain", kind: "shell", cols: 80, rows: 24, setupCommand: "echo set-up" });
-    const { workItem } = await c.message("workItemCreated");
-    const setup = await given(workItem.setup!.paneId!);
-    expect(setup.args).toEqual(["-l", "-i", "-c", "echo set-up"]);
-    expect([setup.env.OWLERY_CHAIN, setup.env.OWLERY_BASE]).toEqual([undefined, undefined]);
   });
 
   it("leaves every file under the person's Claude Code folder with the bytes it held, and adds none, when a pane on the owl chain opens and ends", async () => {
