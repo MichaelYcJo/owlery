@@ -15,7 +15,7 @@ Every reader of a pull request now sees each stage's cost. Whether the body shou
 
 No real chain has drawn a back yet, and no pull request on GitHub carries one. The first pull request of Owlery's own that Owlery seals measures both (#48).
 
-The view's foot and the approval line still show a broken seal's sentence with its backticks, where the back sets the code in the fixed-width face. #44 left them so on purpose and left how a broken seal's sentence is drawn to the owner (its `frame/questions.md` Q1), so this work leaves them too.
+The view's foot and the approval line still show a broken seal's sentence with its backticks, where the back sets the code in the fixed-width face. #44 left them so on purpose, and the owner has since chosen to draw them as the back does, in #176, a work item of its own. This work leaves them.
 
 ### Screenshots
 
