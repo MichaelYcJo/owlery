@@ -55,6 +55,11 @@ it("goes on where the base branch round 1's record names gained a commit the bra
 
 The case ran once as a file of its own in the round's clone at `fabfd9e` and passed (row 6). Its last line also holds that the sealer's diff is read from the last shared commit (`stage-records.ts#sealStage`, `base.reads...`). A diff from the tip would list `other.txt`.
 
+```seal
+verdict: fixed 1ea808e
+answer: The record's case stands in `chain-command.test.ts` after the case of the recorded base, as written. It passes at the head, and it fails against the round's mutant, the branch-name arm of `baseOf` returning the base branch's tip: `owed` is then refused with "The branch no longer holds" and `BASE_RECORDED`. No code changed.
+```
+
 ## Confirmations
 
 ```seal
