@@ -55,7 +55,7 @@ Each phase ends with its cases passing through the narrow run of the files it na
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* item 1, and the answer to `frame/questions.md` Q1 written into the phase record. No source file changes | Scenario 8. The phase record says, for each interruption, which hook events arrived after the Esc, in what order beside the log's new lines, and how long after the Esc the entry appeared | |
+| 1 | `frame/design.md` *Scope* item 1, and the answer to `frame/questions.md` Q1 written into the phase record. No source file changes | Scenario 8. The phase record says, for each interruption, which hook events arrived after the Esc, in what order beside the log's new lines, and how long after the Esc the entry appeared | e6dfe29 |
 | 2 | *Scope* items 2, 3, 4, 5 and 6 | Scenarios 1 to 6, in `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/agent-events.test.ts` and `apps/desktop/test/agent-state.test.ts`, each new case seen red as contract rule 15 asks | |
 | 3 | *Scope* item 7 | Scenario 7, in `apps/desktop/test/chain.test.ts` and `apps/desktop/test/daemon.test.ts`, each case seen red with the log's reading removed | |
 
