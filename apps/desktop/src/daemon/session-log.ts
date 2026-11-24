@@ -81,12 +81,11 @@ export class SessionLogWatch {
 
   /** Reads what was appended since the last read, to the log's end. */
   private read(): void {
-    if (this.ended) return;
     let file: number | undefined;
     try {
       file = openSync(this.path, "r");
       const chunk = Buffer.alloc(CHUNK_BYTES);
-      for (let count = readSync(file, chunk, 0, CHUNK_BYTES, this.offset); count > 0 && !this.ended; count = readSync(file, chunk, 0, CHUNK_BYTES, this.offset)) {
+      for (let count = readSync(file, chunk, 0, CHUNK_BYTES, this.offset); count > 0; count = readSync(file, chunk, 0, CHUNK_BYTES, this.offset)) {
         this.offset += count;
         this.take(chunk.subarray(0, count));
       }
@@ -112,15 +111,15 @@ export class SessionLogWatch {
       if (whole.length <= LINE_BYTES) this.line(whole.toString("utf8"));
     }
     const rest = bytes.subarray(start);
-    if (this.ended || this.skipping || rest.length === 0) return;
+    if (this.skipping || rest.length === 0) return;
     if (this.held.length + rest.length > LINE_BYTES) {
       this.held = NOTHING;
       this.skipping = true;
     } else this.held = Buffer.concat([this.held, rest]);
   }
 
+  /** Ends the watch, which stops every source of a second failure, and calls `failed`. */
   private fail(error: unknown): void {
-    if (this.ended) return;
     this.end();
     this.failed(error instanceof Error ? error : new Error(String(error)));
   }

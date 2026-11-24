@@ -3198,6 +3198,23 @@ describe("the inbox", () => {
     expect(interruptions(c)).toEqual([]);
   });
 
+  it("watches a session log again at the next working event that names it, where the last watch of it gave up because it did not stand", async () => {
+    logged();
+    const { daemon: d, url } = await daemonWithWorkItem({ sessionLogWaitMs: 100 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog();
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    await pause(300);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", transcript_path: log });
+    await pause(60);
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([{ ...session, ...INTERRUPTED, stateSince: expect.any(Number) }]);
+  });
+
   it("reads no session log of a pane that is not working: one whose turn finished, one that was closed and one whose process exited, each while it worked", async () => {
     // The shell ignores the signal a close sends, so the closed pane's process outlives its close, and ends at a line.
     const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; read line; exit 0"], env: {} }) });

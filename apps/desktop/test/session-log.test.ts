@@ -37,13 +37,13 @@ describe("SessionLogWatch", () => {
     await pause(60);
     appendFileSync(log, `{"long":"${"x".repeat(LINE_BYTES)}`);
     await pause(60);
-    appendFileSync(log, `${"x".repeat(LINE_BYTES)}"}\n{"three":3}\n${"y".repeat(LINE_BYTES)}\n`);
+    appendFileSync(log, `${"x".repeat(LINE_BYTES)}"}\n{"three":3}\n${"y".repeat(LINE_BYTES)}\n${"z".repeat(LINE_BYTES + 1)}\n{"four":4}\n`);
     await pause(60);
-    expect(lines).toEqual(['{"one":1}', '{"two":2}', '{"three":3}', "y".repeat(LINE_BYTES)]);
+    expect(lines).toEqual(['{"one":1}', '{"two":2}', '{"three":3}', "y".repeat(LINE_BYTES), '{"four":4}']);
     expect(failures).toEqual([]);
   });
 
-  it("reads a log that stands only after it began from its first byte, and hands nothing on once it ended", async () => {
+  it("reads a log that stands only after it began from its first byte, and hands nothing on once it ended, though the read that ended it holds more lines", async () => {
     const { log, lines, failures, watch } = watched(null);
     const made = watch();
     writeFileSync(log, '{"one":1}\n');
@@ -52,6 +52,20 @@ describe("SessionLogWatch", () => {
     appendFileSync(log, '{"two":2}\n');
     await pause(60);
     expect([lines, failures, made.open]).toEqual([['{"one":1}'], [], false]);
+    const ending = watched("");
+    const ends = new SessionLogWatch(
+      ending.log,
+      (line) => {
+        ending.lines.push(line);
+        ends.end();
+      },
+      (error) => ending.failures.push(error),
+    );
+    cleanups.push(() => ends.end());
+    await pause(30);
+    appendFileSync(ending.log, '{"one":1}\n{"two":2}\n');
+    await pause(60);
+    expect([ending.lines, ending.failures]).toEqual([['{"one":1}'], []]);
   });
 
   it("fails once and stops where the log does not stand within its wait", async () => {
