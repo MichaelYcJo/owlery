@@ -1487,7 +1487,6 @@ export class Daemon {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
       clearTimeout(session.silentStart);
-      this.endLog(session);
       this.sessions.delete(id);
     }
     for (const [id, session] of this.headless) {
@@ -1885,12 +1884,12 @@ export class Daemon {
   /**
    * Watches the session log at `path` for a working pane, where no watch of
    * that log reads: a watch of another log ends first. A path that is no
-   * whole path from / starts nothing, and leaves the watch that reads as it
-   * is. Each line the log gains is read for the entry of an interrupted turn,
-   * and nothing else of it is kept or sent.
+   * text starts nothing, and leaves the watch that reads as it is. Each line
+   * the log gains is read for the entry of an interrupted turn, and nothing
+   * else of it is kept or sent.
    */
   private followLog(session: Session, path: unknown): void {
-    if (typeof path !== "string" || !isAbsolute(path)) return;
+    if (typeof path !== "string") return;
     if (session.log?.open && session.log.path === path) return;
     session.log?.end();
     session.log = new SessionLogWatch(

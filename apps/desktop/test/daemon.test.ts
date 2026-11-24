@@ -3120,6 +3120,10 @@ describe("the inbox", () => {
       expect((await each.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
       expect(interruptions(each)).toEqual([{ type: "agent", id: session.id, event: "interrupted", tool: null, at: expect.any(Number) }]);
     }
+    // The session waits now, so its log is no longer read: the same entry again tells nobody of a second interruption.
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(200);
+    expect(interruptions(c)).toHaveLength(1);
     expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting"]);
   });
 
@@ -3147,7 +3151,10 @@ describe("the inbox", () => {
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
     const log = sessionLog();
     writeFileSync(log, lines(0, SECOND_PROMPT));
-    await replay(d, session.id, log, SECOND_PROMPT, Infinity);
+    await replay(d, session.id, log, SECOND_PROMPT, TOOL_ESC);
+    // The Esc's batch, and before the daemon reads it the end of the call the Esc stopped, as a command that ran when the Esc came may send it.
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    d.agentEvent(session.id, "PostToolUseFailure", { tool_name: "Bash", transcript_path: log });
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     clock = 200;
     d.agentEvent(session.id, "PostToolUse", { tool_name: "Bash", transcript_path: log });
@@ -3217,6 +3224,26 @@ describe("the inbox", () => {
       [finished.id, "finished"],
       [exited.id, "working"],
     ]);
+  });
+
+  it("reads no session log after the daemon closed, though a working pane's process outlives the close", async () => {
+    let read = 0;
+    // The shell ignores the signal a close sends.
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), now: () => ++read });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog();
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    await pause(60);
+    await d.close();
+    const before = read;
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(300);
+    // An interruption that is read reads the clock for the state's time.
+    expect(read).toBe(before);
   });
 
   it("tells every client of a work item one of them creates, of a pane one starts, and of a state that changes", async () => {
