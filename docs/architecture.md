@@ -270,8 +270,8 @@ check: apps/desktop/test/seal-state.test.ts apps/desktop/test/daemon.test.ts app
 
 ### Compatibility with AgenticSeal
 
-Users of the AgenticSeal plugin keep using it in Claude Code as they do now. The Owlery record format started from the AgenticSeal format and is Owlery's own. Compatibility is kept only where it serves Owlery: the plugin's check and Owlery's both read this repository's own records until Owlery seals its own pull requests ([Milestones](roadmap.md#milestones) row 2). `decisions.md` is a file AgenticSeal does not read, and its check answers the same with the file and without it (probed 2026-11-22 on 0.38.2 and 0.38.4).
-check: apps/desktop/test/pr-check.test.ts
+Users of the AgenticSeal plugin keep using it in Claude Code as they do now. The Owlery record format started from the AgenticSeal format and is Owlery's own. From the pull request of issue #146 on, this repository's pull requests are checked by Owlery's own workflow, and the plugin's check reads none of them. The plugin's check refuses the lines the owl chain writes into a verdict block, such as `built-by:` and `rules:`, so the two checks do not run side by side. This repository's workflow is the one Owlery writes for the app's version, and the pull request that moves the version rewrites it. Compatibility is kept where it serves Owlery: Owlery's check still reads a work item's records in the form the plugin's process writes, which this repository's work items carry while that process builds them. It reads no pull request body the plugin composes.
+check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts
 
 ## Code runs the order, the orchestrator judges
 
