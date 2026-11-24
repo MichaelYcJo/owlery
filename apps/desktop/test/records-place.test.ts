@@ -806,10 +806,12 @@ describe("the records place", () => {
     expect(status(fresh)).toBe("");
   });
 
-  it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `Owlery seal` with the run's token", () => {
+  it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `seal` with the run's token from a job of another name, `records`", () => {
     const text = workflowText(VERSION);
     expect(text).toContain("\nname: seal\n");
-    expect(text).toContain("\njobs:\n  seal:\n");
+    expect(text).toContain("\njobs:\n  records:\n");
+    expect(text).not.toContain("\n  seal:\n");
+    expect(text).toContain("\n# The check posts its verdict as the check `seal` on the pull request's\n");
     expect(text).toContain('git clone --quiet --depth 1 --branch v1.2.3 \\\n            https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery" \\\n          || git clone --quiet --depth 1 --branch release/v1.2.3 \\\n            https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery"\n');
     expect(text).toContain("- name: the check, at Owlery 1.2.3\n");
     expect(text).not.toContain("<version>");

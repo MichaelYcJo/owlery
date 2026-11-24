@@ -375,7 +375,7 @@ describe("the built app's role bundle", () => {
     cleanups.push(made.remove);
     // A repository on the owl chain, with a place for work records.
     for (const [path, text] of [
-      [".github/workflows/owlery-seal.yml", "name: Owlery seal\n"],
+      [".github/workflows/owlery-seal.yml", "name: seal\n"],
       ["seal/README.md", `${MARKER}\n`],
       ["seal/config.json", '{ "Mode": "shared", "Broad gate": "true" }\n'],
     ] as const) {

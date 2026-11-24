@@ -80,7 +80,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     const { body } = await on.said<{ body: string }>(["body"]);
     expect(body).toBe(join(on.runDir, "chain", "1795388700-greet", "pull-request-body.md"));
     const text = read(body);
-    expect(text.startsWith(`${SECTION_OPEN}\n## Owlery seal\n`)).toBe(true);
+    expect(text.startsWith(`${SECTION_OPEN}\n## Seal\n`)).toBe(true);
     expect(text).toContain(`target: ${sealed} against main`);
     expect(text).toContain(`${BACK_OPEN}\n## The back of the seal`);
     expect(text).toContain("ran outside Owlery's daemon");

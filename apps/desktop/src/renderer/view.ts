@@ -2241,12 +2241,12 @@ export interface RecordsWords {
   cancel: string;
 }
 
-/** What the dialog of the records place says of the seal check a workflow posts, by the workflow's path: Owlery's posts `Owlery seal`, which an administrator makes required on GitHub, and AgenticSeal's `hygiene.yml` posts none. Nothing for no workflow. */
+/** What the dialog of the records place says of the seal check a workflow posts, by the workflow's path: Owlery's posts `seal`, which an administrator makes required on GitHub, and AgenticSeal's `hygiene.yml` posts none. Nothing for no workflow. */
 function requiredCheck(workflow: string | null): string {
   const unchanged = "Owlery changes no setting of the repository on GitHub.";
-  if (workflow?.endsWith("/hygiene.yml")) return `AgenticSeal's \`hygiene.yml\` posts no \`Owlery seal\` check, so GitHub offers none to require. ${unchanged}`;
+  if (workflow?.endsWith("/hygiene.yml")) return `AgenticSeal's \`hygiene.yml\` posts no \`seal\` check, so GitHub offers none to require. ${unchanged}`;
   if (workflow === null) return "";
-  return `The workflow posts its verdict as the check \`Owlery seal\` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires \`Owlery seal\` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no \`Owlery seal\` check, so a required one holds it until an administrator lets it through. ${unchanged}`;
+  return `The workflow posts its verdict as the check \`seal\` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires \`seal\` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no \`seal\` check, so a required one holds it until an administrator lets it through. ${unchanged}`;
 }
 
 /**
