@@ -942,7 +942,7 @@ function showAccounts(): void {
       }
       for (const line of [...row.usage, ...(row.refreshed === null ? [] : [row.refreshed]), ...(row.offersRefresh ? [REFRESH_SAYS] : [])]) {
         const said = document.createElement("span");
-        said.className = "account-folder";
+        said.className = "account-usage";
         said.textContent = line;
         named.append(said);
       }

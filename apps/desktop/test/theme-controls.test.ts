@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GROUNDS } from "../src/main/appearance";
+import { REFRESH_SAYS } from "../src/renderer/view";
 import { BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
@@ -306,7 +307,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(seen["night-watch"]?.waiting?.fillColour).toBe(rgb("#e9b61a"));
   });
 
-  it("adds an account with no folder from the Accounts dialog the sidebar's foot opens: the daemon makes its folder in the run folder, and the row names it with its sign-in not read yet and offers to sign it in, check its sign-in, rename it and remove it (scenario 5 in the window)", async () => {
+  it("adds an account with no folder from the Accounts dialog the sidebar's foot opens: the daemon makes its folder in the run folder, and the row names it with its sign-in not read yet and offers to sign it in, check its sign-in, refresh its usage with what a refresh spends said beside it, rename it and remove it (scenario 5 in the window, and scenario 15's control drawn and not pressed)", async () => {
     await app.click("#accounts-button");
     await app.until(`document.getElementById("accounts-dialog").open`, "the Accounts dialog");
     await app.click("#accounts-name");
@@ -314,7 +315,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.click("#accounts-add");
     await app.until(`document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the account added");
     const folder = join(app.userData, "run", "accounts", "1");
-    expect(await app.evaluate<(string | null)[]>(`[...document.querySelectorAll('#accounts-list li[data-account="1"] .account-name > span, #accounts-list li[data-account="1"] button')].map((part) => part.textContent)`)).toEqual(["Work", folder, "Sign-in not read yet", "Make the default", "Sign in", "Check sign-in", "Rename", "Remove…"]);
+    expect(await app.evaluate<(string | null)[]>(`[...document.querySelectorAll('#accounts-list li[data-account="1"] .account-name > span, #accounts-list li[data-account="1"] button')].map((part) => part.textContent)`)).toEqual(["Work", folder, "Sign-in not read yet", REFRESH_SAYS, "Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
     expect(existsSync(folder)).toBe(true);
     expect(await app.evaluate<string>(`document.getElementById("accounts-name").value`)).toBe("");
     await app.click("#accounts-close");
