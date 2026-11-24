@@ -450,7 +450,7 @@ describe("the daemon's accounts", () => {
     await c.request({ type: "setDefaultAccount", id: 4 });
     await c.request({ type: "setRepository", id: repositoryId, accountId: 1 });
     await c.request({ type: "setWorkItem", id: workItemId, accountId: 2 });
-    const launched = async (own?: number): Promise<number | undefined> => (await asked(c, workItemId, own)).accountId;
+    const launched = async (own?: number): Promise<number | null | undefined> => (await asked(c, workItemId, own)).accountId;
     expect(await launched(3)).toBe(3);
     expect(await launched()).toBe(2);
     await c.request({ type: "setWorkItem", id: workItemId, accountId: null });
@@ -509,16 +509,20 @@ describe("the daemon's accounts", () => {
     expect(c.messages.some((m) => m.type === "headless")).toBe(false);
   });
 
-  it("gives the folder only to an adapter that declares accounts: one that does not launches the session as before, under the account the session names", async () => {
-    const { adapter, started } = noted(fakeAdapter({ features: ["role-tools", "permission-requests"] }));
-    const { c } = await daemon({ roleAdapter: adapter });
+  it("gives the folder only to an adapter that declares accounts: one that does not launches the session under none, whatever the nearest setting names, so it carries no account, its ledger entry names none, and its limit values are kept as System default's (scope item 8)", async () => {
+    const limit = { status: "ok", used: 0.1, resetsAt: null, window: "five_hour" } as const;
+    const { adapter, started } = noted(fakeAdapter({ features: ["role-tools", "permission-requests"], limits: () => [limit] }));
+    const { c, runDir } = await daemon({ roleAdapter: adapter, now: () => 1_000_000 });
     await c.request({ type: "addAccount", name: "Work", folder: handedFolder() });
     const { workItemId } = await workItemIn(c);
     await c.request({ type: "setWorkItem", id: workItemId, accountId: 1 });
     const session = await asked(c, workItemId);
-    expect(session.answer).toBe('You asked: "Who am I?"');
+    expect([session.answer, session.accountId]).toEqual(['You asked: "Who am I?"', null]);
     expect(started).toHaveLength(1);
     expect("accountDir" in started[0]!).toBe(false);
+    c.send({ type: "readLedger", requestId: 78, workItemId });
+    expect((await c.message("ledger", (m) => m.workItemId === workItemId)).entries.map((entry) => entry.account)).toEqual([null]);
+    expect(new AccountStore(runDir).listed().map((account) => account.limits)).toEqual([[{ ...limit, at: 1_000_000 }], []]);
   });
 
   it("renames an account at a request, answers before it sends every client the accounts, refuses an empty name, System default and an id it keeps none of with a sentence, and leaves a ledger entry written before the rename with the name it had (the rename of scenario 11)", async () => {
@@ -677,7 +681,7 @@ describe("a refresh of an account's usage", () => {
     }
   });
 
-  it("gives a folder Owlery made its missing names before the refresh starts, gives an adapter that declares no accounts no folder, and stops a refresh that runs at the daemon's close (scope item 13)", async () => {
+  it("gives a folder Owlery made its missing names before the refresh starts, refuses through an adapter that declares no accounts a refresh of a named account and runs one of System default with no folder, and stops a refresh that runs at the daemon's close (scope item 13)", async () => {
     const furnished: string[] = [];
     const logins: AccountLogins = { furnish: (at) => void furnished.push(at), signIn: () => Promise.reject(new Error("no")), status: () => Promise.reject(new Error("no")), signOut: () => Promise.resolve() };
     const { adapter, started } = noted(fakeAdapter({ logins }));
@@ -692,9 +696,10 @@ describe("a refresh of an account's usage", () => {
     const bare = noted(fakeAdapter({ features: ["limit-refresh"] }));
     const plain = await daemon({ roleAdapter: bare.adapter });
     await plain.c.request({ type: "addAccount", name: "Work", folder: handedFolder() });
+    expect(await plain.c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "error", message: "The fake adapter launches no session under an account's folder, so it refreshes the usage of System default alone." });
     const at = plain.c.messages.length;
-    await plain.c.request({ type: "refreshUsage", id: 1 });
-    await accountsAfter(plain.c, at, 1, (account) => account.refresh?.state === "ended");
+    await plain.c.request({ type: "refreshUsage", id: SYSTEM_DEFAULT_ID });
+    await accountsAfter(plain.c, at, SYSTEM_DEFAULT_ID, (account) => account.refresh?.state === "ended");
     expect(bare.started).toEqual([{ prompt: REFRESH_PROMPT, cwd: join(plain.runDir, "accounts", "refresh"), refresh: true }]);
     let stops = 0;
     const slow = fakeAdapter({ delayMs: 5000 });
@@ -854,16 +859,16 @@ describe("the accounts Owlery makes", () => {
 
   it("signs an account in in a pane of no work item that runs the CLI's own sign-in under the account's folder, in the environment the adapter names and no variable of the daemon's own, and at the pane's end and at a request reads whether a login stands and when it ends (scenario 6)", async () => {
     const { cli, here, calls } = authStandIn();
-    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null) }) });
-    await c.request({ type: "addAccount", name: "Work" });
-    await c.request({ type: "addAccount", name: "Home" });
-    const work = join(runDir, "accounts", "1");
-    const home = join(runDir, "accounts", "2");
     // A variable of the daemon's own environment, as a token a terminal exported would be, never reaches the sign-in.
     process.env.OWLERY_DAEMON_ONLY = "inherited";
     cleanups.push(() => {
       delete process.env.OWLERY_DAEMON_ONLY;
     });
+    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null) }) });
+    await c.request({ type: "addAccount", name: "Work" });
+    await c.request({ type: "addAccount", name: "Home" });
+    const work = join(runDir, "accounts", "1");
+    const home = join(runDir, "accounts", "2");
     c.send({ type: "signIn", requestId: 700, id: 1, cols: 80, rows: 24 });
     const pane = (await c.message("started", (m) => m.requestId === 700)).session;
     expect(pane).toMatchObject({ kind: "shell", alive: true, workItemId: null, accountId: 1, signsIn: 1 });
@@ -871,13 +876,13 @@ describe("the accounts Owlery makes", () => {
     expect(signed.accounts[1]).toEqual({ id: 1, name: "Work", made: true, folder: work, signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z"), limits: [], refresh: null });
     await c.message("inbox", (m) => m.sessions.some((session) => session.id === pane.id && !session.alive));
     expect(calls()).toEqual([`auth login|${work}`, `auth status|${work}`]);
+    const given = readFileSync(join(here, "login-env"), "utf8").split("\n");
+    expect([given.includes(`CLAUDE_CONFIG_DIR=${work}`), given.some((line) => line.startsWith("OWLERY_DAEMON_ONLY="))]).toEqual([true, false]);
     writeFileSync(join(here, "refuse-login"), "");
     c.send({ type: "signIn", requestId: 701, id: 2, cols: 80, rows: 24 });
     expect((await c.message("started", (m) => m.requestId === 701)).session).toMatchObject({ workItemId: null, accountId: 2, signsIn: 2 });
     expect((await c.message("accounts", (m) => m.accounts[2]?.signedIn === false)).accounts[2]).toMatchObject({ signedIn: false, loginEndsAt: null });
     // Signed out outside Owlery, which the daemon learns at the person's request.
-    const given = readFileSync(join(here, "login-env"), "utf8").split("\n");
-    expect([given.includes(`CLAUDE_CONFIG_DIR=${work}`), given.some((line) => line.startsWith("OWLERY_DAEMON_ONLY="))]).toEqual([true, false]);
     rmSync(join(work, ".stand-in-login"));
     expect(await c.request({ type: "readSignIn", id: 1 })).toMatchObject({ type: "done" });
     expect((await c.message("accounts", (m) => m.accounts[1]?.signedIn === false)).accounts[1]).toMatchObject({ signedIn: false, loginEndsAt: null });

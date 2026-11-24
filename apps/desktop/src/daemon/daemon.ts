@@ -349,8 +349,8 @@ interface HeadlessSession {
   branch: string;
   /** The kind and the round of the chain's stage the session was started for, or null for a session no chain started, which its entry of the ledger names. */
   chain: LedgerEntry["chain"];
-  /** The account the session was launched under, by its id and its name as they stood at its start, which its entry of the ledger names. */
-  account: { id: number; name: string };
+  /** The account the session was launched under, by its id and its name as they stood at its start, which its entry of the ledger names, or null for a session launched under none, through an adapter that declares no accounts. */
+  account: { id: number; name: string } | null;
   /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, so that nothing ran. A session gets one entry at most. */
   entered: boolean;
 }
@@ -1822,6 +1822,8 @@ export class Daemon {
       id = named;
       if (!this.accounts.holds(id)) throw new Error(`No account ${String(id)} is kept.`);
       if (!adapter.features.includes("limit-refresh")) throw new Error(`The ${adapter.name} adapter does not refresh an account's usage.`);
+      // Only an adapter that launches a session under an account's folder reads that account's usage; another reads its default login's.
+      if (id !== SYSTEM_DEFAULT_ID && !adapter.features.includes("accounts")) throw new Error(`The ${adapter.name} adapter launches no session under an account's folder, so it refreshes the usage of ${SYSTEM_DEFAULT_NAME} alone.`);
       if (this.refreshes.get(id)?.state === "running") throw new Error(`The usage of "${this.accountNamed(id)}" is being refreshed already.`);
       const running = this.runningUnder(id);
       if (running.length > 0) throw new Error(`The usage of "${this.accountNamed(id)}" is not refreshed while something runs under it, which hands over its values itself: ${running.join("; ")}.`);
@@ -2044,7 +2046,8 @@ export class Daemon {
     const onEvent = (event: RoleEvent): void => {
       // What a session says of its account's limit is kept whenever it says it, so an account that runs sessions shows its values with no refresh.
       if (event.type === "limit") {
-        if (this.accounts.setLimit(session.account.id, event, (this.options.now ?? Date.now)())) this.broadcastAccounts();
+        // A session launched under none ran under the default login, whose values these are.
+        if (this.accounts.setLimit(session.account?.id ?? SYSTEM_DEFAULT_ID, event, (this.options.now ?? Date.now)())) this.broadcastAccounts();
         return;
       }
       if (event.type === "exit") {
@@ -2129,18 +2132,21 @@ export class Daemon {
    * of the ledger names. It runs under the account `accountFor` gives now
    * from `own`, the session's own account or null where it names none, the
    * work item's, the repository's and the default, and the adapter is given
-   * that account's folder where it has one and the adapter declares
-   * `accounts`.
+   * that account's folder where it has one. Through an adapter that does not
+   * declare `accounts` it runs under none: it is given no folder, carries no
+   * account and names none in its entry, and its limit values are kept as
+   * System default's.
    */
   private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, own: number | null, first?: (info: HeadlessInfo) => void): HeadlessSession {
     let end = (): void => {};
     const ended = new Promise<void>((resolve) => {
       end = resolve;
     });
-    const accountId = accountFor(own, item, repository, this.accounts.defaultId());
-    // Undefined for System default, which has no folder.
-    const account = this.accounts.account(accountId);
-    const accountDir = account !== undefined && this.options.roleAdapter.features.includes("accounts") ? account.folder : undefined;
+    // Through an adapter that declares no accounts a session runs under the agent's default login whatever setting is nearest, so it is launched under none.
+    const accountId = this.options.roleAdapter.features.includes("accounts") ? accountFor(own, item, repository, this.accounts.defaultId()) : null;
+    // Undefined for System default, which has no folder, and for none.
+    const account = accountId === null ? undefined : this.accounts.account(accountId);
+    const accountDir = account?.folder;
     this.furnish(accountId);
     const session: HeadlessSession = {
       info: { id: this.nextHeadlessId++, workItemId: item.id, prompt: prompt.shown, state: "working", answer: "", error: null, usage: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role, accountId },
@@ -2156,7 +2162,7 @@ export class Daemon {
       repo: repository.folder,
       branch: item.branch,
       chain,
-      account: { id: accountId, name: account?.name ?? SYSTEM_DEFAULT_NAME },
+      account: accountId === null ? null : { id: accountId, name: account?.name ?? SYSTEM_DEFAULT_NAME },
       entered: false,
     };
     session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);

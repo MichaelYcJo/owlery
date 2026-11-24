@@ -709,8 +709,8 @@ export interface HeadlessInfo {
   stopped: "limit" | "request" | null;
   /** The role the session was launched as, and null for a session with none. */
   role: RoleStage | null;
-  /** The id of the account the session was launched under, `SYSTEM_DEFAULT_ID` among them. A daemon of an earlier build sends no such field. */
-  accountId?: number;
+  /** The id of the account the session was launched under, `SYSTEM_DEFAULT_ID` among them, or null for a session launched under none, through an adapter that declares no accounts. A daemon of an earlier build sends no such field. */
+  accountId?: number | null;
 }
 
 /**
