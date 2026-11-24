@@ -7,7 +7,9 @@ The tree and a probe answered these judgments the issue left open. Each line poi
 - Whether the change belongs in the case or in the app: `frame/plan.md` *Alternatives considered*, rows A and B.
 - Whether a pane drawn for the first time is silenced too: `frame/plan.md` *Alternatives considered*, row C.
 - Whether the menu-close case counts from what it found or the file restores its base: `frame/plan.md` *Alternatives considered*, row F.
-- What the move to 0.0.3 touched beside `apps/desktop/package.json`: `frame/design.md` *Grounding*, the rows on the version.
+- What a move of the version touches beside `apps/desktop/package.json`: `frame/design.md` *Grounding*, the rows on the version.
+- Whether a passing case closes the panes it opened: `frame/design.md` *Grounding*, the rows of the build, and `frame/plan.md` *Alternatives considered*, row H.
+- Which other cases of the file send to a pane that just came back, and whether this work has them wait: `frame/design.md` *Grounding*, the rows of the build, and `frame/plan.md` *Alternatives considered*, rows I, J and K.
 
 | # | Question | Who can answer | Options & what each implies | Default until answered | Status |
 |---|---|---|---|---|---|
