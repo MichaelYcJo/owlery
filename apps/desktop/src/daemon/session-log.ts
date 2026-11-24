@@ -118,8 +118,9 @@ export class SessionLogWatch {
     } else this.held = Buffer.concat([this.held, rest]);
   }
 
-  /** Ends the watch, which stops every source of a second failure, and calls `failed`. */
+  /** Ends the watch and calls `failed`, unless it ended already: a log that stands at once but cannot be watched is read once more, and that read can fail too. */
   private fail(error: unknown): void {
+    if (this.ended) return;
     this.end();
     this.failed(error instanceof Error ? error : new Error(String(error)));
   }

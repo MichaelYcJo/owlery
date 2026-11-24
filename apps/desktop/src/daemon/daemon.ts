@@ -87,7 +87,7 @@ import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { writeRecordFile } from "./record-writer";
-import { SESSION_LOG_WAIT_MS, SessionLogWatch } from "./session-log";
+import { SessionLogWatch } from "./session-log";
 import { THE_SESSION, isSessionId } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
