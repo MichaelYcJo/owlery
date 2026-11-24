@@ -20,7 +20,7 @@ The tree as read at `07d5e853`.
 - A case starts no real `claude`. The fake adapter and a reader given as an option carry every case of the daemon, and `OWLERY_MACHINE` carries the built-app cases.
 - A built-app file and `daemon.test.ts` run only while no other `vitest` runs on the machine, and every start of the app sets `OWLERY_BACKGROUND=1`. Built-app files run in one batch at a phase's end.
 
-**The failure scenario of the chosen approach.** The count holds idle panes, because an idle agent still holds its memory. In six months a person keeps a Claude Code pane open in each of many work items, milestone 3's role sessions queue behind them, and the line reads "Waiting for the machine" on a machine that is doing nothing. The person raises the cap by hand, and from then on the cap follows no measurement. The second way it fails is the measurement: the proposal takes the highest of the last twenty agents, so one agent that grew large lowers the proposal until twenty more have ended. Both show in the dialog's numbers, which is why the dialog states them.
+**The failure scenario of the chosen approach.** The count holds idle panes, because an idle agent still holds its memory. The cap is the smaller of the performance cores and the memory's number, so on the owner's Mac six live panes fill it. In six months a person keeps a Claude Code pane open in each of six work items, milestone 3's role sessions queue behind them, and the line reads "Waiting for the machine" on a machine that is doing nothing. The person raises the cap by hand, and from then on the cap follows no measurement. The second way it fails is the measurement: the proposal takes the highest of the last twenty agents, so one agent that grew large lowers the proposal until twenty more have ended. Both show in the dialog's numbers, which is why the dialog states them.
 
 ## Alternatives considered
 
@@ -32,7 +32,7 @@ The tree as read at `07d5e853`.
 | Propose from the memory that is free now | macOS keeps free memory low by design, so the proposal would move with every read and a cap that moved would start and hold sessions for no reason a person can follow. `skills/core/SKILL.md` keeps a noisy reading out of a gate | Rejected. The total is exact and the dialog can state it |
 | Measure an agent as its whole process tree | A build or a built Electron app the agent starts would count as the agent, and one broad gate would cut the proposal to a few agents. `docs/architecture.md` counts one Claude process | Rejected. The heavy commands are #134's |
 | Read memory with `footprint`, as `apps/desktop/measurements/memory.md` does | It is the number Activity Monitor shows, and a resident size can read under it while memory is compressed. Its cost for a call each minute was not probed | `ps` chosen: one call for every agent in 60 ms. `gaps.md` is to say that the unit is the resident size |
-| Bound the agents by the performance cores as well | See `frame/questions.md` Q2 | Left to the owner, default no |
+| Bound the agents by the memory alone, with no cores | 27 agents on the owner's Mac, which holds 6 performance cores. The cap would then never be reached before the cores are, and it would protect nothing a person meets | Rejected by the owner's answer to `frame/questions.md` Q2 on 2026-11-25: the cap is the smaller of the performance cores and the memory's number |
 | Measure a worktree when the form asks for a plan | `du` over a worktree whose files were not read yet holds the form's answer for seconds on every key | Rejected. Measured once, after the setup |
 | Estimate a worktree from the sizes git lists for its tree | The install is most of a worktree and git lists none of it | Rejected |
 | Give the built-app cases their caps through `limits.json` alone, with no `OWLERY_MACHINE` | The proposal's sentence and the form's warning depend on the reading, so they would be pinned on functions alone and never in the app, or would differ between the owner's Mac and the hosted runner | Rejected. One variable, set by the harness |
@@ -45,7 +45,7 @@ Each phase ends with its cases passing through the narrow run of the files its *
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1. A person sees the reading and changes a cap | *Scope* items 1, 2, 3, 4 and 13 | Scenarios 1, 3, 10 and 16, in `apps/desktop/test/machine.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/view.test.ts` and the built-app file `apps/desktop/test/machine-dialog.test.ts`, each new case seen red as contract rule 15 asks | |
+| 1. A person sees the reading and changes a cap | *Scope* items 1, 2, 3, 4 and 13 | Scenarios 1, 3, 10, 16 and 17, in `apps/desktop/test/machine.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/view.test.ts` and the built-app file `apps/desktop/test/machine-dialog.test.ts`, each new case seen red as contract rule 15 asks | |
 | 2. A session over the agent cap waits | *Scope* items 5, 6, 7, 8 and 9 | Scenarios 2, 4, 5, 6, 7, 8 and 9, in `machine.test.ts`, `daemon.test.ts`, `apps/desktop/test/chain.test.ts`, `apps/desktop/test/ledger.test.ts`, `apps/desktop/test/keep-awake.test.ts` and `view.test.ts`. The phase record lists every reader of a headless state the builder found and how it takes `queued` | |
 | 3. A creation warns | *Scope* items 10 and 11 | Scenarios 11, 12 and 13, in `daemon.test.ts`, `apps/desktop/test/repositories.test.ts`, `view.test.ts` and `machine-dialog.test.ts` | |
 | 4. More panes side by side | *Scope* item 12 | Scenarios 14 and 15, in `view.test.ts` and `machine-dialog.test.ts`, and the search of scenario 15 run at the phase's head | |
@@ -70,7 +70,7 @@ The spawn names #134, #168, #154, #149 and #191. Each was read as its issue. Non
 - **A new optional field on a stored work item**, the worktree's size. An earlier build reads the file as it does today.
 - **A daemon of an earlier build under the new window** sends no `machine`: the window hides the Machine button and shows four panes at most.
 - **The first start after the update** runs one `du` for each standing worktree, one at a time.
-- **No new dependency.** `ps` and `du` ship with macOS.
+- **No new dependency.** `sysctl`, `ps` and `du` ship with macOS. A machine whose `sysctl` gives no performance cores reads all its cores in their place.
 - **The version.** `apps/desktop/package.json` holds 0.0.3 on `release/v0.0.4` at `4a005ebf`. Where this pull request is the first of the release to merge, phase 5's commit that adds `changelog.md` moves it to 0.0.4 and rewrites `.github/workflows/owlery-seal.yml` to match (`frame/questions.md` Q11).
 
 ## Judgments of the run

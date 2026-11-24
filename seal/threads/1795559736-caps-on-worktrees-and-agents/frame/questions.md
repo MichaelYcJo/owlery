@@ -7,7 +7,7 @@ Judgments the issue left open that the tree answered, so nobody reopens them:
 - What can wait in release 0.0.4, with no chain started from the window: `frame/design.md` *Grounding*, the bullet on `startChain`.
 - What the move to release 0.0.4 changes for the roadmap's row 3: `frame/design.md` *Grounding*, its last paragraph, and *Rule changes*, the last pair.
 - Whether the documents are edited in this pull request: `frame/plan.md` *Alternatives considered*, the row on the documents.
-- Whether the cores bound a cap of this work item: `frame/design.md` *The caps, in numbers*, its closing paragraph. Q2 holds the owner's alternative.
+- What the performance cores are read from, and what stands in for them where the machine gives none: `frame/design.md` *The caps, in numbers*, its closing paragraph, and *Grounding*, the probe's line on `sysctl`.
 - Total memory or free memory: `frame/plan.md` *Alternatives considered*, the row on free memory.
 - One scheduler for every start, or a queue behind the headless door: `frame/plan.md` *Alternatives considered*, its first two rows.
 - Who owns the reading of the machine beside #134, and which merges first: `frame/design.md` *Data & interfaces*, the seam, and `frame/plan.md` *Overlap with the release*.

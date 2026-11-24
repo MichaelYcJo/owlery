@@ -42,7 +42,7 @@ What a probe gave, each `executed` on the owner's Mac on 2026-11-25. The probe i
 
 - The daemon's runtime is Node 24.22.3. `os.totalmem()` gives 38,654,705,664 bytes, which is 36 GB. `os.availableParallelism()` gives 12. `os.loadavg()` gives the load.
 - `fs.statfsSync` of the home folder gives 25,088,950,272 bytes free of 494,384,795,648, in 0.4 ms. For a folder that does not stand it throws `ENOENT`, so the reader asks the nearest folder above that stands.
-- `/usr/sbin/sysctl -n hw.perflevel0.physicalcpu hw.physicalcpu` prints `6` and `12` in 6.5 ms. Node has no call for the performance cores, and the reading of this design does not hold them: #134's design divides its default from all the cores. Q2 names what option B would add.
+- `/usr/sbin/sysctl -n hw.perflevel0.physicalcpu hw.physicalcpu` prints `6` and `12` in 6.5 ms. Node has no call for the performance cores, so the reader asks `sysctl` for them. The owner's answer to Q2 puts them into the agent cap.
 - `/bin/ps -o pid=,rss= -p <pid>,<pid>` prints one line for each process, in kilobytes, in 60 ms. For a process that is gone it prints nothing and exits 1.
 - `/usr/bin/du -sk` of this repository's main checkout with its install prints 561,412 kilobytes in 141 ms, with the files already read once.
 - `ps -axo rss=,comm=` listed eight `claude` processes at that moment, between 242 and 766 MB each. One read above the 679 MB that `docs/architecture.md` states.
@@ -61,24 +61,26 @@ Each proposal is a floor of a division, shown to the person with its numbers. Th
 
 | Cap | Proposal | On a Mac with 36 GB and 25.1 GB free |
 |---|---|---|
-| Agents at once | Half of the machine's memory, divided by what one agent uses. One agent uses 679 MB until the daemon has measured five agents here, and then the highest value among the last twenty it measured. At least 1 | 18,432 MB ÷ 679 MB = 27. With the 766 MB read today it is 24 |
+| Agents at once | The smaller of two numbers: the performance cores, and half of the machine's memory divided by what one agent uses. One agent uses 679 MB until the daemon has measured five agents here, and then the highest value among the last twenty it measured. At least 1 | 6. The performance cores give 6, and the memory gives 18,432 MB ÷ 679 MB = 27, or 24 with the 766 MB read today |
 | Worktrees | The worktrees that stand, plus the free disk of the worktrees' folder less 10 GB kept free, divided by the largest worktree measured here. No proposal until one worktree has been measured | (25.1 GB − 10 GB) ÷ 0.44 GB = 34 more than stand now |
 | Panes side by side | 4 under 16 GB of memory, 6 from 16 GB, 8 from 32 GB. A person sets from 1 to 16 | 8 |
 
-For comparison, the agent cap is 6 on a Mac with 8 GB and 12 on one with 16 GB. The cores do not enter a proposal of this work item: the issue binds builds and tests to the performance cores, and those are #134's heavy commands. The reading holds the cores and the load for #134, and the dialog shows them.
+The owner chose this on 2026-11-25 (`frame/questions.md` Q2, option B). The memory alone gives 6 on a Mac with 8 GB and 12 on one with 16 GB, so on such a Mac the smaller of that and its performance cores is the cap. The dialog's sentence names both numbers and says which one is the cap.
+
+The performance cores are what macOS gives under `hw.perflevel0.physicalcpu`. Where `sysctl` gives no whole number above 0 for that key, as on an Intel Mac and off macOS, or does not run, the performance cores are read as all the cores, `os.availableParallelism()`. The pane cap and the worktree cap read no cores. The reading also holds all the cores and the load for #134, and the dialog shows them.
 
 ## Scope
 
 In. The items are numbered, and `frame/plan.md` cites them by number.
 
-1. **The reading of the machine.** A new module, `apps/desktop/src/daemon/machine.ts`, reads the memory, the cores, the load, and the free and total disk of the worktrees' folder, each as *Data & interfaces* states. The daemon is given the reader as an option, as it is given `holdAwake`. A daemon given none keeps no cap, queues nothing and sends no `machine`, so every case that stands today runs as it does now.
+1. **The reading of the machine.** A new module, `apps/desktop/src/daemon/machine.ts`, reads the memory, the cores, the performance cores, the load, and the free and total disk of the worktrees' folder, each as *Data & interfaces* states. The daemon is given the reader as an option, as it is given `holdAwake`. A daemon given none keeps no cap, queues nothing and sends no `machine`, so every case that stands today runs as it does now.
 2. **The proposals.** `apps/desktop/src/shared/machine.ts` holds the formulas of *The caps, in numbers* as functions of the reading and of what was measured, and the sentence that states each proposal with its numbers. The window and the daemon read the same functions.
 3. **The person's caps.** A cap a person sets is kept in `limits.json` in the daemon's run folder and outlives the daemon. A cap nobody set follows its proposal, which the window calls the default. The daemon sends the reading, the proposals, the set values, the counts and the queue in `ready` and in a `machine` message after each change, and takes `setCaps` and `readMachine`.
 4. **The Machine dialog.** A button at the sidebar's foot, beside Accounts, opens a dialog. It shows the reading in one line, and one row for each cap: a number field, the default's sentence, and "Use the default" where the person's value differs. Under the agent row it lists the queue in order, each entry by its work item's title and what it waits to run. The button is hidden against a daemon that sends no `machine`.
 5. **The agents' memory, measured.** While at least one agent lives, the daemon reads every 60 seconds the resident memory of each agent's own process, with one `ps` call for all of them. It keeps each agent's highest value, for the last twenty agents it read at least once, in `agent-memory.json` of the run folder. The proposal uses them as *The caps, in numbers* states. `RoleRun` hands over its process id for this.
 6. **The count and the queue.** The agents that run are the live panes of a kind that reports its state and the headless sessions that are working. Where that count is at the cap or over it, a headless session the daemon is asked to begin is listed as `queued` and starts no process. It starts when the count falls under the cap, or the cap rises. A pane a person opens always opens, and counts.
 7. **The queue's order.** A session a person asked for goes first, then a stage of a chain that has already run a stage in this run, then a chain's first stage. Within each, the one that waited longest goes first.
-8. **What a person sees of the queue.** The second row of the work item's line reads "Waiting for the machine (2 ahead)", and "Waiting for the machine" with none ahead. It comes after a question, a call to allow and a stopped chain's sentence, and before every other text of that row. The line's state is unchanged. The headless session's own line says "Queued" and offers "Stop". A chain whose stage waits says the same sentence at the view's foot. The status line reads "Daemon running, 27 agents of 27, 2 waiting" where a cap is kept.
+8. **What a person sees of the queue.** The second row of the work item's line reads "Waiting for the machine (2 ahead)", and "Waiting for the machine" with none ahead. It comes after a question, a call to allow and a stopped chain's sentence, and before every other text of that row. The line's state is unchanged. The headless session's own line says "Queued" and offers "Stop". A chain whose stage waits says the same sentence at the view's foot. The status line reads "Daemon running, 6 agents of 6, 2 waiting" where a cap is kept.
 9. **A queued session is one that runs for whoever would end it, and one that does not work for whoever asks about work.** A stop, an archive, a delete, a removal of its repository and "Quit Owlery Completely…" name it and end it, and an account it would run under cannot be removed. Keep-awake, `daemon.ts#works` and `whyNoChain` do not read it as working. Its time limit, its `startedAt`, its stage's `startedAt` and its ledger entry's time count from its start, not from its place in the queue.
 10. **A worktree's size, measured.** The daemon measures a work item's worktree once with `du -sk`: when its setup's pane exits, at once where the repository names no setup, and at the daemon's start for a standing worktree that has no measure, one at a time. The measure is kept with the work item.
 11. **The worktree cap and the warning.** `workItemPlan` carries the free disk, the 10 GB kept free, what a worktree of the repository needs (the largest measured of that repository, or nothing where none is measured), the worktrees that stand and the cap. The form shows a warning under the plan where the disk would not hold the worktree, and one where the worktrees are at their cap. Create stays enabled.
@@ -89,23 +91,23 @@ In. The items are numbered, and `frame/plan.md` cites them by number.
 
 Out, each with its reason.
 
-- **The heavy commands, and the cores as a bound.** Issue #134. This work hands it the reading (*Data & interfaces*).
+- **The heavy commands.** Issue #134. This work hands it the reading (*Data & interfaces*). #134 divides its limit from all the cores, and this work's agent cap reads the performance cores, so the two read different fields.
 - **The subscription's usage limit**, which the issue says often binds first. Milestone 5, `docs/architecture.md` *Reading usage limits*.
 - **Refusing or holding what a person starts by hand**: a pane, and a work item's creation. The issue asks for a warning at a creation, and Q1 and Q5 hold the alternatives.
 - **Ending or archiving anything that is over a cap.** `docs/product.md` *What we deliberately don't do*.
 - **The order of whole work items, and the daemon starting a chain.** Milestone 3 (`docs/roadmap.md` *Milestones*, row 3).
 - **A fifth state of the inbox.** Q8.
 - **Measuring a worktree again as it grows, and freeing disk.** The archive that moves files away is milestone 4's. A worktree that grew after its setup is read at its first size, which `gaps.md` is to say.
-- **A reading on Windows or Linux.** v0.1 is the macOS app (`docs/architecture.md` *Platforms and their order*). `ps` and `du` are called as macOS has them.
+- **A reading on Windows or Linux.** v0.1 is the macOS app (`docs/architecture.md` *Platforms and their order*). `sysctl`, `ps` and `du` are called as macOS has them, and the performance cores fall back as *The caps, in numbers* states.
 - **The policy documents.** This work item's subject is the code, so the settle writes *Rule changes* after the release. The issue's last *Done when* line, that row 3 names the cap, is met there.
 
 ## User scenarios & acceptance *(mandatory)*
 
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
-| 1. The proposal states its numbers | Given a reading of 36 GB, 12 cores and 25.1 GB free, and no agent measured. When the person opens the Machine dialog. Then the agent row holds 27 and its sentence reads "The default is 27: half of 36 GB, at 679 MB an agent (not measured on this Mac yet)." | A case of `apps/desktop/test/machine.test.ts` on `shared/machine.ts`, and a built-app case of `apps/desktop/test/machine-dialog.test.ts` under `OWLERY_MACHINE` |
-| 2. The proposal follows the measurement | Given five agents measured, the highest at 766 MB. Then the agent row proposes 24 and its sentence names 766 MB, "the highest of the last 5 agents measured here". Given four measured, it still names 679 MB | `machine.test.ts`, on the formula and on the store's twenty kept |
-| 3. A person changes a cap, and it stays | Given a proposal of 27. When the person types 3 and saves. Then every client is sent 3 as the cap, `limits.json` holds it, and a daemon started on that run folder sends 3. When the person presses "Use the default", the cap is 27 again and follows the proposal | `apps/desktop/test/daemon.test.ts`, with a reader given as an option |
+| 1. The proposal states its numbers | Given a reading of 36 GB, 12 cores of which 6 are performance cores, and 25.1 GB free, and no agent measured. When the person opens the Machine dialog. Then the agent row holds 6 and its sentence reads "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." Given the same memory and 32 performance cores, the row holds 27 and the sentence says the memory is the smaller | A case of `apps/desktop/test/machine.test.ts` on `shared/machine.ts`, and a built-app case of `apps/desktop/test/machine-dialog.test.ts` under `OWLERY_MACHINE` |
+| 2. The proposal follows the measurement | Given a reading of 8 GB and 8 performance cores, and five agents measured, the highest at 766 MB. Then the agent row proposes 5, from 4,096 MB ÷ 766 MB, and its sentence names 766 MB, "the highest of the last 5 agents measured here". Given four measured, it names 679 MB and proposes 6 | `machine.test.ts`, on the formula and on the store's twenty kept |
+| 3. A person changes a cap, and it stays | Given a proposal of 6. When the person types 3 and saves. Then every client is sent 3 as the cap, `limits.json` holds it, and a daemon started on that run folder sends 3. When the person presses "Use the default", the cap is 6 again and follows the proposal | `apps/desktop/test/daemon.test.ts`, with a reader given as an option |
 | 4. A session over the cap waits | Given a cap of 1 and one live Claude Code pane. When the person asks a headless session in a work item. Then the session is listed `queued`, no process starts, the work item's line reads "Waiting for the machine", and the status line counts 1 waiting | `daemon.test.ts` with the fake adapter, which counts its starts, and `apps/desktop/test/view.test.ts` on `lineText` and `daemonStatus` |
 | 5. The queue moves when a place frees | Given scenario 4. When the pane's process exits, or the person sets the cap to 2. Then the session starts, its `startedAt` is the time of the start, and its time limit counts from there | `daemon.test.ts`, with the clock given as an option |
 | 6. The order of the queue | Given a cap that is reached, then a chain's first stage, a stage of a running chain and a person's asked session, queued in that order. When places free one at a time. Then the asked session starts first, the running chain's stage second, the first stage last | `daemon.test.ts` and `apps/desktop/test/chain.test.ts` |
@@ -118,6 +120,7 @@ Out, each with its reason.
 | 13. A worktree is measured once | Given a work item whose setup's pane exits with 0. Then the daemon runs one `du` for its worktree and keeps the size with the work item. A restart runs none for it | `daemon.test.ts` with the reader's `sizeOf` counted, `apps/desktop/test/repositories.test.ts` on the stored field |
 | 14. More than four panes side by side | Given a pane cap of 6 and six tabs. When "Side by side" is pressed. Then the stage holds six tiles in three columns. Given a cap of 2, it holds two and the rest stay tabs | `view.test.ts` on `stageOf` with the cap, and a built-app case of `machine-dialog.test.ts` that reads `#stage`'s `data-tiles` and the tiles' rectangles |
 | 15. No constant holds the pane cap | After the build, `git grep -n 'STAGE_PANES' -- apps` prints nothing. At `07d5e853` it prints the lines *Grounding* states, which *Removes* row 1 names | The search, run again at the build's head |
+| 17. The performance cores fall back | Given a machine where `sysctl -n hw.perflevel0.physicalcpu` prints nothing, exits with an error or cannot be started, and 8 cores. Then the reading's `performanceCores` is 8. Given one where it prints `6`, it is 6 | `machine.test.ts`, on the reader with the `sysctl` call given to it |
 | 16. The cases do not read the runner | Given `OWLERY_MACHINE` set by the harness. Then a built-app case reads the same proposal on the owner's Mac and on the hosted runner | `machine-dialog.test.ts`, in the `check` job |
 
 ## Data & interfaces
@@ -131,6 +134,7 @@ Names are the builder's where the tree's own naming asks for another. The meanin
 export interface MachineReading {
   memoryBytes: number;        // os.totalmem(), read once at the daemon's start
   cores: number;              // os.availableParallelism(), read once
+  performanceCores: number;   // `/usr/sbin/sysctl -n hw.perflevel0.physicalcpu` on macOS, read once; `cores` where it gives no whole number above 0, does not run, and off macOS
   load: number;               // os.loadavg()[0], read at each ask
   disk: { freeBytes: number; totalBytes: number } | null; // fs.statfs of the worktrees' folder, or of the nearest folder above it that stands; null where none answers
 }
@@ -138,7 +142,8 @@ export interface MachineReading {
 export interface Machine {
   reading: MachineReading;
   /** `queue` holds the queued headless sessions by id, in the order they will start. */
-  agents: { proposed: number; set: number | null; running: number; perAgentBytes: number; measured: number; queue: number[] };
+  /** `byCores` and `byMemory` are the two numbers the proposal is the smaller of. */
+  agents: { proposed: number; byCores: number; byMemory: number; set: number | null; running: number; perAgentBytes: number; measured: number; queue: number[] };
   worktrees: { proposed: number | null; set: number | null; standing: number; perWorktreeBytes: number | null; keepFreeBytes: number };
   panes: { proposed: number; set: number | null };
 }
@@ -151,13 +156,13 @@ export interface Machine {
 - `adapters/adapter.ts#RoleRun` gains `pid: number | undefined`, the agent's own process, and the fake adapter gives none.
 - The stored work item (`daemon/repositories.ts`) gains the worktree's measured size in kilobytes and the time of the measure.
 - `limits.json` in the run folder holds the caps a person set under the keys `agents`, `worktrees` and `panes`, as in `{ "agents": 3 }`. An absent key follows the default, and a value the daemon would refuse from `setCaps` is read as absent. `agent-memory.json` beside it holds the kept measures in kilobytes. Both are written whole through `daemon/whole-file.ts`, readable by the user alone.
-- `OWLERY_MACHINE` holds the text of a JSON object with `memoryBytes`, `cores`, `freeBytes` and `totalBytes`. A value that is no such object stops the daemon's start with a sentence, as an unset `OWLERY_RUN_DIR` does.
+- `OWLERY_MACHINE` holds the text of a JSON object with `memoryBytes`, `cores`, `performanceCores`, `freeBytes` and `totalBytes`. A value that is no such object stops the daemon's start with a sentence, as an unset `OWLERY_RUN_DIR` does.
 
 **The seam with #134.** The design of `1795559735-heavy-commands-wait-their-turn` was read in its worktree on 2026-11-25, uncommitted and without a plan, so what follows is that text as it stood and this frame's default, not an agreement.
 
 Both designs name the same things, and this one takes the other's names where they differed: the module `daemon/machine.ts` with `readMachine()`, the reading's fields `cores`, `memoryBytes` and `load`, the store `limits.json` with one key for each limit, `ready.machine`, the message `machine`, the client message `readMachine`, the dialog "Machine" at the sidebar's foot with "Use the default", the case file `apps/desktop/test/machine.test.ts`, the built-app file `apps/desktop/test/machine-dialog.test.ts`, and the line's words "Waiting for the machine (2 ahead)". #134's design reads total memory and all the cores, as this one does.
 
-One reading serves both: `cores`, `memoryBytes`, `load` and `disk`. **This work item owns it**: the reader, the store, the message and the dialog are whole lines of this issue's *Done when*. #134 adds `heavyCommands` to the store, its limit, its queue and its runs to `Machine`, its rows to the dialog, and the field `WorkItem.machineWait`. The window words a line that waits from either source in the same form. #134's design says that issue #32 "adds the free disk of a folder to the same reading" and "adds its keys", which reads as #134 building these first. Because the names agree, the other order costs this work item only that its phase 1 adds to what stands. `frame/plan.md` *Overlap with the release* states the order this frame proposes, and the orchestrator settles it between the two frames.
+One reading serves both: `cores`, `memoryBytes`, `load` and `disk`, which both designs read, and `performanceCores`, which this work alone reads, for the agent cap. #134's design divides its limit from `cores` and needs nothing of the new field. **This work item owns it**: the reader, the store, the message and the dialog are whole lines of this issue's *Done when*. #134 adds `heavyCommands` to the store, its limit, its queue and its runs to `Machine`, its rows to the dialog, and the field `WorkItem.machineWait`. The window words a line that waits from either source in the same form. #134's design says that issue #32 "adds the free disk of a folder to the same reading" and "adds its keys", which reads as #134 building these first. Because the names agree, the other order costs this work item only that its phase 1 adds to what stands. `frame/plan.md` *Overlap with the release* states the order this frame proposes, and the orchestrator settles it between the two frames.
 
 ## Rule changes
 
@@ -184,12 +189,12 @@ One reading serves both: `cores`, `memoryBytes`, `load` and `disk`. **This work 
 - add
   file: docs/architecture.md
   section: Memory design
-  to: **The daemon reads the machine at its start and proposes each cap with the numbers it used.** It reads the memory, the cores and the free disk of the worktrees' folder. The cap on agents is half of the memory divided by what one agent's own process uses: 679 MB until the daemon has measured five agents on this machine, and then the highest value among the last twenty it measured. It measures while an agent lives, once a minute. The cap on worktrees is the worktrees that stand plus the free disk less 10 GB, divided by the largest worktree measured there, and nothing is proposed until one is measured. A cap a person sets is the daemon's state, kept in its run folder and sent to every client, and it stays until the person returns it to the proposal.
+  to: **The daemon reads the machine at its start and proposes each cap with the numbers it used.** It reads the memory, the cores, the performance cores and the free disk of the worktrees' folder. The cap on agents is the smaller of the performance cores and half of the memory divided by what one agent's own process uses: 679 MB until the daemon has measured five agents on this machine, and then the highest value among the last twenty it measured. The performance cores are what macOS gives under `hw.perflevel0.physicalcpu`, and all the cores where it gives none. It measures while an agent lives, once a minute. The cap on worktrees is the worktrees that stand plus the free disk less 10 GB, divided by the largest worktree measured there, and nothing is proposed until one is measured. A cap a person sets is the daemon's state, kept in its run folder and sent to every client, and it stays until the person returns it to the proposal.
     check: apps/desktop/test/machine.test.ts apps/desktop/test/daemon.test.ts
 - add
   file: docs/architecture.ko.md
   section: 메모리 설계
-  to: **데몬은 시작할 때 컴퓨터를 읽고, 상한마다 제안값을 그 값에 쓴 수치와 함께 냅니다.** 읽는 것은 메모리, 코어, 그리고 worktree 폴더의 남은 디스크입니다. 에이전트 상한은 메모리의 절반을 에이전트 하나의 프로세스가 쓰는 양으로 나눈 값입니다. 그 양은 데몬이 이 컴퓨터에서 에이전트 다섯을 잴 때까지 679 MB이고, 그 뒤로는 마지막으로 잰 스물 가운데 가장 큰 값입니다. 데몬은 에이전트가 살아 있는 동안 1분에 한 번 잽니다. worktree 상한은 지금 있는 worktree 수에, 남은 디스크에서 10 GB를 뺀 값을 이 컴퓨터에서 잰 가장 큰 worktree로 나눈 수를 더한 값이고, 하나를 잴 때까지는 제안하지 않습니다. 사람이 정한 상한은 데몬의 상태입니다. 데몬의 실행 폴더에 두고 모든 클라이언트에 보내며, 사람이 제안값으로 되돌릴 때까지 그대로입니다.
+  to: **데몬은 시작할 때 컴퓨터를 읽고, 상한마다 제안값을 그 값에 쓴 수치와 함께 냅니다.** 읽는 것은 메모리, 코어, 성능 코어, 그리고 worktree 폴더의 남은 디스크입니다. 에이전트 상한은 성능 코어 수와, 메모리의 절반을 에이전트 하나의 프로세스가 쓰는 양으로 나눈 값 가운데 작은 쪽입니다. 성능 코어 수는 macOS가 `hw.perflevel0.physicalcpu`로 주는 값이고, macOS가 그 값을 주지 않으면 전체 코어 수입니다. 그 양은 데몬이 이 컴퓨터에서 에이전트 다섯을 잴 때까지 679 MB이고, 그 뒤로는 마지막으로 잰 스물 가운데 가장 큰 값입니다. 데몬은 에이전트가 살아 있는 동안 1분에 한 번 잽니다. worktree 상한은 지금 있는 worktree 수에, 남은 디스크에서 10 GB를 뺀 값을 이 컴퓨터에서 잰 가장 큰 worktree로 나눈 수를 더한 값이고, 하나를 잴 때까지는 제안하지 않습니다. 사람이 정한 상한은 데몬의 상태입니다. 데몬의 실행 폴더에 두고 모든 클라이언트에 보내며, 사람이 제안값으로 되돌릴 때까지 그대로입니다.
     check: apps/desktop/test/machine.test.ts apps/desktop/test/daemon.test.ts
 - add
   file: docs/architecture.md
