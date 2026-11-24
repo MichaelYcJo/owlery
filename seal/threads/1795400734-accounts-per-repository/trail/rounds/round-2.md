@@ -61,6 +61,12 @@ it("sends the accounts again once the adapter's lookup finds System default's fo
 });
 ```
 
+```seal
+verdict: fixed db4bf75
+location: `apps/desktop/src/daemon/daemon.ts`, `apps/desktop/src/shared/protocol.ts`, `apps/desktop/test/accounts.test.ts`
+answer: Applied the record's fix: `readAgentNotice` reads System default's `conversations` before it awaits the adapter's notice and again after it, and calls `broadcastAccounts()` where the two differ, before the notice's own early return, and its docstring says so. The record's case stands beside the conversations case of `accounts.test.ts`; before the fix no `accounts` message came and the wait timed out with the client holding only `ready` (red), and the whole file, 43 cases, passes after it. Its mutation, the broadcast line removed, went red. The protocol's comment on `Account.conversations` now says the daemon sends the accounts again once the lookup changed System default's value.
+```
+
 ### 2. In a work item's view, the new account menus squeeze the pane tabs out of the bar and shrink the Ask field, as the committed screenshots show
 
 ```seal
@@ -80,6 +86,12 @@ The Ask row's fix is a change of flex values. The pane bar has no room for the s
 #ask-form input { flex: 1; min-width: 12em; }
 #ask-account { flex: 0 1 auto; min-width: 0; max-width: var(--tab-width); height: var(--control-height); font-size: var(--size-second); }
 /* #pane-account: placed where the frame decides, so the rule at line 512 names it alone or leaves it */
+```
+
+```seal
+verdict: fixed f325781
+location: `apps/desktop/src/renderer/work-item-view.ts`, `apps/desktop/src/renderer/view.ts`, `apps/desktop/test/view.test.ts`, `seal/threads/1795400734-accounts-per-repository/changelog.md`, `seal/threads/1795400734-accounts-per-repository/gaps.md`, `seal/threads/1795400734-accounts-per-repository/screenshots`
+answer: Built the frame's decision at `1aeb9fa`: `#pane-account`, its name in the rule and its reader in `work-item-view.ts` are gone, and the Ask row has the record's CSS. A press of a button that opens a pane sends no `accountId`, so the pane runs under the work item's account; a right-click on a button of a kind whose `accounts` is true opens the window's own menu (`menu.ts#openMenu`), whose first item is "The work item's (<name>)", named as the Ask row's first choice, followed below a rule by each other account, and the item chosen opens that one pane under its account. The button's tooltip says "Right-click to open it under another account" after any hint of its own. `view.ts#newPaneMenu` and `#paneButtonTitle` hold the items and the tooltip, and the new case of `view.test.ts` pins both; before them the case failed with `newPaneMenu` not a function (red), and 7 of 7 mutations went red. The changelog now says where a new pane's account is chosen. The app was built and the screenshot run ran alone after no other run was found: 1 case passed and 22 files were written, and the four the frame names, view and menu in Night watch dark and light, were replaced in `927f12d7acc783046645aa608e683e0f5387d623`. In the view shot at 1440 by 900 the pane bar shows "Back of the seal", "Setup" and "Claude Code" whole, each pane's tab with its close mark. The Ask field is about 155 px wide, against about 110 px in this round's shot and about 330 px in #181's: the record's CSS holds the field at its `min-width: 12em` while the select keeps its `max-width`, so the frame's sentence that the field stands near its width before this work does not hold at this size, which is the frame's to judge. The menu shot shows the work item's menu over the inbox, where no pane bar stands.
 ```
 
 ## Confirmations
