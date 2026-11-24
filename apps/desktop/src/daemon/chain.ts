@@ -38,7 +38,7 @@ import { repositoryFileText } from "./repository-file";
 import { REFUSAL_RULES, type RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
 import { GATE_FILE, GUARANTEE_FILE, type Verdict, readGate, readGuarantee, runHeading } from "./seal-records";
-import { commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits } from "./worktrees";
+import { baseRef, commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits, sharedCommit } from "./worktrees";
 
 /** How many of a chain's stages the daemon keeps with its work item, the newest. A chain of two rounds and one fix pass is three, and each round after them adds two or three. */
 export const CHAIN_STAGES_KEPT = 50;
@@ -212,7 +212,7 @@ export interface Standing {
   reversals: Reversal[];
   /** The branch's head, whole. */
   head: string;
-  /** What round 1's target names the branch against (`roundBase`). */
+  /** What round 1's target names the branch against: the base round 1's record names where the head holds that record, and otherwise the base the reader was given (`roundBase`). */
   base: string;
   /** The paths the commits after the last record's target changed, from the worktree's top. */
   changed: string[];
@@ -240,6 +240,68 @@ export interface Standing {
 export function roundBase(baseBranch: string | null, baseCommit: string | null, head: string): string {
   return baseBranch !== null && ROUND_BASE.test(baseBranch) ? baseBranch : (baseCommit ?? head);
 }
+
+/**
+ * The base a chain reads a branch against, in the three forms its stages
+ * take it in, and as a branch where it is one.
+ */
+export interface ChainBase {
+  /** What round 1's target and a verdict's name the branch against: a base's name the `target:` line takes, or a commit. */
+  named: string;
+  /** The base's commit, whole, which a run of the broad gate names and the commits of the base stand at or before. Null where the chain has none. */
+  commit: string | null;
+  /** What git reads the branch against for round 1's diff and the sealer's: a name that names a commit in the worktree. */
+  reads: string;
+  /** The base as a branch's name, which a pull request is opened against, or null where the base is no branch. */
+  branch: string | null;
+}
+
+/**
+ * The base round 1's record names, as the commit `head` holds the record in
+ * the work item's directory, a folder of the worktree: what follows
+ * `against` on its `target:` line. Null where the head holds no such record
+ * or the record's round block does not read.
+ */
+export async function recordedBase(worktree: string, directory: string, head: string): Promise<string | null> {
+  const text = await fileAt(worktree, head, join(relative(worktree, directory), ROUNDS_FOLDER, roundFile(1)));
+  return text === null ? null : (readRoundRecord(text).target?.base ?? null);
+}
+
+/**
+ * The base a chain reads the branch against at the commit `head`: the base
+ * round 1's record names (`recorded`), where the head holds that record and
+ * the name still names a commit, and otherwise `stated`, the base the
+ * caller holds, from the work item the daemon stores or from the chain
+ * command's option. So a branch that was moved onto another base is read
+ * against the base its first round read it against, whatever the work item
+ * stores. A recorded base's commit is the commit the base and the head last
+ * shared, and it is a branch where a base of that name stands
+ * (`worktrees.ts#baseRef`).
+ */
+export async function baseOf(worktree: string, head: string, recorded: string | null, stated: ChainBase): Promise<ChainBase> {
+  if (recorded === null || (await commitNamed(worktree, recorded)) === null) return stated;
+  return { named: recorded, commit: await sharedCommit(worktree, recorded, head), reads: recorded, branch: (await baseRef(worktree, recorded)) === null ? stated.branch : recorded };
+}
+
+/**
+ * Why a chain has no base to read the branch against at the commit `head`,
+ * as a sentence, or null where it has one: the base's commit is no ancestor
+ * of the head, as after the branch was reset onto another line, or the base
+ * and the head share no commit. `how` is the sentence that says how another
+ * base is named, which ends the reason. A base with no commit is refused by
+ * the stage that needs one.
+ */
+export async function whyNoBase(worktree: string, head: string, base: ChainBase, how: string): Promise<string | null> {
+  if (base.commit !== null && !(await holdsCommit(worktree, head, base.commit))) return `The branch no longer holds ${base.commit.slice(0, 7)}, the commit its chain reads it against, so a round has no base to read the branch against. ${how}`;
+  if ((await commitNamed(worktree, base.reads)) !== null && (await sharedCommit(worktree, base.reads, head)) === null) return `The branch and its base ${base.named} share no commit, so a round has no base to read the branch against. ${how}`;
+  return null;
+}
+
+/** How another base is named for a chain of the daemon whose branch left its stored base, before round 1's record stands: the sentence that ends `whyNoBase`'s reason there. */
+export const BASE_NAMED_IN_A_PANE = "Name the base in a Claude Code pane of the work item, with `--base <branch or commit>` on the chain command's `owed` and `round`: round 1's record then names it, and every later start follows that record.";
+
+/** What ends `whyNoBase`'s reason where round 1's record names the base the branch left. */
+export const BASE_RECORDED = "Round 1's record names that base, and a chain follows the record: bring the branch back onto it.";
 
 /** The stage a chain runs next, or the state it rests in. */
 export type Step =
@@ -378,7 +440,9 @@ function firstRefusal(record: Pick<RoundRecord, "refusals">, what: string): stri
 /**
  * What the order reads of a work item, in its worktree: each round record of
  * the directory as the commit `head` holds it, the record of decisions and
- * questions where `decisionsAt` says, the paths the commits after the last
+ * questions where `decisionsAt` says, the base, which is the one round 1's
+ * record names where the head holds that record and `base` otherwise, the
+ * paths the commits after the last
  * record's target changed, the gate's commit with the paths that differ
  * between it and the head, from the gate's record as the commit `head`
  * holds it, and the verdicts of the guarantee as that commit holds it. A
@@ -435,7 +499,8 @@ export async function standingOf(worktree: string, directory: string, head: stri
     openQuestion: decisions?.questions.some((question) => question.state.is === "open") ?? false,
     reversals: (decisions?.decisions ?? []).flatMap(({ id, decided, state }) => (state.is === "reversed" ? [{ id, decided, message: state.message }] : [])),
     head,
-    base,
+    // The base follows the records: once round 1's record stands, the base it names is the chain's, whatever the caller holds.
+    base: rounds.find(({ round }) => round === 1)?.target.base ?? base,
     changed,
     directory: from(directory),
     gateCommit,

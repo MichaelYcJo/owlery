@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
 import {
+  BASE_NAMED_IN_A_PANE,
   CHAIN_STAGES_KEPT,
   ChainStop,
   PROMPT_DIFF_CHARS,
@@ -1445,6 +1446,21 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const second = { ...stood, c };
       await refusedWith(second, a.id, "The work item records no commit its branch was cut at, so a round has no base to read the branch against.", stands(a.worktree));
       await refusedWith(second, b.id, "The branch holds no commit after its base, so a round has nothing to read.", stands(b.worktree));
+    });
+
+    it("refuses a work item whose branch left its base, with a sentence that names the commit it was cut at and says how a base is named, and writes nothing: a branch reset onto a line that does not hold that commit", async () => {
+      const stood = await standing(cleanups, ["Moved"]);
+      const a = stood.workItems[0]!;
+      // Another line from the repository's first commit, with the records root brought onto it, which does not hold the commit the work item's branch was cut at.
+      git(stood.made.repo, "checkout", "--quiet", "-b", "aside", "main~1");
+      git(stood.made.repo, "checkout", "--quiet", "main", "--", "seal");
+      write(stood.made.repo, "aside.txt", "Aside\n");
+      const aside = commitAll(stood.made.repo, "feat: aside");
+      git(stood.made.repo, "checkout", "--quiet", "main");
+      git(a.worktree, "reset", "--quiet", "--hard", aside);
+      write(a.worktree, "feature.txt", "A greeting\n");
+      commitAll(a.worktree, "feat: greet again");
+      await refusedWith(stood, a.id, `The branch no longer holds ${a.baseCommit.slice(0, 7)}, the commit its chain reads it against, so a round has no base to read the branch against. ${BASE_NAMED_IN_A_PANE}`, stands(a.worktree));
     });
 
     it("refuses where the adapter does not declare both features of a role, and where the work item's record holds an open question", async () => {
@@ -3023,6 +3039,25 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     const checked = git(a.worktree, "rev-parse", "HEAD~1").trim();
     expect(branchesOf(remote)).toEqual([`${a.branch} ${checked}`]);
     expect(c.workItem(a.id)?.pullRequest?.pushed).toBe(checked);
+  });
+
+  it("follows the base round 1's record names, whatever base the work item stores: the sealer's target names it, and the pull request is opened against it", async () => {
+    const targets: string[] = [];
+    const { c, workItems, made, gh } = await standing(cleanups, ["Rebased work"], { roleAdapter: roles({ sealer: (given) => (targets.push(given.target), sealSection(given)) }) });
+    const a = workItems[0]!;
+    expect(a.baseBranch).toBe("main");
+    // The records of a first round that a pane's chain ran against another base: the routing, and round 1 with no finding, whose target names `release/x`.
+    git(made.repo, "branch", "release/x", "main");
+    const directory = "seal/threads/1795388700-rebased-work";
+    write(a.worktree, `${directory}/routing.md`, routingText("1795388700-rebased-work", a.branch, TODAY));
+    const routed = commitAll(a.worktree, "chore: declare the work item's routing");
+    write(a.worktree, `${directory}/trail/rounds/round-1.md`, roundRecord("# Review round 1: 1795388700-rebased-work", `${routed} against release/x`));
+    const gate = commitAll(a.worktree, "chore: record review round 1");
+    expect(await c.startChain(a.id)).toBe("done");
+    await c.chain(a.id, "rested");
+    expect(targets).toEqual([`${gate} against release/x`]);
+    const create = gh.calls().find((call) => call[1] === "create") ?? [];
+    expect(create.slice(create.indexOf("--base"))).toEqual(["--base", "release/x"]);
   });
 
   it("pushes the sealed branch to its remote and opens its pull request through gh: a list, a create with the branch, the base, the title and a body that opens with the seal section, then a view; the work item carries the pull request, the stage commits nothing, and the chain rests with the pull request's number", async () => {

@@ -15,36 +15,31 @@ import { OutputBuffer } from "./buffer";
 import { NOTHING_RECORDED, readChainRecords } from "./chain-records";
 import {
   type Ask,
-  BUILT_BY_TRAILER,
+  BASE_NAMED_IN_A_PANE,
+  BASE_RECORDED,
+  type ChainBase,
   CHAIN_STAGES_KEPT,
   ChainStop,
-  GATE_SUBJECT,
   OPEN_PULL_REQUEST,
   ORCHESTRATOR,
   PARKED_SAYS,
   READING_SAYS,
-  REFUSALS_FILE,
   ROUNDS_CEILING,
-  ROUNDS_FOLDER,
   SEALER,
   SEAL_RULING_SUBJECT,
   UNDECIDED_CEILING,
-  VERDICT_SUBJECT,
   type RefusedCall,
   type StagePrompt,
   type StageRefusals,
   StageStopped,
   type Standing,
   type Step,
-  asksOf,
+  baseOf,
   ceilingSays,
   chainStoppedSays,
   convergenceDecided,
   convergenceOf,
   convergencePrompt,
-  fixPassPrompt,
-  fixPassRecord,
-  fixedCommitsHeld,
   gateBefore,
   gateNotRunSays,
   inFolder,
@@ -58,25 +53,21 @@ import {
   pullRequestCarriesSays,
   pullRequestOpenSays,
   pullRequestOwed,
-  refusalsText,
+  recordedBase,
   roundBase,
-  roundFile,
-  roundPrompt,
-  roundRecordOf,
-  routingText,
   rulingPrompt,
   rulingsOf,
   runningSays,
-  sealPrompt,
   sealedSays,
   standingOf,
   stepOwed,
   stoppedSays,
   undecidedAsk,
   undecidedParked,
+  whyNoBase,
   withheldSays,
 } from "./chain";
-import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
+import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
@@ -87,15 +78,15 @@ import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { writeRecordFile } from "./record-writer";
-import { THE_SESSION, isSessionId } from "./record-blocks";
+import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
-import { GATE_FILE, GUARANTEE_FILE, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
+import type { Verdict } from "./seal-records";
 import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, holdsCommit, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, trailerValues, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
@@ -2121,8 +2112,11 @@ export class Daemon {
    * round would be spent for nothing; two directories
    * of its records name the branch; it holds a change no commit holds, or an
    * untracked file, outside the work item's directory, and anywhere where
-   * the work item has no directory yet; the work item records no base
-   * commit; its branch holds no commit after it; the adapter cannot launch a
+   * the work item has no directory yet; the branch left the base its chain
+   * reads it against (`chain.ts#whyNoBase`), which is the base round 1's
+   * record names where one stands and the work item's stored base
+   * otherwise; the chain has no base commit; its branch holds no commit
+   * after it; the adapter cannot launch a
    * role; the work item's record holds an open question. It throws where
    * the record stands and cannot be read (`repository-file.ts#repositoryFileText`).
    * It writes nothing and starts nothing.
@@ -2130,7 +2124,7 @@ export class Daemon {
   private async whyNoChain(workItemId: number): Promise<string | null> {
     const held = this.store.workItem(workItemId);
     if (!held) return `no work item ${String(workItemId)}`;
-    const { worktree, branch, baseCommit } = held.item;
+    const { worktree, branch } = held.item;
     if (this.chains.has(workItemId)) return `The chain of work item ${String(workItemId)} is already running.`;
     if (this.works(workItemId)) return `A session of work item ${String(workItemId)} is working, and a round reads a tree nothing is changing. Its chain can start once the session has finished.`;
     const why = await whyNoCommit(worktree, branch);
@@ -2144,8 +2138,13 @@ export class Daemon {
     const inside = directory === undefined ? null : relative(worktree, directory);
     const loose = (await uncommittedPaths(worktree)).filter((path) => inside === null || !inFolder(path, inside));
     if (loose.length > 0) return `The worktree holds a change no commit holds, at ${loose[0] ?? ""}${loose.length > 1 ? ` and ${String(loose.length - 1)} more` : ""}. A round reads a committed tree: commit the change or remove it first.`;
-    if (baseCommit === null) return "The work item records no commit its branch was cut at, so a round has no base to read the branch against.";
-    const ahead = await newCommits(held.repository.folder, branch, baseCommit);
+    const head = await worktreeHead(worktree);
+    const recorded = directory === undefined ? null : await recordedBase(worktree, directory, head);
+    const base = await this.chainBase(held.item, directory ?? null, head);
+    const left = await whyNoBase(worktree, head, base, recorded === null ? BASE_NAMED_IN_A_PANE : BASE_RECORDED);
+    if (left !== null) return left;
+    if (base.commit === null) return "The work item records no commit its branch was cut at, so a round has no base to read the branch against.";
+    const ahead = await newCommits(held.repository.folder, branch, base.commit);
     if (ahead === null) return "Git could not count the commits the branch holds after its base.";
     if (ahead === 0) return "The branch holds no commit after its base, so a round has nothing to read.";
     const lacks = ROLE_FEATURES.filter((feature) => !this.options.roleAdapter.features.includes(feature));
@@ -2209,23 +2208,25 @@ export class Daemon {
         if (gone !== null) throw new ChainStop(gone);
         const held = this.store.workItem(workItemId);
         if (!held) return;
-        const { worktree, branch, baseBranch, baseCommit } = held.item;
+        const { worktree, branch } = held.item;
         const why = await whyNoCommit(worktree, branch);
         if (why !== null) throw new ChainStop(why);
         const directory = await this.chainDirectory(held);
         const head = await worktreeHead(worktree);
-        const standing = await standingOf(worktree, directory, head, roundBase(baseBranch, baseCommit, head), "worktree");
+        // The base follows the records: round 1's record names it once it stands, and the work item's stored base before that.
+        const base = await this.chainBase(held.item, directory, head);
+        const standing = await standingOf(worktree, directory, head, base.named, "worktree");
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
         // The step `sealed` owes the pull request stage where the routing sends the work to one and the stored pull request does not carry the head.
-        if (step.is === "sealed") return rest("rested", (await this.runPullRequest(held, directory, standing, step)) ?? sealedSays(step.round, step.at));
-        if (step.is === "gate") await this.runGate(held, directory, standing, step.round);
+        if (step.is === "sealed") return rest("rested", (await this.runPullRequest(held, directory, standing, step, base)) ?? sealedSays(step.round, step.at));
+        if (step.is === "gate") await this.runGate(held, directory, standing, step.round, base);
         else if (step.is === "seal") {
-          const withheld = await this.runSeal(held, directory, standing, step);
+          const withheld = await this.runSeal(held, directory, standing, step, base);
           if (withheld !== null) return rest("stopped", withheldSays(withheld));
         } else if (step.is === "round") {
-          const asks = await this.runRound(held, directory, standing, step);
+          const asks = await this.runRound(held, directory, standing, step, base);
           if (asks.length > 0) await this.runRuling(held, directory, standing.directory, "round", step.round, "proofer", asks);
         } else {
           const stages = this.store.workItem(workItemId)?.item.chain?.stages ?? [];
@@ -2258,79 +2259,39 @@ export class Daemon {
     }
   }
 
-  /**
-   * The work item's directory in its worktree, for a chain: the one whose
-   * `routing.md` names the branch. Where none does, it makes one,
-   * `<root>/threads/<seconds>-<slug>/`, from the daemon's clock in whole
-   * seconds and the slug of the branch's last part, writes its `routing.md`
-   * (`chain.ts#routingText`) through the writer of a work item's records and
-   * commits that file alone, so the first round's target holds it. It throws
-   * a `ChainStop` where two directories name the branch, where the worktree
-   * holds no records root, where the new directory's name is taken, and
-   * what the writer and the commit throw. A directory whose routing does not
-   * read as naming the branch, as for a branch's name with a `|` in it, is
-   * found by no later step, and the chain then stops on the taken name.
-   */
-  private async chainDirectory({ item }: Held): Promise<string> {
+  /** The work item's directory in its worktree, for a chain, made and committed with its `routing.md` where none names the branch (`stage-records.ts#declaredDirectory`), from the daemon's clock and in the worktree's turn. */
+  private chainDirectory({ item }: Held): Promise<string> {
     const { worktree, branch } = item;
-    const directories = workItemDirectories(worktree, branch);
-    const [found] = directories;
-    if (directories.length > 1) throw new ChainStop(`two directories of the worktree's records name the branch ${branch}`);
-    if (found !== undefined) return found;
-    const root = rootOf(worktree);
-    if (root === null) throw new ChainStop("the worktree holds no place for work records");
-    const now = (this.options.now ?? Date.now)();
-    const name = `${String(Math.floor(now / 1000))}-${slugFor(branch.slice(branch.lastIndexOf("/") + 1)) || "work-item"}`;
-    const directory = join(worktree, root, "threads", name);
-    const file = join(directory, ROUTING_FILE);
-    if (existsSync(directory)) throw new ChainStop(`${relative(worktree, directory)} stands already, and its routing names another branch`);
-    const at = new Date(now);
-    // The day as the person's own clock has it, which is the day the chain first started.
-    const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`);
-    await this.chainCommit(item, directory, [file], "chore: declare the work item's routing", { write: () => writeRecordFile(worktree, file, text) });
-    return directory;
+    return declaredDirectory(worktree, branch, (this.options.now ?? Date.now)(), (act) => this.inWorktree(worktree, act));
   }
 
-  /**
-   * Makes one commit of a chain in a work item's worktree, after every
-   * commit that was asked for there before it: it runs `write`, appends
-   * one row to `trail/refusals.md` for each call the stage's role's rule
-   * refused (`chain.ts#refusalsText`), then commits the files given, each a
-   * file of the work item's directory, with the work item's record of
-   * decisions and its refusals where each stands, together and nothing else
-   * (`worktrees.ts#commitPaths`), with the subject given, the trailer
-   * `Seal-Routing:` that names the directory, and below it each trailer the
-   * stage gives. It throws a `ChainStop` with
-   * what a write refused, or with git's first words where the commit
-   * failed, a hook's refusal among them: the files then stand written and
-   * not committed.
-   */
+  /** Makes one commit of a chain in a work item's worktree (`stage-records.ts#commitRecords`), after every commit that was asked for there before it. */
   private chainCommit(item: Held["item"], directory: string, files: readonly [string, ...string[]], subject: string, stage: { write?: () => void; refused?: StageRefusals; trailers?: readonly string[] } = {}): Promise<void> {
-    const { worktree, branch } = item;
-    return this.inWorktree(worktree, async () => {
-      const record = join(directory, RECORD_FILE);
-      const refusals = join(directory, REFUSALS_FILE);
-      try {
-        stage.write?.();
-        if (stage.refused !== undefined && stage.refused.calls.length > 0) writeRecordFile(worktree, refusals, refusalsText(repositoryFileText(refusals), basename(directory), stage.refused));
-      } catch (error) {
-        throw new ChainStop(error instanceof Error ? error.message : String(error));
-      }
-      const [first, ...others] = [...new Set([...files, ...[record, refusals].filter((file) => existsSync(file))])].map((file) => relative(worktree, file));
-      try {
-        await commitPaths(worktree, branch, [first ?? "", ...others], subject, [`Seal-Routing: ${basename(directory)}`, ...(stage.trailers ?? [])]);
-      } catch (error) {
-        const [said] = (error instanceof Error ? error.message : String(error)).split("\n");
-        throw new ChainStop(`${relative(worktree, files[0])} was written and not committed: ${said ?? ""}`);
-      }
-    });
+    return commitRecords(this.placeOf(item, directory), files, subject, stage, this.turnOf(item));
   }
 
-  /** Throws a `ChainStop` where the worktree holds a change no commit holds, or an untracked file, outside the work item's directory. */
-  private async noChangeOutside(worktree: string, directory: string): Promise<void> {
-    const inside = relative(worktree, directory);
-    const loose = (await uncommittedPaths(worktree)).filter((path) => !inFolder(path, inside));
-    if (loose.length > 0) throw new ChainStop(`the worktree holds a change no commit holds outside the work item's directory, at ${loose[0] ?? ""}${loose.length > 1 ? ` and ${String(loose.length - 1)} more` : ""}`);
+  /** Where a work item's records are written, as the module of a stage's records takes it. */
+  private placeOf(item: Held["item"], directory: string): Place {
+    return { worktree: item.worktree, branch: item.branch, directory };
+  }
+
+  /** The turn of a work item's worktree, which a record's commit takes: after every commit of a person's word that was asked for there (`inWorktree`). */
+  private turnOf(item: Held["item"]): InTurn {
+    return (act) => this.inWorktree(item.worktree, act);
+  }
+
+  /**
+   * The base a work item's chain reads its branch against at the head given
+   * (`chain.ts#baseOf`): the one round 1's record names, where the head
+   * holds that record in the work item's directory, and otherwise the one
+   * the work item stores, which git reads as the base branch where that
+   * names a commit and as the commit the branch was cut at where it does
+   * not. `directory` is null for a work item with no directory yet.
+   */
+  private async chainBase(item: Held["item"], directory: string | null, head: string): Promise<ChainBase> {
+    const { worktree, baseBranch, baseCommit } = item;
+    const reads = (baseBranch !== null && (await commitNamed(worktree, baseBranch)) !== null ? baseBranch : baseCommit) ?? head;
+    return baseOf(worktree, head, directory === null ? null : await recordedBase(worktree, directory, head), { named: roundBase(baseBranch, baseCommit, head), commit: baseCommit, reads, branch: baseBranch });
   }
 
   /**
@@ -2389,23 +2350,10 @@ export class Daemon {
    * the questions the answer asks above its record (`chain.ts#asksOf`), and
    * an `asks:` block the reader refuses fails the stage as well.
    */
-  private async runRound({ item }: Held, directory: string, standing: Standing, step: Extract<Step, { is: "round" }>): Promise<Ask[]> {
-    const { worktree } = item;
-    // Round 1 reads the branch from where it left its base, and a verifying round the commits after the last target.
-    const base = step.from === null ? ((item.baseBranch !== null && (await commitNamed(worktree, item.baseBranch)) !== null ? item.baseBranch : item.baseCommit) ?? standing.head) : step.from;
-    const { paths, text } = await diffBetween(worktree, base, standing.head, step.from === null);
-    const prompt = roundPrompt({ round: step.round, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(directory, RECORD_FILE)), paths, diff: text });
-    const file = join(directory, ROUNDS_FOLDER, roundFile(step.round));
-    return this.runStage(item.id, "round", step.round, { role: "proofer", stage: "round" }, worktree, prompt, async (answer, refused) => {
-      const record = roundRecordOf(answer, { round: step.round, workItem: basename(directory), target: step.target, earlier: standing.rounds });
-      // The record's reader refused a record that holds an `asks:` block, so each question stands above the record's heading.
-      const asks = asksOf(answer);
-      const head = await worktreeHead(worktree);
-      if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the round, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the round read another tree than its target`);
-      await this.noChangeOutside(worktree, directory);
-      await this.chainCommit(item, directory, [file], `chore: record review round ${String(step.round)}`, { write: () => writeRecordFile(worktree, file, record), refused });
-      return asks;
-    });
+  private async runRound({ item }: Held, directory: string, standing: Standing, step: Extract<Step, { is: "round" }>, base: ChainBase): Promise<Ask[]> {
+    const place = this.placeOf(item, directory);
+    const prompt = await roundStage(place, standing, step, base);
+    return this.runStage(item.id, "round", step.round, { role: "proofer", stage: "round" }, item.worktree, prompt, (answer, refused) => recordRound(place, standing, step, answer, refused, this.turnOf(item)));
   }
 
   /**
@@ -2430,28 +2378,15 @@ export class Daemon {
    */
   private async runFixPass(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "fix-pass" }>, second: boolean): Promise<Ask[]> {
     const { item } = held;
-    const { worktree } = item;
-    const file = join(directory, ROUNDS_FOLDER, roundFile(step.round));
-    const target = standing.rounds.at(-1)?.target.commit ?? standing.head;
-    const committed = (await fileAt(worktree, standing.head, relative(worktree, file))) ?? "";
-    const prompt = fixPassPrompt({ round: step.round, directory: standing.directory, open: step.open, reversals: step.reversals });
-    return this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, worktree, prompt, async (answer, refused, named) => {
-      const asks = asksOf(answer);
-      const head = await worktreeHead(worktree);
-      await this.noChangeOutside(worktree, directory);
-      const left = repositoryFileText(file);
-      if (left === null) throw new ChainStop(`the round record no longer stands at ${relative(worktree, file)}`);
-      const { closes, open } = fixPassRecord(committed, left);
-      await fixedCommitsHeld(worktree, closes, head, target);
-      // Each reversal the pass was given is taken in at the head the pass left, which the next round reads.
+    const place = this.placeOf(item, directory);
+    const { prompt, committed } = await fixPassStage(place, standing, step);
+    return this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, item.worktree, prompt, async (answer, refused, named) => {
+      // The reversals the pass took in are read into the daemon's own copy of the record once they are written.
       const applied = (): void => {
-        if (step.reversals.length === 0) return;
-        writeRecord(worktree, directory, (text) => step.reversals.reduce((next, reversal) => withApplied(next, reversal.id, head), text));
         this.readRecord(held);
         this.flushTimes();
       };
-      const trailers = named !== null && isSessionId(named.id) ? [`${BUILT_BY_TRAILER}: ${named.id}`] : [];
-      await this.chainCommit(item, directory, [file], `chore: record the fix pass of round ${String(step.round)}`, { write: applied, refused, trailers });
+      const { asks, open } = await recordFixPass(place, standing, step, { committed, answer, builtBy: named?.id ?? null, refused, applied }, this.turnOf(item));
       if (open.length > 0 && second) throw new ChainStop(leftOpenAgain(open));
       if (open.length > 0 && asks.length === 0) throw new ChainStop(leftOpen(open));
       return asks;
@@ -2553,42 +2488,21 @@ export class Daemon {
    * asked, in the commit that carries the verdict. It gives null for every
    * verdict but `withheld`.
    */
-  private async runSeal(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "seal" }>): Promise<string | null> {
+  private async runSeal(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "seal" }>, base: ChainBase): Promise<string | null> {
     const { item } = held;
-    const { worktree, baseBranch, baseCommit } = item;
-    const file = join(directory, GUARANTEE_FILE);
-    const target = `${step.commit} against ${standing.base}`;
-    // The branch is read from where it left its base, as round 1 reads it.
-    const base = (baseBranch !== null && (await commitNamed(worktree, baseBranch)) !== null ? baseBranch : baseCommit) ?? standing.head;
-    // A seal a later commit broke, which the newest verdict block names, hands the sealer the part that changed since its commit: the newest block's run is the one before this.
-    const sealed = standing.sealCommit;
-    const earlier = sealed !== null && (await holdsCommit(worktree, step.commit, sealed)) ? { run: step.run - 1, commit: sealed } : null;
-    const { paths, text: diff } = earlier === null ? await diffBetween(worktree, base, step.commit, true) : await diffBetween(worktree, earlier.commit, step.commit, false);
-    const stands = (...path: string[]): boolean => existsSync(join(directory, ...path));
-    const prompt = sealPrompt({ run: step.run, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
+    const place = this.placeOf(item, directory);
+    const { prompt, target } = await sealStage(place, standing, step, base);
     // Whether this run's `undecided` verdict is one the orchestrator rules on, or one past the ceiling.
-    const ruled = standing.verdicts.filter((verdict) => verdict.is === "undecided").length < (this.options.undecidedCeiling ?? UNDECIDED_CEILING);
-    const verdict = await this.runStage(item.id, "seal", step.round, SEALER, worktree, prompt, async (answer, refused, named) => {
-      const section = sectionOf(answer, { run: step.run, target });
-      if (named === null) throw new ChainStop("its session named no id of its own, and a verdict names the session that judged");
-      if (named.model === null) throw new ChainStop("its session named no model, and a verdict names the model that judged");
+    const ceiling = this.options.undecidedCeiling ?? UNDECIDED_CEILING;
+    const ruled = standing.verdicts.filter((verdict) => verdict.is === "undecided").length < ceiling;
+    const verdict = await this.runStage(item.id, "seal", step.round, SEALER, item.worktree, prompt, async (answer, refused, named) => {
       const version = this.options.version;
       if (version === undefined) throw new ChainStop("this daemon was given no version of Owlery, and a verdict names the version of the rules it was judged under");
-      const head = await worktreeHead(worktree);
-      if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the seal, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the broad gate no longer holds at the head the sealer read`);
-      await this.noChangeOutside(worktree, directory);
-      const routing = await fileAt(worktree, head, relative(worktree, join(directory, ROUTING_FILE)));
-      const passes = baseCommit === null ? [] : (await trailerValues(worktree, [baseCommit, base], step.commit, BUILT_BY_TRAILER)).filter(isSessionId);
-      const builtBy = [...(routingAnswer(routing ?? "", "Implementation") === THE_SESSION ? [THE_SESSION] : []), ...passes];
-      const stood = await fileAt(worktree, head, relative(worktree, file));
-      const written = guaranteeText(stood, basename(directory), section, { builtBy, judgedBy: named.id, model: named.model, version });
-      const newest = readGuarantee(written).verdicts.at(-1);
-      if (newest === undefined) throw new ChainStop("the section appended to the guarantee holds no verdict");
-      if (newest.is === "undecided" && !ruled && this.park(item.id, { by: SEALER.role, questions: [undecidedParked(undecidedAsk(step.run, newest.says ?? ""), this.options.undecidedCeiling ?? UNDECIDED_CEILING)] }) === undefined) {
-        throw new ChainStop("its question was not written into the work item's record of decisions");
-      }
-      await this.chainCommit(item, directory, [file], VERDICT_SUBJECT, { write: () => writeRecordFile(worktree, file, written), refused });
-      return newest;
+      // The question of an `undecided` verdict past the ceiling parks the work item in the commit that carries the verdict.
+      const before = (newest: Verdict): void => {
+        if (newest.is === "undecided" && !ruled && this.park(item.id, { by: SEALER.role, questions: [undecidedParked(undecidedAsk(step.run, newest.says ?? ""), ceiling)] }) === undefined) throw new ChainStop("its question was not written into the work item's record of decisions");
+      };
+      return recordVerdict(place, standing, step, base, { answer, target, judgedBy: named?.id ?? null, model: named?.model ?? null, version, refused, before }, this.turnOf(item));
     });
     if (verdict.is === "undecided" && ruled) await this.runRuling(held, directory, standing.directory, "seal", step.round, "sealer", [undecidedAsk(step.run, verdict.says ?? "")], SEAL_RULING_SUBJECT);
     return verdict.is === "withheld" ? (verdict.says ?? "") : null;
@@ -2625,19 +2539,18 @@ export class Daemon {
    * daemon, keeps nothing the command printed and stores nothing of the
    * chain, so the stage stays stored as working with no output.
    */
-  private async runGate(held: Held, directory: string, standing: Standing, round: number): Promise<void> {
+  private async runGate(held: Held, directory: string, standing: Standing, round: number, base: ChainBase): Promise<void> {
     const { item, repository } = held;
-    const { worktree, baseCommit } = item;
+    const { worktree } = item;
     const now = this.options.now ?? Date.now;
-    const file = join(directory, GATE_FILE);
-    const notRun = (why: string): StageStopped => new StageStopped(gateNotRunSays(why));
-    const head = await worktreeHead(worktree);
-    if (head !== standing.head) throw notRun(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
-    const loose = await this.looseOutside(worktree, directory);
-    if (loose !== null) throw notRun(loose);
-    const command = readRecordsPlace(worktree).broadGate ?? "";
-    if (command.trim() === "") throw notRun(`the worktree's config.json names no command under "Broad gate"`);
-    if (baseCommit === null) throw notRun("the work item records no commit its branch was cut at, so the run's record has no base to name");
+    const place = this.placeOf(item, directory);
+    let owed: { command: string; head: string; base: string };
+    try {
+      owed = await gateOwed(place, standing, base);
+    } catch (error) {
+      throw new StageStopped(gateNotRunSays(error instanceof Error ? error.message : String(error)));
+    }
+    const { command } = owed;
     const env = await this.commandEnvironment();
     // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
     if (this.closed) throw new ChainStop("the daemon closed");
@@ -2674,13 +2587,7 @@ export class Daemon {
     else if (end.exitCode !== 0) failure = `the command exited with code ${String(end.exitCode)}`;
     else {
       try {
-        const after = await worktreeHead(worktree);
-        if (after !== head) throw new ChainStop(`the worktree's head moved during the run, from ${head.slice(0, 7)} to ${after.slice(0, 7)}, so the command did not run on one commit`);
-        const left = await this.looseOutside(worktree, directory);
-        if (left !== null) throw new ChainStop(`after the run ${left}`);
-        // The record's text is built on the file as the head holds it, so no line the worktree alone holds is committed with the run.
-        const stood = await fileAt(worktree, head, relative(worktree, file));
-        await this.chainCommit(item, directory, [file], GATE_SUBJECT, { write: () => writeRecordFile(worktree, file, gateText(stood, basename(directory), { head, base: baseCommit })) });
+        await recordGate(place, { head: owed.head, base: owed.base }, this.turnOf(item));
       } catch (error) {
         if (this.closed) throw error;
         failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
@@ -2734,9 +2641,9 @@ export class Daemon {
    * with the chain's sentence, and the stored pull request is as it was. A
    * daemon that closed meanwhile stores nothing.
    */
-  private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "sealed" }>): Promise<string | null> {
+  private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "sealed" }>, base: ChainBase): Promise<string | null> {
     const { item } = held;
-    const { worktree, branch, baseBranch, baseCommit, title } = item;
+    const { worktree, branch, title } = item;
     const routing = await fileAt(worktree, standing.head, relative(worktree, join(directory, ROUTING_FILE)));
     const destination = routingAnswer(routing ?? "", "Destination");
     if (!pullRequestOwed(destination, item.pullRequest, standing.head)) {
@@ -2760,12 +2667,12 @@ export class Daemon {
       const cli = this.githubCli(env, worktree, "open");
       const head = await worktreeHead(worktree);
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
-      const target = await pushTarget(worktree, baseBranch);
+      const target = await pushTarget(worktree, base.branch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
       // The stage runs at a seal that holds at the head, so no commit broke it, and the reader is handed no seal: the body names no breaking commit.
       const { entries, unread } = this.ledger.read(item.id, item.createdAt);
       const back = composeBack(await sealRecords(worktree, directory, head, null), entries, unread);
-      const named = await pullRequestTitle(worktree, title, baseCommit, head);
+      const named = await pullRequestTitle(worktree, title, base.commit, head);
       await pushBranch(cli, target.remote, branch, head);
       const listed = await openPullRequests(cli, branch);
       if (listed.length > 1) throw new Error(`the branch has the open pull requests ${listed.map(({ number }) => `#${String(number)}`).join(", ")}, and Owlery opens or updates one`);
@@ -2827,17 +2734,6 @@ export class Daemon {
     }
     const folder = mkdtempSync(join(tmpdir(), "owlery-pull-request-"));
     return { file: join(folder, "body.md"), remove: () => rmSync(folder, { recursive: true, force: true }) };
-  }
-
-  /** Why a broad gate cannot run on the worktree as the head's tree, as the second half of a sentence, or null where it can: the worktree holds a change no commit holds, or an untracked file, outside the work item's directory. */
-  private async looseOutside(worktree: string, directory: string): Promise<string | null> {
-    try {
-      await this.noChangeOutside(worktree, directory);
-      return null;
-    } catch (error) {
-      if (!(error instanceof ChainStop)) throw error;
-      return error.message;
-    }
   }
 
   /**

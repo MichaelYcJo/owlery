@@ -929,6 +929,12 @@ export async function holdsCommit(worktree: string, holder: string, held: string
   return false;
 }
 
+/** The commit two names last shared, whole: what `git merge-base` prints for them. Null where they share none, and where either names no commit. */
+export async function sharedCommit(worktree: string, one: string, other: string): Promise<string | null> {
+  const asked = await gitIn(worktree, ["merge-base", one, other]);
+  return asked.failed ? null : (asked.printed[0] ?? null);
+}
+
 /** The paths git prints between NUL characters, in its order, each once. */
 function nulPaths(printed: string): string[] {
   return [...new Set(printed.split("\0").map((path) => path.replace(/^\n+/, "")).filter((path) => path !== ""))];

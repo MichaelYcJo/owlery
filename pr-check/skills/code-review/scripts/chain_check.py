@@ -1870,8 +1870,8 @@ def guarantee(reader, root, item, base, notices=None, behind=None):
                 f"`{FIELDS.SEALED}`. Where the reason of a `withheld` verdict "
                 "names something to fix, fix it and start the chain again, in "
                 "the pane's session or by Owlery's daemon. The question of an "
-                "`undecided` verdict is decided by Owlery's orchestrator agent, "
-                "or answered in Owlery where it parked the work item. The chain "
+                "`undecided` verdict is decided by the pane's session or by "
+                "Owlery's orchestrator agent, or answered by the person. The chain "
                 "then runs the broad gate and the sealer's stage on the new "
                 "head, and each appends its block",
             )
