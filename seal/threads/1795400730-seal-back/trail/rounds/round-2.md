@@ -40,6 +40,11 @@ Phase 4: the right column's foot and the approval line show a broken seal's sent
 The view's foot and the approval line still show a broken seal's sentence with its backticks, where the back sets the code in the fixed-width face. #44 left them so on purpose, and the owner has since chosen to draw them as the back does, in #176, a work item of its own. This work leaves them.
 ```
 
+```seal
+verdict: fixed 5d562fd
+answer: `gaps.md` *Not done*, the row of phase 4, and `pr.md` line 18 now name issue #176, where the owner chose on 2026-11-24 to draw a broken seal's sentence as the back does, with the words the round proposed. The orchestrator made the change; it touches the work item's records alone.
+```
+
 ## Confirmations
 
 ```seal
