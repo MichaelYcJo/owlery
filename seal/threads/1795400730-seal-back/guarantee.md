@@ -36,3 +36,33 @@ Audited at `6f97545` against the base `release/v0.0.2`, resolved to `2737ceb`. `
 target: 6f97545 against 2737ceb
 Verdict: withheld reason: gaps.md lines 7, 11, 14 and 15, written with the crafter's phases 1, 3 and 4, name the orchestrator's broad gate as who answers the measurement of test/memory.ts and test/role-session.test.ts, but the Broad gate command runs pnpm -r run check with no variable set, so test/memory.test.ts:285 (describe.runIf(MEASURE)) and test/role-session.test.ts:56 (describe.skipIf(!RUN && !REFUSAL)) run none of their cases there; name in those cells the answerer that runs them, such as the owner by pnpm run measure:memory and pnpm run role:run, or the first real chain of #48
 ```
+
+## The audit at `ec3b739`
+
+Audited at `ec3b739` against the base `release/v0.0.2`, resolved to `2737ceb`. `trail/gate.md` names `d78a8b0` against `2737ceb`, an ancestor of HEAD, and only `seal/threads/1795400730-seal-back/trail/gate.md`, `guarantee.md` and `gaps.md` follow it (executed: `git log --no-merges --name-only d78a8b0..HEAD ^2737ceb`; `git merge-base --is-ancestor d78a8b0 HEAD` exited 0). Since the block above, `4acdf7c` committed that block and `ec3b739` changed `gaps.md` alone; `git diff --quiet 6f97545 HEAD -- apps docs README.md README.ko.md` exited 0, so every claim the block above re-ran against the code stands at HEAD as it read it, and this audit re-runs only the claim `ec3b739` touched (executed). `seal pr-body seal/threads/1795400730-seal-back --body <the body file>` composed the body at HEAD, and the same command with `--check` exited 0; the body differs from the one composed at `6f97545` in the four rows of `gaps.md` that `ec3b739` changed and nowhere else (executed: `diff` of the two bodies). `chain_check.py --baseline 2737ceb --worktree --sealing`, with a `gh` that always fails first on `PATH`, exited 0 and named only `guarantee.md`: the verdict above is `withheld`, and `ec3b739` follows it (executed). No case was run in this audit, and the built app was not started.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The two files are taken out of the rows the broad gate answers, and no other record names the gate as who answers them | `gaps.md:7`, `:11`, `:14`, `:15`, as `ec3b739` leaves them | `git show ec3b739`; `git grep -n -E 'memory\.ts\|memory\.test\|role-session\|measure:memory\|role:run' -- seal/threads/1795400730-seal-back` | holds: rows 7, 11 and 14 no longer name `test/memory.ts` or `test/role-session.test.ts`; outside `guarantee.md`, the two files are named only by `gaps.md:15` and by `trail/phases/phase-1.md:46` and `phase-2.md:54`, which say `role-session.test.ts` was left out of the narrow run because its cases skip without their variables, and name no answerer (executed) |
+| `test/role-session.test.ts:56` skips unless `OWLERY_ROLE_RUN` or a refusal run's variable is set, and `test/memory.test.ts:285` runs the measurement only where `OWLERY_MEASURE_MEMORY` is set; the gate's command sets neither | `gaps.md:15` | read: `test/role-session.test.ts:33`, `:39`, `:56`; `test/memory.test.ts:28`, `:285`; `seal/config.json` `Broad gate`; `apps/desktop/package.json:14`; `scripts/test-in-electron.mjs`; `vitest.config.ts`, which includes every `test/**/*.test.ts` | holds: `RUN` is `OWLERY_ROLE_RUN === "1"`, `REFUSAL` a refusal run's variable, `MEASURE` is `OWLERY_MEASURE_MEMORY === "1"`, and `check` runs `typecheck` and `test` with no variable set. The plain run that skips both was executed at `6f97545` (the block above), and the code is unchanged since (read) |
+| The owner answers them by `pnpm run role:run` and `pnpm run measure:memory`, or the first real chain of #48 | `gaps.md:15` | read: `apps/desktop/package.json:16-17`; `gh issue view 48` | holds: `measure:memory` sets `OWLERY_MEASURE_MEMORY=1` over `test/memory.test.ts` and `role:run` sets `OWLERY_ROLE_RUN=1` over `test/role-session.test.ts`; #48 is open, and its *Done when* closes each open row of the release's records that names a person (read) |
+| No other file `gaps.md` hands to the broad gate is one the gate's command runs no case of (the class of the block above's finding) | `gaps.md:7`, `:8`, `:9`, `:11`, `:14`, `:18` | for each test file those rows name, and for row 8's files, listed by `git grep -l -E 'src/shared/protocol"' -- test`, a `grep` of its top-level `describe`, `it` and `test` calls and of those gated by `skipIf`, `runIf` or `skip` | holds: every file but `test/role-session.test.ts` has a top-level block a plain run on this Mac takes. `test/keep-awake.test.ts` gates both blocks on `darwin`, `test/korean-input.test.ts` runs three blocks where its typed run's variable is not set, and `test/screenshots.test.ts` runs "the screenshot command, without the app"; its built-app part, which a plain run skips, is named as skipped in rows 14 and 18 themselves. `test/role-session.test.ts` is among row 8's files, whose item is a change to a type alone, and the gate's `typecheck` reads it there; its cases are row 15's (executed, and read) |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| The design | as the block above reads it; `frame/` is unchanged since `6f97545` | the issue, the diff and the changelog | none |
+| The build | The diff from `2737ceb` and the four phase records, unchanged since `6f97545`; `gaps.md` as `ec3b739` leaves it, row 15 naming the owner for the two files | the design, the re-runs of the block above, `seal/config.json` `Broad gate`, `package.json` and #48 | none: the disagreement the block above named is gone from rows 7, 11, 14 and 15 |
+| The last round | `trail/rounds/round-2.md`, unchanged since `6f97545` | the tree at HEAD, where `ec3b739` touches no finding it located | none |
+| The changelog | `changelog.md`, unchanged since `6f97545` | the code and the design, as the block above reads them | none |
+| The orchestrator's part of the pull request body | `pr.md`, unchanged since `6f97545`, and the body composed at HEAD from it | the issue, the code, `frame/questions.md`, `gaps.md`, #48, #176 and the screenshots at `39991c3` | none |
+
+`routing.md` is unchanged since `6f97545`, and its grounds under the routing answer `agentic` read against the diff as the block above reads them. `seal/parity.json` does not stand, so no comparison with an original is owed.
+
+```seal
+target: ec3b739 against 2737ceb
+Verdict: sealed
+```
