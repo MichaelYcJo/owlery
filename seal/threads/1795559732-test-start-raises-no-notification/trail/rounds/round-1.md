@@ -41,6 +41,11 @@ The `Verifiable how` cell of `frame/design.md:63`, in place of the sentence nami
 The last case of `test/notification-click.test.ts` reloads the page and reads `window.owlery.background` as true and `window.__notifications` as a new, empty list. The fact reaches the page from the preload at each load (*Scope* item 1)
 ```
 
+```seal
+verdict: fixed 1b9ab01e
+answer: The last case of `apps/desktop/test/notification-click.test.ts` (lines 230-251) now reloads the page and reads `window.owlery.background` as true and `window.__notifications` as a new, empty list (line 237). It then makes Alpha's pane wait with the inbox in front, and reads one kept entry (lines 248-249) and no construction of the system's (line 250). The fix pass did not apply the paste-ready case as written. That case's one assertion is line 237, and line 237 passed under the mutant where the page hands `false` to `chooseNotifier`, so the case cannot fail on "the page keeps it and constructs nothing". The new document gets a counting stand-in before its first script runs (`Page.addScriptToEvaluateOnNewDocument`), so a mutant that raises is counted and never reaches the screen. Seen red three ways, each by `seal mutate` with `OWLERY_BACKGROUND=1` and the file run alone (executed). With the main process answering `Channel.background` truly only once, it fails at line 237 with `expected [ false, false, null ] to deeply equal [ true, true, +0 ]`. With the page handing `false` to `chooseNotifier`, it fails at line 248, "the window never showed a notification of the page loaded again". With `chooseNotifier` keeping the entry and also calling `system`, it fails at line 250 with `expected 1 to be +0`. The file passed alone, 5 cases, with the case at the same bytes as `1b9ab01e`. The other half stays open for the framer: the *Verifiable how* cell of `seal/threads/1795559732-test-start-raises-no-notification/frame/design.md:63` still names `pnpm run screenshots`, and the fix pass does not write the frame.
+```
+
 ### 2. `frame/plan.md` *Judgments of the run* holds no row on the title's prefix, and `pr.md` quotes none
 
 ```seal
@@ -57,6 +62,11 @@ The fix is the orchestrator's: a row in the table, then its quote in `pr.md`. Th
 
 ```markdown
 | 2026-11-25 | The title takes `<prefix>:`; `<the other prefix>` came closest | <why: what the diff changes under `src/` and under `test/`, and what a reader of the title is told> | the plugin's `skills/commit-pr-convention/SKILL.md` *Pull request bodies*; `routing.md` *Branch* |
+```
+
+```seal
+verdict: fixed 70d1dffc
+answer: The orchestrator's commit `70d1dffc` fills the row of `frame/plan.md` *Judgments of the run*: the title takes `test:`, and `fix:` came closest, with grounds. It also quotes the row in `pr.md`, under its coordinate (`frame/plan.md` *Judgments of the run*, 2026-11-25). The fix pass read that diff and judged neither the row's words nor its verdict.
 ```
 
 ### 3. `pr.md` holds a heading and an annotation of the orchestrator's own, and the annotation names a home no record names
@@ -79,6 +89,11 @@ The fix is the orchestrator's. It drops the heading, and the Q1 line keeps the q
 ```markdown
 - "Does a person's start of the built app still show the macOS banner when a pane behind another comes to wait, and does a click on it bring the window forward and open the work item's view?" (`frame/questions.md` Q1)
 - "the owner's run at the release walk (`frame/questions.md` Q1)" (`gaps.md` *Not verified*, the row of a person's start)
+```
+
+```seal
+verdict: fixed 70d1dffc
+answer: The orchestrator's commit `70d1dffc` removes the `### Open rows` heading from `pr.md`. The Q1 quote now carries its coordinate alone, (`frame/questions.md` Q1), without the annotation that named #184. The commit did not add the optional quote of `gaps.md`. The fix pass read that diff.
 ```
 
 ## Confirmations
