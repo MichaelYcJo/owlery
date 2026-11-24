@@ -351,8 +351,10 @@ export interface Account {
   /**
    * The real path of the folder the account's agent keeps its conversations
    * in, which the daemon asks of the adapter and reads each time it sends the
-   * accounts. Null where the account's folder holds none and, for System
-   * default, while the adapter has found no folder. Two accounts whose values
+   * accounts, and it sends them again where the adapter's lookup, which
+   * finds System default's folder, changed System default's value. Null
+   * where the account's folder holds none and, for System default, while
+   * the adapter has found no folder. Two accounts whose values
    * are one and not null keep the same conversations, so a pane's account
    * changes from one to the other (`changeAccount`). The window compares the
    * values and reads nothing at the path. The value can be old by the time a

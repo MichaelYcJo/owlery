@@ -3680,11 +3680,17 @@ export class Daemon {
    * client where the answer differs from the one the daemon holds. A client
    * that has not been sent its `ready` yet reads the answer there. Where the
    * adapter was asked again meanwhile, this answer is dropped: the later
-   * ask's is the newer reading.
+   * ask's is the newer reading. The notice waits on the adapter's lookup,
+   * which finds System default's folder, so where that changed where
+   * System default keeps its conversations, every client is sent the
+   * accounts again.
    */
   private async readAgentNotice(): Promise<void> {
     const ask = ++this.noticeAsks;
+    const before = this.conversationsOf(SYSTEM_DEFAULT_ID);
     const notice = await this.options.roleAdapter.notice();
+    // A window told no place for System default before the lookup answered is told it now.
+    if (this.conversationsOf(SYSTEM_DEFAULT_ID) !== before) this.broadcastAccounts();
     if (ask !== this.noticeAsks || notice === this.agentNotice) return;
     this.agentNotice = notice;
     this.broadcast({ type: "agentNotice", notice });

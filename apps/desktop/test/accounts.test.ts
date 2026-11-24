@@ -544,6 +544,21 @@ describe("the daemon's accounts", () => {
     expect(unfound.ready.accounts?.[0]?.conversations).toBeNull();
   });
 
+  it("sends the accounts again once the adapter's lookup finds System default's folder after a window's ready, so the window can offer a change to it (scenario 9)", async () => {
+    const own = folder();
+    mkdirSync(join(own, "projects"));
+    let found: string | null = null;
+    let answer = (): void => {};
+    const looked = new Promise<void>((resolve) => (answer = resolve));
+    const adapter: RoleAdapter = { ...fakeAdapter(), defaultLoginFolder: () => found, notice: () => looked.then(() => null) };
+    const { c, ready } = await daemon({ roleAdapter: adapter });
+    expect(ready.accounts?.[0]?.conversations).toBeNull();
+    found = own;
+    answer();
+    const sent = await c.message("accounts", (m) => m.accounts[0]?.conversations !== null);
+    expect(sent.accounts[0]?.conversations).toBe(realpathSync(join(own, "projects")));
+  });
+
   it("renames an account at a request, answers before it sends every client the accounts, refuses an empty name, System default and an id it keeps none of with a sentence, and leaves a ledger entry written before the rename with the name it had (the rename of scenario 11)", async () => {
     const { c } = await daemon();
     await c.request({ type: "addAccount", name: "Work", folder: handedFolder() });
