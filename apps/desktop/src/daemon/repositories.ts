@@ -208,7 +208,9 @@ function readJson(file: string): unknown {
  * pane, since the next daemon gives that pane's id to another. A work item
  * written before a chain was kept is read with none, and one whose chain was
  * running is read with that chain stopped (`chain.ts#chainRead`). A work
- * item written before a pull request was kept is read with none.
+ * item written before a pull request was kept is read with none. A
+ * repository written before a person's choice of a chain for its Claude
+ * Code panes was kept is read with no answer.
  *
  * Where that file does not exist, the store starts from `work-items.json`,
  * the list a build before the repositories wrote: one repository for each

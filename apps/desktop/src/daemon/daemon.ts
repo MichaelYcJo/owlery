@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type ChainChoice, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
