@@ -2,8 +2,9 @@
 // that names a config folder, the names of a folder that belong to the person
 // and are linked into a folder Owlery made, and the CLI's own `auth` commands
 // that sign a folder in, say whether it is signed in and sign it out
-// (docs/architecture.md, "Authentication of the Claude adapter"). The daemon
-// reaches it through `AccountLogins`, which names no vendor.
+// (docs/architecture.md, "Authentication of the Claude adapter"), and where
+// a folder keeps its conversations. The daemon reaches it through
+// `AccountLogins` and `RoleAdapter.conversationsOf`, which name no vendor.
 import { execFile } from "node:child_process";
 import { lstatSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
