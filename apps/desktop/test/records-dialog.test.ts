@@ -3,7 +3,8 @@
 // registers the repository through the form, and drives the dialog through
 // Electron's debugging port: what it says before anything is written, the
 // commit its button makes, and what it shows of a repository that holds
-// every part. The commit lands in the temporary repository alone.
+// every part, with how an administrator makes the seal check required in
+// both. The commit lands in the temporary repository alone.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -16,6 +17,8 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
   let made: ReturnType<typeof temporaryRepository>;
 
   const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  /** What the dialog says of the seal check Owlery's workflow posts, and how an administrator makes it required. */
+  const REQUIRED = "The workflow posts its verdict as the check `Owlery seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `Owlery seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `Owlery seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
   const value = <T>(expression: string): Promise<T> => app.evaluate<T>(expression);
   const text = (id: string): Promise<string> => value(`document.getElementById(${JSON.stringify(id)}).textContent`);
   const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
@@ -65,6 +68,8 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     expect(await value<unknown[]>(`[document.getElementById("records-gate-name").textContent, document.getElementById("records-gate").value, document.getElementById("records-gate").disabled]`)).toEqual(["Broad gate command", "npm run check", false]);
     expect(await text("records-gate-says")).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
     expect(await value<string[]>(`[document.getElementById("records-cancel").textContent, document.getElementById("records-submit").textContent]`)).toEqual(["Not now", "Set up and commit"]);
+    // The plan names Owlery's workflow, so the dialog says how an administrator makes its check required.
+    expect(await value<unknown[]>(`[document.getElementById("records-required").hidden, document.getElementById("records-required").textContent]`)).toEqual([false, REQUIRED]);
     // Nothing is written until the person confirms.
     expect([git(made.repo, "rev-parse", "HEAD").trim(), status(), existsSync(join(made.repo, "seal")), existsSync(join(made.repo, ".github"))]).toEqual([before, "", false, false]);
 
@@ -83,6 +88,7 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     await app.until(`document.querySelectorAll("#records-holds li").length === 3`, "what the repository holds");
     expect(await value<string[]>(`[...document.querySelectorAll("#records-holds li")].map((line) => line.textContent)`)).toEqual(["Records: `seal/`", `Check: \`${WORKFLOW}\``, "Broad gate: `npm run check`, kept in `seal/config.json` under `Broad gate`"]);
     expect(await value<unknown[]>(`[document.getElementById("records-submit").hidden, document.getElementById("records-gate-label").hidden, document.getElementById("records-cancel").textContent, document.querySelectorAll("#records-files > *").length]`)).toEqual([true, true, "Close", 0]);
+    expect(await value<unknown[]>(`[document.getElementById("records-required").hidden, document.getElementById("records-required").textContent]`)).toEqual([false, REQUIRED]);
     await app.click("#records-cancel");
     await dialogClosed("records-dialog");
   });

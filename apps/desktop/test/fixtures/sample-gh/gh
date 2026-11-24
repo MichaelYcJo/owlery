@@ -1,0 +1,21 @@
+#!/bin/sh
+# The stand-in for the person's `gh` in the runs of the built app: the
+# screenshot run, whose login shell (sample-pane.sh) puts this folder first
+# on its PATH, and test/get-a-seal.test.ts, whose login shell does the same.
+# It reaches no GitHub. It lists no open pull request, prints the address of
+# the one it opens, and answers a read of it as open, with the worktree's
+# head as its head and two checks that passed. A call that is none of
+# `pr list`, `pr create` and `pr view` exits 97: Owlery writes no review and
+# merges nothing. The address and the checks are invented examples.
+url='https://github.com/owner/project/pull/12'
+case "$1 $2" in
+  "pr list") echo '[]' ;;
+  "pr create") echo "$url" ;;
+  "pr view")
+    printf '{"number":12,"url":"%s","state":"OPEN","isDraft":false,"headRefOid":"%s","mergedAt":null,"statusCheckRollup":[{"__typename":"CheckRun","name":"seal","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/actions/runs/7/job/21"},{"__typename":"CheckRun","name":"Owlery seal","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/runs/22"}]}\n' "$url" "$(git rev-parse HEAD)"
+    ;;
+  *)
+    echo "the stand-in for gh answers pr list, pr create and pr view alone" >&2
+    exit 97
+    ;;
+esac

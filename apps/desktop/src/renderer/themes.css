@@ -103,6 +103,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   /* The corners of a card, a control, a line, a chip and what an agent says. */
   --radius-card: 8px;
@@ -128,17 +129,22 @@
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
+  /* The approval line: the rule that joins a role's name to the next place, the edge of the block, and the edge between two of its places. `none` draws none. */
+  --approval-rule: linear-gradient(var(--rule), var(--rule));
+  --approval-edge: none;
+  --approval-box-edge: none;
+
   /* A state's mark, as paths on a square of 16 units: `--shape-<state>` is drawn as a line and `--shape-<state>-fill` is filled, and the working state has the faint line under the part that turns and the part that turns. `none` draws nothing. */
   --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
   --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
-  --shape-working: none;
-  --shape-working-fill: none;
-  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
-  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
-  --shape-finished: path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0");
-  --shape-finished-fill: none;
-  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
-  --shape-no-agent-fill: none;
+  --shape-working: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6z");
+  --shape-working-track: none;
+  --shape-working-turn: none;
+  --shape-finished: none;
+  --shape-finished-fill: path("M1.65 8a6.35 6.35 0 1 0 12.7 0a6.35 6.35 0 1 0-12.7 0z");
+  --shape-no-agent: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-no-agent-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6A7 7 0 0 0 8 2.4z");
   --shape-failed: none;
   --shape-failed-fill: path("M8 2.3l6 10.5H2z");
 }
@@ -218,6 +224,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
   --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 8px;
   --radius-control: 6px;
@@ -239,16 +246,20 @@
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
+  --approval-rule: linear-gradient(var(--rule), var(--rule));
+  --approval-edge: none;
+  --approval-box-edge: none;
+
   --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
   --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
-  --shape-working: none;
-  --shape-working-fill: none;
-  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
-  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
-  --shape-finished: path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0");
-  --shape-finished-fill: none;
-  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
-  --shape-no-agent-fill: none;
+  --shape-working: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6z");
+  --shape-working-track: none;
+  --shape-working-turn: none;
+  --shape-finished: none;
+  --shape-finished-fill: path("M1.65 8a6.35 6.35 0 1 0 12.7 0a6.35 6.35 0 1 0-12.7 0z");
+  --shape-no-agent: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-no-agent-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6A7 7 0 0 0 8 2.4z");
   --shape-failed: path("M8 2.3l6 10.5H2z");
   --shape-failed-fill: path("M8 2.3l6 10.5H2z");
 }
@@ -328,6 +339,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   --radius-card: 2px;
   --radius-control: 2px;
@@ -348,6 +360,10 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
+
+  --approval-rule: none;
+  --approval-edge: inset 0 0 0 1px var(--rule);
+  --approval-box-edge: inset 1px 0 0 var(--rule);
 
   --shape-waiting: none;
   --shape-waiting-fill: path("M3 3h10v10H3z");
@@ -438,6 +454,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
   --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 2px;
   --radius-control: 2px;
@@ -458,6 +475,10 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
+
+  --approval-rule: none;
+  --approval-edge: inset 0 0 0 1px var(--rule);
+  --approval-box-edge: inset 1px 0 0 var(--rule);
 
   --shape-waiting: none;
   --shape-waiting-fill: path("M3 3h10v10H3z");
@@ -548,6 +569,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
   --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   --radius-card: 8px;
   --radius-control: 6px;
@@ -568,6 +590,10 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
+
+  --approval-rule: linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%);
+  --approval-edge: none;
+  --approval-box-edge: none;
 
   --shape-waiting: none;
   --shape-waiting-fill: path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z");
@@ -658,6 +684,7 @@
   --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
   --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
   --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 4px;
   --radius-control: 5px;
@@ -678,6 +705,10 @@
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
+
+  --approval-rule: linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%);
+  --approval-edge: none;
+  --approval-box-edge: none;
 
   --shape-waiting: none;
   --shape-waiting-fill: path("M3.8 8a4.2 4.2 0 1 0 8.4 0a4.2 4.2 0 1 0-8.4 0z");

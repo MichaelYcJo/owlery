@@ -56,12 +56,16 @@ function configText(command: string): string {
  * The workflow a setup writes, for a version of Owlery: it fetches the check
  * from Owlery's repository at the tag of that version, and at the release's
  * branch until the tag exists, and runs the check's script under
- * `pr-check/`. The job's name is the check's name on GitHub.
+ * `pr-check/` with `--post`. The job's name is one check's name on GitHub,
+ * and the script posts its verdict as a second, `Owlery seal`, with the
+ * run's token, which the job's permissions let write a check.
  */
 export function workflowText(version: string): string {
   return `# The pull request check of Owlery: a pull request that declares a work item
 # carries the records it owes, and a ready one carries a seal at its head.
 # A pull request that declares no work item is not judged.
+# The check posts its verdict as the check \`Owlery seal\` on the pull
+# request's head commit, which an administrator can make required.
 # Owlery wrote this file when the repository was connected. It fetches the
 # check from Owlery's repository at the release that wrote it. The line moves
 # when a person edits it.
@@ -79,6 +83,7 @@ concurrency:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   seal:
@@ -99,9 +104,12 @@ jobs:
 
       - name: a declared work item carries the records it owes
         shell: bash
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
         run: |
           python3 "$RUNNER_TEMP/owlery/pr-check/skills/code-review/scripts/chain_check.py" \\
-            --baseline "origin/\${{ github.base_ref }}"
+            --baseline "origin/\${{ github.base_ref }}" \\
+            --post
 `;
 }
 

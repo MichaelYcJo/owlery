@@ -41,9 +41,8 @@ this module does not read.
 `(key, value)` pairs and refuses pairs this reader would refuse.
 
 Standard library only; it imports `blocks` beside it. `chain_check.py`
-and `broad_gate.py` load it through `lib/sibling.py`, as they load
-`lib/routing.py`; `lib/gaps.py` imports it beside it; `seal_stamp.py`, which
-`seal stamp` runs, and `pr_body.py` reach it through `chain_check.FIELDS`.
+loads it through `lib/sibling.py`, as it loads `lib/routing.py`, and reads a
+guarantee's verdict blocks and a pull request body's seal section with it.
 """
 
 import collections
@@ -87,6 +86,10 @@ VERDICT = "verdict:"
 ANSWER = "answer:"
 CONFIRMS = "confirms:"
 SEALER_VERDICT = "Verdict:"
+BUILT_BY = "built-by:"
+JUDGED_BY = "judged-by:"
+MODEL = "model:"
+RULES = "rules:"
 RUN = "run:"
 
 # The sealer's three verdict words.
@@ -95,6 +98,13 @@ WITHHELD = "withheld"
 UNDECIDED = "undecided"
 
 COMMIT = r"[0-9a-f]{7,40}"
+# A session's id as a verdict block names it: one word that holds no comma.
+SESSION = r"[^\s,]+"
+# The name of a session that built the work: the id of a session the daemon
+# started, or `the session` for one a person drove, whose id it does not keep.
+THE_SESSION = "the session"
+BUILDER = rf"(?:{THE_SESSION}|{SESSION})"
+BUILDERS_JOIN = ", "
 PATH = r"`[^`\s:/#][^`\s:#]*"
 SPAN = r"(?::[0-9]+(?:-[0-9]+)?)?"
 
@@ -126,7 +136,7 @@ class Kind:
 # The kinds. `verdict:` takes no `open`: a finding with no close block is
 # open. A finding's `severity:` and `evidence:` and a close's `answer:` take
 # any text, and the last two may be left out: no script decides on their
-# values, and `seal pr-body` copies each block whole.
+# values.
 ORIGINAL_SPEC = Spec(
     rf"(?P<commit>{COMMIT})",
     AT_MOST_ONE,
@@ -214,6 +224,31 @@ VERDICT_BLOCK = Kind(
             f"{WITHHELD} reason: <reason>` or `{SEALER_VERDICT} {UNDECIDED} "
             "question: <question>`, written exactly so",
         ),
+        # The lines Owlery's daemon writes into the sealer's block: who built
+        # the work, who judged it, the judging model and the version of the
+        # rules. A block written before the daemon wrote them holds none.
+        BUILT_BY: Spec(
+            rf"{BUILDER}(?:{BUILDERS_JOIN}{BUILDER})*",
+            AT_MOST_ONE,
+            f"it names each session that built the work, `{THE_SESSION}` or a "
+            "session's id that holds no white space and no comma, joined by `, `",
+        ),
+        JUDGED_BY: Spec(
+            SESSION,
+            AT_MOST_ONE,
+            "it is the judging session's id, one word that holds no comma",
+        ),
+        MODEL: Spec(
+            r"\S(?:.*\S)?",
+            AT_MOST_ONE,
+            "it is the judging model's name, which opens and ends with a "
+            "character that is no white space",
+        ),
+        RULES: Spec(
+            r"owlery \S+",
+            AT_MOST_ONE,
+            "it reads `owlery <version>`, the version one word",
+        ),
     },
 )
 RUN_BLOCK = Kind(
@@ -236,8 +271,7 @@ GATE = (RUN_BLOCK,)
 UNCLOSED = (
     "a fence opened here never closes, so every line after it is hidden from the reader"
 )
-# Every other reader of a record refuses a comment line in this sentence,
-# `lib/gaps.py#check_text` among them.
+# Every reader of a record refuses a comment line in this sentence.
 COMMENT_LINE = (
     "the line begins with `<!--`, and a record carries no HTML comment: the "
     "check reads one as text, so delete the comment"
@@ -385,3 +419,10 @@ def verdict_word(block):
     word of its `Verdict:` value; None for a block of another kind."""
     said = block.fields.get(SEALER_VERDICT)
     return said.value.split(" ", 1)[0] if said else None
+
+
+def builders(block):
+    """The names of a verdict block's `built-by:` line, in its order; an
+    empty list for a block that holds no such line."""
+    said = block.fields.get(BUILT_BY)
+    return said.value.split(BUILDERS_JOIN) if said else []

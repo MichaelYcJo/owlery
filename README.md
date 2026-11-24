@@ -23,6 +23,24 @@ pnpm --filter @owlery/desktop start
 
 The first start downloads Electron's binary, and then the window opens.
 
+## The seal check on GitHub
+
+When a repository is connected, Owlery commits a workflow to it, `.github/workflows/owlery-seal.yml`. On each pull request the workflow runs Owlery's pull request check, which reads the records the work item committed. The check posts its verdict as a GitHub check named `Owlery seal` on the pull request's head commit. The workflow's own job, `seal`, fails where `Owlery seal` fails and passes where it passes or is neutral. A person without the app reads the verdict there, and in the seal section at the top of the pull request's body, which is a copy of the newest verdict block of the work item's `guarantee.md`. A commit pushed after the seal fails the check until a new seal is given. The check reads the same committed records as the app, and the two judge alike what lands after a seal the app gave. Records that no chain of the app commits, written by hand or by another tool, can be judged apart by the two.
+
+| Result of `Owlery seal` | Title | When |
+|---|---|---|
+| Passed | "Sealed at" and the sealed commit | A ready pull request whose head commit carries a seal, and a draft that would pass once ready |
+| Failed | "Seal broken: a commit landed after" and the sealed commit | A ready pull request whose head commit holds a seal that a later commit broke, a merge of the base among them |
+| Failed | "No seal at the head commit" | A ready pull request whose head commit holds no seal |
+| Failed | "The records are refused" | A ready pull request whose records fail another part of the check |
+| Neutral | "Draft: judged when it is ready" | A draft that would be refused once ready |
+| Passed | "Not judged: no work item is declared" | A pull request that declares no work item |
+| Failed | "The seal check could not run" | The check could not read the checkout or the base branch it is judged against |
+
+**An administrator of the repository makes the check required.** In the repository's rules for the base branch on GitHub, under the rule that requires status checks to pass, the administrator adds `Owlery seal`. Owlery changes no setting of the repository, and the app's dialog "Records and check" says the same. A pull request from a fork gets no `Owlery seal` check, because GitHub gives its workflow run a token that cannot write one, so a required check holds that pull request until an administrator lets it through. A repository that keeps AgenticSeal's `hygiene.yml` in place of Owlery's workflow posts no `Owlery seal` check.
+
+**The verdict is a check, and never an approving review.** Owlery writes no review and merges nothing. The person merges.
+
 ## Documents
 
 | Document | What it holds |
