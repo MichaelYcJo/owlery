@@ -6736,14 +6736,14 @@ describe("the watch of an open pull request", () => {
 
   it("reads the pull request at a client's hello and again while its checks run, with one call of gh and no agent, and holds neither the Mac nor a session for it", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     const c = await client(w.url);
     const pending = await c.until(() => (pullRequestIn(c)?.checks === "pending" ? pullRequestIn(c) : undefined));
-    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: "https://github.com/owner/project/runs/Owlery seal" }], listCount: 1, readAt: 7 });
+    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "seal", state: "pending", link: "https://github.com/owner/project/runs/seal" }], listCount: 1, readAt: 7 });
     expect(w.gh.calls()[0]).toEqual(VIEW);
-    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")]);
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
     const passed = await c.until(() => (pullRequestIn(c)?.checks === "passed" ? pullRequestIn(c) : undefined));
-    expect(passed?.list).toEqual([{ name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" }]);
+    expect(passed?.list).toEqual([{ name: "seal", state: "passed", link: "https://github.com/owner/project/runs/seal" }]);
     // Each read is the one call, and none started a session or held the Mac.
     for (const call of w.gh.calls()) expect(call).toEqual(VIEW);
     expect(c.messages.some((m) => m.type === "headless")).toBe(false);
@@ -6761,7 +6761,7 @@ describe("the watch of an open pull request", () => {
 
   it("reads again soon while GitHub's head is not the commit the stage pushed, though the checks passed", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")], { headRefOid: "e".repeat(40) });
+    w.answer([run("seal", "COMPLETED", "SUCCESS")], { headRefOid: "e".repeat(40) });
     const c = await client(w.url);
     await c.until(() => (w.gh.calls().length >= 3 ? true : undefined));
     expect(pullRequestIn(c)).toMatchObject({ head: "e".repeat(40), pushed: w.at, checks: "passed" });
@@ -6769,19 +6769,19 @@ describe("the watch of an open pull request", () => {
 
   it("lists a failed check with its address, and gives the pull request the failed result", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")]);
+    w.answer([run("seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")]);
     const c = await client(w.url);
     const failed = await c.until(() => (pullRequestIn(c)?.checks === "failed" ? pullRequestIn(c) : undefined));
     expect(failed?.list).toEqual([
       { name: "build", state: "failed", link: "https://github.com/owner/project/runs/build" },
-      { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" },
+      { name: "seal", state: "passed", link: "https://github.com/owner/project/runs/seal" },
     ]);
   });
 
   it("reads a merged and a closed pull request no more", async () => {
     for (const [state, as] of [["MERGED", "merged"], ["CLOSED", "closed"]] as const) {
       const w = await watched();
-      w.answer([run("Owlery seal", "IN_PROGRESS")], { state, mergedAt: state === "MERGED" ? "2026-11-23T10:00:00Z" : null });
+      w.answer([run("seal", "IN_PROGRESS")], { state, mergedAt: state === "MERGED" ? "2026-11-23T10:00:00Z" : null });
       const c = await client(w.url);
       await c.until(() => (pullRequestIn(c)?.state === as ? true : undefined));
       await pause(500);
@@ -6798,7 +6798,7 @@ describe("the watch of an open pull request", () => {
     // Not after 100 milliseconds, as while checks run.
     await pause(300);
     expect(w.gh.calls()).toHaveLength(1);
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     const read = await c.until(() => (pullRequestIn(c)?.failure === null ? pullRequestIn(c) : undefined));
     expect(read).toMatchObject({ checks: "pending", failure: null, readAt: 7 });
     expect(w.gh.calls()).toHaveLength(2);
@@ -6806,7 +6806,7 @@ describe("the watch of an open pull request", () => {
     w.gh.answer("view", { out: "not json\n" });
     expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
     // So is an answer whose checks are no list.
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     await c.until(() => (pullRequestIn(c)?.failure === null ? true : undefined));
     w.gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: w.at, mergedAt: null, statusCheckRollup: null }) });
     expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
@@ -6821,7 +6821,7 @@ describe("the watch of an open pull request", () => {
 
   it("calls gh for no work item while no client is connected, nor once its client left, nor for an archived work item", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     await pause(400);
     expect(w.gh.calls()).toHaveLength(0);
     const c = await client(w.url);
@@ -6833,7 +6833,7 @@ describe("the watch of an open pull request", () => {
     expect(w.gh.calls()).toHaveLength(calls);
     // Of two work items, the archived one's pull request is not read, and the other's is, in the same turn.
     const archived = await watched({}, { archivedAt: 5 }, {});
-    archived.answer([run("Owlery seal", "IN_PROGRESS")], { number: 2, url: SECOND_URL });
+    archived.answer([run("seal", "IN_PROGRESS")], { number: 2, url: SECOND_URL });
     const other = await client(archived.url);
     await other.until(() => (archived.gh.calls().length >= 2 ? true : undefined));
     expect(new Set(archived.gh.calls().map((call) => call[2]))).toEqual(new Set([SECOND_URL]));
@@ -6901,7 +6901,7 @@ describe("a Claude Code pane and the owl chain", () => {
     }
     return made;
   }
-  const PLUGIN_CHECK = 'jobs:\n  seal:\n    steps:\n      - run: python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n';
+  const PLUGIN_CHECK = 'jobs:\n  hygiene:\n    steps:\n      - run: python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n';
 
   it("launches a Claude Code pane of a work item whose worktree holds Owlery's workflow with the role bundle, the head of the run folder and a launcher of the chain command that runs, and a shell of the same work item with none of them", async () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");

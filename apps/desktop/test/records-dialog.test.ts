@@ -18,7 +18,7 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
 
   const WORKFLOW = ".github/workflows/owlery-seal.yml";
   /** What the dialog says of the seal check Owlery's workflow posts, and how an administrator makes it required. */
-  const REQUIRED = "The workflow posts its verdict as the check `Owlery seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `Owlery seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `Owlery seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
+  const REQUIRED = "The workflow posts its verdict as the check `seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
   const value = <T>(expression: string): Promise<T> => app.evaluate<T>(expression);
   const text = (id: string): Promise<string> => value(`document.getElementById(${JSON.stringify(id)}).textContent`);
   const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);

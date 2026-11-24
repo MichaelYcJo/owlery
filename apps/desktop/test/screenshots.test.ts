@@ -179,7 +179,7 @@ const STORED = [PARKED, FINISHED];
 const PULL_REQUEST_NUMBER = 12;
 const PULL_REQUEST_ADDRESS = "https://github.com/owner/project/pull/12";
 const PULL_REQUEST = `Pull request #${String(PULL_REQUEST_NUMBER)}`;
-const CHECKS = ["seal", "Owlery seal"];
+const CHECKS = ["records", "seal"];
 const FINISHED_RECORDS = "1795396352-add-an-export-of-the-history";
 /** The stages of the finished work item's chain, in the order they ended: four agents' turns and the gate. */
 const FINISHED_STAGES = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["seal", 2]] as const;
@@ -512,7 +512,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     mkdirSync(join(made.repo, "scripts"));
     writeFileSync(join(made.repo, "scripts", "check.sh"), GATE_SCRIPT);
     mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(made.repo, ".github", "workflows", "owlery-seal.yml"), "name: Owlery seal\n");
+    writeFileSync(join(made.repo, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
     git(made.repo, "add", ".gitignore", "seal/README.md", "seal/config.json", "scripts/check.sh", ".github/workflows/owlery-seal.yml");
     git(made.repo, "commit", "--quiet", "-m", "ignore");
     for (const [path, text] of Object.entries(IGNORED)) {
