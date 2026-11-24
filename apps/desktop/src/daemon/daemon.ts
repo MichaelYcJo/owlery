@@ -1571,11 +1571,11 @@ export class Daemon {
     return { account, logins };
   }
 
-  /** Asks the adapter's agent whether a login stands in an account's folder, keeps its word, and answers whether the word is another than the store held. An account removed while the agent answered keeps nothing. It rejects, with the agent's sentence, where the agent could not say. */
+  /** Asks the adapter's agent whether a login stands in an account's folder, keeps its word, and answers whether the word is another than the store held. It rejects, with the agent's sentence, where the agent could not say, and with the store's where the account was removed while the agent answered. */
   private async readLogin(account: StoredAccount): Promise<boolean> {
     const { logins } = this.loginsOf(account.id);
     const status = await logins.status(account.folder);
-    return this.accounts.account(account.id) === account && this.accounts.setLogin(account.id, status);
+    return this.accounts.setLogin(account.id, status);
   }
 
   /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, and a working headless session. */
