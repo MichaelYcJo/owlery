@@ -137,14 +137,14 @@
   /* A state's mark, as paths on a square of 16 units: `--shape-<state>` is drawn as a line and `--shape-<state>-fill` is filled, and the working state has the faint line under the part that turns and the part that turns. `none` draws nothing. */
   --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
   --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
-  --shape-working: none;
-  --shape-working-fill: none;
-  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
-  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
-  --shape-finished: path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0");
-  --shape-finished-fill: none;
-  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
-  --shape-no-agent-fill: none;
+  --shape-working: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6z");
+  --shape-working-track: none;
+  --shape-working-turn: none;
+  --shape-finished: none;
+  --shape-finished-fill: path("M1.65 8a6.35 6.35 0 1 0 12.7 0a6.35 6.35 0 1 0-12.7 0z");
+  --shape-no-agent: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-no-agent-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6A7 7 0 0 0 8 2.4z");
   --shape-failed: none;
   --shape-failed-fill: path("M8 2.3l6 10.5H2z");
 }
@@ -252,14 +252,14 @@
 
   --shape-waiting: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
   --shape-waiting-fill: path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z");
-  --shape-working: none;
-  --shape-working-fill: none;
-  --shape-working-track: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
-  --shape-working-turn: path("M8 2.4A5.6 5.6 0 0 1 13.6 8");
-  --shape-finished: path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0");
-  --shape-finished-fill: none;
-  --shape-no-agent: path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z");
-  --shape-no-agent-fill: none;
+  --shape-working: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-working-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6z");
+  --shape-working-track: none;
+  --shape-working-turn: none;
+  --shape-finished: none;
+  --shape-finished-fill: path("M1.65 8a6.35 6.35 0 1 0 12.7 0a6.35 6.35 0 1 0-12.7 0z");
+  --shape-no-agent: path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z");
+  --shape-no-agent-fill: path("M8 2.4A5.6 5.6 0 0 1 8 13.6A7 7 0 0 0 8 2.4z");
   --shape-failed: path("M8 2.3l6 10.5H2z");
   --shape-failed-fill: path("M8 2.3l6 10.5H2z");
 }

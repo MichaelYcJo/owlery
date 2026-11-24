@@ -8,7 +8,7 @@ This document states how Owlery's window looks and speaks: its principles, its t
 
 A change to the window holds each of these, or changes this document in the same pull request and says why.
 
-1. **The seal is the one thing in wax.** Red stands on the seal alone. A button, a mark and a failure take another colour, so a red on the screen always says that a party independent of the builder judged this commit. The owl is drawn where a seal is, and in Night watch as the eye of a state's mark, and nowhere else in the window.
+1. **The seal is the one thing in wax.** Red stands on the seal alone. A button, a mark and a failure take another colour, so a red on the screen always says that a party independent of the builder judged this commit. The owl is drawn where a seal is, and in Night watch as the eye of the mark of a wait, and nowhere else in the window.
 2. **The window reports, and does not converse.** It shows what each work item's agent did and what it needs. It draws no chat bubble, no prompt box and no mark that says a model made something: every line of the inbox is an agent's work, so such a mark would say nothing.
 3. **One signal, spent on what needs the person.** Each theme has one way to say that a work item needs the person. In Night watch it is the eye's yellow, and in Register and Desk it is a filled mark in the strong ink. A hover, a selection, a search's match and the keyboard's focus are drawn in the theme's inks, and none of them takes Night watch's yellow.
 4. **A state is said three times: by a shape, by a colour and by words.** No state is told from another by colour alone. In Night watch a wait and a failure share the yellow, a shade apart in the light appearance where a word on a selected line needs it darker, and differ by their shapes and their words.
@@ -48,7 +48,7 @@ The window has three themes: Night watch, Register and Desk. A first run opens i
 | Edges and rules | A line is a tile with no edge. What an agent says is a raised card, with an edge of the signal at its left where the work item needs the person. | A rule under each line of the inbox and under each row of a list of records: a work item's commits, its changed files, its facts and the paths its setup copied or could not copy. An item of the sidebar is navigation and carries no rule. A group's head is a ruled band on the sidebar's ground. A button is drawn by its edge with no fill. What an agent says stands between two rules. The tab in front carries a rule along its top. | A line is a tile with no edge. What an agent says is a raised card. |
 | Selected | A tinted tile. | A 2px rule of the strong ink at the left edge, over a faint ground. | A tinted tile. |
 | Texture | None, in both appearances. | None in the dark appearance. The ruled paper in the light one's right column. | None in the dark appearance. The ruled paper in the light one's right column. |
-| A state's marks | The owl's eye. An open eye with its pupil needs the person. A ring that turns is at work. A closed eye is finished. A crescent is asleep. A filled triangle is a failure, and in the light appearance a line of the darkened yellow stands around it, because the bright fill alone does not stand apart from the ground. | A form's boxes. A filled box needs the person. A half-filled box is at work. A ticked box is finished. An empty box is asleep. The triangle with its stroke is a failure. | A filled disc needs the person. A ring that turns is at work. A ticked circle is finished. A crescent is asleep. The triangle with its stroke is a failure. |
+| A state's marks | The phases of the moon, and the owl's eye. A moon is a disc filled as far as work has come, so how far work has come reads as how full the moon is. A ring with a thin filled edge at its right is asleep. A half-filled disc is at work, and it does not turn. A wholly filled disc is finished. The fill is the state's colour, so in the light appearance the filled part is the darker one, and a finished work item is a dark disc. An open eye with its pupil needs the person. A filled triangle is a failure, and in the light appearance a line of the darkened yellow stands around it, because the bright fill alone does not stand apart from the ground. | A form's boxes. A filled box needs the person. A half-filled box is at work. A ticked box is finished. An empty box is asleep. The triangle with its stroke is a failure. | A filled disc needs the person. A ring that turns is at work. A ticked circle is finished. A crescent is asleep. The triangle with its stroke is a failure. |
 | The approval line | The four roles' names in a row, each after its mark and with its note under it, joined by rules. | A ruled block of four boxes, one for each of framer, crafter, proofer and sealer, each holding the mark, the role's name and the note under the name. The sealer's box holds the seal. | The four roles' names in a row, each after its mark and with its note under it, joined by short rules. |
 | What it costs | Yellow is the colour most tools use for a warning, so a work item that needs the person may read as a fault. | It reads colder than Desk. The serif of what an agent says is what keeps it from reading as a spreadsheet. | It is the nearest of the three to its neighbours: a warm dark ground with cream ink, and in the light appearance a serif title. |
 
@@ -220,14 +220,14 @@ No theme changes these. They stand in the page's `:root`.
 | `--approval-box-edge` | `none` | `none` |
 | `--shape-waiting` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` |
 | `--shape-waiting-fill` | `path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z")` | `path("M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0z")` |
-| `--shape-working` | `none` | `none` |
-| `--shape-working-fill` | `none` | `none` |
-| `--shape-working-track` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` |
-| `--shape-working-turn` | `path("M8 2.4A5.6 5.6 0 0 1 13.6 8")` | `path("M8 2.4A5.6 5.6 0 0 1 13.6 8")` |
-| `--shape-finished` | `path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0")` | `path("M2.6 7.2a5.6 5.6 0 0 0 10.8 0")` |
-| `--shape-finished-fill` | `none` | `none` |
-| `--shape-no-agent` | `path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z")` | `path("M12.9 9.7A5.6 5.6 0 0 1 6.3 3.1 5.6 5.6 0 1 0 12.9 9.7z")` |
-| `--shape-no-agent-fill` | `none` | `none` |
+| `--shape-working` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` |
+| `--shape-working-fill` | `path("M8 2.4A5.6 5.6 0 0 1 8 13.6z")` | `path("M8 2.4A5.6 5.6 0 0 1 8 13.6z")` |
+| `--shape-working-track` | `none` | `none` |
+| `--shape-working-turn` | `none` | `none` |
+| `--shape-finished` | `none` | `none` |
+| `--shape-finished-fill` | `path("M1.65 8a6.35 6.35 0 1 0 12.7 0a6.35 6.35 0 1 0-12.7 0z")` | `path("M1.65 8a6.35 6.35 0 1 0 12.7 0a6.35 6.35 0 1 0-12.7 0z")` |
+| `--shape-no-agent` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` | `path("M2.4 8a5.6 5.6 0 1 0 11.2 0a5.6 5.6 0 1 0-11.2 0z")` |
+| `--shape-no-agent-fill` | `path("M8 2.4A5.6 5.6 0 0 1 8 13.6A7 7 0 0 0 8 2.4z")` | `path("M8 2.4A5.6 5.6 0 0 1 8 13.6A7 7 0 0 0 8 2.4z")` |
 | `--shape-failed` | `none` | `path("M8 2.3l6 10.5H2z")` |
 | `--shape-failed-fill` | `path("M8 2.3l6 10.5H2z")` | `path("M8 2.3l6 10.5H2z")` |
 
@@ -494,7 +494,7 @@ A change to the window that draws one of these is refused at its review, whichev
 | Cursor | `https://cursor.com/` | A warm near-black with cream ink, the app's windows floating over an oil painting of a landscape, an orange for links, and pill buttons. | The painting behind a window, the orange. Its warm ground and cream ink are close to Desk's dark appearance. |
 | Claude Code's desktop app | `https://code.claude.com/docs/en/desktop` | The documentation page: a warm dark ground, page titles in a serif, a terracotta orange for the active item and for the line over a title, the spark logo, and a sparkle on "Ask Assistant". | The orange, the spark, the sparkle. Its serif titles on a warm ground are close to the serif titles of Desk's light appearance and to the serif of what an agent says in Desk and Register. |
 
-The neighbours fall into two camps. Orca, Conductor and Linear draw in neutral black with a grotesque, and Night watch stands on that ground with the eye's yellow and the eye marks, which none of those pages draws. Cursor and Claude draw in warm black with cream, and Desk stands there. No page opened draws a ruled register, an approval line or a seal.
+The neighbours fall into two camps. Orca, Conductor and Linear draw in neutral black with a grotesque, and Night watch stands on that ground with the eye's yellow and the eye mark, which none of those pages draws. Cursor and Claude draw in warm black with cream, and Desk stands there. No page opened draws a ruled register, an approval line or a seal.
 
 ## A pull request that changes the window carries its screenshots
 
