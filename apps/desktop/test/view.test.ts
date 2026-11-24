@@ -9,6 +9,7 @@ import {
   answersFor,
   approvalPlaces,
   askButton,
+  asksChain,
   askedSection,
   asksFetch,
   backKey,
@@ -25,6 +26,7 @@ import {
   changedSetAfter,
   changesOf,
   changesSince,
+  CHAIN_CHOICES,
   choiceNote,
   closeAsks,
   codeParts,
@@ -121,6 +123,7 @@ import {
   sealSinceLook,
   selectedLine,
   settingsBases,
+  settingsChain,
   settingsFields,
   setupMark,
   setupSection,
@@ -185,7 +188,7 @@ const LOGIN: WorkItem = {
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
-const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null } };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null }, chain: { owl: false, plugin: false, chosen: null } };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -880,6 +883,68 @@ describe("settingsFields", () => {
     expect(settingsFields(NAMED, "Renamed", "main")).toEqual({ name: "Renamed", defaultBase: "main" });
     expect(settingsFields(NAMED, " The project ", "develop")).toEqual({});
     expect(settingsFields(PROJECT, "  ", "")).toEqual({});
+  });
+
+  it("sends the chain of the Claude Code panes where the menu's value is another than the answer kept, null for no answer, and nothing where it is the answer kept or the dialog gives no value", () => {
+    const BOTH: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: null } };
+    const ANSWERED: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: "owlery" } };
+    expect(settingsFields(BOTH, "", "", "owlery")).toEqual({ paneChain: "owlery" });
+    expect(settingsFields(BOTH, "", "", "plugin")).toEqual({ paneChain: "plugin" });
+    expect(settingsFields(BOTH, "", "", "")).toEqual({});
+    expect(settingsFields(ANSWERED, "", "", "owlery")).toEqual({});
+    expect(settingsFields(ANSWERED, "", "", "plugin")).toEqual({ paneChain: "plugin" });
+    expect(settingsFields(ANSWERED, "", "", "")).toEqual({ paneChain: null });
+    // A caller that gives no value changes no answer.
+    expect(settingsFields(ANSWERED, "Named", "")).toEqual({ name: "Named" });
+    // A repository of a daemon of an earlier build has no chain, and a menu left on its first choice sends nothing for it.
+    const { chain: _, ...earlier } = ANSWERED;
+    expect(settingsFields(earlier as Repository, "", "", "")).toEqual({});
+  });
+});
+
+describe("asksChain", () => {
+  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
+
+  it("asks before a Claude Code pane of a repository on the owl chain whose Claude Code enables the AgenticSeal plugin, while no answer is kept, and never before a shell", () => {
+    expect(asksChain(of(true, true, null), "claude")).toBe(true);
+    expect(asksChain(of(true, true, null), "shell")).toBe(false);
+  });
+
+  it("asks nothing once an answer is kept, where the repository is on no chain of Owlery's, where the plugin is not enabled, for a repository of a daemon of an earlier build, and for a folder the window holds no repository of", () => {
+    expect(asksChain(of(true, true, "owlery"), "claude")).toBe(false);
+    expect(asksChain(of(true, true, "plugin"), "claude")).toBe(false);
+    expect(asksChain(of(false, true, null), "claude")).toBe(false);
+    expect(asksChain(of(true, false, null), "claude")).toBe(false);
+    const { chain: _, ...earlier } = of(true, true, null);
+    expect(asksChain(earlier as Repository, "claude")).toBe(false);
+    expect(asksChain(undefined, "claude")).toBe(false);
+  });
+});
+
+describe("settingsChain", () => {
+  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
+
+  it("shows the chain's field where the choice is read, with the answer kept as the menu's value and the first choice where none is", () => {
+    expect(settingsChain(of(true, true, null))).toEqual({ shown: true, value: "" });
+    expect(settingsChain(of(true, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
+    expect(settingsChain(of(true, true, "plugin"))).toEqual({ shown: true, value: "plugin" });
+  });
+
+  it("shows the field where an answer is kept though the choice is not read now, and hides it where neither holds and for a repository of a daemon of an earlier build", () => {
+    expect(settingsChain(of(true, false, "plugin"))).toEqual({ shown: true, value: "plugin" });
+    expect(settingsChain(of(false, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
+    expect(settingsChain(of(true, false, null))).toEqual({ shown: false, value: "" });
+    expect(settingsChain(of(false, true, null))).toEqual({ shown: false, value: "" });
+    const { chain: _, ...earlier } = of(true, true, null);
+    expect(settingsChain(earlier as Repository)).toEqual({ shown: false, value: "" });
+  });
+
+  it("offers the two chains by the values the daemon keeps, after the choice that takes the answer away", () => {
+    expect(CHAIN_CHOICES.map(({ value, label }) => [value, label])).toEqual([
+      ["", "Ask at the next Claude Code pane"],
+      ["owlery", "The owl chain"],
+      ["plugin", "The AgenticSeal plugin"],
+    ]);
   });
 });
 

@@ -13,12 +13,20 @@
 // case also holds the person's settings files and plugin lists to their
 // bytes. Claude Code itself keeps the session's conversation, and its answer
 // to the question whether the temporary folder is trusted, in its own files.
+//
+// A second case starts the pane under the person's choice of the owl chain,
+// with the settings file the daemon writes for such a pane, and asks the
+// session for every agent and skill it is offered: the bundle's are there,
+// and none of the AgenticSeal plugin's is. It reads the person's own Claude
+// Code settings for the plugin, writes none, and holds only where their
+// Claude Code enables that plugin. It does not read which hooks ran.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { HookServer, paneCommands, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
+import { readPlugins } from "../src/daemon/claude-plugins";
+import { HookServer, paneCommands, paneSettingsFile, writeHookSettings, type HookEvent } from "../src/daemon/hooks";
 import { carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
 import { TerminalSession, terminalEnv } from "../src/daemon/pty";
 import { MARKER, workflowText } from "../src/daemon/records-place";
@@ -32,6 +40,7 @@ const RUN = process.env.OWLERY_PANE_RUN === "1";
 const UNCHANGED = [".claude/settings.json", ".claude/settings.local.json", ".claude/plugins/installed_plugins.json", ".claude/plugins/known_marketplaces.json"];
 
 const LISTING = "Answer from your context alone and call no tool. List every agent type your Agent tool offers whose name starts with owlery: and every skill offered to you whose name starts with owlery: . Then quote whole the section of your system prompt whose first line starts with '# Owlery', or say that you hold none.";
+const EVERY = "Answer from your context alone and call no tool. List every agent type your Agent tool offers, each by its full name, and then every skill offered to you, each by its full name. Leave none out.";
 const QUESTION = "Call the AskUserQuestion tool once, with the single question 'Which colour?' and the two options red and blue. Make no other tool call. Then say in one line what the call returned, and stop.";
 
 /** What a terminal printed, without the sequences that move the cursor and set a colour, and without spaces, which the CLI draws by moving the cursor. */
@@ -40,24 +49,28 @@ function drawn(text: string): string {
 }
 
 describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's own Claude login", () => {
-  let made: ReturnType<typeof temporaryRepository> | undefined;
-  let hooks: HookServer | undefined;
-  let terminal: TerminalSession | undefined;
+  /** What each session started, to end after the cases: its pane, its hook socket and its repository. */
+  const cleanups: (() => Promise<void> | void)[] = [];
 
   beforeAll(() => buildApp(), 60_000);
   afterAll(async () => {
-    terminal?.kill();
-    await hooks?.close();
-    made?.remove();
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
   const bytes = (): (string | null)[] => UNCHANGED.map((file) => (existsSync(join(homedir(), file)) ? readFileSync(join(homedir(), file)).toString("base64") : null));
 
-  it("offers the bundle's four agents and its skill, holds the head, and is refused an AskUserQuestion call by the bundle's hook where the routing answers Automation yes, and changes no settings file and no plugin list", async () => {
-    const before = bytes();
+  /**
+   * Starts a pane on the owl chain in a repository the case makes, as the
+   * daemon starts it under the person's answer `chosen`, types each prompt
+   * as a turn of its own, ends the session, and gives what the session
+   * answered, what its tools returned, the hooks' events, the directory the
+   * chain command's `start` made, and the settings file the pane was
+   * launched with.
+   */
+  async function sessionOf(chosen: "owlery" | null, prompts: readonly string[]): Promise<{ answers: string; results: string; events: HookEvent[]; directory: string; settingsFile: string; shared: string; runDir: string }> {
     // A repository on the owl chain, with a records root, on a branch that holds one commit.
     const repository = temporaryRepository();
-    made = repository;
+    cleanups.push(repository.remove);
     const { repo, base } = repository;
     const write = (path: string, text: string): void => {
       mkdirSync(join(repo, path, ".."), { recursive: true });
@@ -79,11 +92,14 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
     const settings = writeHookSettings(runDir);
     const chain = writePaneChain(runDir, { node: process.execPath, script: join(dist, "chain.js"), bundleDir: join(dist, "bundle") });
     const server = await HookServer.listen(join(runDir, "hooks.sock"));
-    hooks = server;
+    cleanups.push(() => server.close());
     const events: HookEvent[] = [];
     server.onEvent((event) => events.push(event));
-    const { command, args, env } = paneCommands(process.env, settings, server.socketPath, carriedIn(chain))("claude", 1, { continueLatest: false, folder: repo, base: "main" });
-    expect(env.OWLERY_CHAIN).toBe(chain.launcher);
+    // Under the choice the person's own settings are read for the plugin, as the daemon reads them. With no answer the pane is launched as the daemon launches one where it finds no such plugin, so the first case runs on a machine that enables it too.
+    const carries = chosen === null ? carriedIn(chain, () => ({ enabled: {}, agenticSeal: [] })) : carriedIn(chain);
+    const { command, args, env } = paneCommands(process.env, settings, server.socketPath, carries)("claude", 1, { continueLatest: false, folder: repo, base: "main", checkout: repo, chosen });
+    expect(env.OWLERY_CHAIN, "the pane carries the owl chain").toBe(chain.launcher);
+    const settingsFile = /--settings '([^']+)'/u.exec(args[3] ?? "")?.[1] ?? "";
     const paneEnv = { ...process.env, ...env, OWLERY_RUN_DIR: runDir };
     // The routing, written by the built command through the launcher, as a pane's session runs it.
     const started = JSON.parse(execFileSync(chain.launcher, ["start", "--automation", "yes"], { cwd: repo, encoding: "utf8", env: terminalEnv(paneEnv) })) as { directory: string };
@@ -91,7 +107,7 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
     let printed = "";
     let exited = false;
     const pane = TerminalSession.spawn({ command, args, cwd: repo, cols: 160, rows: 50, env: paneEnv });
-    terminal = pane;
+    cleanups.push(() => pane.kill());
     pane.onData((data) => (printed += data));
     pane.onExit(() => (exited = true));
     const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -123,15 +139,13 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
       await until("the session's start", () => seen("SessionStart") > 0, 60_000);
     }
     await pause(4000);
-    await type(LISTING);
-    await until("the end of the first turn", () => seen("Stop") >= 1, 180_000);
-    await pause(2000);
-    await type(QUESTION);
-    await until("the end of the second turn", () => seen("Stop") >= 2, 180_000);
-    await pause(2000);
+    for (const [at, prompt] of prompts.entries()) {
+      await type(prompt);
+      await until(`the end of turn ${String(at + 1)}`, () => seen("Stop") >= at + 1, 180_000);
+      await pause(2000);
+    }
     await type("/exit");
     await until("the pane's end", () => exited, 20_000).catch(() => pane.kill());
-    const after = bytes();
 
     // The conversation as Claude Code kept it, which the hooks' events name.
     const transcriptPath = events.map((event) => event.payload.transcript_path).find((path): path is string => typeof path === "string");
@@ -147,7 +161,15 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
       .join("\n");
     const results = JSON.stringify(blocks("user").filter((block) => block.type === "tool_result"));
     console.log(JSON.stringify({ events: events.map((event) => [event.name, event.payload.tool_name ?? null]), directory: started.directory, answers }, null, 2));
+    return { answers, results, events, directory: started.directory, settingsFile, shared: settings, runDir };
+  }
 
+  it("offers the bundle's four agents and its skill, holds the head, and is refused an AskUserQuestion call by the bundle's hook where the routing answers Automation yes, and changes no settings file and no plugin list", async () => {
+    const before = bytes();
+    const { answers, results, events, directory, settingsFile, shared } = await sessionOf(null, [LISTING, QUESTION]);
+    const after = bytes();
+    // A pane with no choice takes the settings file every pane shares.
+    expect(settingsFile).toBe(shared);
     // The bundle is loaded as the plugin `owlery`: its four agents and the skill a pane's session opens.
     for (const named of ["owlery:proofer", "owlery:crafter", "owlery:sealer", "owlery:orchestrator", "owlery:seal"]) expect(answers, named).toContain(named);
     // The head reached the session's system prompt.
@@ -155,7 +177,23 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
     expect(answers).toContain("A branch takes its seal from the owl chain before its pull request is opened or the work is called done.");
     // The call reached the bundle's hook, and the built command refused it with its reason, which the session was handed.
     expect(events.filter((event) => event.name === "PreToolUse").map((event) => event.payload.tool_name)).toContain("AskUserQuestion");
-    expect(results).toContain(`${started.directory}/routing.md answers \`Automation\` \`yes\`, so this run does not stop for a question.`);
+    expect(results).toContain(`${directory}/routing.md answers \`Automation\` \`yes\`, so this run does not stop for a question.`);
+    expect(after).toEqual(before);
+  }, 600_000);
+
+  it("under the person's choice of the owl chain is launched with a settings file of its own that sets each key of the AgenticSeal plugin to false, offers the bundle's agents and no agent or skill of that plugin, and changes no settings file and no plugin list", async () => {
+    const before = bytes();
+    // The person's own Claude Code settings, read and never written. The repository the case makes has none of its own, so the user's files state everything.
+    const read = readPlugins(tmpdir(), tmpdir());
+    expect(read.agenticSeal, "the person's Claude Code enables the AgenticSeal plugin, which is what this case is about").not.toEqual([]);
+    const { answers, settingsFile, runDir } = await sessionOf("owlery", [EVERY]);
+    const after = bytes();
+    expect(settingsFile).toBe(paneSettingsFile(runDir, 1));
+    const enabledPlugins = (JSON.parse(readFileSync(settingsFile, "utf8")) as { enabledPlugins: Record<string, unknown> }).enabledPlugins;
+    expect(enabledPlugins).toEqual({ ...read.enabled, ...Object.fromEntries(read.agenticSeal.map((key) => [key, false])) });
+    for (const named of ["owlery:proofer", "owlery:crafter", "owlery:sealer", "owlery:orchestrator", "owlery:seal"]) expect(answers, named).toContain(named);
+    // A plugin's agents and skills are offered under its name, which is the part of its key before the marketplace's.
+    for (const key of read.agenticSeal) expect(answers, key).not.toContain(`${key.split("@")[0] ?? key}:`);
     expect(after).toEqual(before);
   }, 600_000);
 });

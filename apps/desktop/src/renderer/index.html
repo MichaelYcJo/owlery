@@ -830,10 +830,30 @@
             <select id="settings-base"></select>
           </span>
         </label>
+        <label id="settings-chain-field" hidden>
+          Claude Code panes run
+          <span class="row">
+            <select id="settings-chain"></select>
+          </span>
+        </label>
         <p id="settings-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="settings-cancel" class="quiet">Cancel</button>
           <button type="submit" id="settings-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="chain-dialog">
+      <form id="chain-form">
+        <h2 class="head">Which chain runs in this repository's Claude Code panes?</h2>
+        <p class="says">This repository's check is Owlery's, and your Claude Code enables the AgenticSeal plugin here. One chain seals a repository, so a pane runs one of the two.</p>
+        <label class="check"><input type="radio" name="chain" id="chain-owlery" value="owlery" checked />The owl chain: the pane carries Owlery's roles, and the AgenticSeal plugin is off in that pane alone.</label>
+        <label class="check"><input type="radio" name="chain" id="chain-plugin" value="plugin" />The AgenticSeal plugin: the pane is Claude Code as you set it up, with nothing of Owlery's.</label>
+        <p class="says">Owlery asks once for a repository and changes none of your settings files. The repository's settings change the answer.</p>
+        <p id="chain-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="chain-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="chain-submit" class="primary">Open the pane</button>
         </div>
       </form>
     </dialog>

@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type Seal, type SealRecords, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack } from "../shared/seal-back";
 
 /**
@@ -2751,13 +2751,52 @@ export function settingsBases(plan: PlanAnswered | null, chosen: string | null):
  * What the settings dialog sends for a repository: the name where it is
  * another than the one a person gave, null for an empty one, and the base
  * where the menu's value is another than the repository's, null for the
- * first choice. A field that did not change is left out, and an object with
- * none is nothing to send.
+ * first choice, and the chain of its Claude Code panes where the menu's
+ * value is another than the answer kept, null for no answer. A field that
+ * did not change is left out, and an object with none is nothing to send.
  */
-export function settingsFields(repository: Repository, name: string, base: string): { name?: string | null; defaultBase?: string | null } {
+export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? ""): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null } {
   const named = name.trim() || null;
   const chosen = base || null;
-  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }) };
+  const runs = chain === "owlery" || chain === "plugin" ? chain : null;
+  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }), ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }) };
+}
+
+/** Which chain a repository's Claude Code panes run, or null for a repository of a daemon of an earlier build, which sends none: the window then asks no choice for it. */
+export function paneChainOf(repository: Repository | undefined): RepositoryChain | null {
+  return (repository as { chain?: RepositoryChain } | undefined)?.chain ?? null;
+}
+
+/**
+ * Whether the window asks which chain runs before it opens a pane of `kind`
+ * in a repository: for a Claude Code pane of a repository on the owl chain
+ * whose Claude Code enables the AgenticSeal plugin, while the person gave no
+ * answer. One chain seals a repository, and the daemon launches such a pane
+ * with nothing of the owl chain until an answer is kept. A shell is asked
+ * nothing, and neither is a repository the window does not hold.
+ */
+export function asksChain(repository: Repository | undefined, kind: PaneKind): boolean {
+  const chain = paneChainOf(repository);
+  return kind === "claude" && chain !== null && chain.owl && chain.plugin && chain.chosen === null;
+}
+
+/** The menu's choices of a chain, by the value the menu holds for each: the empty value is no answer, which has the window ask at the next Claude Code pane. */
+export const CHAIN_CHOICES: readonly { value: "" | ChainChoice; label: string }[] = [
+  { value: "", label: "Ask at the next Claude Code pane" },
+  { value: "owlery", label: "The owl chain" },
+  { value: "plugin", label: "The AgenticSeal plugin" },
+];
+
+/**
+ * The chain's field of a repository's settings: whether the dialog shows
+ * it, and the value its menu holds. It is shown where the choice is read,
+ * which is a repository on the owl chain whose Claude Code enables the
+ * AgenticSeal plugin, and where an answer is kept, so an answer a person
+ * gave can be seen and changed though the plugin is off now.
+ */
+export function settingsChain(repository: Repository): { shown: boolean; value: "" | ChainChoice } {
+  const chain = paneChainOf(repository);
+  return { shown: chain !== null && ((chain.owl && chain.plugin) || chain.chosen !== null), value: chain?.chosen ?? "" };
 }
 
 /**

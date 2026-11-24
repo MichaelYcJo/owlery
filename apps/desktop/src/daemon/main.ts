@@ -7,6 +7,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { claudeAdapter } from "./adapters/claude";
 import { HookServer, paneCommands, writeHookSettings } from "./hooks";
+import { readPlugins } from "./claude-plugins";
 import { carriedIn, writePaneChain } from "./pane-chain";
 import { Daemon } from "./daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, and under `chain/` what the chain command hands a pane's session.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, the settings file of each pane that carries it under the person's choice, and under `chain/` what the chain command hands a pane's session.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
@@ -56,8 +57,10 @@ async function main(): Promise<void> {
     holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
-    // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch.
+    // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch. Where the person's Claude Code enables the AgenticSeal plugin there, it carries the chain under the person's answer for the repository alone, with a settings file of its own that keeps the plugin out.
     commandFor: paneCommands(process.env, hookSettingsFile, hooks.socketPath, carriedIn(paneChain)),
+    // The person's Claude Code settings are read, never written, under the config folder this process's environment names, which is the folder of its panes.
+    pluginEnabled: (folder, checkout) => readPlugins(folder, checkout).agenticSeal.length > 0,
     // Every headless session is the user's own CLI, found once through their login shell. A role session loads the
     // role bundle the build put beside this script, and its rules file is written into the run folder.
     roleAdapter: claudeAdapter(process.env, { bundleDir: beside === undefined ? undefined : join(beside, "bundle"), rulesDir: join(runDir, "roles") }),

@@ -21,7 +21,7 @@ const ROOTS = ["seal", "agentic-seal"] as const;
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
 /** The script AgenticSeal's workflow runs, by its path in the plugin: a `hygiene.yml` that names it is the check. */
-const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
+export const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
 /** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
 const FILE_MODES = ["100644", "100755"];
 /**

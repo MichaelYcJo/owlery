@@ -74,6 +74,19 @@ export interface RecordsPlace {
   broadGate: string | null;
 }
 
+/** The chain a person chose for the Claude Code panes of a repository: the owl chain, which is Owlery's, or the AgenticSeal plugin's. */
+export type ChainChoice = "owlery" | "plugin";
+
+/** Which chain a repository's Claude Code panes run, as the daemon last read the repository's main checkout and the person's Claude Code settings for it. */
+export interface RepositoryChain {
+  /** True where the main checkout holds Owlery's workflow, so the repository is on the owl chain. */
+  owl: boolean;
+  /** True where the person's Claude Code enables the AgenticSeal plugin for a session in the main checkout. */
+  plugin: boolean;
+  /** The person's answer, kept on the repository, or null where they gave none. It is read only where both of the above hold: the window then asks once, before it opens a Claude Code pane. */
+  chosen: ChainChoice | null;
+}
+
 /** What a setup of the records place would do. */
 export interface RecordsPlan {
   /** The branch the commit lands on, or null where the checkout stands on none. */
@@ -112,6 +125,8 @@ export interface Repository {
   groups: Group[];
   /** What the main checkout holds of the records place. A daemon of an earlier build sends none, and a client reads its absence as a repository it offers no setup for. */
   records: RecordsPlace;
+  /** Which chain the repository's Claude Code panes run. A daemon of an earlier build sends none, and a client reads its absence as a repository it asks no choice for. */
+  chain: RepositoryChain;
 }
 
 /** The running sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that are working, each by its id. */
@@ -674,8 +689,8 @@ export type ClientMessage =
   | { type: "fetchBase"; requestId: number; repo: string; base: string }
   // Adds the repository `folder` is inside, with no work item. `folder` is an absolute path, and the daemon refuses any other. The repository is the one the folder's main checkout names, so a folder inside a linked worktree adds the repository the worktree belongs to, and a folder of a bare repository's worktree is refused, as is a linked worktree of a submodule or of a repository whose git directory stands apart from its checkout. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
   | { type: "addRepository"; requestId: number; folder: string }
-  // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. The daemon answers with `done`.
-  | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean }
+  // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. `paneChain` is the person's answer to which chain the repository's Claude Code panes run, and null takes the answer away, so the window asks again. The daemon answers with `done`.
+  | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean; paneChain?: ChainChoice | null }
   // Takes a repository and its work items, the archived among them, off the daemon's lists. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Without `delete` it removes nothing on disk: the repository, each worktree's folder and each branch stay. It ends the sessions named, and refuses where a pane's process has not exited within its wait. With `delete`, which the person chose, it deletes each work item from disk first, one after another, as a `deleteWorkItem` does with the stamp `stamps` holds under that work item's id and with `force`. It refuses before the first delete, and ends nothing, where `stamps` holds no stamp for a work item, where a session runs that the message does not name, and while an archive is ending the sessions of one of the work items. Where one delete is refused or fails, the removal stops there: the refusal opens with that work item's title, the work items deleted before it are gone, and the repository and the others stay. The repository's own folder is never touched. The daemon answers with `done`.
   | { type: "removeRepository"; requestId: number; id: number; workItems: number[]; running: Running; delete?: { stamps: Record<number, string>; force: boolean } }
   // Asks what a setup of the records place in the repository `id` would write and commit, with `broadGate` as the command a new `config.json` holds. The daemon writes nothing, and answers with a `recordsPlan`.
