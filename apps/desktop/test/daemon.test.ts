@@ -6820,17 +6820,19 @@ describe("a Claude Code pane and the owl chain", () => {
     expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ repositories: [{ id, paneChain: null }] });
   });
 
-  it("reads the person's settings again at each read of the repositories, so a client is told once the plugin is turned off, and a pane then carries the owl chain with the settings file every pane shares, whatever answer is kept", async () => {
+  it("reads the person's settings again at each read of the repositories and at each launch, the local file of the main checkout among them, so a client is told once the plugin is turned off there, and a pane of a worktree then carries the owl chain with the settings file every pane shares, whatever answer is kept", async () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
-    const config = withPlugin(made);
+    withPlugin(made);
     const { c, settings, chain, given } = await launching(made, { commitPollMs: 200 });
     c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Turned off", kind: "claude", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
     await c.message("inbox", (m) => m.repositories[0]?.chain.plugin === true);
     c.send({ type: "setRepository", requestId: 2, id: 1, paneChain: "plugin" });
     await c.message("done", (m) => m.requestId === 2);
-    // The person turns the plugin off in their own file.
-    writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [KEY]: false } })}\n`);
+    // The person turns the plugin off for this repository, in the local settings file of its main checkout, which no worktree holds a copy of.
+    mkdirSync(join(made.repo, ".claude"));
+    writeFileSync(join(made.repo, ".claude", "settings.local.json"), `${JSON.stringify({ enabledPlugins: { [KEY]: false } })}\n`);
+    expect(existsSync(join(workItem.worktree, ".claude"))).toBe(false);
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
     const pane = await given((await c.message("started", (m) => m.requestId === 3)).session.id);
     expect(pane.args[3]).toContain(`exec claude --settings '${settings}' --plugin-dir `);

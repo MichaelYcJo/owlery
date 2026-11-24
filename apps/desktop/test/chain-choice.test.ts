@@ -159,9 +159,19 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     // The settings hold the new answer, and a shell opens with no question whatever the answer.
     await openSettings();
     expect(await value<string>(`document.getElementById("settings-chain").value`)).toBe("plugin");
-    await app.click("#settings-cancel");
+    // Once the answer is taken away again the dialog opens on the owl chain, whatever was chosen in it last, and a cancel launches nothing.
+    await value(`document.getElementById("settings-chain").value = ""`);
+    await app.click("#settings-submit");
     await dialogClosed("settings-dialog");
-    expect(commands()).toHaveLength(3);
+    await pressPaneButton("+ Claude Code");
+    await dialogOpen("chain-dialog");
+    expect(await value<boolean[]>(`[document.getElementById("chain-owlery").checked, document.getElementById("chain-plugin").checked]`)).toEqual([true, false]);
+    await app.click("#chain-cancel");
+    await dialogClosed("chain-dialog");
+    // A shell opens with no question while none is answered.
+    await pressPaneButton("+ Shell");
+    await app.until(`document.querySelectorAll("#tabs .tab").length >= 4`, "the shell's tab");
+    expect([await open("chain-dialog"), commands().length]).toEqual([false, 3]);
   });
 
   it("left every file of the person's Claude Code config folder with the bytes it held, and added none", () => {
