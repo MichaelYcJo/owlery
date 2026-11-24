@@ -6961,7 +6961,8 @@ describe("a Claude Code pane and the owl chain", () => {
   it("sends a repository's chain read in the folder of the account a new pane of it takes, reads it again when the repository's account or the default changes, and launches a pane of a work item set to an account whose folder enables the plugin with nothing of the bundle while no answer is kept (scenario 16)", async () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
     const handed = handedWithPlugin(join(made.base, "handed"));
-    const { c, settings, given } = await launching(made);
+    // The commits are read at the hello and not again within the case, so a chain read anew is read by the request that changed the account.
+    const { c, settings, given } = await launching(made, { commitPollMs: 3_600_000 });
     c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
     await c.message("accounts", (m) => m.accounts.length === 2);
     c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Asked by the repository", kind: "shell", cols: 80, rows: 24 });
