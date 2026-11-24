@@ -9,6 +9,9 @@
 // right column and the inbox's preview draw the line. A second work item,
 // made by a later case, has the records of a seal committed on its branch as
 // a chain commits them, and then one more commit, which breaks that seal.
+// One more work item stands in the run folder before the app starts, with a
+// chain a daemon stored as stopped, so the view's foot has a chain's sentence
+// to say.
 // The page's `Notification` is replaced by a recorder, so nothing reaches
 // the system's notifications.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -38,6 +41,9 @@ const EXPECTED: Shown[] = [
   { role: "proofer", mark: ["finished"], name: "Proofer", note: "2 rounds", label: "Proofer: 2 rounds", seal: null },
   { role: "sealer", mark: ["no-agent"], name: "Sealer", note: "Not started", label: "Sealer: Not started", seal: "none" },
 ];
+
+/** The sentence of the chain the run folder holds for the work item that stands there before the app starts. */
+const STORED_SAYS = "Review round 1 failed: the session was stopped at a request before it finished.";
 
 /** The view's right column and the inbox's preview, each with the element its section stands in, which scrolls. */
 const WHERE = { view: { detail: "#view-detail", column: "#view-scroll" }, preview: { detail: "#inbox-preview-detail", column: "#inbox-screen .preview-body" } } as const;
@@ -107,7 +113,12 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nexit 1`);
     // The login shell: it names the stand-in, and a pane it starts ends at once.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
-    app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
+    // A work item of the run folder, as a daemon that ran its chain stored it: the chain stopped, with its sentence. Nothing in the window starts a chain, and one the daemon holds is still said.
+    const storedWorktree = join(made.root, "stored");
+    git(made.repo, "worktree", "add", "--quiet", "-b", "owlery/stored", storedWorktree);
+    const stored = { id: 1, title: "Stored", branch: "owlery/stored", worktree: storedWorktree, createdAt: Date.now() - 60 * 60_000, baseCommit: null, baseBranch: null, pinned: false, muted: false, groupId: null, archivedAt: null, chain: { state: "stopped", says: STORED_SAYS, stages: [], since: Date.now() - 60_000 } };
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60 * 60_000, groups: [], workItems: [stored] };
+    app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root }, { writeRun: (runDir) => writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] })) });
     await app.evaluate(`(() => {
       window.__notifications = [];
       window.Notification = class {
@@ -273,5 +284,16 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.getElementById("inbox-preview-seal-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the broken seal");
     const inInbox = await sealsOf(gamma.id);
     expect([inInbox.line, inInbox.preview, inInbox.previewWords]).toEqual([["broken", words], ["broken", words], words]);
+  });
+
+  it("says at the view's foot the sentence of the chain the daemon holds for the work item, under the seal's words, and holds nothing to press there", async () => {
+    const stored = second.item("Stored");
+    expect(stored?.chain).toMatchObject({ state: "stopped", says: STORED_SAYS });
+    await openView(stored!);
+    await app.until(`document.getElementById("seal-says").textContent !== ""`, "the chain's sentence at the view's foot");
+    const foot = await sealsOf(stored!.id);
+    expect([foot.says, foot.buttons]).toEqual([STORED_SAYS, 0]);
+    // The sentence stands in the foot, after the seal's words.
+    expect(await app.evaluate(`(() => { const says = document.getElementById("seal-says"); return [document.getElementById("view-seal").contains(says), Boolean(document.getElementById("view-seal-head").compareDocumentPosition(says) & Node.DOCUMENT_POSITION_FOLLOWING)]; })()`)).toEqual([true, true]);
   });
 });
