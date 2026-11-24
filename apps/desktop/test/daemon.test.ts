@@ -6901,7 +6901,7 @@ describe("a Claude Code pane and the owl chain", () => {
     }
     return made;
   }
-  const PLUGIN_CHECK = 'jobs:\n  seal:\n    steps:\n      - run: python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n';
+  const PLUGIN_CHECK = 'jobs:\n  hygiene:\n    steps:\n      - run: python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n';
 
   it("launches a Claude Code pane of a work item whose worktree holds Owlery's workflow with the role bundle, the head of the run folder and a launcher of the chain command that runs, and a shell of the same work item with none of them", async () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");

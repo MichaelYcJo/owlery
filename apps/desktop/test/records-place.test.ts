@@ -13,7 +13,7 @@ const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const VERSION = "1.2.3";
 /** The step of AgenticSeal's `hygiene.yml` that runs the check, as its 0.38.4 template writes it. */
-const PLUGIN_CHECK = 'jobs:\n  seal:\n    steps:\n      - run: |\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py" \\\n            --baseline "origin/${{ github.base_ref }}"\n';
+const PLUGIN_CHECK = 'jobs:\n  hygiene:\n    steps:\n      - run: |\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py" \\\n            --baseline "origin/${{ github.base_ref }}"\n';
 /** The refusal of a plan where the checkout does not hold a path of the place as the commit does. */
 const differs = (names: string): string =>
   `This checkout does not hold ${names} as the commit it stands at does. Owlery plans the records place from the commit, which is what a clone and the check on GitHub get. Commit what is named or put it back as the commit has it, widening a sparse checkout that leaves it out, and open this again.`;
