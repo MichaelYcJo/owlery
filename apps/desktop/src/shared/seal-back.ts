@@ -17,6 +17,9 @@
 // which the body writes as Markdown and the window draws as code.
 import { type BackFinding, type BackRound, type ChainStageKind, type LedgerEntry, type SealRecords, type Usage } from "./protocol";
 
+/** The words over the cells of a stage's line, in the window's back and in the table of the pull request's body alike. */
+export const STAGE_COLUMNS = ["Stage", "Ended", "Time", "Tokens in / out", "Cache read / written", "Cost"] as const;
+
 /** A stage's cost: its amount with whether it is converted, `none` where the stage reported no cost, or null for a stage that is no agent's turn. */
 export type StageCost = { amount: string; converted: boolean } | "none" | null;
 

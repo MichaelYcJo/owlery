@@ -4,7 +4,7 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
-import type { Back, FindingLine, RoundPart, StageLine } from "../shared/seal-back";
+import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
 import { APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
@@ -429,9 +429,6 @@ export function detail(entry: Entry, gained: number, { reverse, runSetup }: { re
   }
   return parts;
 }
-
-/** The words over the cells of a stage's line, as the pull request's body heads the same columns. */
-const STAGE_COLUMNS = ["Stage", "Ended", "Time", "Tokens in / out", "Cache read / written", "Cost"] as const;
 
 /** One stage's line of the back: its name, how it ended, its time, its tokens, its cache and its cost, each in a cell under `STAGE_COLUMNS`. */
 function stageLine(line: StageLine): HTMLElement {

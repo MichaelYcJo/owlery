@@ -7,6 +7,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
 import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { composeBack } from "../shared/seal-back";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -77,7 +78,7 @@ import {
 } from "./chain";
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
-import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withSealSection } from "./github";
+import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -2698,13 +2699,17 @@ export class Daemon {
    * stage, in the form of `runGate`.
    *
    * The stage reads the records the head commit holds (`github.ts#bodyRecords`),
-   * pushes that head commit, by its id, to the branch on the remote
+   * composes the back of the seal from what those records say for it and the
+   * ledger's entries of the work item as they stand then, as `readSealRecords`
+   * and `readLedger` give them to the window (`../shared/seal-back`), pushes
+   * that head commit, by its id, to the branch on the remote
    * `github.ts#pushTarget` names with the person's git and writes the
    * branch's upstream, then asks the person's `gh` for the branch's open pull
    * requests. Where it lists one, the stage replaces that body's seal section
-   * and sends the body with `gh pr edit`; where it lists none, it opens one
-   * with `gh pr create`, ready, with the work item's title, its base and the
-   * body `github.ts#pullRequestBody` composes. It then reads the pull request
+   * and its back's section, putting the back's after the seal section where
+   * the body holds none, and sends the body with `gh pr edit`; where it lists
+   * none, it opens one with `gh pr create`, ready, with the work item's
+   * title, its base and the body `github.ts#pullRequestBody` composes. It then reads the pull request
    * with `gh pr view` and stores it with the work item. `gh` is the
    * `DaemonOptions` one, or the one on the `PATH` of the broad gate's
    * environment, and runs with that environment, no prompt and no colour.
@@ -2719,7 +2724,7 @@ export class Daemon {
    * the head, where the push, the writing of the upstream or a call of `gh` fails or passes its time
    * limit, where an answer of `gh` does not read, where `gh` lists more than
    * one open pull request of the branch, and where the body it lists holds
-   * its markers otherwise than once each. It then throws a `StageStopped`
+   * the markers of either section otherwise than once each. It then throws a `StageStopped`
    * with the chain's sentence, and the stored pull request is as it was. A
    * daemon that closed meanwhile stores nothing.
    */
@@ -2751,6 +2756,9 @@ export class Daemon {
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
       const target = await pushTarget(worktree, baseBranch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
+      // The stage runs at a seal that holds at the head, so no commit broke it, and the reader is handed no seal: the body names no breaking commit.
+      const { entries, unread } = this.ledger.read(item.id, item.createdAt);
+      const back = composeBack(await sealRecords(worktree, directory, head, null), entries, unread);
       const named = await pullRequestTitle(worktree, title, baseCommit, head);
       await pushBranch(cli, target.remote, branch, head);
       const listed = await openPullRequests(cli, branch);
@@ -2759,12 +2767,12 @@ export class Daemon {
       const [open] = listed;
       let url: string;
       if (open === undefined) {
-        writeFileSync(body.file, pullRequestBody(records), { mode: 0o600 });
+        writeFileSync(body.file, pullRequestBody(records, back), { mode: 0o600 });
         url = await createPullRequest(cli, { branch, base: target.base, title: named, bodyFile: body.file });
       } else {
         let text: string;
         try {
-          text = withSealSection(open.body, sealSection(records));
+          text = withBackSection(withSealSection(open.body, sealSection(records)), back, records.directory);
         } catch (error) {
           throw new Error((error instanceof Error ? error.message : String(error)).replace(/^the body/u, `the body of pull request #${String(open.number)}`));
         }

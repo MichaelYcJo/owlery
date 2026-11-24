@@ -47,9 +47,11 @@ import {
 } from "../src/daemon/chain";
 import type { DaemonOptions } from "../src/daemon/daemon";
 import { declaredBranch, readDecisionRecord, routingAnswer, withDecision, withQuestion } from "../src/daemon/decision-record";
+import { BACK_CLOSE, BACK_OPEN, backSection } from "../src/daemon/github";
 import { readRoundRecord } from "../src/daemon/round-record";
 import type { Verdict } from "../src/daemon/seal-records";
-import type { Chain, ChainStage } from "../src/shared/protocol";
+import type { Chain, ChainStage, Usage } from "../src/shared/protocol";
+import { composeBack } from "../src/shared/seal-back";
 import { untilGone } from "./built-app";
 import { type Cleanups, NOW, PULL_REQUEST_URL, TODAY, askBlock, bareRemote, clean, client, gateRecord, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, givenSeal, guaranteeRecord, head, noted, proofs, roles, roundRecord, rulingBlock, sealSection, sealedBy, standing, status, write } from "./chain-run";
 import { git } from "./repositories";
@@ -3021,15 +3023,40 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
   });
 
-  it("updates the open pull request of a branch sealed again at a later head, and opens no second one: it replaces the seal section of the body gh listed and keeps a person's lines around it, and names the new sealed commit", async () => {
+  it("writes the back of the seal below the seal section, composed from the records the head commit holds and the ledger's entries as the window composes it: each round's findings with their places and fixes, and each stage's cost with its sum", async () => {
+    const usage: Usage = { costUsd: 0.25, converted: true, models: [{ model: "fake", inputTokens: 1000, outputTokens: 200, cacheReadTokens: 3000, cacheWriteTokens: 400, costUsd: 0.25 }] };
+    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { usage: () => usage }) });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "rested");
+    const body = gh.bodies()[gh.calls().findIndex((call) => call[1] === "create")] ?? "";
+    const records = await c.asked({ type: "readSealRecords", requestId: 2, workItemId: a.id });
+    const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: a.id });
+    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
+    expect(body.startsWith(`${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\n`)).toBe(true);
+    expect(body.split("\n").filter((line) => line === BACK_OPEN || line === BACK_CLOSE)).toEqual([BACK_OPEN, BACK_CLOSE]);
+    // The back the body holds says the chain's two rounds, the fix of round 1's finding, and each stage that ran with its cost.
+    const fix = git(a.worktree, "log", "--format=%H", "--grep=^fix: ", "-1").trim().slice(0, 7);
+    expect(back).toContain(`\n- 1. The greeting of line 1 misses its full stop. \`feature.txt:1\`. must. Fixed in \`${fix}\`.\n`);
+    expect(back).toContain("\nThe review rounds caught 1 defect that was fixed before the seal. Findings by round: 1, 0.\n");
+    expect(back.split("\n").filter((line) => line.startsWith("| ")).map((line) => line.split(" | ")[0])).toEqual(["| Stage", "| Round 1", "| Fix pass on round 1", "| Round 2", "| Broad gate", "| Sealer"]);
+    expect(back).toContain("\n| Sealer | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
+    expect(back).toContain("\nThe chain's stages cost $1.00 converted. A converted cost is the usage priced at API prices, and it is not a charge.\n");
+  });
+
+  it("updates the open pull request of a branch sealed again at a later head, and opens no second one: it replaces the seal section and the back's section of the body gh listed and keeps a person's lines around them, and names the new sealed commit", async () => {
     const { c, workItems, remote, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.getSeal(a.id, 1)).toBe("done");
     await c.chain(a.id, "rested");
     const first = gh.bodies()[1] ?? "";
     const firstBlock = newestBlock(a.worktree);
+    const firstBack = first.slice(first.indexOf(`${BACK_OPEN}\n`), first.indexOf(`${BACK_CLOSE}\n`) + BACK_CLOSE.length);
+    expect(firstBack).toContain("\n### Round 1, on `");
+    expect(firstBack).not.toContain("\n### Round 2, on `");
     // A person edited the body on GitHub, and the branch gains a commit.
-    const edited = `A person's line above.\n\n${sectionOf(firstBlock)}\n\nA person's line below.\n`;
+    const edited = `A person's line above.\n\n${sectionOf(firstBlock)}\n\n${firstBack}\n\nA person's line below.\n`;
     const earlier = head(a.worktree);
     gh.answer("list", { out: JSON.stringify([{ number: 1, url: PULL_REQUEST_URL, headRefOid: earlier, body: edited }]) });
     // GitHub has not taken the push in yet when the stage reads the pull request back.
@@ -3044,7 +3071,14 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     const file = gh.calls()[before + 1]?.at(-1) ?? "";
     expect(gh.calls()[before + 1]).toEqual(["pr", "edit", PULL_REQUEST_URL, "--body-file", file]);
     const body = gh.bodies()[before + 1] ?? "";
-    expect(body).toBe(`A person's line above.\n\n${sectionOf(newestBlock(a.worktree))}\n\nA person's line below.\n`);
+    const records = await c.asked({ type: "readSealRecords", requestId: 3, workItemId: a.id });
+    const ledger = await c.asked({ type: "readLedger", requestId: 4, workItemId: a.id });
+    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
+    expect(body).toBe(`A person's line above.\n\n${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\nA person's line below.\n`);
+    // The new back holds the round run after the first seal.
+    expect(back).toContain("\n### Round 2, on `");
+    expect(back).not.toBe(firstBack);
     expect(newestBlock(a.worktree)).toContain(`target: ${sealed} against main\n`);
     expect(newestBlock(a.worktree)).not.toBe(firstBlock);
     expect(first).not.toBe(body);
@@ -3128,7 +3162,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     }
   });
 
-  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next getSeal: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections, answers of gh that do not read, and gh that never ends", async () => {
+  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next getSeal: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections and one with two sections of the back, answers of gh that do not read, and gh that never ends", async () => {
     /** A sealed chain whose stage failed as `make` arranges, with the chain, the head and the calls gh had before the stage. */
     const failing = async (options: Partial<DaemonOptions> & { gate?: string }, make: (stood: Awaited<ReturnType<typeof standing>>) => void, says: RegExp): Promise<Awaited<ReturnType<typeof standing>>> => {
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), ...options });
@@ -3177,6 +3211,8 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(several.gh.calls().map((call) => call[1])).toEqual(["list"]);
     const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- owlery:seal -->\n<!-- /owlery:seal -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:seal -->` lines, and Owlery replaces one seal section\.$/u);
     expect(twice.gh.calls().map((call) => call[1])).toEqual(["list"]);
+    const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- /owlery:seal -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the back of the seal\.$/u);
+    expect(twiceBack.gh.calls().map((call) => call[1])).toEqual(["list"]);
     await failing({}, ({ gh }) => gh.answer("list", { out: "Showing 0 of 0 pull requests\n" }), /^The pull request stage failed: gh pr list printed no list Owlery reads\.$/u);
     await failing({}, ({ gh }) => gh.answer("create", { out: "Creating pull request\n" }), /^The pull request stage failed: gh pr create printed no address of a pull request\.$/u);
     await failing({}, ({ gh }) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "QUEUED", headRefOid: "a".repeat(40) }) }), /^The pull request stage failed: gh pr view printed no pull request Owlery reads\.$/u);
