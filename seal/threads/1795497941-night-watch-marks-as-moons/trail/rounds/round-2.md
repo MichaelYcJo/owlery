@@ -61,6 +61,12 @@ the width a person sees filled
 
 `pr.md` quotes none of these sentences, so no quote follows them.
 
+```seal
+verdict: fixed 2a84df6
+answer: `gaps.md:9`, first cell, and `trail/phases/phase-1.md:7`, `13` and `19` take the paste-ready texts word for word in `2a84df6`. The fourth place, `frame/questions.md:15`, is the orchestrator's fold at `f97ac22`, which `2a84df6` follows. The same commit also corrects `trail/phases/phase-1.md:9`, which said the row "A state's marks" "now says" "A half moon is at work, and it does not turn", where HEAD's cell says "A half-filled disc is at work, and it does not turn"; that is no statement of the lit wording, and it is a statement HEAD contradicted in a file the fix pass writes. The method that makes the list whole for the work item's records is a command, not a list handed on: `git grep -n -I -i -w -e lit -e 'dark disc'` over `seal/threads/1795497941-night-watch-marks-as-moons` and the branch's changed files (`git diff --name-only c82c611 HEAD`, the PNG files left out), with the round records excluded because each quotes the wording it judges. After the commit it prints the identifiers of `apps/desktop/test/theme-controls.test.ts:227-291`, left as the spawn asks; `docs/design.md:15` and `506`, the seal's lit wax; `docs/design.md:51` and `frame/design.md:110`, `frame/questions.md:18`, `gaps.md:12`, `pr.md:12` and `trail/phases/phase-2.md:19`, each of which says a finished work item is a dark disc in the light appearance, which is true; `frame/design.md:45`, in *Grounding* and dated to `523a5fb`; and `trail/phases/phase-2.md:25`, which quotes the lit wording as what the earlier reading missed. No line of it states the asleep mark or the filled part falsely of the light appearance. Every change stays inside the work item's directory, and no code or test changed.
+location: `seal/threads/1795497941-night-watch-marks-as-moons/trail/phases/phase-1.md:9`
+```
+
 ## Confirmations
 
 ```seal
