@@ -2,7 +2,8 @@
 // the sealed branch is pushed to with the person's git, the calls of the
 // person's `gh` that list, open, edit and read a pull request, the body
 // composed from the records the branch's head commit holds, which opens with
-// the seal section, and the pull request's checks read into three states.
+// the seal section and the back of the seal, and the pull request's checks
+// read into three states.
 // This module reads no stored state and writes none: `Daemon#runPullRequest`
 // and `Daemon#readPullRequest` store what it gives, and the daemon arranges
 // when the watch reads. Owlery reads and stores no token, and calls `gh` for
@@ -16,12 +17,13 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { join } from "node:path";
 import type { PullRequest, PullRequestCheck } from "../shared/protocol";
+import { type Back, type FindingLine, STAGE_COLUMNS, type StageLine, costText } from "../shared/seal-back";
+import { ROUNDS_FOLDER, roundFile } from "./chain";
 import { readDecisionRecord } from "./decision-record";
 import { gfmLines } from "./record-blocks";
-import { readRoundRecord } from "./round-record";
 import { readGate, readGuarantee } from "./seal-records";
 import { GATE_KILL_AFTER_MS } from "./gate";
-import { baseRef, fileAt, filesAt, remoteOf } from "./worktrees";
+import { baseRef, fileAt, remoteOf } from "./worktrees";
 
 /** How long one call of `gh`, and the push, may run before the daemon ends it, where the options name no time. */
 export const GITHUB_LIMIT_MS = 60_000;
@@ -47,17 +49,27 @@ export const SECTION_OPEN = "<!-- owlery:seal -->";
 /** The line that closes a body's seal section, as `chain_check.py#SECTION_CLOSE` reads it. */
 export const SECTION_CLOSE = "<!-- /owlery:seal -->";
 
+/** The line that opens the body's section of the back of the seal, below the seal section. No check reads it. */
+export const BACK_OPEN = "<!-- owlery:back -->";
+
+/** The line that closes the body's section of the back of the seal. */
+export const BACK_CLOSE = "<!-- /owlery:back -->";
+
+/** Every marker line Owlery writes into a body. */
+const MARKERS: readonly string[] = [SECTION_OPEN, SECTION_CLOSE, BACK_OPEN, BACK_CLOSE];
+
 /**
- * Which marker a line is, or null: a line is a marker line where it is
- * `SECTION_OPEN` or `SECTION_CLOSE` once the spaces and tabs at its ends are
- * taken off, and no other character is taken off. The daemon and the check
- * (`chain_check.py#marker_of`) hold this one rule, since the white space
- * JavaScript's `trim` and Python's `str.strip` take off differ. A line is
- * asked after a text is split at GFM's line endings.
+ * Which marker a line is, or null: a line is a marker line where it is one
+ * of `MARKERS` once the spaces and tabs at its ends are taken off, and no
+ * other character is taken off. The daemon and the check
+ * (`chain_check.py#marker_of`, which knows the seal's two markers alone)
+ * hold this one rule, since the white space JavaScript's `trim` and Python's
+ * `str.strip` take off differ. A line is asked after a text is split at
+ * GFM's line endings.
  */
-export function markerOf(line: string): "open" | "close" | null {
+export function markerOf(line: string): string | null {
   const bare = line.replace(/^[ \t]+|[ \t]+$/gu, "");
-  return bare === SECTION_OPEN ? "open" : bare === SECTION_CLOSE ? "close" : null;
+  return MARKERS.includes(bare) ? bare : null;
 }
 
 /** The fields a read of a pull request asks `gh pr view` for. */
@@ -385,8 +397,6 @@ export interface BodyRecords {
   /** The newest verdict block of `guarantee.md`, from its opening fence to its closing fence, as the record holds it. */
   block: string[];
   changelog: string | null;
-  /** Each round record, in the order of its round: its path, and each finding's number, its heading's text and its close's verdict, `open` where it has none. */
-  rounds: { path: string; findings: { number: number; heading: string; verdict: string }[] }[];
   /** The newest run block of `trail/gate.md`, from fence to fence. */
   gate: string[] | null;
   /** Each decision of `decisions.md`: what was decided, its grounds and its state. */
@@ -402,23 +412,14 @@ function under(directory: string, path: string): string {
  * Reads what a pull request's body is composed from, at the commit given,
  * through the daemon's own readers. `directory` is the work item's directory
  * from the worktree's top. It throws where `guarantee.md` holds no verdict
- * block there.
+ * block there. The back of the seal is composed apart
+ * (`../shared/seal-back#composeBack`), since it reads the ledger too.
  */
 export async function bodyRecords(worktree: string, head: string, directory: string): Promise<BodyRecords> {
   const at = (path: string): Promise<string | null> => fileAt(worktree, head, under(directory, path));
   const guarantee = (await at("guarantee.md")) ?? "";
   const verdict = readGuarantee(guarantee).verdicts.at(-1);
   if (verdict === undefined) throw new Error(`${under(directory, "guarantee.md")} holds no verdict block at the head commit`);
-  const numbered = (await filesAt(worktree, head, under(directory, "trail/rounds"))).flatMap((path) => {
-    const [, digits] = /\/round-(\d+)\.md$/u.exec(path) ?? [];
-    return digits === undefined ? [] : [{ round: Number(digits), path }];
-  });
-  numbered.sort((a, b) => a.round - b.round);
-  const rounds: BodyRecords["rounds"] = [];
-  for (const { path } of numbered) {
-    const record = readRoundRecord((await fileAt(worktree, head, path)) ?? "");
-    rounds.push({ path, findings: record.findings.map(({ number, heading, close }) => ({ number, heading: heading.replace(/^#+\s+\d+\.\s*/u, "").replace(/\.+$/u, ""), verdict: close?.verdict ?? "open" })) });
-  }
   const gateText = (await at("trail/gate.md")) ?? "";
   const run = readGate(gateText).runs.at(-1);
   const decisionText = await at("decisions.md");
@@ -426,7 +427,6 @@ export async function bodyRecords(worktree: string, head: string, directory: str
     directory,
     block: gfmLines(guarantee).slice(verdict.line - 1, verdict.end),
     changelog: await at("changelog.md"),
-    rounds,
     gate: run === undefined ? null : gfmLines(gateText).slice(run.line - 1, run.end),
     decisions: decisionText === null ? [] : readDecisionRecord(decisionText).decisions.map(({ decided, grounds, state }) => ({ decided, grounds, state: state.is })),
   };
@@ -444,26 +444,81 @@ export function sealSection(records: Pick<BodyRecords, "directory" | "block">): 
   return [SECTION_OPEN, "## Owlery seal", "", `The newest verdict of \`${under(records.directory, "guarantee.md")}\`. A seal binds the commit it names, and the check \`Owlery seal\` says whether it holds at this pull request's head commit:`, "", ...records.block, SECTION_CLOSE].join("\n");
 }
 
+/** One finding's line of a round's list: its number, its symptom as a sentence, each place in code, its severity, its close, and the earlier finding or round it names. */
+function findingText(line: FindingLine): string {
+  const says = /[.!?]$/u.test(line.says) ? line.says : `${line.says}.`;
+  const places = line.places.length === 0 ? "" : ` ${line.places.map((place) => `\`${place}\``).join(", ")}.`;
+  return `- ${String(line.number)}. ${says}${places} ${line.severity}. ${line.close}.${line.names === null ? "" : ` ${line.names}`}`;
+}
+
+/** One row of a Markdown table, an empty cell written as one space. */
+function tableRow(cells: readonly string[]): string {
+  return `|${cells.map((cell) => (cell === "" ? " " : ` ${cell} `)).join("|")}|`;
+}
+
+/** One stage's row of the back's table, under `STAGE_COLUMNS`. */
+function stageRow(line: StageLine): string {
+  const { tokens } = line;
+  return tableRow([line.name, line.ended ?? "", line.time, tokens === null ? "" : `${tokens.input} / ${tokens.output}`, tokens === null ? "" : `${tokens.cacheRead} / ${tokens.cacheWritten}`, costText(line.cost)]);
+}
+
+/** How many rounds of the back hold findings, which are the rounds whose list can give way at the limit. */
+function listedRounds(back: Back): number {
+  return back.rounds.filter((round) => round.findings.length > 0).length;
+}
+
 /**
- * A new pull request's body: the seal section, then, each under its own
- * heading and each only where its record stands, the changelog whole, each
- * round record's findings with their closes, the newest run of the broad
- * gate and each decision made without asking. Where the body would pass
- * `limit` UTF-16 code units, the parts below the seal section are replaced,
- * the last first, by a line under the part's heading that names its record,
- * until the body fits. A part whose text holds a marker line (`markerOf`)
- * is replaced so whatever the body's length, since neither `withSealSection`
- * nor the check reads a fence when it counts marker lines: the body holds one
- * opening and one closing marker. The seal section is never cut.
+ * The back's section of a body, as Markdown between its two marker lines:
+ * the head's sentences, each round under its title with one line for each
+ * finding, the sentence of a round with none and the lines of its record not
+ * read, one table of every stage that ran, the rounds' stages first, then the
+ * sums with the sentence on a converted cost, the sessions outside the
+ * chain, the refused calls and the lines not read. It holds no seal and no
+ * seal's record, which the seal section above it carries. The last `held`
+ * rounds that hold findings have their list given way to one line that
+ * names the round's record. Every line it writes opens with `#`, `-` or `|`,
+ * or is a sentence of the composition's own, so none is a marker line.
  */
-export function pullRequestBody(records: BodyRecords, limit = BODY_LIMIT): string {
+export function backSection(back: Back, directory: string, held = 0): string {
+  const listed = back.rounds.filter((round) => round.findings.length > 0);
+  const given = new Set((held > 0 ? listed.slice(-held) : []).map((round) => round.round));
+  const blocks = [`${BACK_OPEN}\n## The back of the seal`, back.head.join(" ")];
+  for (const round of back.rounds) {
+    blocks.push(`### ${round.title}`);
+    if (given.has(round.round)) blocks.push(`\`${under(directory, `${ROUNDS_FOLDER}/${roundFile(round.round)}`)}\` holds this round's findings.`);
+    else if (round.findings.length > 0) blocks.push(round.findings.map(findingText).join("\n"));
+    if (round.says !== null) blocks.push(round.says);
+    if (round.unread !== null) blocks.push(round.unread);
+  }
+  const stages = [...back.rounds.flatMap((round) => round.stages), ...back.after];
+  if (stages.length > 0) blocks.push([tableRow(STAGE_COLUMNS), `|${STAGE_COLUMNS.map(() => "---").join("|")}|`, ...stages.map(stageRow)].join("\n"));
+  const sums = [...back.sums, ...(back.converted === null ? [] : [back.converted])];
+  if (sums.length > 0) blocks.push(sums.join(" "));
+  if (back.outside !== null) blocks.push(back.outside);
+  if (back.refused.length > 0) blocks.push(back.refused.map((line) => `- ${line}`).join("\n"));
+  if (back.unread.length > 0) blocks.push(back.unread.join(" "));
+  return `${blocks.join("\n\n")}\n${BACK_CLOSE}`;
+}
+
+/**
+ * A new pull request's body: the seal section, the back's section
+ * (`backSection`), then, each under its own heading and each only where its
+ * record stands, the changelog whole, the newest run of the broad gate and
+ * each decision made without asking. Where the body would pass `limit`
+ * UTF-16 code units, the parts below the back's section are replaced, the
+ * last first, by a line under the part's heading that names its record, and
+ * then each round's list of findings gives way, the last round first, until
+ * the body fits. The back's table of the stages and its sums stay, since no
+ * committed record holds a cost. A part whose text holds a marker line
+ * (`markerOf`) of either section is replaced so whatever the body's length,
+ * since neither the replacing of a section nor the check reads a fence when
+ * it counts marker lines: the body holds each marker once. The seal section
+ * is never cut.
+ */
+export function pullRequestBody(records: BodyRecords, back: Back, limit = BODY_LIMIT): string {
   const held = (heading: string, path: string): string => `${heading}\n\n\`${under(records.directory, path)}\` holds this part.`;
   const parts: { whole: string; held: string }[] = [];
   if (records.changelog !== null) parts.push({ whole: `## What changed\n\n${records.changelog.trimEnd()}`, held: held("## What changed", "changelog.md") });
-  if (records.rounds.length > 0) {
-    const listed = records.rounds.map(({ path, findings }) => `### \`${path}\`\n\n${findings.length === 0 ? "No finding." : findings.map(({ number, heading, verdict }) => `- Finding ${String(number)}: ${heading} (${verdict})`).join("\n")}`);
-    parts.push({ whole: `## Review rounds\n\n${listed.join("\n\n")}`, held: held("## Review rounds", "trail/rounds") });
-  }
   if (records.gate !== null) parts.push({ whole: `## Broad gate\n\n${records.gate.join("\n")}`, held: held("## Broad gate", "trail/gate.md") });
   if (records.decisions.length > 0) {
     const listed = records.decisions.map(({ decided, grounds, state }) => `- Decided: ${decided}\n  Grounds: ${grounds}\n  State: ${state}`);
@@ -471,39 +526,87 @@ export function pullRequestBody(records: BodyRecords, limit = BODY_LIMIT): strin
   }
   const marked = (text: string): boolean => gfmLines(text).some((line) => markerOf(line) !== null);
   const texts = parts.map(({ whole, held: line }) => (marked(whole) ? line : whole));
-  const body = (): string => `${[sealSection(records), ...texts].join("\n\n")}\n`;
+  let given = 0;
+  const body = (): string => `${[sealSection(records), backSection(back, records.directory, given), ...texts].join("\n\n")}\n`;
   for (let index = parts.length - 1; index >= 0 && body().length > limit; index -= 1) texts[index] = parts[index]?.held ?? "";
+  while (given < listedRounds(back) && body().length > limit) given += 1;
   return body();
 }
 
+/** A section Owlery writes into a body: its two marker lines, and how a refusal names it. */
+interface Section {
+  open: string;
+  close: string;
+  named: string;
+}
+
+const SEAL: Section = { open: SECTION_OPEN, close: SECTION_CLOSE, named: "seal section" };
+const BACK: Section = { open: BACK_OPEN, close: BACK_CLOSE, named: "section of the back of the seal" };
+
 /**
- * A body with its seal section replaced: the lines from the opening marker
- * to the closing marker, each read as `markerOf` reads a line, give
- * way to the section, and no other line changes. The section's lines end as
- * the body's first line does. Where the body holds no marker line, the
- * section is put before its first line. It throws, with the second half of
- * a sentence, where the body holds more than one opening or closing marker,
- * or no closing marker after its opening one.
+ * A body with one of its sections replaced: the lines from the section's
+ * opening marker to its closing marker, each read as `markerOf` reads a line,
+ * give way to the section, and no other line changes. The section's lines end
+ * as the body's first line does. Where the body holds neither marker, the
+ * section is put after the line `after` names, with a blank line on each
+ * side, or before the body's first line where `after` names none. It throws,
+ * with the second half of a sentence, where the body holds more than one
+ * opening or closing marker of the section, or no closing marker after its
+ * opening one.
  */
-export function withSealSection(body: string, section: string): string {
+function withSection(body: string, section: string, which: Section, after: string | null): string {
   const pieces = body.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/gu) ?? [];
   const ending = (piece: string): string => /(?:\r\n|\r|\n)$/u.exec(piece)?.[0] ?? "";
   const eol = pieces.map(ending).find((end) => end !== "") ?? "\n";
   const text = section.split("\n").join(eol);
   const markers = pieces.map((piece) => markerOf(piece.replace(/(?:\r\n|\r|\n)$/u, "")));
-  const opens = markers.flatMap((marker, index) => (marker === "open" ? [index] : []));
-  const closes = markers.flatMap((marker, index) => (marker === "close" ? [index] : []));
-  if (opens.length === 0 && closes.length === 0) return body === "" ? `${text}${eol}` : `${text}${eol}${eol}${body}`;
+  const opens = markers.flatMap((marker, index) => (marker === which.open ? [index] : []));
+  const closes = markers.flatMap((marker, index) => (marker === which.close ? [index] : []));
+  if (opens.length === 0 && closes.length === 0) {
+    const at = after === null ? -1 : markers.indexOf(after);
+    if (at === -1) return body === "" ? `${text}${eol}` : `${text}${eol}${eol}${body}`;
+    const before = `${pieces.slice(0, at + 1).join("")}${ending(pieces[at] ?? "") === "" ? eol : ""}`;
+    const rest = pieces.slice(at + 1).join("");
+    const blank = rest === "" || pieces[at + 1] === ending(pieces[at + 1] ?? "");
+    return `${before}${eol}${text}${eol}${blank ? "" : eol}${rest}`;
+  }
   for (const [marker, found] of [
-    [SECTION_OPEN, opens],
-    [SECTION_CLOSE, closes],
+    [which.open, opens],
+    [which.close, closes],
   ] as const) {
-    if (found.length > 1) throw new Error(`the body holds ${String(found.length)} \`${marker}\` lines, and Owlery replaces one seal section`);
+    if (found.length > 1) throw new Error(`the body holds ${String(found.length)} \`${marker}\` lines, and Owlery replaces one ${which.named}`);
   }
   const [open] = opens;
   const [close] = closes;
-  if (open === undefined || close === undefined || close < open) throw new Error(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
+  if (open === undefined || close === undefined || close < open) throw new Error(`the body holds no \`${which.close}\` line after its \`${which.open}\` line, so Owlery cannot tell where its ${which.named} ends`);
   return [...pieces.slice(0, open), `${text}${ending(pieces[close] ?? "")}`, ...pieces.slice(close + 1)].join("");
+}
+
+/**
+ * A body with its seal section replaced (`withSection`). Where the body holds
+ * no marker line of the seal, the section is put before its first line.
+ */
+export function withSealSection(body: string, section: string): string {
+  return withSection(body, section, SEAL, null);
+}
+
+/**
+ * A body with its back's section replaced by the back given
+ * (`withSection`), as the daemon rewrites it at each seal sent to an open
+ * pull request. Where the body holds no marker line of the back, the section
+ * is put after the seal section, or before the body's first line where it
+ * holds no seal section. Where the body would pass `limit` UTF-16 code units,
+ * each round's list of findings gives way, the last round first, as in a new
+ * body, and no line outside the section changes.
+ */
+export function withBackSection(body: string, back: Back, directory: string, limit = BODY_LIMIT): string {
+  let given = 0;
+  let text = withSection(body, backSection(back, directory, given), BACK, SECTION_CLOSE);
+  while (given < listedRounds(back) && text.length > limit) {
+    given += 1;
+    text = withSection(body, backSection(back, directory, given), BACK, SECTION_CLOSE);
+  }
+  return text;
 }
 
 // ---------------------------------------------------------------------------

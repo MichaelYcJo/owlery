@@ -6,7 +6,8 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { composeBack } from "../shared/seal-back";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -77,7 +78,7 @@ import {
 } from "./chain";
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
-import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withSealSection } from "./github";
+import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -90,6 +91,7 @@ import { THE_SESSION, isSessionId } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
 import { GATE_FILE, GUARANTEE_FILE, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
+import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
@@ -169,6 +171,28 @@ interface RecordRead {
   questions: Question[];
   unread: Unread[];
   recorded: Recorded;
+}
+
+/** What the records say for the back of a seal as a client is sent it: each string cut at `STATE_TEXT_CHARS`. */
+function sealRecordsOf(records: SealRecords): SealRecords {
+  const { record, brokenBy } = records;
+  return {
+    head: records.head,
+    record: record === null ? null : { ...record, commit: cutText(record.commit), branch: cutText(record.branch), base: cutText(record.base), item: cutText(record.item), gate: cutText(record.gate), builtBy: record.builtBy.map(cutText), judgedBy: cutText(record.judgedBy), model: cutText(record.model), rules: cutText(record.rules) },
+    brokenBy: brokenBy === null ? null : { commit: brokenBy.commit, subject: cutText(brokenBy.subject) },
+    rounds: records.rounds.map((round) => ({
+      ...round,
+      findings: round.findings.map((finding) => ({
+        ...finding,
+        says: cutText(finding.says),
+        severity: cutText(finding.severity),
+        places: finding.places.map(({ path, lines }) => ({ path: cutText(path), lines: cutText(lines) })),
+        close: finding.close === null ? null : { ...finding.close, home: cutText(finding.close.home), answer: cutText(finding.close.answer) },
+      })),
+    })),
+    refusals: records.refusals,
+    unreadRefusals: records.unreadRefusals,
+  };
 }
 
 /** What the records say of the chain as a client is sent it: a verdict's reason or question cut at `STATE_TEXT_CHARS`. */
@@ -286,6 +310,8 @@ interface HeadlessSession {
   /** The top-level folder of the repository's main checkout and the work item's branch, as the store held them when the session was asked, which the session's entry of the ledger names. */
   repo: string;
   branch: string;
+  /** The kind and the round of the chain's stage the session was started for, or null for a session no chain started, which its entry of the ledger names. */
+  chain: LedgerEntry["chain"];
   /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, so that nothing ran. A session gets one entry at most. */
   entered: boolean;
 }
@@ -1244,7 +1270,7 @@ export class Daemon {
         const held = this.store.workItem(message.workItemId);
         if (worktree === undefined || held === undefined) return;
         // The answer first, so the client that asked knows the session as its own when every client is told of it.
-        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, worktree, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
+        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
         return;
       }
       case "getSeal": {
@@ -1312,6 +1338,25 @@ export class Daemon {
         // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost, are not read as its own.
         const { entries, unread } = this.ledger.read(held.item.id, held.item.createdAt);
         this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
+        return;
+      }
+      case "readSealRecords": {
+        const answer = async (): Promise<void> => {
+          try {
+            const held = this.store.workItem(message.workItemId);
+            if (!held) throw new Error(`no work item ${String(message.workItemId)}`);
+            const { item } = held;
+            const head = await branchHead(held.repository.folder, item.branch);
+            if (head === null) throw new Error(`Owlery cannot read the head of the branch ${item.branch}.`);
+            const directory = workItemDirectory(item.worktree, item.branch);
+            // The seal the records are read with is the one the head holds, read again, so the commit that broke it is named for that head.
+            const records = directory === null ? noSealRecords(head) : await sealRecords(item.worktree, directory, head, await workItemSeal(item, head));
+            this.send(socket, { type: "sealRecords", requestId: message.requestId, workItemId: item.id, records: sealRecordsOf(records) });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        void answer();
         return;
       }
       case "answerPermission": {
@@ -1625,9 +1670,11 @@ export class Daemon {
    * `prompt.shown` what the session lists as its prompt. `first` is called
    * with the session before any client is told of it, for the answer to the
    * client that asked. The session keeps the repository's folder and the
-   * branch as the store holds them now, which its entry of the ledger names.
+   * branch as the store holds them now, and `chain`, the kind and the round
+   * of the chain's stage it begins for or null for an `ask`, which its entry
+   * of the ledger names.
    */
-  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, worktree: string, first?: (info: HeadlessInfo) => void): HeadlessSession {
+  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, first?: (info: HeadlessInfo) => void): HeadlessSession {
     let end = (): void => {};
     const ended = new Promise<void>((resolve) => {
       end = resolve;
@@ -1645,6 +1692,7 @@ export class Daemon {
       asks: new Map(),
       repo: repository.folder,
       branch: item.branch,
+      chain,
       entered: false,
     };
     session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
@@ -1695,7 +1743,7 @@ export class Daemon {
     if (session.entered) return;
     session.entered = true;
     const { info } = session;
-    this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage });
+    this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, chain: session.chain, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage });
   }
 
   /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. `commandOf` gives the command of a pane that runs another than its kind's, as a setup pane does. */
@@ -2298,7 +2346,7 @@ export class Daemon {
     const held = this.store.workItem(workItemId);
     const before = held?.item.chain;
     if (!held || !before) throw new ChainStop("the daemon no longer keeps the work item");
-    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, worktree);
+    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree);
     const working: ChainStage = { kind, round, state: "working", failure: null, startedAt: session.info.startedAt, endedAt: null, headlessId: session.info.id, refusals: 0, gate: null };
     this.chainSet(workItemId, { ...before, says: runningSays(kind, round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
     await Promise.race([session.ended, this.closes]);
@@ -2606,7 +2654,7 @@ export class Daemon {
     clearTimeout(gate.limit);
     this.gates.delete(item.id);
     const endedAt = now();
-    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, startedAt, endedAt, state, stopped, usage: null });
+    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round }, startedAt, endedAt, state, stopped, usage: null });
     if (this.closed) {
       enter("failed", "daemon");
       throw new ChainStop("the daemon closed");
@@ -2651,13 +2699,17 @@ export class Daemon {
    * stage, in the form of `runGate`.
    *
    * The stage reads the records the head commit holds (`github.ts#bodyRecords`),
-   * pushes that head commit, by its id, to the branch on the remote
+   * composes the back of the seal from what those records say for it and the
+   * ledger's entries of the work item as they stand then, as `readSealRecords`
+   * and `readLedger` give them to the window (`../shared/seal-back`), pushes
+   * that head commit, by its id, to the branch on the remote
    * `github.ts#pushTarget` names with the person's git and writes the
    * branch's upstream, then asks the person's `gh` for the branch's open pull
    * requests. Where it lists one, the stage replaces that body's seal section
-   * and sends the body with `gh pr edit`; where it lists none, it opens one
-   * with `gh pr create`, ready, with the work item's title, its base and the
-   * body `github.ts#pullRequestBody` composes. It then reads the pull request
+   * and its back's section, putting the back's after the seal section where
+   * the body holds none, and sends the body with `gh pr edit`; where it lists
+   * none, it opens one with `gh pr create`, ready, with the work item's
+   * title, its base and the body `github.ts#pullRequestBody` composes. It then reads the pull request
    * with `gh pr view` and stores it with the work item. `gh` is the
    * `DaemonOptions` one, or the one on the `PATH` of the broad gate's
    * environment, and runs with that environment, no prompt and no colour.
@@ -2672,7 +2724,7 @@ export class Daemon {
    * the head, where the push, the writing of the upstream or a call of `gh` fails or passes its time
    * limit, where an answer of `gh` does not read, where `gh` lists more than
    * one open pull request of the branch, and where the body it lists holds
-   * its markers otherwise than once each. It then throws a `StageStopped`
+   * the markers of either section otherwise than once each. It then throws a `StageStopped`
    * with the chain's sentence, and the stored pull request is as it was. A
    * daemon that closed meanwhile stores nothing.
    */
@@ -2704,6 +2756,9 @@ export class Daemon {
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
       const target = await pushTarget(worktree, baseBranch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
+      // The stage runs at a seal that holds at the head, so no commit broke it, and the reader is handed no seal: the body names no breaking commit.
+      const { entries, unread } = this.ledger.read(item.id, item.createdAt);
+      const back = composeBack(await sealRecords(worktree, directory, head, null), entries, unread);
       const named = await pullRequestTitle(worktree, title, baseCommit, head);
       await pushBranch(cli, target.remote, branch, head);
       const listed = await openPullRequests(cli, branch);
@@ -2712,12 +2767,12 @@ export class Daemon {
       const [open] = listed;
       let url: string;
       if (open === undefined) {
-        writeFileSync(body.file, pullRequestBody(records), { mode: 0o600 });
+        writeFileSync(body.file, pullRequestBody(records, back), { mode: 0o600 });
         url = await createPullRequest(cli, { branch, base: target.base, title: named, bodyFile: body.file });
       } else {
         let text: string;
         try {
-          text = withSealSection(open.body, sealSection(records));
+          text = withBackSection(withSealSection(open.body, sealSection(records)), back, records.directory);
         } catch (error) {
           throw new Error((error instanceof Error ? error.message : String(error)).replace(/^the body/u, `the body of pull request #${String(open.number)}`));
         }

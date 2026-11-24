@@ -3,7 +3,8 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type Seal, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type Seal, type SealRecords, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Back, composeBack } from "../shared/seal-back";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -530,6 +531,74 @@ export function sealShown(seal: Seal | null | undefined): { state: "none" | Seal
   if (!seal) return { state: "none", words: "No seal yet", why: "" };
   const commit = shortCommit(seal.commit);
   return seal.state === "broken" ? { state: seal.state, words: `${SEAL_BROKEN}, sealed at ${commit}`, why: seal.why ?? "" } : { state: seal.state, words: `Sealed at ${commit}`, why: "" };
+}
+
+/** The label of the back's tab, which stands before the panes' tabs of a work item's view. */
+export const BACK_TAB = "Back of the seal";
+
+/** What the back's place says until the records and the ledger have both answered. */
+export const BACK_READING = "Reading the records.";
+
+/**
+ * Whether the strip of a work item's view holds the back's tab: where the
+ * work item's seal is a seal, sealed or broken, where its records count a
+ * round, or where the daemon sent its chain. A null seal and one the daemon
+ * sent none of, as before it read the branch, hold no seal alike.
+ */
+export function hasBack(workItem: WorkItem): boolean {
+  return Boolean(workItem.seal) || (workItem.recorded?.rounds ?? 0) > 0 || workItem.chain !== null;
+}
+
+/**
+ * Whether a work item's view, entered now, opens to the back: where it is
+ * entered with no pane and the work item's seal, in the lists the window
+ * holds at the call, is a seal, sealed or broken. A view entered with a
+ * pane, as from a session's notification, opens to that pane. The tab in
+ * front is decided here and by a person's press, and by no later list.
+ */
+export function opensToBack(workItem: WorkItem | undefined, pane: number | undefined): boolean {
+  return pane === undefined && Boolean(workItem?.seal);
+}
+
+/**
+ * What the back was asked at: the work item's seal, its records' counts and
+ * its chain, as one key. The window asks again where a later list gives
+ * another key, and a seal the daemon sent none of differs from a null one,
+ * which says the daemon read the branch and found no seal.
+ */
+export function backKey(workItem: WorkItem): string {
+  return JSON.stringify({ seal: workItem.seal === undefined ? "not read" : workItem.seal, recorded: workItem.recorded ?? null, chain: workItem.chain });
+}
+
+/**
+ * The parts of a text of the back, in order: the words between two
+ * backticks are code, which the window draws in the fixed-width face. A
+ * backtick with no partner after it stands as written.
+ */
+export function codeParts(text: string): { text: string; code: boolean }[] {
+  const parts: { text: string; code: boolean }[] = [];
+  let rest = text;
+  for (;;) {
+    const open = rest.indexOf("`");
+    const close = open === -1 ? -1 : rest.indexOf("`", open + 1);
+    if (close === -1) break;
+    if (open > 0) parts.push({ text: rest.slice(0, open), code: false });
+    parts.push({ text: rest.slice(open + 1, close), code: true });
+    rest = rest.slice(close + 1);
+  }
+  if (rest !== "") parts.push({ text: rest, code: false });
+  return parts;
+}
+
+/**
+ * What the back's place shows: the back composed from the records and the
+ * ledger once both have answered (../shared/seal-back, `composeBack`), the
+ * daemon's refusal where either was refused, and `BACK_READING` until then.
+ */
+export function backShown(answers: { records: SealRecords | null; ledger: { entries: readonly LedgerEntry[]; unread: number } | null; refusal: string | null }): Back | string {
+  if (answers.refusal !== null) return answers.refusal;
+  if (answers.records === null || answers.ledger === null) return BACK_READING;
+  return composeBack(answers.records, answers.ledger.entries, answers.ledger.unread);
 }
 
 /** A count with its noun, one or many. */

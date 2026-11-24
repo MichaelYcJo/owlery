@@ -47,9 +47,11 @@ import {
 } from "../src/daemon/chain";
 import type { DaemonOptions } from "../src/daemon/daemon";
 import { declaredBranch, readDecisionRecord, routingAnswer, withDecision, withQuestion } from "../src/daemon/decision-record";
+import { BACK_CLOSE, BACK_OPEN, backSection } from "../src/daemon/github";
 import { readRoundRecord } from "../src/daemon/round-record";
 import type { Verdict } from "../src/daemon/seal-records";
-import type { Chain, ChainStage } from "../src/shared/protocol";
+import type { Chain, ChainStage, Usage } from "../src/shared/protocol";
+import { composeBack } from "../src/shared/seal-back";
 import { untilGone } from "./built-app";
 import { type Cleanups, NOW, PULL_REQUEST_URL, TODAY, askBlock, bareRemote, clean, client, gateRecord, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, givenSeal, guaranteeRecord, head, noted, proofs, roles, roundRecord, rulingBlock, sealSection, sealedBy, standing, status, write } from "./chain-run";
 import { git } from "./repositories";
@@ -882,7 +884,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   const recordAt = (worktree: string, round: number): string => join(worktree, DIRECTORY, "trail", "rounds", `round-${String(round)}.md`);
   const VERDICT_COMMIT = { subject: "chore: record the sealer's verdict", body: TRAILER, paths: [`${DIRECTORY}/guarantee.md`] };
 
-  it("runs two rounds, one fix pass, the broad gate and the seal: the branch holds, in order, the commit of routing.md, of round 1's record, the crafter's fix, the commit of the closed record, of round 2's record, of the broad gate's run on that record's commit and of the sealer's verdict on that same commit, each of the daemon's with the trailer and the fix pass's with its session's id, each record is the proofer's text unchanged, the verdict block holds the sealer's two lines and the daemon's four, the chain is sealed, and a second getSeal starts no stage", async () => {
+  it("runs two rounds, one fix pass, the broad gate and the seal: the branch holds, in order, the commit of routing.md, of round 1's record, the crafter's fix, the commit of the closed record, of round 2's record, of the broad gate's run on that record's commit and of the sealer's verdict on that same commit, each of the daemon's with the trailer and the fix pass's with its session's id, each record is the proofer's text unchanged, the verdict block holds the sealer's two lines and the daemon's four, the chain is sealed, each stage's entry of the ledger names the stage's kind and its round, and a second getSeal starts no stage", async () => {
     const answers: string[] = [];
     const proofer = (given: { round: number; heading: string; target: string }): string => {
       answers.push(proofs(given));
@@ -932,6 +934,15 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(git(a.worktree, "show", `HEAD:${DIRECTORY}/guarantee.md`)).toBe(guaranteeRecord(NAME, [sealedBy(section, "the session, fake-2", "fake-4")]));
     const sealed: Chain = { state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [ended("round", 1, 1), ended("fix-pass", 1, 2), ended("round", 2, 3), passed(2), ended("seal", 2, 4), opened(2)] };
     expect(chain).toEqual(sealed);
+    // Each session's entry and the gate's name the chain's stage they are for, and the pull request stage, which is no session, has none.
+    const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: a.id });
+    expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, chain }) => [stage, chain]) : ledger).toEqual([
+      [{ role: "proofer", stage: "round" }, { kind: "round", round: 1 }],
+      [{ role: "crafter", stage: "fix-pass" }, { kind: "fix-pass", round: 1 }],
+      [{ role: "proofer", stage: "round" }, { kind: "round", round: 2 }],
+      [{ role: null, stage: "gate" }, { kind: "gate", round: 2 }],
+      [{ role: "sealer", stage: "seal" }, { kind: "seal", round: 2 }],
+    ]);
 
     // Nothing is owed, so a second start runs no stage and makes no commit.
     const before = c.messages.length;
@@ -1863,7 +1874,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(recorded(a.worktree).questions).toMatchObject([{ id: 2, state: { is: "answered", answer: "It may not." } }]);
     });
 
-    it("has a proofer's question ruled on before the fix pass, from the blocks above its record alone, and asks for the judgment of convergence all the same where the round is round 2: a judgment on a question is none of convergence", async () => {
+    it("has a proofer's question ruled on before the fix pass, from the blocks above its record alone, and asks for the judgment of convergence all the same where the round is round 2: a judgment on a question is none of convergence, and the ledger names the ruling's session apart from the judgment's, though both run as the orchestrator's one pair", async () => {
       const ASKS = askBlock({ asks: "Is the greeting's language in scope?", grounds: "The frame names no language." });
       const proofer = (given: { round: number; heading: string; target: string }): string => (given.round === 2 ? `${ASKS}\n${findsUntil(2)(given)}` : findsUntil(2)(given));
       const orchestrator = (prompt: string): string => (givenQuestions(prompt) === 0 ? convergenceBlock("yes") : rulingBlock(1, "scope", "The greeting stays in English.", "The frame's scope names no other language."));
@@ -1882,6 +1893,11 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       // The record the daemon wrote is the answer from its heading on: the question above it is no part of it.
       expect(readFileSync(recordAt(a.worktree, 2), "utf8").startsWith(`${HEADING(2)}\n`)).toBe(true);
       expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(5, 8)).toEqual(["chore: record review round 2", "chore: record the orchestrator's judgment after round 2", "chore: record the orchestrator's judgment after round 2"]);
+      const ledger = await c.asked({ type: "readLedger", requestId: 2, workItemId: a.id });
+      expect(ledger.type === "ledger" ? ledger.entries.filter(({ stage }) => stage?.role === "orchestrator").map(({ stage, chain }) => [stage, chain]) : ledger).toEqual([
+        [{ role: "orchestrator", stage: "judgment" }, { kind: "ruling", round: 2 }],
+        [{ role: "orchestrator", stage: "judgment" }, { kind: "judgment", round: 2 }],
+      ]);
     });
 
     it("fails the stage whose asks block the reader refuses, and the judgment whose answer rules on no question: the chain stops with which, and nothing is parked or decided", async () => {
@@ -2147,7 +2163,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     return c.chain(id, state);
   }
 
-  it("runs the repository's command once the rounds settle and commits a passed run: the record names the head the command ran on against the work item's base commit, the sealer then seals that commit, the run has one entry of the ledger with no usage beside one for each session, a second getSeal starts no stage, a later commit of the work item's directory that is no closing record owes the gate and the seal again and no round, and a later change of a source file owes a round, then the gate and the seal", async () => {
+  it("runs the repository's command once the rounds settle and commits a passed run: the record names the head the command ran on against the work item's base commit, the sealer then seals that commit, the run has one entry of the ledger with no usage, which names the gate and its round, beside one for each session, a second getSeal starts no stage, a later commit of the work item's directory that is no closing record owes the gate and the seal again and no round, and a later change of a source file owes a round, then the gate and the seal", async () => {
     const { c, made, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     const base = a.baseCommit ?? "";
@@ -2164,7 +2180,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     // The ledger holds one entry for each stage: the proofer's session, the gate, and the sealer's session, which no call of the seal's own made.
     const ledger = await c.asked({ type: "readLedger", requestId: 20, workItemId: a.id });
     expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, state }) => [stage, state]) : ledger).toEqual([[{ role: "proofer", stage: "round" }, "finished"], [{ role: null, stage: "gate" }, "finished"], [{ role: "sealer", stage: "seal" }, "finished"]]);
-    expect(await gateEntries(c, a.id, 2)).toEqual([{ workItemId: a.id, repo: made.repo, branch: a.branch, stage: { role: null, stage: "gate" }, startedAt: NOW, endedAt: NOW, state: "finished", stopped: null, usage: null }]);
+    expect(await gateEntries(c, a.id, 2)).toEqual([{ workItemId: a.id, repo: made.repo, branch: a.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 1 }, startedAt: NOW, endedAt: NOW, state: "finished", stopped: null, usage: null }]);
     // `true` printed nothing, so nothing is kept.
     expect(await output(c, a.id, 3)).toBe("Owlery keeps no output of a broad gate of work item 1.");
 
@@ -3007,15 +3023,40 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
   });
 
-  it("updates the open pull request of a branch sealed again at a later head, and opens no second one: it replaces the seal section of the body gh listed and keeps a person's lines around it, and names the new sealed commit", async () => {
+  it("writes the back of the seal below the seal section, composed from the records the head commit holds and the ledger's entries as the window composes it: each round's findings with their places and fixes, and each stage's cost with its sum", async () => {
+    const usage: Usage = { costUsd: 0.25, converted: true, models: [{ model: "fake", inputTokens: 1000, outputTokens: 200, cacheReadTokens: 3000, cacheWriteTokens: 400, costUsd: 0.25 }] };
+    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { usage: () => usage }) });
+    const a = workItems[0]!;
+    expect(await c.getSeal(a.id, 1)).toBe("done");
+    await c.chain(a.id, "rested");
+    const body = gh.bodies()[gh.calls().findIndex((call) => call[1] === "create")] ?? "";
+    const records = await c.asked({ type: "readSealRecords", requestId: 2, workItemId: a.id });
+    const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: a.id });
+    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
+    expect(body.startsWith(`${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\n`)).toBe(true);
+    expect(body.split("\n").filter((line) => line === BACK_OPEN || line === BACK_CLOSE)).toEqual([BACK_OPEN, BACK_CLOSE]);
+    // The back the body holds says the chain's two rounds, the fix of round 1's finding, and each stage that ran with its cost.
+    const fix = git(a.worktree, "log", "--format=%H", "--grep=^fix: ", "-1").trim().slice(0, 7);
+    expect(back).toContain(`\n- 1. The greeting of line 1 misses its full stop. \`feature.txt:1\`. must. Fixed in \`${fix}\`.\n`);
+    expect(back).toContain("\nThe review rounds caught 1 defect that was fixed before the seal. Findings by round: 1, 0.\n");
+    expect(back.split("\n").filter((line) => line.startsWith("| ")).map((line) => line.split(" | ")[0])).toEqual(["| Stage", "| Round 1", "| Fix pass on round 1", "| Round 2", "| Broad gate", "| Sealer"]);
+    expect(back).toContain("\n| Sealer | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
+    expect(back).toContain("\nThe chain's stages cost $1.00 converted. A converted cost is the usage priced at API prices, and it is not a charge.\n");
+  });
+
+  it("updates the open pull request of a branch sealed again at a later head, and opens no second one: it replaces the seal section and the back's section of the body gh listed and keeps a person's lines around them, and names the new sealed commit", async () => {
     const { c, workItems, remote, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.getSeal(a.id, 1)).toBe("done");
     await c.chain(a.id, "rested");
     const first = gh.bodies()[1] ?? "";
     const firstBlock = newestBlock(a.worktree);
+    const firstBack = first.slice(first.indexOf(`${BACK_OPEN}\n`), first.indexOf(`${BACK_CLOSE}\n`) + BACK_CLOSE.length);
+    expect(firstBack).toContain("\n### Round 1, on `");
+    expect(firstBack).not.toContain("\n### Round 2, on `");
     // A person edited the body on GitHub, and the branch gains a commit.
-    const edited = `A person's line above.\n\n${sectionOf(firstBlock)}\n\nA person's line below.\n`;
+    const edited = `A person's line above.\n\n${sectionOf(firstBlock)}\n\n${firstBack}\n\nA person's line below.\n`;
     const earlier = head(a.worktree);
     gh.answer("list", { out: JSON.stringify([{ number: 1, url: PULL_REQUEST_URL, headRefOid: earlier, body: edited }]) });
     // GitHub has not taken the push in yet when the stage reads the pull request back.
@@ -3030,7 +3071,14 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     const file = gh.calls()[before + 1]?.at(-1) ?? "";
     expect(gh.calls()[before + 1]).toEqual(["pr", "edit", PULL_REQUEST_URL, "--body-file", file]);
     const body = gh.bodies()[before + 1] ?? "";
-    expect(body).toBe(`A person's line above.\n\n${sectionOf(newestBlock(a.worktree))}\n\nA person's line below.\n`);
+    const records = await c.asked({ type: "readSealRecords", requestId: 3, workItemId: a.id });
+    const ledger = await c.asked({ type: "readLedger", requestId: 4, workItemId: a.id });
+    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
+    expect(body).toBe(`A person's line above.\n\n${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\nA person's line below.\n`);
+    // The new back holds the round run after the first seal.
+    expect(back).toContain("\n### Round 2, on `");
+    expect(back).not.toBe(firstBack);
     expect(newestBlock(a.worktree)).toContain(`target: ${sealed} against main\n`);
     expect(newestBlock(a.worktree)).not.toBe(firstBlock);
     expect(first).not.toBe(body);
@@ -3114,7 +3162,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     }
   });
 
-  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next getSeal: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections, answers of gh that do not read, and gh that never ends", async () => {
+  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next getSeal: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections and one with two sections of the back, answers of gh that do not read, and gh that never ends", async () => {
     /** A sealed chain whose stage failed as `make` arranges, with the chain, the head and the calls gh had before the stage. */
     const failing = async (options: Partial<DaemonOptions> & { gate?: string }, make: (stood: Awaited<ReturnType<typeof standing>>) => void, says: RegExp): Promise<Awaited<ReturnType<typeof standing>>> => {
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), ...options });
@@ -3163,6 +3211,8 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(several.gh.calls().map((call) => call[1])).toEqual(["list"]);
     const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- owlery:seal -->\n<!-- /owlery:seal -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:seal -->` lines, and Owlery replaces one seal section\.$/u);
     expect(twice.gh.calls().map((call) => call[1])).toEqual(["list"]);
+    const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- /owlery:seal -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the back of the seal\.$/u);
+    expect(twiceBack.gh.calls().map((call) => call[1])).toEqual(["list"]);
     await failing({}, ({ gh }) => gh.answer("list", { out: "Showing 0 of 0 pull requests\n" }), /^The pull request stage failed: gh pr list printed no list Owlery reads\.$/u);
     await failing({}, ({ gh }) => gh.answer("create", { out: "Creating pull request\n" }), /^The pull request stage failed: gh pr create printed no address of a pull request\.$/u);
     await failing({}, ({ gh }) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "QUEUED", headRefOid: "a".repeat(40) }) }), /^The pull request stage failed: gh pr view printed no pull request Owlery reads\.$/u);

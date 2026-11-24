@@ -4,7 +4,8 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
-import { APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
+import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
+import { APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -96,6 +97,22 @@ export function row(...parts: HTMLElement[]): HTMLElement {
   const element = document.createElement("span");
   element.className = "row";
   element.append(...parts);
+  return element;
+}
+
+/** A text of the back of a seal, its code in the fixed-width face (./view, `codeParts`). Each part is plain text, never markup. */
+export function withCode(className: string, text: string, tag = "span"): HTMLElement {
+  const element = document.createElement(tag);
+  element.className = className;
+  for (const { text: said, code } of codeParts(text)) {
+    if (!code) {
+      element.append(said);
+      continue;
+    }
+    const shown = document.createElement("code");
+    shown.textContent = said;
+    element.append(shown);
+  }
   return element;
 }
 
@@ -409,6 +426,115 @@ export function detail(entry: Entry, gained: number, { reverse, runSetup }: { re
     const copied = setup.copied.map((path) => item("copied", part("path", path)));
     const failed = setup.failed.map(({ path, why }) => item("not-copied", part("path", path), part("why", why)));
     parts.push(section("setup", head, part("setup-says", setup.says), ...(setup.command ? [part("setup-command", `Command: ${setup.command}`)] : []), ...(copied.length > 0 ? [listOf(copied)] : []), ...(setup.more ? [part("hint foot", setup.more)] : []), ...(failed.length > 0 ? [listOf(failed)] : [])));
+  }
+  return parts;
+}
+
+/** One stage's line of the back: its name, how it ended, its time, its tokens, its cache and its cost, each in a cell under `STAGE_COLUMNS`. */
+function stageLine(line: StageLine): HTMLElement {
+  const cost = part("cost", "");
+  if (line.cost === "none") cost.append("No cost reported");
+  else if (line.cost !== null) cost.append(line.cost.amount, ...(line.cost.converted ? [" ", part("converted", "converted")] : []));
+  return item(
+    "stage",
+    part("name", line.name),
+    part(line.failed ? "ended failed" : "ended", line.ended ?? ""),
+    part("time", line.time),
+    part("tokens", line.tokens === null ? "" : `${line.tokens.input} / ${line.tokens.output}`),
+    part("cache", line.tokens === null ? "" : `${line.tokens.cacheRead} / ${line.tokens.cacheWritten}`),
+    cost,
+  );
+}
+
+/** A list of stages' lines under the words of their columns, or nothing where there is no stage. Every list of the back sets its cells in the same columns. */
+function stageLines(lines: readonly StageLine[]): HTMLElement[] {
+  if (lines.length === 0) return [];
+  const list = listOf([item("columns", ...STAGE_COLUMNS.map((words) => part("caption", words))), ...lines.map(stageLine)]);
+  list.className = "stages";
+  return [list];
+}
+
+/** One finding's line of a round: its number, its symptom and its close on the first row, its severity and its places under them, and the earlier finding or round it names. An open finding's close is drawn as one. */
+function findingLine(line: FindingLine): HTMLElement {
+  const places = part("places", "");
+  for (const place of line.places) {
+    const shown = document.createElement("code");
+    shown.textContent = place;
+    places.append(shown, " ");
+  }
+  return item("finding", part("number", `${String(line.number)}.`), withCode("says", line.says), withCode(line.open ? "close open" : "close", line.close), row(part("severity", line.severity), places), ...(line.names === null ? [] : [part("names", line.names)]));
+}
+
+/** One round's part of the back: its title with the commit it read, its findings or the sentence of a round with none, the lines of its record not read, and the stages that ran for it. */
+function roundPart(round: RoundPart): HTMLElement {
+  const element = document.createElement("section");
+  element.className = "round";
+  element.append(withCode("caption", round.title, "h3"));
+  if (round.findings.length > 0) {
+    const list = document.createElement("ol");
+    list.className = "findings";
+    list.append(...round.findings.map(findingLine));
+    element.append(list);
+  }
+  if (round.says !== null) element.append(withCode("round-says", round.says, "p"));
+  if (round.unread !== null) element.append(withCode("unread", round.unread, "p"));
+  element.append(...stageLines(round.stages));
+  return element;
+}
+
+/**
+ * The back of a seal as the window draws it in the back's place
+ * (../shared/seal-back, `Back`), from its top: the large seal, drawn from
+ * the work item's `seal` as the lists carry it, with the words of its state,
+ * a broken seal's sentence and the commit that broke it; the seal's record;
+ * the head's sentences; each round's part; the stages after the rounds; the
+ * sums; the line of the sessions outside the chain; the sentence on a
+ * converted cost; the refused calls; and the lines not read. Where `back` is
+ * a sentence, as before the answers come and where one was refused, the
+ * place holds that sentence alone. Every text is plain, never markup.
+ */
+export function backParts(back: Back | string, seal: Seal | null | undefined): HTMLElement[] {
+  if (typeof back === "string") return [part("back-waits", back)];
+  const shown = sealShown(seal);
+  const words = part("words", "");
+  words.append(withCode("head", shown.words, "h2"), ...(shown.why === "" ? [] : [withCode("why", shown.why, "p")]));
+  if (back.brokenBy !== null) {
+    const broken = withCode("broken-by", back.brokenBy.says, "p");
+    broken.append(" ", withCode("subject", back.brokenBy.subject));
+    words.append(broken);
+  }
+  const head = document.createElement("header");
+  head.className = "back-head";
+  head.append(sealPlace("view", seal), words);
+  const parts: HTMLElement[] = [head];
+  if (back.record.length > 0) {
+    const record = document.createElement("dl");
+    record.className = "back-record";
+    for (const { label, value } of back.record) record.append(withCode("", label, "dt"), withCode("", value, "dd"));
+    parts.push(record);
+  }
+  const says = document.createElement("div");
+  says.className = "back-says";
+  says.append(...back.head.map((sentence) => withCode("", sentence, "p")));
+  parts.push(says);
+  if (back.rounds.length > 0 || back.after.length > 0) {
+    const chain = document.createElement("div");
+    chain.className = "back-chain";
+    chain.append(...back.rounds.map(roundPart));
+    if (back.after.length > 0) {
+      const after = document.createElement("section");
+      after.className = "after";
+      after.append(...stageLines(back.after));
+      chain.append(after);
+    }
+    parts.push(chain);
+  }
+  const foot = [...back.sums.map((sentence) => withCode("sum", sentence, "p")), ...(back.outside === null ? [] : [withCode("outside", back.outside, "p")]), ...(back.converted === null ? [] : [withCode("converted-says", back.converted, "p")]), ...back.refused.map((line) => withCode("refused", line, "p")), ...back.unread.map((line) => withCode("unread", line, "p"))];
+  if (foot.length > 0) {
+    const element = document.createElement("div");
+    element.className = "back-foot";
+    element.append(...foot);
+    parts.push(element);
   }
   return parts;
 }

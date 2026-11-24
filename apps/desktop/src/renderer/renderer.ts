@@ -86,7 +86,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeGateOutput, takeHeadless, takeSeal, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSeal, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -1555,6 +1555,14 @@ function onMessage(message: ServerMessage): void {
       // What a broad gate's command printed, for the line whose "Show output" asked.
       takeGateOutput(message.requestId, { text: message.text, cut: message.cut });
       return;
+    case "sealRecords":
+      // The records of the seal of the view's work item, which its back asked for. An answer to an earlier ask is let go.
+      takeSealRecords(message.requestId, message.records);
+      return;
+    case "ledger":
+      // So is the ledger's part of that work item.
+      takeLedger(message.requestId, { entries: message.entries, unread: message.unread });
+      return;
     case "headlessDropped":
       // The daemon drops only a session that ended, so no dialog that names the running sessions changes.
       dropHeadless(message.id);
@@ -1576,6 +1584,8 @@ function onMessage(message: ServerMessage): void {
       if (takeAnswers(message.requestId, message.message)) return;
       // The refusal of a chain's start is its view's to show, under "Get a seal".
       if (takeSeal(message.requestId, message.message)) return;
+      // The refusal of a read of the records or of the ledger is the back's to show, in its place.
+      if (takeBackRefusal(message.requestId, message.message)) return;
       // A refused plan of the records place is its dialog's to show.
       if (takeRecordsPlan(message.requestId, { error: message.message })) return;
       if (registering?.requestId === message.requestId) registering = undefined;

@@ -1,5 +1,6 @@
 // A work item's view: its header, its tabs with the terminals of the panes
-// on the stage and the strip under them, and its right column, which says what the
+// on the stage, or the back of its seal in the stage's place behind a tab of
+// its own, and the strip under them, and its right column, which says what the
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
 // above the "Ask" section, where the calls its headless sessions ask the
@@ -11,12 +12,16 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import type { HeadlessInfo, PaneKind, SessionInfo, WorkItem } from "../shared/protocol";
-import { byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
+import type { HeadlessInfo, LedgerEntry, PaneKind, SealRecords, SessionInfo, WorkItem } from "../shared/protocol";
+import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
   answersFor,
   askButton,
   askedSection,
+  BACK_READING,
+  BACK_TAB,
+  backKey,
+  backShown,
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
@@ -27,6 +32,7 @@ import {
   type GateLine,
   type GateOutput,
   gateLine,
+  hasBack,
   headlessKey,
   headlessLines,
   type LinkAct,
@@ -34,6 +40,7 @@ import {
   linkClick,
   type LinkTarget,
   lineSince,
+  opensToBack,
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
@@ -107,6 +114,12 @@ let gateRead: GateOutput | null = null;
 let gateRequest: { requestId: number; workItemId: number; startedAt: number } | undefined;
 // The daemon's refusal of the last "Get a seal", and the work item it refused it for.
 let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
+// Whether the back of the seal is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
+let backFront = false;
+// What the back's place last drew, so a list that changes nothing of it draws nothing again and a selection in it stays.
+let backDrawn: string | undefined;
+// What the back asked the daemon while it is in front, and the answers: the work item, the key it was asked at (./view, `backKey`), each request, each answer, and the daemon's refusal of either. The answers are let go when a pane comes in front or the view is left.
+let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
 // The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
@@ -141,6 +154,7 @@ const tabs = byId("tabs");
 const paneButtons = byId("pane-buttons");
 const noPanes = byId("no-panes");
 const stage = byId("stage");
+const back = byId("back");
 const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
 const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
@@ -1024,7 +1038,7 @@ function closePane(session: SessionInfo): void {
   closeDialog.showModal();
 }
 
-/** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view, it does nothing. */
+/** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
   if (session) closePane(session);
@@ -1045,6 +1059,7 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   close.title = `End ${label.textContent} and close its tab.`;
   label.addEventListener("click", () => {
     if (held.viewing === undefined) return;
+    backFront = false;
     broughtToFront(held.viewing, session.id);
     showView();
   });
@@ -1053,12 +1068,91 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   return tab;
 }
 
+/** The back's tab, first in the strip and with no close mark, marked where the back is in front, `active`. A press puts the back in front. */
+function backTab(active: boolean): HTMLElement {
+  const tab = document.createElement("span");
+  tab.className = `tab back${active ? " active" : ""}`;
+  const label = document.createElement("button");
+  label.className = "label";
+  label.textContent = BACK_TAB;
+  label.addEventListener("click", () => {
+    if (held.viewing === undefined) return;
+    backFront = true;
+    showView();
+  });
+  tab.append(label);
+  return tab;
+}
+
+/**
+ * Draws the back of the seal of the view's work item in the back's place
+ * (./view, `backShown`; ./shared, `backParts`), and asks the daemon for its
+ * records and its ledger, both at once, where nothing was asked for this
+ * work item yet or a later list gives another key. While a second ask waits,
+ * the back drawn from the first answers stays, and a list that changes
+ * nothing the back draws draws nothing again.
+ */
+function showBack(workItem: WorkItem): void {
+  const key = backKey(workItem);
+  if (backAsked?.workItemId !== workItem.id || backAsked.key !== key) {
+    backAsked = { workItemId: workItem.id, key, recordsRequest: request(), ledgerRequest: request(), records: null, ledger: null, refusal: null };
+    send({ type: "readSealRecords", requestId: backAsked.recordsRequest, workItemId: workItem.id });
+    send({ type: "readLedger", requestId: backAsked.ledgerRequest, workItemId: workItem.id });
+  }
+  const shown = backShown(backAsked);
+  if (shown === BACK_READING && back.dataset.workItem === String(workItem.id) && back.childElementCount > 0) return;
+  const drawn = JSON.stringify([workItem.id, shown, workItem.seal ?? null]);
+  if (drawn === backDrawn) return;
+  backDrawn = drawn;
+  back.dataset.workItem = String(workItem.id);
+  back.replaceChildren(...backParts(shown, workItem.seal));
+}
+
+/** Lets the back's answers go and empties its place, as when a pane comes in front or the view is left. */
+function dropBack(): void {
+  backAsked = undefined;
+  backDrawn = undefined;
+  delete back.dataset.workItem;
+  back.replaceChildren();
+}
+
+/** Takes an answer the back asked for and draws the back again where it is in front, and answers whether the request was the back's. */
+function takeBackAnswer(requestId: number, took: (asked: NonNullable<typeof backAsked>) => void): boolean {
+  if (backAsked === undefined || (requestId !== backAsked.recordsRequest && requestId !== backAsked.ledgerRequest)) return false;
+  took(backAsked);
+  const workItem = viewed();
+  if (backFront && workItem?.id === backAsked.workItemId) showBack(workItem);
+  return true;
+}
+
+/** Takes the daemon's `sealRecords`, and answers whether it answered the back. */
+export function takeSealRecords(requestId: number, records: SealRecords): boolean {
+  return takeBackAnswer(requestId, (asked) => {
+    if (requestId === asked.recordsRequest) asked.records = records;
+  });
+}
+
+/** Takes the daemon's `ledger`, and answers whether it answered the back. */
+export function takeLedger(requestId: number, ledger: { entries: LedgerEntry[]; unread: number }): boolean {
+  return takeBackAnswer(requestId, (asked) => {
+    if (requestId === asked.ledgerRequest) asked.ledger = ledger;
+  });
+}
+
+/** Takes the daemon's refusal of either of the back's requests, which the back's place then says, and answers whether the request was the back's. */
+export function takeBackRefusal(requestId: number, refusal: string): boolean {
+  return takeBackAnswer(requestId, (asked) => {
+    asked.refusal = refusal;
+  });
+}
+
 /**
  * Draws the view of the work item on screen: its header, its tabs, the
  * panes on the stage, each on a screen of the pool, with the strip under
  * them, its right column, the questions it is parked with among it, and its
  * "Ask" section. The stage holds the pane in
- * front, or up to four panes as tiles where "Side by side" is pressed. It
+ * front, or up to four panes as tiles where "Side by side" is pressed, and
+ * gives way to the back of the seal while the back's tab is in front. It
  * starts no process.
  */
 export function showView(): void {
@@ -1093,9 +1187,16 @@ export function showView(): void {
   stripState.textContent = state;
   stripState.className = `state ${stateClass(line.state)}`;
   const listed = paneTabs(workItem, held.sessions);
-  const { front: target, shown } = stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
-  tabs.replaceChildren(...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id), workItem.setup?.paneId ?? null)));
-  noPanes.hidden = listed.length > 0;
+  const backed = hasBack(workItem);
+  if (!backed) backFront = false;
+  // With the back in front no pane is on the stage, and the stage gives way to the back's place.
+  const { front: target, shown } = backFront ? { front: undefined, shown: [] } : stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
+  tabs.replaceChildren(...(backed ? [backTab(backFront)] : []), ...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id), workItem.setup?.paneId ?? null)));
+  noPanes.hidden = listed.length > 0 || backFront;
+  stage.hidden = backFront;
+  back.hidden = !backFront;
+  if (backFront) showBack(workItem);
+  else dropBack();
   stageShows(shown);
   if (target !== front) {
     front = target;
@@ -1117,6 +1218,9 @@ export function enterView(workItemId: number, pane?: number): void {
   sealRequest = undefined;
   held.viewing = workItemId;
   front = undefined;
+  // A view entered with no pane opens to the back where the work item holds a seal (./view, `opensToBack`).
+  backFront = opensToBack(held.workItems.find((item) => item.id === workItemId), pane);
+  if (backAsked?.workItemId !== workItemId) dropBack();
   if (pane !== undefined) broughtToFront(workItemId, pane);
 }
 
@@ -1125,6 +1229,8 @@ export function leaveView(): number | undefined {
   const left = held.viewing;
   held.viewing = undefined;
   front = undefined;
+  backFront = false;
+  dropBack();
   stageShows([]);
   return left;
 }
@@ -1135,7 +1241,10 @@ export function takeStarted(session: SessionInfo): void {
   if (!held.sessions.some((known) => known.id === session.id)) held.sessions = [...held.sessions, session];
   if (session.workItemId === null) return;
   broughtToFront(session.workItemId, session.id);
-  if (held.viewing === session.workItemId) showView();
+  if (held.viewing !== session.workItemId) return;
+  // A pane started in the view on screen comes in front, in place of the back.
+  backFront = false;
+  showView();
 }
 
 /** Asks the daemon for no more output of a pane this window started, where the pane did not come onto the stage: the daemon sends a pane's output to the window that started it. */
@@ -1263,6 +1372,8 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   closeDialog.addEventListener("close", () => screenOf(front)?.term.focus());
   sideBySideButton.addEventListener("click", () => {
     sideBySide = !sideBySide;
+    // The panes come in front, side by side or not, in place of the back.
+    backFront = false;
     sideBySideButton.setAttribute("aria-pressed", String(sideBySide));
     if (held.viewing === undefined) return;
     showView();

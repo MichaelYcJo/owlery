@@ -30,18 +30,23 @@
 // item with. So the parked view lists the gate that passed first under
 // "Ask", with its command and "Show output", and its approval line counts
 // the round and marks the sealer's place, which waits on the questions. A
-// fourth chain is the finished work item's: the stand-in answers its round
-// with no finding and its sealer with `sealed`, after the same gate, and the
-// daemon then pushes the branch to a bare repository in the run's temporary
-// folder, the repository's one remote, and opens the pull request through
-// the stand-in for `gh` the login shell's PATH names (fixtures/sample-gh/gh),
-// which reaches no GitHub and answers the pull request open with two checks
-// that passed. So that work item's line says "Checks passed", and its view
+// fourth chain is the finished work item's: the stand-in answers its first
+// round with one finding, its fix pass with a commit that fixes it and the
+// finding's close, its second round with no finding, which confirms the
+// fix, and its sealer with `sealed`, after the same gate, each with what the
+// stage used, and the daemon then pushes the branch to a bare repository in
+// the run's temporary folder, the repository's one remote, and opens the
+// pull request through the stand-in for `gh` the login shell's PATH names
+// (fixtures/sample-gh/gh), which reaches no GitHub and answers the pull
+// request open with two checks that passed. So that work item's line says
+// "Checks passed", and its view opens to the back of its seal, with the
+// finding, the commit that fixed it and each stage's converted cost, and
 // lists the pull request under the seal's place, which is lit. The broken
 // work item runs no chain: the run commits the records of a seal in its
 // worktree with git, as the daemon writes them, and one commit after them,
-// so its line waits and says "Seal broken", and its view's foot shows the
-// broken seal, the seal's sentence and "Get a new seal". Once the seven
+// so its line waits and says "Seal broken", its view opens to the back of
+// its seal, which names that commit, and its view's foot shows the broken
+// seal, the seal's sentence and "Get a new seal". Once the seven
 // work items stand, and before any chain runs or any seal is given, a
 // second client of the daemon sends `looked`, so the daemon's look holds
 // each work item with no seal. From then on the page's own `looked` is held
@@ -264,8 +269,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const REVIEW_LINE = `#inbox-lines button[data-work-item="${WORK_ITEMS.findIndex(({ title }) => title === AT_REVIEW) + 1}"]`;
   const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
   const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
-  /** The commit the broken work item's seal names, once the run has committed it. */
+  /** The commit the broken work item's seal names, and the commit after it that broke it, once the run has committed them. */
   let brokenAt = "";
+  let brokenBy = "";
   /** The summary's lines, in the order it draws them. */
   const SUMMARY_LINES = `[...document.querySelectorAll("#summary-lines button[data-work-item]")]`;
   /** A role's place of the approval line in the view's right column. */
@@ -382,13 +388,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     finished: async () => {
       await app.click(`#repositories button[data-work-item="${FINISHED_ID}"]`);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(FINISHED)} && !document.getElementById("view-pull-request").hidden && document.getElementById("pull-request-number").textContent === ${JSON.stringify(PULL_REQUEST)} && document.getElementById("pull-request-checks").textContent === "Checks passed" && [...document.querySelectorAll("#pull-request-list .name")].map((name) => name.textContent).join() === ${JSON.stringify(CHECKS.join())} && document.querySelector('${place("sealer")} .note')?.textContent === "Sealed" && document.getElementById("view-seal-head").textContent.startsWith("Sealed at ")`, "the finished work item's view with its pull request under the lit seal's place and its sealer's place sealed");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(FINISHED)} && !document.getElementById("view-pull-request").hidden && document.getElementById("pull-request-number").textContent === ${JSON.stringify(PULL_REQUEST)} && document.getElementById("pull-request-checks").textContent === "Checks passed" && [...document.querySelectorAll("#pull-request-list .name")].map((name) => name.textContent).join() === ${JSON.stringify(CHECKS.join())} && document.querySelector('${place("sealer")} .note')?.textContent === "Sealed" && document.getElementById("view-seal-head").textContent.startsWith("Sealed at ") && document.querySelector("#tabs .tab.back.active") && document.querySelectorAll("#back .round").length === 2 && document.querySelector("#back .finding .close")?.textContent.startsWith("Fixed in ") && [...document.querySelectorAll("#back .stage .cost")].filter((cost) => cost.textContent.endsWith("converted")).length === 4`, "the finished work item's view with the back of its seal in front, its finding fixed and its four turns' converted costs, its pull request under the lit seal's place and its sealer's place sealed");
       // The approval line stands under what the agent says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
     broken: async () => {
       await app.click(`#repositories button[data-work-item="${BROKEN_ID}"]`);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-seal-head").textContent === ${JSON.stringify(`Seal broken, sealed at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-seal-why").textContent === ${JSON.stringify(`\`${AFTER_THE_SEAL}\` changed after the sealed commit \`${brokenAt.slice(0, 7)}\`.`)} && !document.getElementById("get-seal").hidden && document.getElementById("get-seal").textContent === "Get a new seal" && document.querySelector('${place("sealer")} .note')?.textContent === "Seal broken"`, "the broken work item's view with the broken seal, its sentence and Get a new seal at its foot");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-seal-head").textContent === ${JSON.stringify(`Seal broken, sealed at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-seal-why").textContent === ${JSON.stringify(`\`${AFTER_THE_SEAL}\` changed after the sealed commit \`${brokenAt.slice(0, 7)}\`.`)} && !document.getElementById("get-seal").hidden && document.getElementById("get-seal").textContent === "Get a new seal" && document.querySelector('${place("sealer")} .note')?.textContent === "Seal broken" && document.querySelector("#tabs .tab.back.active") && document.querySelector("#back .broken-by")?.textContent.startsWith(${JSON.stringify(`Broken by ${brokenBy.slice(0, 7)}`)})`, "the broken work item's view with the back of its seal in front, naming the commit that broke it, and the broken seal, its sentence and Get a new seal at its foot");
       // The approval line stands under what the work item says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
@@ -505,7 +511,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     writeFileSync(record, withQuestion(asked, WRITTEN));
     await app.until(`document.querySelector('${PARKED_LINE} .state-icon.waiting')`, "the parked work item as one that needs the person", 15_000);
 
-    // The finished work item's chain: one commit on its branch, a bare repository as the repository's one remote, and a seal asked for it. The stand-in for the CLI answers its round with no finding, the broad gate passes, and the stand-in's sealer seals, so the daemon pushes the branch to the bare repository and opens the pull request through the stand-in for `gh`, which reaches no GitHub.
+    // The finished work item's chain: one commit on its branch, a bare repository as the repository's one remote, and a seal asked for it. The stand-in for the CLI answers its first round with one finding, its fix pass with a fix and the finding's close, and its second round with no finding, the broad gate passes, and the stand-in's sealer seals, so the daemon pushes the branch to the bare repository and opens the pull request through the stand-in for `gh`, which reaches no GitHub.
     const finished = (await listed()).workItems.find((workItem) => workItem.title === FINISHED);
     if (!finished) throw new Error(`the daemon lists no work item ${FINISHED}`);
     const bare = join(made.base, "origin.git");
@@ -519,7 +525,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     const sealed = (await ofFinished())?.chain?.stages.map(({ kind, state }) => `${kind} ${state}`) ?? [];
-    if (sealed.join() !== "round finished,gate finished,seal finished,pull-request finished") throw new Error(`the chain of ${FINISHED} was sealed after other stages: ${sealed.join()}`);
+    if (sealed.join() !== "round finished,fix-pass finished,round finished,gate finished,seal finished,pull-request finished") throw new Error(`the chain of ${FINISHED} was sealed after other stages: ${sealed.join()}`);
     const branch = git(finished.worktree, "rev-parse", "--abbrev-ref", "HEAD").trim();
     if (git(bare, "rev-parse", branch).trim() !== git(finished.worktree, "rev-parse", "HEAD").trim()) throw new Error(`the bare remote does not hold the branch of ${FINISHED} at its worktree's head`);
 
@@ -527,7 +533,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const broken = (await listed()).workItems.find((workItem) => workItem.title === BROKEN);
     if (!broken?.baseCommit) throw new Error(`the daemon lists no work item ${BROKEN} with its base commit`);
     brokenAt = commitSeal(broken.worktree, { workItem: BROKEN_RECORDS, branch: broken.branch, base: broken.baseCommit });
-    commitFile(broken.worktree, AFTER_THE_SEAL);
+    brokenBy = commitFile(broken.worktree, AFTER_THE_SEAL);
     const sealOfBroken = async (): Promise<WorkItem["seal"]> => (await listed()).workItems.find((workItem) => workItem.id === broken.id)?.seal ?? null;
     for (let deadline = Date.now() + 20_000, seal = await sealOfBroken(); seal?.state !== "broken" || seal.commit !== brokenAt; seal = await sealOfBroken()) {
       if (Date.now() >= deadline) throw new Error(`the seal of ${BROKEN} never read broken at ${brokenAt}: ${JSON.stringify(seal)}`);

@@ -4204,6 +4204,48 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
   });
 });
 
+describe("the records of the back of a seal", { timeout: 60_000 }, () => {
+  const NAME = "1795400730-sealed-work";
+  const headOf = (folder: string): string => git(folder, "rev-parse", "HEAD").trim();
+
+  it("answers a `readSealRecords` with what the records of the work item's directory say at its branch's head, with the empty value for a work item with no directory, and with an error for an id it lists no work item under and for a branch whose head it cannot read", async () => {
+    const { made, c, workItems } = await standing(cleanups, ["Sealed work", "No directory", "Gone branch"], { commitPollMs: 60_000 });
+    const [a, b, gone] = workItems as [(typeof workItems)[number], (typeof workItems)[number], (typeof workItems)[number]];
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    const sealed = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
+    expect(sealed).toMatchObject({ type: "sealRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, brokenBy: null, refusals: [], unreadRefusals: 0 } });
+    expect(sealed.type === "sealRecords" ? sealed.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
+    expect(await c.asked({ type: "readSealRecords", requestId: 2, workItemId: b.id })).toEqual({
+      type: "sealRecords",
+      requestId: 2,
+      workItemId: b.id,
+      records: { head: headOf(b.worktree), record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 },
+    });
+    expect(await c.asked({ type: "readSealRecords", requestId: 3, workItemId: 99 })).toEqual({ type: "error", requestId: 3, message: "no work item 99" });
+    git(made.repo, "update-ref", "-d", `refs/heads/${gone.branch}`);
+    expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(gone.branch) });
+  });
+
+  it("names the commit that broke a broken seal, read with the seal the head holds, and sends a finding's words cut at 2000 characters", async () => {
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 60_000 });
+    const a = workItems[0]!;
+    commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+    git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
+    const broke = headOf(a.worktree);
+    // A round recorded after the break, whose finding's symptom and severity are long.
+    const record = `seal/threads/${NAME}/trail/rounds/round-2.md`;
+    const fence = "```";
+    writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}seal`, `target: ${broke} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}seal`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
+    git(a.worktree, "add", record);
+    git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
+    const answer = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
+    expect(answer).toMatchObject({ type: "sealRecords", records: { brokenBy: { commit: broke, subject: "fix: change the greeting" } } });
+    const found = answer.type === "sealRecords" ? answer.records.rounds[1]?.findings[0] : undefined;
+    expect([found?.says, found?.severity.length]).toEqual(["가".repeat(2000), 2000]);
+  });
+});
+
 describe("the commit of a person's word", () => {
   const DEFAULT = { kind: "default", says: "Start from main.", grounds: "The default base." } as const;
   const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";
@@ -5254,7 +5296,7 @@ describe("headless sessions", () => {
   describe("the ledger", () => {
     type Client = Awaited<ReturnType<typeof client>>;
     const USAGE: Usage = { costUsd: 0.25, converted: true, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, costUsd: 0.25 }] };
-    const ENTRY_FIELDS = ["branch", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
+    const ENTRY_FIELDS = ["branch", "chain", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
     const PROOFER = { role: "proofer", stage: "round" } as const;
 
     /** A run folder the case's daemons share, removed after the case. */
@@ -5281,7 +5323,7 @@ describe("headless sessions", () => {
       return (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working")).headless;
     }
 
-    it("keeps one entry for each session that ends, with a role and without: its work item, its repository and branch, its stage, its two times, how it ended and the usage its result reported", async () => {
+    it("keeps one entry for each session that ends, with a role and without: its work item, its repository and branch, its stage, no chain's stage, since no chain asked it, its two times, how it ended and the usage its result reported", async () => {
       let clock = 1000;
       // The clock moves on while each turn runs, so a session's end is read after its start.
       const usage = (prompt: string): Usage => {
@@ -5300,8 +5342,8 @@ describe("headless sessions", () => {
         requestId: answer.requestId,
         workItemId: workItem.id,
         entries: [
-          { ...kept, stage: PROOFER, startedAt: 1500, endedAt: 2000, usage: USAGE },
-          { ...kept, stage: null, startedAt: 3000, endedAt: 3500, usage: { ...USAGE, costUsd: 0.5 } },
+          { ...kept, stage: PROOFER, chain: null, startedAt: 1500, endedAt: 2000, usage: USAGE },
+          { ...kept, stage: null, chain: null, startedAt: 3000, endedAt: 3500, usage: { ...USAGE, costUsd: 0.5 } },
         ],
         unread: 0,
       });
@@ -5315,7 +5357,7 @@ describe("headless sessions", () => {
       const status = () => [git(workItem.worktree, "status", "--porcelain", "--ignored"), git(workItem.repo, "status", "--porcelain", "--ignored")];
       const before = status();
       await asked(c, workItem.id, "Which owl?", PROOFER);
-      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
+      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, chain: null, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
       expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [kept], unread: 0 });
       expect(status()).toEqual(before);
       await first.close();

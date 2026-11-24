@@ -367,10 +367,54 @@
       #tabs .tab.shown .close { color: var(--terminal-ink); }
       #tabs .tab.shown .close:hover, #tabs .tab.shown .close:active { color: var(--terminal-strong); }
       #tabs .tab.shown button:focus-visible { outline-color: var(--terminal-strong); }
+      /* The back's tab stands first and has no close mark. The back stands on the window's ground, not the terminal's, so its tab in front takes the selected line's ground and edge and the strong ink, as a selected line does. */
+      #tabs .tab.back .label { padding-right: var(--space-4); }
+      #tabs .tab.back.active { background: var(--selected); box-shadow: var(--selected-edge); }
+      #tabs .tab.back.active .label { color: var(--ink-strong); }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
       #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
       .pane { position: absolute; inset: var(--space-5) 18px 10px; }
+      /* The back of the seal: in the stage's place, on the window's ground and in its inks, from its top the large seal with its words, the seal's record, the head's sentences, each round with its findings and its stages, the stages after the rounds, and the lines of its foot. A text's code stands in the fixed-width face. Red stands on the seal alone: a cost stands in the ink of a fact, a failed stage's ending in the failure's colour, and an open finding's close in the strong ink. */
+      #back { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: var(--space-8) var(--space-9) var(--space-10); font-size: var(--size-second); line-height: 1.4; color: var(--ink); user-select: text; }
+      #back p, #back h2, #back h3 { margin: 0; }
+      #back code { font-family: var(--font-mono); font-size: var(--size-caption); overflow-wrap: anywhere; }
+      #back .back-waits { color: var(--ink-muted); }
+      #back .back-head { display: flex; align-items: center; gap: 14px; }
+      #back .back-head .words { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+      #back .why, #back .broken-by { overflow-wrap: anywhere; }
+      #back .broken-by .subject { color: var(--ink-muted); }
+      #back .back-record { display: grid; grid-template-columns: var(--fact-label) minmax(0, 1fr); gap: var(--space-2) var(--space-5); margin: var(--space-7) 0 0; }
+      #back .back-record dt { color: var(--ink-muted); }
+      #back .back-record dd { margin: 0; overflow-wrap: anywhere; }
+      #back .back-says { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-7); font-size: var(--size-text); color: var(--ink-strong); }
+      /* Every list of stages sets its cells in the chain's six columns, so a column stands at one place down the whole back. */
+      #back .back-chain { display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, max-content); column-gap: var(--space-6); margin-top: var(--space-6); }
+      #back .round, #back .after, #back .stages, #back .stages li { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; }
+      #back .round, #back .after { padding-top: var(--space-6); }
+      #back .round > :not(.stages) { grid-column: 1 / -1; }
+      #back .round > .caption { padding-bottom: var(--space-3); border-bottom: 1px solid var(--rule); }
+      #back .round-says, #back .round > .unread { padding: var(--space-3) 0; }
+      #back .stages { margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+      #back .stages li { align-items: center; min-height: var(--detail-line); box-shadow: var(--line-edge); }
+      #back .stages .columns { min-height: 0; padding-bottom: var(--space-2); box-shadow: none; }
+      #back .stages .caption:nth-child(n + 3), #back .stage > :nth-child(n + 3) { text-align: end; }
+      #back .stage .ended { color: var(--ink-muted); }
+      #back .stage .ended.failed { color: var(--state-failed); }
+      #back .stage :is(.time, .tokens, .cache, .cost) { font-family: var(--font-fact); font-variant-numeric: tabular-nums; white-space: nowrap; }
+      #back .stage :is(.time, .tokens, .cache) { color: var(--ink-muted); }
+      #back .stage .cost .converted { color: var(--ink-muted); }
+      #back .findings { margin: 0; padding: 0; list-style: none; }
+      #back .finding { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; grid-template-areas: "number says close" ". facts facts" ". names names"; column-gap: var(--space-4); row-gap: var(--space-1); padding: var(--space-3) 0; box-shadow: var(--line-edge); }
+      #back .finding .number { grid-area: number; font-family: var(--font-fact); color: var(--ink-muted); }
+      #back .finding .says { grid-area: says; overflow-wrap: anywhere; }
+      #back .finding .close { grid-area: close; color: var(--ink-muted); white-space: nowrap; }
+      #back .finding .close.open { color: var(--ink-strong); font-weight: 600; }
+      #back .finding .row { grid-area: facts; display: flex; flex-wrap: wrap; gap: var(--space-4); color: var(--ink-muted); }
+      #back .finding .names { grid-area: names; color: var(--ink-muted); }
+      #back .back-foot { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-7); }
+      #back .back-foot .converted-says, #back .back-foot .refused { color: var(--ink-muted); }
+      #back .unread { color: var(--state-failed); overflow-wrap: anywhere; }
       /* "Side by side": the stage's panes are tiles in two columns, in the tabs' order, with two rows from the third pane on. The third of three spans both columns. A rule stands between the tiles. */
       #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
       #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) .pane { position: relative; inset: auto; min-width: 0; min-height: 0; margin: 7px var(--space-5); }
@@ -671,6 +715,7 @@
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>
           <div id="stage"></div>
+          <section id="back" aria-label="Back of the seal" hidden></section>
           <p id="view-strip" class="hint">
             <span id="strip-size"></span>
             <span id="strip-worktree" class="path"></span>

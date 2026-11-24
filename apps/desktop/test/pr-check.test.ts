@@ -333,14 +333,16 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(named.output).toContain("seal/threads/1-x:0  the pull request's body, line 14: not read: ````Seal` opens a fence like a `seal` block and is not one");
   });
 
-  it("passes a ready pull request whose body is the one the daemon's pull request stage wrote for a sealed chain of two rounds and one fix pass, and names no line of it", async () => {
-    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
+  it("passes a ready pull request whose body is the one the daemon's pull request stage wrote for a sealed chain of two rounds and one fix pass, the back of the seal with each stage's cost among it, and names no line of it", async () => {
+    const usage = { costUsd: 0.25, converted: true, models: [{ model: "fake", inputTokens: 1000, outputTokens: 200, cacheReadTokens: 3000, cacheWriteTokens: 400, costUsd: 0.25 }] };
+    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { usage: () => usage }) });
     const a = workItems[0]!;
     expect(await c.getSeal(a.id, 1)).toBe("done");
     await c.chain(a.id, "rested");
     const created = gh.calls().findIndex((call) => call[1] === "create");
     const body = gh.bodies()[created] ?? "";
-    expect(body).toContain("\n<!-- /owlery:seal -->\n\n## Review rounds\n");
+    expect(body).toContain("\n<!-- /owlery:seal -->\n\n<!-- owlery:back -->\n## The back of the seal\n");
+    expect(body).toContain("\n| Round 1 | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
     const passed = await run({ base: join(a.worktree, ".."), repo: a.worktree }, { body });
     expect(passed.exit, passed.output).toBe(0);
     expect(passed.output).not.toContain("the pull request's body");

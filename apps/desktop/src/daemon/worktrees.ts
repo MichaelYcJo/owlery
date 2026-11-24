@@ -990,6 +990,22 @@ export async function trailerValues(worktree: string, outside: readonly string[]
 }
 
 /**
+ * The oldest commit on `to`'s own line after `from` that changes a path
+ * other than those of `excluded`, with its subject: the first commit
+ * `git log --first-parent --reverse` prints for `from..to` with one
+ * excluding pathspec for each path, from the worktree's top. A merge on that
+ * line is named by its merge commit, and its parent's own commits are not
+ * walked. Null where no such commit is. It throws git's words where either
+ * names no commit.
+ */
+export async function firstCommitOutside(worktree: string, from: string, to: string, excluded: readonly string[]): Promise<{ commit: string; subject: string } | null> {
+  const printed = await git(worktree, ["log", "--first-parent", "--reverse", "--format=%H%x00%s", `${from}..${to}`, "--", ...excluded.map((path) => `:(top,exclude,literal)${path}`)], BRANCH_OUTPUT_BYTES);
+  const [line = ""] = printed.split("\n");
+  const [commit = "", subject = ""] = line.split("\0");
+  return commit === "" ? null : { commit, subject };
+}
+
+/**
  * The paths at which the trees of two commits differ, each once: what
  * `git diff --name-only` prints for the two, with a file that was moved as
  * both of its paths. It walks no commit between them, so a merge's own
