@@ -287,12 +287,12 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
         lit[theme][state] = filled;
       }
     }
-    // Night watch draws how far work has come as how full the moon is: the lit part, which is the filled one, is wider across the mark's middle at work than asleep, and wider finished than at work.
+    // Night watch draws how far work has come as how full the moon is: the filled part, dark or light as the appearance gives the state's colour, is wider across the mark's middle at work than asleep, and wider finished than at work.
     const moon = lit["night-watch"] ?? {};
     expect(moon["no-agent"]?.across).toBeGreaterThan(0);
     expect(moon.working?.across).toBeGreaterThan(moon["no-agent"]?.across ?? Number.POSITIVE_INFINITY);
     expect(moon.finished?.across).toBeGreaterThan(moon.working?.across ?? Number.POSITIVE_INFINITY);
-    // Finished is a full moon: a filled part as wide as it is tall, and no line, no track and no part that turns. At work is a half moon, and nothing of it turns.
+    // Finished is a wholly filled disc: a filled part as wide as it is tall, and no line, no track and no part that turns. At work is a half-filled disc, and nothing of it turns.
     expect(moon.finished?.width).toBeGreaterThan(0);
     expect(moon.finished?.width).toBeCloseTo(moon.finished?.height ?? 0, 2);
     const full = seen["night-watch"]?.finished;
