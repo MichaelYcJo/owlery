@@ -63,4 +63,4 @@ The spawn names five other open work items of release 0.0.3. Issues #182 and #14
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-24 | The rounds stop after round 2; the fix pass of round 2's finding 1 is read by the sealer, not by a third round. | Round 2's one finding is the same wording class as round 1's finding 1, and every place it names is a record of the work item (`frame/questions.md`, `gaps.md`, `trail/phases/phase-1.md`), so the fix touches no code, no test and no policy document. A third round would cost close to a finding round to read a wording sweep the sealer reads whole at HEAD anyway. | The plugin's `skills/core/SKILL.md` *Judgment is not licence to skip a party*, the row *No fix that no round reads*; `skills/code-review/orchestration.md` *Orchestrator: the run ends with a verifying round* |
