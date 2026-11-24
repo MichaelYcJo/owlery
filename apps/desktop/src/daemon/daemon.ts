@@ -1699,8 +1699,13 @@ export class Daemon {
    * ended, for a headless session, a sign-in pane, a pane whose kind
    * resumes no conversation, as a shell's, a pane that runs under no account
    * or whose process ended, an account the daemon does not keep or the one
-   * the pane runs under, and where the two accounts' folders do not keep
-   * the same conversations, in which the new one would not find the pane's.
+   * the pane runs under, where the two accounts' folders do not keep
+   * the same conversations, in which the new one would not find the pane's,
+   * and while a change of the pane waits already. It starts nothing where
+   * the old process has not exited within the wait an archive takes, which
+   * then ends the pane when it exits, and where the pane was closed, its
+   * work item archived or removed, the daemon closed or the new account
+   * removed while the old process ended.
    */
   private async changeAccount(socket: WebSocket, message: Extract<ClientMessage, { type: "changeAccount" }>): Promise<void> {
     try {
@@ -1716,6 +1721,8 @@ export class Daemon {
       const held = info.workItemId === null ? undefined : this.store.workItem(info.workItemId);
       if (from === null || held === undefined) throw new Error("The pane runs under no account.");
       if (!info.alive) throw new Error("The pane's process has ended, so it has nothing to move to another account.");
+      // One change at a time: a second change while the first waits would start a second process on the conversation.
+      if (session.replacing) throw new Error("The pane's account is being changed already.");
       const to = this.accountSetting(accountId) as number;
       if (to === from) throw new Error(`The pane runs under "${this.accountNamed(to)}" already.`);
       // The new folder is given the person's names first, its link to the conversations among them.
@@ -1732,9 +1739,20 @@ export class Daemon {
       if (kept === null || kept !== conversations(to)) throw new Error(`"${this.accountNamed(from)}" and "${this.accountNamed(to)}" do not keep the same conversations, so the pane's conversation would not be found under "${this.accountNamed(to)}".`);
       session.replacing = true;
       session.terminal.kill();
-      await session.exited;
+      // The wait is bounded as an archive's is, so a process that ignores its hangup leaves no request unanswered.
+      let waitTimer: NodeJS.Timeout | undefined;
+      const exitedInTime = await Promise.race([session.exited.then(() => true), new Promise<boolean>((resolve) => (waitTimer = setTimeout(() => resolve(false), this.options.endWaitMs ?? END_WAIT_MS)))]);
+      clearTimeout(waitTimer);
       session.replacing = false;
-      if (this.sessions.get(id) !== session) throw new Error("The pane was closed before its account changed.");
+      // The process ends the pane when it exits, as any end of it does.
+      if (!exitedInTime) throw new Error("The pane's process did not end in time, so its account was not changed. The pane ends once its process exits.");
+      // What ended the pane while its process ended, its close, an archive or a removal of its work item, or the daemon's close, had its exit reported as the pane's end.
+      if (this.closed || session.ended || this.sessions.get(id) !== session) throw new Error("The pane was closed before its account changed.");
+      if (!this.accounts.holds(to)) {
+        // The account was removed while the process ended: the pane stays ended under its own account and says why.
+        this.standsEnded(session, `\r\n[the pane could not start: no account ${String(to)} is kept]\r\n`);
+        throw new Error(`No account ${String(to)} is kept.`);
+      }
       // Nothing of the old process stays on the pane: its state, its interruption and a log it could not read.
       Object.assign(info, { accountId: to, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null });
       session.interrupted = false;
@@ -1744,12 +1762,7 @@ export class Daemon {
         const launch = this.options.commandFor(info.kind, id, { continueLatest: false, folder: session.cwd, base: this.paneBase(held.item.id), checkout: repository.folder, chosen: repository.paneChain ?? null, ...this.foldersOf(to), ...(session.conversation === undefined ? {} : { resume: session.conversation }) });
         session.terminal = this.spawnPane(launch, session.cwd, session.size);
       } catch (error) {
-        // The pane stays, ended, and says why in what it printed.
-        const said = `\r\n[the pane could not start under "${this.accountNamed(to)}": ${error instanceof Error ? error.message : String(error)}]\r\n`;
-        session.output.append(said);
-        this.sendOutput(id, said);
-        this.broadcastInbox();
-        this.checkIdle();
+        this.standsEnded(session, `\r\n[the pane could not start under "${this.accountNamed(to)}": ${error instanceof Error ? error.message : String(error)}]\r\n`);
         throw error;
       }
       info.alive = true;
@@ -1760,6 +1773,14 @@ export class Daemon {
     } catch (error) {
       this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  /** Leaves a pane whose process ended for a change of its account ended, with the sentence `said` of why in what it printed, and tells every client. */
+  private standsEnded(session: Session, said: string): void {
+    session.output.append(said);
+    this.sendOutput(session.info.id, said);
+    this.broadcastInbox();
+    this.checkIdle();
   }
 
   /** Gives the folder of an account the daemon made the person's names it lacks, through the adapter, before a launch under it: nothing for System default, for no account, for a folder handed over and for an adapter that declares no accounts or signs none in. */
@@ -2275,7 +2296,8 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
-      if (session.replacing) {
+      // A change of the account waits on this exit, unless the pane's close, an archive, a removal or the daemon's close ended the pane meanwhile: then the exit is the pane's end.
+      if (session.replacing && !this.closed && !session.ended && this.sessions.get(id) === session) {
         clearTimeout(session.silentStart);
         this.endLog(session);
         exited();

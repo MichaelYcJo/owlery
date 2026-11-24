@@ -7356,7 +7356,7 @@ describe("a Claude Code pane and the owl chain", () => {
     expect(JSON.parse(readFileSync(ownFile, "utf8"))).toEqual({ ...hookSettings(), enabledPlugins: { [KEY]: false, "notes@handed": true } });
   });
 
-  it("refuses with its reason, and ends nothing, a change of a shell, of a sign-in pane, of a working headless session, to an account whose folder keeps other conversations, to the account the pane runs under, to an account it does not keep, and of a pane whose process ended (scenario 9)", async () => {
+  it("refuses with its reason, and ends nothing, a change of a shell, of a sign-in pane, of a working headless session, to an account whose folder keeps other conversations, to the account the pane runs under, to an account it does not keep, of a pane whose process ended, and a second change of a pane while the first waits (scenario 9)", async () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
     const own = configOf(made);
     mkdirSync(join(own, "projects"), { recursive: true });
@@ -7417,6 +7417,16 @@ describe("a Claude Code pane and the owl chain", () => {
     expect(await answer(25)).toEqual({ type: "error", requestId: 25, message: "The pane was closed before its account changed." });
     await new Promise((r) => setTimeout(r, 300));
     expect(await launches(closed.id, 2)).toEqual([expect.stringMatching(/^start /), "end"]);
+    // Two changes of one pane sent together: the second is refused, and one process at a time runs the pane.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 26, workItemId: workItem.id, accountId: 1 });
+    const twice = (await c.message("started", (m) => m.requestId === 26)).session;
+    await launches(twice.id, 1);
+    c.send({ type: "changeAccount", requestId: 27, id: twice.id, accountId: 0 });
+    c.send({ type: "changeAccount", requestId: 28, id: twice.id, accountId: 0 });
+    expect(await answer(28)).toEqual({ type: "error", requestId: 28, message: "The pane's account is being changed already." });
+    expect(await answer(27)).toEqual({ type: "done", requestId: 27 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await launches(twice.id, 3)).filter((line) => line.startsWith("start "))).toHaveLength(2);
     // A pane whose process ended has nothing to move.
     process.kill(pid(pane.id), "SIGTERM");
     await c.message("exit", (m) => m.id === pane.id);
@@ -7464,5 +7474,75 @@ describe("a Claude Code pane and the owl chain", () => {
     const ended = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((listed) => listed.id === pane.id && !listed.alive)));
     expect(ended.sessions.find((listed) => listed.id === pane.id)?.accountId).toBe(2);
     expect(c.messages.slice(from).some((m) => m.type === "output" && m.id === pane.id && m.data.includes(`[the pane could not start under "Broken": the pane's settings file could not be written]`))).toBe(true);
+  });
+
+  it("starts no process for a change whose account was removed, whose work item was archived or whose daemon closed while the old process ended: the pane ends as its process did, and one whose account went says why (scenario 9)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const gone = sharing(join(made.base, "gone"), join(own, "projects"));
+    const { d, c, launches, answer } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own }) });
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    c.send({ type: "addAccount", requestId: 2, name: "Gone", folder: gone });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    const item = async (requestId: number, title: string) => {
+      c.send({ type: "createWorkItem", requestId, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
+      return c.message("workItemCreated", (m) => m.workItem.title === title);
+    };
+    const opened = async (requestId: number, workItemId: number) => {
+      c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId, workItemId, accountId: 1 });
+      const pane = (await c.message("started", (m) => m.requestId === requestId)).session;
+      await launches(pane.id, 1);
+      return pane;
+    };
+    const ended = [expect.stringMatching(/^start /), "end"];
+    // The account the pane changes to is removed while the old process ends: the pane stays ended under its own account and says why.
+    const { workItem: kept } = await item(3, "Kept");
+    const lost = await opened(4, kept.id);
+    const from = c.messages.length;
+    c.send({ type: "changeAccount", requestId: 5, id: lost.id, accountId: 2 });
+    c.send({ type: "removeAccount", requestId: 6, id: 2 });
+    expect(await answer(6)).toEqual({ type: "done", requestId: 6 });
+    expect(await answer(5)).toEqual({ type: "error", requestId: 5, message: "No account 2 is kept." });
+    const listed = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((each) => each.id === lost.id && !each.alive)));
+    expect(listed.sessions.find((each) => each.id === lost.id)?.accountId).toBe(1);
+    expect(c.messages.slice(from).some((m) => m.type === "output" && m.id === lost.id && m.data.includes("[the pane could not start: no account 2 is kept]"))).toBe(true);
+    // The work item is archived while the old process ends.
+    const { workItem: archived, session: shell } = await item(7, "Archived");
+    const pane = await opened(8, archived.id);
+    c.send({ type: "changeAccount", requestId: 9, id: pane.id, accountId: 0 });
+    c.send({ type: "archiveWorkItem", requestId: 10, id: archived.id, running: { panes: [shell.id, pane.id], headless: [] } });
+    expect(await answer(9)).toEqual({ type: "error", requestId: 9, message: "The pane was closed before its account changed." });
+    expect(await answer(10)).toEqual({ type: "done", requestId: 10 });
+    await c.message("exit", (m) => m.id === pane.id);
+    // The daemon closes while the old process ends.
+    const last = await opened(11, kept.id);
+    c.send({ type: "changeAccount", requestId: 12, id: last.id, accountId: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    await d.close();
+    await new Promise((r) => setTimeout(r, 400));
+    expect([await launches(lost.id, 2), await launches(pane.id, 2), await launches(last.id, 2)]).toEqual([ended, ended, ended]);
+  });
+
+  it("refuses a change whose pane's process has not ended within the wait, and the pane then ends when its process exits, as any end of it does (scenario 9)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const { c, launches, answer } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own }), endWaitMs: 50 });
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    await c.message("accounts", (m) => m.accounts.length === 2);
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Slow", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 3)).session;
+    await launches(pane.id, 1);
+    // The stand-in takes 200 ms to answer its hangup, four times the wait.
+    c.send({ type: "changeAccount", requestId: 4, id: pane.id, accountId: 0 });
+    expect(await answer(4)).toEqual({ type: "error", requestId: 4, message: "The pane's process did not end in time, so its account was not changed. The pane ends once its process exits." });
+    await c.message("exit", (m) => m.id === pane.id);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await launches(pane.id, 2)).toEqual([expect.stringMatching(/^start /), "end"]);
   });
 });
