@@ -9,7 +9,7 @@ import { isKeepAwakeChoice } from "../shared/keep-awake";
 import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
-import { agentEventFor, agentSaid } from "./agent-events";
+import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { NOTHING_RECORDED, readChainRecords } from "./chain-records";
@@ -87,6 +87,7 @@ import { RecordTimes } from "./record-times";
 import { planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { writeRecordFile } from "./record-writer";
+import { SESSION_LOG_WAIT_MS, SessionLogWatch } from "./session-log";
 import { THE_SESSION, isSessionId } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
@@ -99,6 +100,9 @@ import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, co
 
 /** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
+
+/** The text of a session's state where the person interrupted its turn. */
+const INTERRUPTED_TEXT = "The turn was interrupted, and the agent waits for what to do next.";
 
 /** The first `STATE_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
 function cutText<T extends string | null>(text: T): T | string {
@@ -242,6 +246,8 @@ export interface DaemonOptions {
   readyWaitMs?: number;
   /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
   silentStartMs?: number;
+  /** How long the watch of a working pane's session log waits for a log that does not stand yet; `SESSION_LOG_WAIT_MS` of `session-log.ts` when absent. */
+  sessionLogWaitMs?: number;
   /** How long the daemon waits for the processes of the panes it ended to exit, and for the headless runs it stopped to end, before it refuses what ended them where a pane's has not; 3 seconds when absent. */
   endWaitMs?: number;
   /** How long a headless session may work, from its start, before the daemon stops it; `HEADLESS_LIMIT_MS` when absent. */
@@ -281,6 +287,12 @@ interface Session {
   output: OutputBuffer;
   /** The wait for the first event of a pane whose kind reports state. That event, the pane's end and the daemon's close each cancel it. */
   silentStart: NodeJS.Timeout | undefined;
+  /** The watch of the session log a working pane's latest event named, where the pane's agent writes an interruption no hook tells. Its state's leaving `working`, the pane's end, its close and the daemon's close each end it. */
+  log: SessionLogWatch | undefined;
+  /** Whether the daemon's log has said that the pane's session log is not read: it says so once a pane. */
+  logUnread: boolean;
+  /** Whether the session's state began where the person interrupted its turn. */
+  interrupted: boolean;
   /** Settled once the pane's process has exited. */
   exited: Promise<void>;
   /** Whether the daemon ended the pane's process, at a close, an archive, a removal or a delete. */
@@ -449,7 +461,9 @@ export class Daemon {
    * the person among it. An event that asks a question leaves the session
    * waiting. An event that leaves the state as it was changes none of them.
    * Any event ends the pane's silent start, an event the daemon maps to no
-   * neutral one among them.
+   * neutral one among them. An event that leaves the session working starts
+   * the watch of the session log its `transcript_path` names, where no watch
+   * of that log reads, and every other ends the watch.
    */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const session = this.sessions.get(paneId);
@@ -460,8 +474,11 @@ export class Daemon {
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });
     if (!session || !this.reportsState(session.info.kind)) return;
     const said = agentSaid(hookName, payload);
-    const state = agentStateAfter(event, said.questions !== null);
+    const state = agentStateAfter(event, said.questions !== null, session.interrupted);
+    if (state === "working") this.followLog(session, payload.transcript_path);
+    else this.endLog(session);
     if (state === session.info.state) return;
+    session.interrupted = false;
     session.info.state = state;
     session.info.stateSince = state === null ? null : (this.options.now ?? Date.now)();
     session.info.stateText = cutText(said.text);
@@ -640,6 +657,7 @@ export class Daemon {
     clearTimeout(this.idleTimer);
     for (const session of this.sessions.values()) {
       clearTimeout(session.silentStart);
+      this.endLog(session);
       if (session.info.alive) session.terminal.kill();
     }
     // A run whose adapter is still starting is stopped once it has started, and the close does not wait for it.
@@ -1240,6 +1258,7 @@ export class Daemon {
         // Off the lists first, so the process's end is told to nobody as a session's.
         this.sessions.delete(message.id);
         clearTimeout(session.silentStart);
+        this.endLog(session);
         session.ended = true;
         if (session.info.alive) session.terminal.kill();
         this.broadcastInbox();
@@ -1468,6 +1487,7 @@ export class Daemon {
     for (const [id, session] of this.sessions) {
       if (session.info.workItemId === null || !ids.has(session.info.workItemId)) continue;
       clearTimeout(session.silentStart);
+      this.endLog(session);
       this.sessions.delete(id);
     }
     for (const [id, session] of this.headless) {
@@ -1764,6 +1784,9 @@ export class Daemon {
       terminal,
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,
+      log: undefined,
+      logUnread: false,
+      interrupted: false,
       exited: new Promise<void>((resolve) => {
         exited = resolve;
       }),
@@ -1783,6 +1806,7 @@ export class Daemon {
       const setupEnded = this.setupExited(workItemId, id, exitCode, signal, session.ended);
       exited();
       clearTimeout(session.silentStart);
+      this.endLog(session);
       // A closed pane is on no list, and its end is no client's news.
       if (this.sessions.get(id) === session) {
         // The exit line is the session's last output, so a replay of an exited session ends with it and no client writes one of its own.
@@ -1855,6 +1879,54 @@ export class Daemon {
   private silentStartOver(session: Session): void {
     session.info.state = "waiting";
     session.info.stateSince = (this.options.now ?? Date.now)();
+    this.broadcastInbox();
+  }
+
+  /**
+   * Watches the session log at `path` for a working pane, where no watch of
+   * that log reads: a watch of another log ends first. A path that is no
+   * whole path from / starts nothing, and leaves the watch that reads as it
+   * is. Each line the log gains is read for the entry of an interrupted turn,
+   * and nothing else of it is kept or sent.
+   */
+  private followLog(session: Session, path: unknown): void {
+    if (typeof path !== "string" || !isAbsolute(path)) return;
+    if (session.log?.open && session.log.path === path) return;
+    session.log?.end();
+    session.log = new SessionLogWatch(
+      path,
+      (line) => {
+        if (isInterruptionEntry(line)) this.interruptedTurn(session);
+      },
+      (error) => {
+        if (session.logUnread) return;
+        session.logUnread = true;
+        console.error(`the session log of pane ${String(session.info.id)} is not read, so its state is what its hook events say: ${error.message}`);
+      },
+      this.options.sessionLogWaitMs,
+    );
+  }
+
+  private endLog(session: Session): void {
+    session.log?.end();
+    session.log = undefined;
+  }
+
+  /**
+   * Lists as waiting a working pane whose session log gained the entry of an
+   * interrupted turn, with the interruption's text and no tool, and tells
+   * every client of the interruption as of an agent's event. The watch ends
+   * with the working state, so the pane is working here.
+   */
+  private interruptedTurn(session: Session): void {
+    this.endLog(session);
+    this.broadcast({ type: "agent", id: session.info.id, event: "interrupted", tool: null, at: Date.now() });
+    session.interrupted = true;
+    session.info.state = agentStateAfter("interrupted");
+    session.info.stateSince = (this.options.now ?? Date.now)();
+    session.info.stateText = INTERRUPTED_TEXT;
+    session.info.stateTool = null;
+    session.info.stateQuestions = null;
     this.broadcastInbox();
   }
 

@@ -3062,6 +3062,163 @@ describe("the inbox", () => {
     expect(read).toBe(before);
   });
 
+  /** The recording of a Claude Code session in which the person interrupted a reply and then a Bash call: each hook event and each line its session log gained, with its time. */
+  const RECORDED = JSON.parse(readFileSync(join(__dirname, "fixtures", "claude-interrupted-turn.json"), "utf8")) as { events: { at: number; name: string; payload: Record<string, unknown> }[]; log: { at: number; line: string }[] };
+  /** When the log gained the entry of the reply's interruption, and of the Bash call's. */
+  const REPLY_ESC = RECORDED.log.find(({ line }) => line.includes('"text":"[Request interrupted by user]"'))?.at ?? NaN;
+  const TOOL_ESC = RECORDED.log.find(({ line }) => line.includes('"text":"[Request interrupted by user for tool use]"'))?.at ?? NaN;
+  /** When the prompt that asks for the Bash call arrived. */
+  const SECOND_PROMPT = RECORDED.events.filter(({ name }) => name === "UserPromptSubmit")[1]?.at ?? NaN;
+  /** What a session the person interrupted is listed with, beside its time. */
+  const INTERRUPTED = { state: "waiting", stateText: "The turn was interrupted, and the agent waits for what to do next.", stateTool: null, stateQuestions: null };
+  const lines = (from: number, to: number): string =>
+    RECORDED.log
+      .filter(({ at }) => at >= from && at < to)
+      .map(({ line }) => `${line}\n`)
+      .join("");
+
+  /** The path of a session log in a folder of the case's own, which stands nowhere until the case writes it. */
+  function sessionLog(): string {
+    const folder = mkdtempSync(join(tmpdir(), "owlery-session-log-"));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    return join(folder, "session.jsonl");
+  }
+
+  /** Plays the recording from `from` until before `to`, in its order: each hook event goes to the daemon for the pane, naming `log` as its session log, and each batch of lines goes onto the end of `log`, which the first batch creates, with a pause after it in which the daemon can read it. */
+  async function replay(d: Daemon, paneId: number, log: string, from: number, to: number): Promise<void> {
+    const times = [...new Set([...RECORDED.events, ...RECORDED.log].map(({ at }) => at))].filter((at) => at >= from && at < to).sort((a, b) => a - b);
+    for (const at of times) {
+      for (const { name, payload } of RECORDED.events.filter((event) => event.at === at)) d.agentEvent(paneId, name, { ...payload, transcript_path: log });
+      const batch = lines(at, at + 1);
+      if (batch === "") continue;
+      appendFileSync(log, batch);
+      await pause(60);
+    }
+  }
+
+  const interruptions = (c: { messages: ServerMessage[] }) => c.messages.filter((m) => m.type === "agent" && m.event === "interrupted");
+
+  it("lists a Claude Code session whose tool call the person interrupted as waiting, from the entry its session log gained, and tells every client of the interruption", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog();
+    // The log as it stood when the person sent the prompt that asks for the Bash call.
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    await replay(d, session.id, log, SECOND_PROMPT, TOOL_ESC);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, state: "working", stateSince: 100, stateText: null, stateTool: null, stateQuestions: null }]);
+    clock = 200;
+    // The Esc's batch, and what the recording shows after it: a batch at the session's end, and its `SessionEnd`, to which Owlery does not listen.
+    await replay(d, session.id, log, TOOL_ESC, Infinity);
+    const waiting = { ...session, ...INTERRUPTED, stateSince: 200 };
+    for (const each of [c, bystander]) {
+      expect((await each.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+      expect(interruptions(each)).toEqual([{ type: "agent", id: session.id, event: "interrupted", tool: null, at: expect.any(Number) }]);
+    }
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting"]);
+  });
+
+  it("lists a Claude Code session whose reply the person interrupted as waiting, though its session log did not stand yet when the prompt arrived", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog();
+    await replay(d, session.id, log, 0, REPLY_ESC);
+    expect((await (await client(url)).message("ready")).sessions[0]?.state).toBe("working");
+    await replay(d, session.id, log, REPLY_ESC, SECOND_PROMPT);
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([{ ...session, ...INTERRUPTED, stateSince: expect.any(Number) }]);
+    expect(interruptions(c)).toHaveLength(1);
+  });
+
+  it("keeps an interrupted session waiting, from the interruption's time and with its text, at the end or the failure of a tool that arrives later, and lists it working from the next prompt as before", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    const log = sessionLog();
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    await replay(d, session.id, log, SECOND_PROMPT, Infinity);
+    await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
+    clock = 200;
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "Bash", transcript_path: log });
+    d.agentEvent(session.id, "PostToolUseFailure", { tool_name: "Bash", transcript_path: log });
+    expect(await listed()).toEqual({ ...session, ...INTERRUPTED, stateSince: 100 });
+    clock = 300;
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", transcript_path: log });
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "Bash", transcript_path: log });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null, stateQuestions: null });
+    // One inbox for the pane's start and one per state.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting", "working"]);
+  });
+
+  it("leaves a session working where its session log never stands or is removed while it is read, throws nothing, says so once a pane in its log, and finishes the session at its turn's end", async () => {
+    const said = logged();
+    const { daemon: d, url } = await daemonWithWorkItem({ sessionLogWaitMs: 100 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const never = (await c.message("started", (m) => m.requestId === 1)).session;
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
+    const removed = (await c.message("started", (m) => m.requestId === 2)).session;
+    const missing = sessionLog();
+    d.agentEvent(never.id, "UserPromptSubmit", { transcript_path: missing });
+    await pause(300);
+    d.agentEvent(never.id, "PreToolUse", { tool_name: "Bash", transcript_path: missing });
+    await pause(300);
+    const log = sessionLog();
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(removed.id, "UserPromptSubmit", { transcript_path: log });
+    // The watch is armed at the next turn of the loop, and a removal before it is reported to nobody.
+    await pause(60);
+    rmSync(log);
+    await pause(300);
+    const listed = (await (await client(url)).message("ready")).sessions;
+    expect(listed.map(({ state }) => state)).toEqual(["working", "working"]);
+    expect(said.filter((line) => line.includes("session log"))).toEqual([`the session log of pane ${String(never.id)} is not read, so its state is what its hook events say: ${missing} did not stand within 100 ms`, expect.stringMatching(new RegExp(`^the session log of pane ${String(removed.id)} is not read, so its state is what its hook events say: ENOENT`))]);
+    for (const { id } of [never, removed]) d.agentEvent(id, "Stop", {});
+    expect((await (await client(url)).message("ready")).sessions.map(({ state }) => state)).toEqual(["finished", "finished"]);
+    expect(interruptions(c)).toEqual([]);
+  });
+
+  it("reads no session log of a pane that is not working: one whose turn finished, one that was closed and one whose process exited, each while it worked", async () => {
+    // The shell ignores the signal a close sends, so the closed pane's process outlives its close, and ends at a line.
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; read line; exit 0"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    const panes = [];
+    for (const requestId of [1, 2, 3]) {
+      c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
+      panes.push({ id: (await c.message("started", (m) => m.requestId === requestId)).session.id, log: sessionLog() });
+    }
+    const [finished, closed, exited] = panes as [(typeof panes)[number], (typeof panes)[number], (typeof panes)[number]];
+    for (const { id, log } of panes) {
+      writeFileSync(log, lines(0, SECOND_PROMPT));
+      d.agentEvent(id, "UserPromptSubmit", { transcript_path: log });
+    }
+    d.agentEvent(finished.id, "Stop", { transcript_path: finished.log });
+    c.send({ type: "close", id: closed.id });
+    c.send({ type: "input", id: exited.id, data: "go\n" });
+    await c.message("exit", (m) => m.id === exited.id);
+    for (const { log } of panes) appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(300);
+    expect(interruptions(c)).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions.map(({ id, state }) => [id, state])).toEqual([
+      [finished.id, "finished"],
+      [exited.id, "working"],
+    ]);
+  });
+
   it("tells every client of a work item one of them creates, of a pane one starts, and of a state that changes", async () => {
     const { repo, root } = repository();
     const { daemon: d, url } = await daemon({ worktreesRoot: root });

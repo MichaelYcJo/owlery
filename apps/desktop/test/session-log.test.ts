@@ -1,0 +1,63 @@
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { LINE_BYTES, SessionLogWatch } from "../src/daemon/session-log";
+
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+});
+
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A log in a folder of the case's own, and a watch of it that keeps each line it hands on and each failure. */
+function watched(before: string | null): { log: string; lines: string[]; failures: Error[]; watch: () => SessionLogWatch } {
+  const folder = mkdtempSync(join(tmpdir(), "owlery-session-log-"));
+  const log = join(folder, "session.jsonl");
+  if (before !== null) writeFileSync(log, before);
+  const lines: string[] = [];
+  const failures: Error[] = [];
+  const watch = () => {
+    const made = new SessionLogWatch(log, (line) => lines.push(line), (error) => failures.push(error), 300);
+    cleanups.push(() => made.end());
+    return made;
+  };
+  cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+  return { log, lines, failures, watch };
+}
+
+describe("SessionLogWatch", () => {
+  it("hands on each line appended after it began once and whole, a line written in two parts among them, and skips a line longer than its bound to its end", async () => {
+    const { log, lines, failures, watch } = watched('{"before":1}\n');
+    watch();
+    appendFileSync(log, '{"one":');
+    await pause(60);
+    appendFileSync(log, '1}\n{"two":2}\n');
+    await pause(60);
+    appendFileSync(log, `{"long":"${"x".repeat(LINE_BYTES)}`);
+    await pause(60);
+    appendFileSync(log, `${"x".repeat(LINE_BYTES)}"}\n{"three":3}\n${"y".repeat(LINE_BYTES)}\n`);
+    await pause(60);
+    expect(lines).toEqual(['{"one":1}', '{"two":2}', '{"three":3}', "y".repeat(LINE_BYTES)]);
+    expect(failures).toEqual([]);
+  });
+
+  it("reads a log that stands only after it began from its first byte, and hands nothing on once it ended", async () => {
+    const { log, lines, failures, watch } = watched(null);
+    const made = watch();
+    writeFileSync(log, '{"one":1}\n');
+    await pause(250);
+    made.end();
+    appendFileSync(log, '{"two":2}\n');
+    await pause(60);
+    expect([lines, failures, made.open]).toEqual([['{"one":1}'], [], false]);
+  });
+
+  it("fails once and stops where the log does not stand within its wait", async () => {
+    const { lines, failures, watch } = watched(null);
+    const made = watch();
+    await pause(500);
+    expect([lines, failures.map(({ message }) => message.replace(/^.*\//, "")), made.open]).toEqual([[], ["session.jsonl did not stand within 300 ms"], false]);
+  });
+});
