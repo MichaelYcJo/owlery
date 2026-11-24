@@ -119,6 +119,16 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     // The form stays under the dialog with what was typed, and the owl chain is the choice the dialog opens on.
     expect([await open("work-item-dialog"), await value<string>(`document.getElementById("work-item-title").value`)]).toEqual([true, "Chosen"]);
     expect(await value<boolean[]>(`[document.getElementById("chain-owlery").checked, document.getElementById("chain-plugin").checked]`)).toEqual([true, false]);
+    // The dialog says why it asks, what each answer does to the pane, and that no file of the person's is changed.
+    expect(await value<string[]>(`[...document.querySelectorAll("#chain-dialog .head, #chain-dialog .says, #chain-dialog label, #chain-dialog button")].map((part) => part.textContent.trim())`)).toEqual([
+      "Choose the chain of this repository's Claude Code panes",
+      "This repository's check is Owlery's, and your Claude Code enables the AgenticSeal plugin here. One chain seals a repository, so a pane runs one of the two.",
+      "The owl chain: the pane carries Owlery's roles, and the AgenticSeal plugin is off in that pane alone.",
+      "The AgenticSeal plugin: the pane is Claude Code as you set it up, with nothing of Owlery's.",
+      "Owlery asks once for a repository and changes none of your settings files. The repository's settings change the answer.",
+      "Cancel",
+      "Open the pane",
+    ]);
     // A cancel creates nothing and keeps no answer.
     await app.click("#chain-cancel");
     await dialogClosed("chain-dialog");
@@ -146,6 +156,7 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
 
   it("shows the answer in the repository's settings, asks again at the next Claude Code pane once the settings took it away, and under the answer of the AgenticSeal plugin launches the pane with the shared settings alone", async () => {
     await openSettings();
+    expect(await value<string>(`document.getElementById("settings-chain-field").firstChild.textContent.trim()`)).toBe("Claude Code panes run");
     expect(await value<unknown[]>(`[document.getElementById("settings-chain-field").hidden, document.getElementById("settings-chain").value, [...document.getElementById("settings-chain").options].map((option) => option.textContent)]`)).toEqual([false, "owlery", ["Ask at the next Claude Code pane", "The owl chain", "The AgenticSeal plugin"]]);
     await value(`document.getElementById("settings-chain").value = ""`);
     await app.click("#settings-submit");

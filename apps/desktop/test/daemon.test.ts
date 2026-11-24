@@ -6834,10 +6834,18 @@ describe("a Claude Code pane and the owl chain", () => {
     writeFileSync(join(made.repo, ".claude", "settings.local.json"), `${JSON.stringify({ enabledPlugins: { [KEY]: false } })}\n`);
     expect(existsSync(join(workItem.worktree, ".claude"))).toBe(false);
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
-    const pane = await given((await c.message("started", (m) => m.requestId === 3)).session.id);
+    const started = (await c.message("started", (m) => m.requestId === 3)).session.id;
+    const pane = await given(started);
     expect(pane.args[3]).toContain(`exec claude --settings '${settings}' --plugin-dir `);
     expect(pane.env.OWLERY_CHAIN).toBe(chain.launcher);
     expect((await c.message("inbox", (m) => m.repositories[0]?.chain.plugin === false && m.repositories[0]?.chain.chosen === "plugin")).repositories[0]?.chain).toEqual({ owl: true, plugin: false, chosen: "plugin" });
+    // With no pane and no request to carry it, the next read of the repositories alone tells the clients that the plugin is on again.
+    await c.message("exit", (m) => m.id === started);
+    await c.until(() => (c.messages.at(-1)?.type === "inbox" || c.messages.at(-1)?.type === "exit" ? true : undefined));
+    await new Promise((r) => setTimeout(r, 600));
+    const quiet = c.messages.length;
+    rmSync(join(made.repo, ".claude"), { recursive: true });
+    expect((await c.until(() => c.messages.slice(quiet).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.repositories[0]?.chain.plugin === true))).repositories[0]?.chain).toEqual({ owl: true, plugin: true, chosen: "plugin" });
   });
 
   it.each(["owlery", "plugin"] as const)("leaves every file under the person's Claude Code folder with the bytes it held, and adds none, when a pane opens and ends under the answer %s with the plugin enabled", async (paneChain) => {
