@@ -10,7 +10,8 @@
 // theme a first run opens in. The daemon keeps one account beside System
 // default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
-// account's field. No session of the scene runs under it. The repository is on the owl chain, and the Claude Code config
+// account's field. The parked work item's shell pane runs under it, so its
+// row in the Accounts dialog offers no refresh. The repository is on the owl chain, and the Claude Code config
 // folder the run gives the app enables a stand-in for the AgenticSeal
 // plugin, so the window holds the choice of a chain. The run stores the
 // answer "the AgenticSeal plugin" before the app starts, so no pane of the
@@ -571,7 +572,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       {
         writeRun: (runDir) => {
           writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
-          // One account handed over by its folder, an empty one of the run's own: no session of the scene runs under it, and nothing reads it. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in, and holds the limit values a session last handed over, so the dialog draws them and the offer of a refresh. No refresh starts: nothing of the run presses it.
+          // One account handed over by its folder, an empty one of the run's own. The parked work item's shell pane runs under it, so its row offers no refresh, and no refresh starts. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in, and holds the limit values a session last handed over, so the dialog draws them.
           const limits = [
             { status: "ok", used: 0.42, resetsAt: stored + 3 * 60 * 60_000, window: "five_hour", at: stored - 20 * 60_000 },
             { status: "ok", used: 0.18, resetsAt: stored + 4 * 24 * 60 * 60_000, window: "seven_day", at: stored - 20 * 60_000 },
