@@ -39,7 +39,7 @@ export type RoleFeature = "role-tools" | "permission-requests" | "accounts" | "l
 
 export interface RoleAdapter {
   readonly name: string;
-  /** The features this adapter supports. The daemon starts a role session only through an adapter that declares `role-tools` and `permission-requests`, and a session with no role through any; `accounts` decides only whether a session is given its account's folder. */
+  /** The features this adapter supports. The daemon starts a role session only through an adapter that declares `role-tools` and `permission-requests`, and a session with no role through any; `accounts` decides only whether a session is given its account's folder, and `limit-refresh` whether the daemon starts a refresh through it. */
   readonly features: readonly RoleFeature[];
   /**
    * Starts one session that answers `prompt` in the folder `cwd`, and reports
