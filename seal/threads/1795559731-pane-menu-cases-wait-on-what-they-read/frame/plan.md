@@ -56,4 +56,4 @@ The spawn names the open work items of issues #149, #154, #191, #134 and #32. Ea
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | This work closes the race its rule made: the wait of `frame/design.md` *Scope* item 5 goes into the Command-key case, the Shift+Enter case and the two drop cases, as phase 4. | The rule of phase 1 drops a key the Command-key case sent before; the four share one shape and one wait, and three left open re-file the flake of #168 (`gaps.md` *Not done*, `trail/phases/phase-2.md`). | `skills/implement/fold-and-reframe.md` |
