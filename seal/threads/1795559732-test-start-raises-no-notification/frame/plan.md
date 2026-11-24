@@ -60,4 +60,4 @@ No migration, no new environment variable, no new dependency and no change a per
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | The pull request's title takes `test:`, and the kind that came closest is `fix:`. | The issue is a defect of the suite's own runs: a background test start raised a banner over the owner's screen, and a person's start shows the same banner as before. The diff adds a page member, `background`, and one function in `src/`, and both serve the test start alone; a `fix:` title would tell a reader of the release note that a person's app changed. | the plugin's `skills/commit-pr-convention/SKILL.md` *Pull request titles*, and the prefix of issue #154's title |
