@@ -116,6 +116,8 @@ let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
 // Whether the back of the seal is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
 let backFront = false;
 // What the back asked the daemon while it is in front, and the answers: the work item, the key it was asked at (./view, `backKey`), each request, each answer, and the daemon's refusal of either. The answers are let go when a pane comes in front or the view is left.
+// What the back's place last drew, so a list that changes nothing of it draws nothing again and a selection in it stays.
+let backDrawn: string | undefined;
 let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
@@ -1086,7 +1088,8 @@ function backTab(active: boolean): HTMLElement {
  * (./view, `backShown`; ./shared, `backParts`), and asks the daemon for its
  * records and its ledger, both at once, where nothing was asked for this
  * work item yet or a later list gives another key. While a second ask waits,
- * the back drawn from the first answers stays.
+ * the back drawn from the first answers stays, and a list that changes
+ * nothing the back draws draws nothing again.
  */
 function showBack(workItem: WorkItem): void {
   const key = backKey(workItem);
@@ -1097,6 +1100,9 @@ function showBack(workItem: WorkItem): void {
   }
   const shown = backShown(backAsked);
   if (shown === BACK_READING && back.dataset.workItem === String(workItem.id) && back.childElementCount > 0) return;
+  const drawn = JSON.stringify([workItem.id, shown, workItem.seal ?? null]);
+  if (drawn === backDrawn) return;
+  backDrawn = drawn;
   back.dataset.workItem = String(workItem.id);
   back.replaceChildren(...backParts(shown, workItem.seal));
 }
@@ -1104,6 +1110,7 @@ function showBack(workItem: WorkItem): void {
 /** Lets the back's answers go and empties its place, as when a pane comes in front or the view is left. */
 function dropBack(): void {
   backAsked = undefined;
+  backDrawn = undefined;
   delete back.dataset.workItem;
   back.replaceChildren();
 }

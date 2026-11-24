@@ -28,6 +28,8 @@ import { commitFile, git, temporaryRepository } from "./repositories";
 const SEALED = { title: "Export the history", records: "1795400731-export-the-history" };
 const BROKEN = { title: "Cache the avatars", records: "1795400732-cache-the-avatars" };
 const PLAIN = { title: "Rename the settings" };
+/** A work item made while the sealed one's back is in front, so the daemon sends a list. */
+const LATER = { title: "Tidy the changelog" };
 
 /**
  * Commits in a worktree on the work item's branch the records of a chain
@@ -175,7 +177,7 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     made?.remove();
   }, 30_000);
 
-  it("opens a sealed work item to its back, with the seal's record, a finding at its file and line with the commit that fixed it and each stage's converted cost, names the commit that broke a broken seal, gives no back to a work item with no seal, no round and no chain, and lets the back's answers go while a pane is in front and asks again when the back comes back", async () => {
+  it("opens a sealed work item to its back, with the seal's record, a finding at its file and line with the commit that fixed it and each stage's converted cost, draws it again for no list that leaves its seal, records and chain as they were, names the commit that broke a broken seal, gives no back to a work item with no seal, no round and no chain, and lets the back's answers go while a pane is in front and asks again when the back comes back", async () => {
     // Each view is opened once its line shows the seal the daemon read at the branch's head. The sidebar's lines draw no seal, and the inbox's do.
     await app.click("#nav-inbox");
     await app.until(`document.querySelector('#inbox-lines button[data-work-item="${sealed.id}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${broken.id}"] .seal[data-seal="broken"]')`, "the sealed and the broken seal on their lines", 30_000);
@@ -196,6 +198,13 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     expect(back.text).toContain(`Fixed in ${fixedIn.slice(0, 7)}`);
     expect(back.text).toContain("$0.28 converted");
     expect(back.text).toContain("The chain's stages cost $1.12 converted.");
+    expect(await sent()).toEqual({ readSealRecords: 1, readLedger: 1 });
+
+    // A list the daemon sends while the back is in front, which changes none of the sealed work item's seal, records or chain, leaves the back as it was drawn, so a selection in it stays, and asks nothing.
+    await app.evaluate(`document.querySelector("#back .round").dataset.kept = "yes"`);
+    socket?.send(JSON.stringify({ type: "createWorkItem", requestId: 4, repo: made.repo, title: LATER.title, kind: "shell", cols: 80, rows: 24 }));
+    await app.until(`[...document.querySelectorAll("#repositories button[data-work-item]")].some((line) => line.textContent.includes(${JSON.stringify(LATER.title)}))`, "the later work item's line in the sidebar");
+    expect(await app.evaluate<string | undefined>(`document.querySelector("#back .round")?.dataset.kept`)).toBe("yes");
     expect(await sent()).toEqual({ readSealRecords: 1, readLedger: 1 });
 
     // A pane's tab comes in front: the back's place is emptied, and nothing more is asked.
