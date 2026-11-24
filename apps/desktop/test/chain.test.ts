@@ -2368,10 +2368,14 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       expect(c.workItem(a.id)?.machineWait).toBeNull();
       expect(existsSync(mark(out, b.worktree, "started"))).toBe(false);
 
+      // The commit of the first gate's record is held, so the turn has to pass when the command ends and not when the stage does.
+      const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
       writeFileSync(mark(out, a.worktree, "go"), "");
       await startsIn(c, out, b.worktree);
       // The turn passed when the first command ended, not before.
       expect(existsSync(mark(out, a.worktree, "ended"))).toBe(true);
+      await c.until(() => (held.waiting() ? true : undefined));
+      held.release();
       await c.until(() => (c.workItem(b.id)?.machineWait === null ? true : undefined));
       expect(c.workItem(b.id)?.chain?.stages.at(-1)).toEqual(gateStage({ state: "working", endedAt: null, gate: { command: WAITS_ON_A_FILE, exitCode: null, output: false } }));
       writeFileSync(mark(out, b.worktree, "go"), "");
