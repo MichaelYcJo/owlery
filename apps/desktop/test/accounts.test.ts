@@ -419,6 +419,30 @@ describe("the daemon's accounts", () => {
     expect(asked).toHaveLength(5);
   });
 
+  it("launches a pane of a kind that declares no accounts under none, whatever the nearest setting names, and names no account on it", async () => {
+    const asked: { kind: string; accountDir: string | null }[] = [];
+    const { c } = await daemon({
+      paneKinds: [{ ...PANE_KINDS[0]!, accounts: false }, PANE_KINDS[1]!],
+      roleAdapter: fakeAdapter({ defaultLoginFolder: "/Users/person/.claude" }),
+      commandFor: (kind, _id, start) => {
+        asked.push({ kind, accountDir: start.accountDir });
+        return { command: "/bin/sh", args: ["-c", "sleep 30"], env: {} };
+      },
+    });
+    const work = handedFolder();
+    await c.request({ type: "addAccount", name: "Work", folder: work });
+    const { workItemId, repositoryId } = await workItemIn(c);
+    await c.request({ type: "setRepository", id: repositoryId, accountId: 1 });
+    for (const [requestId, kind] of [[601, "shell"], [602, "claude"]] as const) c.send({ type: "start", kind, cols: 80, rows: 24, requestId, workItemId });
+    const shell = (await c.message("started", (m) => m.requestId === 601)).session;
+    const claude = (await c.message("started", (m) => m.requestId === 602)).session;
+    expect([shell.accountId, claude.accountId]).toEqual([null, 1]);
+    expect(asked.slice(-2)).toEqual([
+      { kind: "shell", accountDir: null },
+      { kind: "claude", accountDir: work },
+    ]);
+  });
+
   it("clears at its start a repository's and a work item's setting that names an account it keeps none of, so an account added later under a freed id takes no setting, and keeps a setting that names one it keeps", async () => {
     const first = await daemon();
     await first.c.request({ type: "addAccount", name: "Work", folder: handedFolder() });
