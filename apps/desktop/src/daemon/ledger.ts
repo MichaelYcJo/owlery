@@ -6,6 +6,7 @@ const FILE = "ledger.jsonl";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isCount = (value: unknown): value is number | null => value === null || typeof value === "number";
+const isWhole = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
 
 /** What one model used, where a value is one with every field in its type: the protocol's fields alone. */
 function modelOf(value: unknown): ModelUsage | undefined {
@@ -38,10 +39,8 @@ function stageOf(value: unknown): LedgerStage | undefined {
 /** The chain's stage a value names: a kind of `CHAIN_STAGE_KINDS` with a whole round, null, or nothing where it names none. A line written before entries named the chain's stage holds none, and names none. */
 function chainOf(value: unknown): LedgerEntry["chain"] | undefined {
   if (value === undefined || value === null) return null;
-  if (!isRecord(value) || !CHAIN_STAGE_KINDS.includes(value.kind as ChainStageKind)) return undefined;
-  const { round } = value;
-  if (typeof round !== "number" || !Number.isInteger(round) || round < 0) return undefined;
-  return { kind: value.kind as ChainStageKind, round };
+  if (!isRecord(value) || !CHAIN_STAGE_KINDS.includes(value.kind as ChainStageKind) || !isWhole(value.round)) return undefined;
+  return { kind: value.kind as ChainStageKind, round: value.round };
 }
 
 /** The entry a line's value is, with the protocol's fields alone, or nothing where it is no entry. */
