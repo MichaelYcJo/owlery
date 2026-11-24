@@ -1,8 +1,9 @@
 // A click on a notification in the built app. It starts the app once, in the
-// background, on a temporary repository, with the page's `Notification`
-// replaced by a recorder, so nothing reaches the system's notifications. A
-// pane's state is changed by feeding the daemon's hook socket, and the click
-// is the call of the handler the window gave the recorded notification.
+// background, on a temporary repository, where the page raises nothing of
+// the system's and keeps each notification in `window.__notifications`
+// (src/renderer/notifier.ts). A pane's state is changed by feeding the
+// daemon's hook socket, and the click is the call of the handler the window
+// gave the kept notification.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -66,7 +67,7 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
   /** The label of the tab marked as the one in front. */
   const activeTab = (): Promise<string | null> => app.evaluate<string | null>(`document.querySelector("#tabs .tab.active .label")?.textContent ?? null`);
 
-  /** The recorded notifications, as their titles and bodies. */
+  /** The notifications the page kept, as their titles and bodies. */
   const recorded = (): Promise<{ title: string; body: string }[]> => app.evaluate(`window.__notifications.map(({ title, body }) => ({ title, body }))`);
 
   beforeAll(async () => {
@@ -76,16 +77,13 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: made.root, OWLERY_RECEIVER_FILE: join(made.base, "received") });
     // The app starts in the background, and the page of a window without the system's focus reports none.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
-    // The recorder stands before any pane starts, so no notification of this run reaches the system.
+    // A stand-in that counts its constructions takes the place of the page's `Notification` before any pane starts. It keeps nothing a case reads as a notification, and a notification the page handed the system's would be counted in place of reaching the system.
     await app.evaluate(`(() => {
-      window.__notifications = [];
+      window.__constructed = 0;
       window.Notification = class {
         static permission = "granted";
-        constructor(title, options) {
-          this.title = title;
-          this.body = options?.body;
-          this.onclick = null;
-          window.__notifications.push(this);
+        constructor() {
+          window.__constructed += 1;
         }
       };
     })()`);
@@ -109,11 +107,12 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     made?.remove();
   }, 30_000);
 
-  it("opens the view of the work item that waits, with the pane that waits in front, from the view of another work item", async () => {
+  it("raises nothing of the system's in the background, and a click on the notification the page kept opens the view of the work item that waits, with the pane that waits in front, from the view of another work item", async () => {
     expect(await recorded()).toEqual([]);
     feed("PermissionRequest");
     await app.until(`window.__notifications.length === 1`, "a notification");
     expect(await recorded()).toEqual([{ title: "Alpha", body: "Needs you" }]);
+    expect(await app.evaluate<number>(`window.__constructed`)).toBe(0);
 
     await app.evaluate(`window.__notifications[0].onclick()`);
     expect(await text("view-title")).toBe("Alpha");
