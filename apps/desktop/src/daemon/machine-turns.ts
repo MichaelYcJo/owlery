@@ -63,8 +63,6 @@ export interface MachineTurnsOptions {
 
 interface Entry {
   ask: TurnAsk;
-  /** Counted across the keeper's life, so a lower one asked first. */
-  order: number;
   since: number;
   /** Gives the asker the turn, or null where the ask ended before its turn came. */
   settle: (turn: Turn | null) => void;
@@ -88,7 +86,6 @@ export class MachineTurns {
   private readonly running: Entry[] = [];
   // The asks that wait, in the order they asked.
   private readonly waiting: Entry[] = [];
-  private asked = 0;
 
   constructor(private readonly options: MachineTurnsOptions) {
     this.limit = options.limit;
@@ -106,8 +103,7 @@ export class MachineTurns {
     const turn = new Promise<Turn | null>((resolve) => {
       settle = resolve;
     });
-    const entry: Entry = { ask, order: this.asked, since: (this.options.now ?? Date.now)(), settle, forget: () => {} };
-    this.asked += 1;
+    const entry: Entry = { ask, since: (this.options.now ?? Date.now)(), settle, forget: () => {} };
     const leave = (): void => this.leave(entry);
     ask.gone?.addEventListener("abort", leave, { once: true });
     entry.forget = () => ask.gone?.removeEventListener("abort", leave);
@@ -137,10 +133,10 @@ export class MachineTurns {
     return first === undefined ? null : { name: first.ask.name, since: first.since, ahead: ordered.indexOf(first) };
   }
 
-  /** Those that wait, in the order they will be given their turns. */
+  /** Those that wait, in the order they will be given their turns: by place, and inside a place in the order they asked, which the sort keeps since it is stable. */
   private ordered(): Entry[] {
     const rank = (entry: Entry): number => TURN_PLACES.indexOf(entry.ask.place);
-    return [...this.waiting].sort((a, b) => rank(a) - rank(b) || a.order - b.order);
+    return [...this.waiting].sort((a, b) => rank(a) - rank(b));
   }
 
   /** Gives turns while fewer hold one than the limit and an ask waits. */
