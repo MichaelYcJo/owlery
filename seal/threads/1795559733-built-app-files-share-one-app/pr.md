@@ -1,4 +1,4 @@
-Part of #149. The issue stays open: its first and second *Done when* lines wait on the owner's answer to Q1.
+Part of #149.
 
 - "The pull request's title takes `test:`, and the kind that came closest is `docs:`." (`frame/plan.md` *Judgments of the run*, 2026-11-25)
 - "A measurement of a launch against a reset of one open app, as a command the tree holds." (`frame/design.md` *Scope*, item 1)
