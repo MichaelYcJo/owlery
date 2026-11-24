@@ -39,6 +39,11 @@ Fix: rewrite the comment, and let item 25 allow it.
 25. **The check reads none of it.** The body arm reads the seal section alone: `chain_check.py#marker_of` knows the seal's two marker lines and no other, and no arm reads another line of the body. The one line of `pr-check/` this work changes is the comment above `SECTION_OPEN`, which said every other line was the person's.
 ```
 
+```seal
+verdict: fixed 1ec2003
+answer: The comment above `SECTION_OPEN` now says that no arm reads another line of the body: neither the back's section, which the daemon writes between markers of its own below the seal section, nor the lines the person writes. It is the proposed text with "neither" added, so the sentence reads as one list. `frame/design.md` *Scope* item 25 now says that this comment is the one change the work makes in `pr-check/` and that no behaviour of the check changes. No code of `pr-check/` changed. `test/pr-check.test.ts` and `test/round-record.test.ts`, which run `chain_check.py`, passed in the fix pass's narrow run at `70adffe` (executed: the baseline of the `seal mutate` call of finding 2's close). The frame departs only in item 25's sentence, which the orchestrator allowed.
+```
+
 ### 2. The back draws a finding's symptom and a breaking commit's subject with their backticks as written, though the design row this work adds says code stands in the fixed-width face
 
 ```seal
@@ -63,6 +68,12 @@ broken.append(" ", withCode("subject", back.brokenBy.subject));
 
 Also give a finding heading in `test/seal-back-view.test.ts` a backticked word, and assert that the back holds a `code` element for it and no backtick character.
 
+```seal
+verdict: fixed 70adffe
+answer: `findingLine` draws the symptom with `withCode("says", ...)` and `backParts` draws the breaking commit's subject with `withCode("subject", ...)`, as proposed. The built-app case of `test/seal-back-view.test.ts` now gives the sealed work item's finding the symptom "The greeting in `feature.txt` misses its full stop". At the first drawing it asserts that `#back .finding .says code` reads `feature.txt` and that the back's text holds no backtick. The step finding 4's close adds commits with the subject "feat: add `later`" and asserts the same of `#back .broken-by .subject code` and of the back drawn again. Seen red with `seal mutate` on `shared.ts`, one mutant for each call put back to `part`, under the Electron lock with `OWLERY_BACKGROUND=1`, over `test/seal-back-view.test.ts test/pr-check.test.ts test/round-record.test.ts`: the baseline passed, and both mutants went red (exit 1). A batch prints no case output, so the failing line was not printed. Read: each mutant changes one element alone, and the only assertions that read it are the two that name its guard. The class was enumerated by taking apart every drawing function of the back in `shared.ts` (`backParts`, `roundPart`, `findingLine`, `stageLines`, `stageLine`) into each `part(` call. The symptom and the subject were the two texts from a record or from git. Severity is `must` or `should` by the form, `names`, the stage cells and the captions are words the composition writes with no code, and `back-waits` holds "Reading the records." or the daemon's refusal sentence, which holds no backtick. The screenshots were not taken again, since the scene's finding heading and breaking subject hold no backtick (`gaps.md`, the row of fix pass 1).
+location: `apps/desktop/test/seal-back-view.test.ts`
+```
+
 ### 3. The deferral of the backticks at the view's foot names issue #44 as their home, but #44 merged and its records leave that sentence to the owner
 
 ```seal
@@ -83,6 +94,11 @@ Phase 4: the right column's foot and the approval line show a broken seal's sent
 
 `pr.md` line 18 follows the same wording.
 
+```seal
+verdict: fixed 2160ec8
+answer: `gaps.md` *Not done*, the row of phase 4, now says that issue #44 merged and left the broken seal's sentence as written on purpose, that its records leave how a broken seal's sentence is drawn to the owner (#44's `frame/questions.md` Q1), and that the orchestrator carries the question to the owner, so this work leaves both places as they are. The two places are not drawn with `withCode` in this work. The orchestrator rewrote `pr.md` line 18 itself, in `5cdb72a`.
+```
+
 ### 4. No case holds that the window asks for the back again when the viewed work item's seal, records or chain changes while the back is in front
 
 ```seal
@@ -102,6 +118,11 @@ Fix: add a step to the built-app case after "the back drawn again". The numbers 
 commitFile(sealed.worktree, "later.ts");
 await app.until(`document.querySelector("#back .broken-by")`, "the sealed work item's back drawn again as broken");
 expect(await sent()).toEqual({ readSealRecords: 3, readLedger: 3 });
+```
+
+```seal
+verdict: fixed 70adffe
+answer: The built-app case of `test/seal-back-view.test.ts` gains the step after "the back drawn again". While the sealed work item's back is in front, the case commits `later.ts` in its worktree with git, which breaks the seal. It waits up to 30 seconds for `#back .broken-by` and asserts `{ readSealRecords: 3, readLedger: 3 }`, the line "Broken by" with that commit, and the subject's code (finding 2's close). The commit is made with `git` rather than `commitFile`, so its subject can hold a backtick. Seen red with `|| backAsked.key !== key` removed from `work-item-view.ts:1097`, one start of the built app through the Electron lock with `OWLERY_BACKGROUND=1`: `pnpm test test/seal-back-view.test.ts` failed with "the window never showed the sealed work item's back drawn again as broken" at `test/seal-back-view.test.ts:240`, the new step's wait, exit 1 (executed). The condition was then put back with the edit tool, and `git diff --quiet` exited 0. The same case passed with the condition in place, as the baseline of finding 2's `seal mutate` call (executed). No code changed for this finding.
 ```
 
 ## Confirmations
