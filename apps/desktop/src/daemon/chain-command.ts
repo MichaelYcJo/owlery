@@ -405,7 +405,7 @@ async function body(context: CommandContext, args: readonly string[]): Promise<o
   return { body: file, head: at.head };
 }
 
-/** The text of each question an `AskUserQuestion` call asks, from the JSON a `PreToolUse` hook's command is handed on its input, or null where the input is no such event: no JSON object, one whose `tool_input.questions` is no list, an empty list, or a list with an entry that holds no text under `question`. */
+/** The text of each question an `AskUserQuestion` call asks, from the JSON a `PreToolUse` hook's command is handed on its input, or null where the input is no such event: no JSON object, one whose `tool_input.questions` is no list, or a list with an entry that holds no text under `question`. */
 function questionsAsked(input: string): string[] | null {
   let event: unknown;
   try {
@@ -414,7 +414,7 @@ function questionsAsked(input: string): string[] | null {
     return null;
   }
   const questions = (event as { tool_input?: { questions?: unknown } } | null)?.tool_input?.questions;
-  if (!Array.isArray(questions) || questions.length === 0) return null;
+  if (!Array.isArray(questions)) return null;
   const texts = questions.map((entry) => (entry as { question?: unknown } | null)?.question);
   return texts.every((text): text is string => typeof text === "string") ? texts : null;
 }
