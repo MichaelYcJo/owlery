@@ -40,6 +40,12 @@ In `changelog.md:5`, the bullet:
 
 The snippets leave other statements of the same fact, and the fix pass owes a judgment on each. The method was `git grep -n -I -e 'lit edge' -e 'dark disc' -e 'lit part' -e 'lit at its right' -e 'is lit' -e '빛나' -e '어두운 원판' -e 'dark half' -e 'filled half'` over the tree, which is a sample, since it finds only these spellings. It printed `frame/design.md:45`, `60`, `110` and `111`, `frame/plan.md:17`, `frame/questions.md:15` and `16`, `pr.md:4`, which quotes `frame/design.md:60`, and the comment at `apps/desktop/test/theme-controls.test.ts:290`, "the lit part, which is the filled one". The frame lines state what the framer decided at `523a5fb`. Where the fix pass leaves them, it says so in its phase record. If it changes `frame/design.md:60`, the quote at `pr.md:4` has to change with it.
 
+```seal
+verdict: fixed ad38439
+answer: The cell of both editions and the changelog bullet take the paste-ready texts, with one change of words: "the state's ink" became "the state's colour" (Korean "상태의 색"), the term `docs/design.md:70` and `450` and their Korean lines use for what a mark is filled with. The changelog's next bullet said "the half moon" for the working mark and now says "the half-filled disc". The comments at `apps/desktop/test/theme-controls.test.ts:290` and `295` name the filled part and say it is dark or light as the appearance gives the state's colour; the assertions and the variable names are unchanged. In `d7abdc9` the phase 2 record and the second cell of the closed row at `gaps.md:9` say "filled edge" where they said "lit edge" and "lit part", and the phase record's closing paragraph says its reading missed `changelog.md:5`. The frame lines the search printed, `frame/design.md:45`, `60`, `110` and `111`, `frame/plan.md:17`, and `frame/questions.md:15` and `16`, are not the fix pass's to write; they are handed to the orchestrator to fold, and `frame/design.md:110` and `111`, which give the cells' text, now differ from both editions. `pr.md:4` is left to the orchestrator, who repairs its quotes after this pass. Run after the commit: `OWLERY_BACKGROUND=1 node scripts/test-in-electron.mjs test/theme-controls.test.ts test/themes.test.ts`, 2 files and 22 cases passed, and both editions hold 15 lines that begin with `#` and 379 that begin with `|` (executed).
+location: `docs/design.md:51`, `docs/design.ko.md:51`, `seal/threads/1795497941-night-watch-marks-as-moons/changelog.md:5-6`, `apps/desktop/test/theme-controls.test.ts:290-295`
+```
+
 ### 2. The light appearance's reversed moons are handed to the owner, and nothing the owner reads on the pull request carries them
 
 ```seal
@@ -64,6 +70,12 @@ It also adds one line to `pr.md`, after line 12. "the sixth row" assumes the row
 - "Phase 2: in the light appearance the filled part of each moon is drawn in the state's dark ink on the light ground, so read as moons the marks are reversed: the half moon's filled half is its dark half, and a finished work item is a dark disc, which reads as a new moon when seen alone" (`gaps.md` *Not verified*, the sixth row)
 ```
 
+```seal
+verdict: fixed d7abdc9
+answer: `gaps.md` *Not verified* holds the row as its sixth row, at line 12, after the row on a screen of density 1 and before the row on the broad gate, so the ordinal of the `pr.md` line stands. Its words follow finding 1's term: "drawn in the state's colour, which is darker than the light ground" in place of "drawn in the state's dark ink on the light ground"; the rest is the paste-ready text. The phase 2 record's paragraph on the light appearance now names that row. The `pr.md` line is not added by this pass: the orchestrator repairs `pr.md` after it, and the line's quote has to take the row's words as committed.
+location: `seal/threads/1795497941-night-watch-marks-as-moons/gaps.md:12`, `seal/threads/1795497941-night-watch-marks-as-moons/trail/phases/phase-2.md:19`
+```
+
 ### 3. A phase record holds the worktree's real absolute path
 
 ```seal
@@ -78,6 +90,11 @@ The fix replaces line 10 of the fenced command with:
 
 ```text
 OWLERY_BACKGROUND=1 OWLERY_SCREENSHOTS=1 OWLERY_SCREENSHOT_DIR=<the repository's absolute path>/seal/threads/1795497941-night-watch-marks-as-moons/screenshots node scripts/test-in-electron.mjs test/screenshots.test.ts test/records-dialog.test.ts test/korean-input.test.ts
+```
+
+```seal
+verdict: fixed d7abdc9
+answer: Line 10 of the phase 2 record takes the plan's placeholder, as the paste-ready text gives it. After the commit `git grep -n -I -F -e '/Users/' -- seal` prints only this record's own quotes of that search, and `git grep -n -I -F -e 'owlery-183' -e '/private/tmp' -e 'Documents/GitHub' -- .` over the tree prints nothing and exits 1 (both executed), so no record holds the worktree's path or a scratch path.
 ```
 
 ## Confirmations
