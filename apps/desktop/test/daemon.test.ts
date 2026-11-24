@@ -4226,13 +4226,23 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
     expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(gone.branch) });
   });
 
-  it("names the commit that broke a broken seal, read with the seal the head holds", async () => {
+  it("names the commit that broke a broken seal, read with the seal the head holds, and sends a finding's words cut at 2000 characters", async () => {
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 60_000 });
     const a = workItems[0]!;
     commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
     writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
     git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
-    expect(await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id })).toMatchObject({ type: "sealRecords", records: { brokenBy: { commit: headOf(a.worktree), subject: "fix: change the greeting" } } });
+    const broke = headOf(a.worktree);
+    // A round recorded after the break, whose finding's symptom and severity are long.
+    const record = `seal/threads/${NAME}/trail/rounds/round-2.md`;
+    const fence = "```";
+    writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}seal`, `target: ${broke} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}seal`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
+    git(a.worktree, "add", record);
+    git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
+    const answer = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
+    expect(answer).toMatchObject({ type: "sealRecords", records: { brokenBy: { commit: broke, subject: "fix: change the greeting" } } });
+    const found = answer.type === "sealRecords" ? answer.records.rounds[1]?.findings[0] : undefined;
+    expect([found?.says, found?.severity.length]).toEqual(["가".repeat(2000), 2000]);
   });
 });
 
