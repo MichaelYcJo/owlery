@@ -59,6 +59,11 @@ The refusals case at `daemon.test.ts:7359` covers a pane closed while its proces
     expect((await launches(twice.id, 3)).filter((line) => line.startsWith("start "))).toHaveLength(2);
 ```
 
+```seal
+verdict: fixed 1d9beac
+answer: Applied the record's refusal while `replacing` and its re-check of the daemon's close, the pane's end and `holds(to)` after the wait, and bounded the wait by `endWaitMs ?? END_WAIT_MS`, refusing with "The pane's process did not end in time, so its account was not changed. The pane ends once its process exits." The exit watch now gives up the replacement where the pane was ended, so an archive's or a close's exit is reported as the pane's end (`9910192` narrowed that test to `session.ended`, which the pane's close sets too), and a pane whose new account was removed during the wait stays ended under its own account and says why. The record's case stands in the refusals case of `daemon.test.ts`, and two new cases cover the removed account, the archive, the daemon's close and the bound. Before the fix the second change, the removal and the bound were each answered `done` (red); all six change cases pass after it, and 8 of 8 mutations of the new checks went red. `9f3fb38` names the new refusals in the protocol's comment on `changeAccount`. Scope item 9's list of refusals in `frame/design.md` does not name them, which is the frame's to fold.
+```
+
 ### 2. The pull request changes the window and carries no screenshot, though the design document and scenario 11 ask for them
 
 ```seal
@@ -98,6 +103,12 @@ done; done
 
 The issue's *Done when* names no screenshot. The policy and the frame do, so they are owed.
 
+```seal
+verdict: fixed 9202d1fce0eb68db6651d81b25dcff3f65195fb6
+location: `seal/threads/1795400734-accounts-per-repository/screenshots`
+answer: Built the app and ran `OWLERY_BACKGROUND=1 OWLERY_SCREENSHOT_DIR=<the fix pass's scratch> pnpm run screenshots` alone at `9910192`, after no other run was found: 1 case passed and the run wrote 22 files. The ten of the views `inbox`, `view`, `menu`, `settings` and `accounts`, in Night watch dark and light, were committed in one commit under the work item's `screenshots/`, which the finding's location does not name. `pr.md`'s `### Screenshots` is the orchestrator's to write with that commit. The Accounts dialog's row of the stored account shows the run's temporary folder by its path, as the screenshot run's scene makes it.
+```
+
 ### 3. A removal trusts the `made` flag of `accounts.json`, so an edited file has Owlery sign out and delete a folder it never made
 
 ```seal
@@ -119,6 +130,11 @@ Why it matters: the store reads `made` from the file as it stands (`accounts.ts:
 ```
 
 The case belongs in `apps/desktop/test/accounts.test.ts`, in the `AccountStore` group beside the case at line 197, which already reads an account in the file that is no account. The class docstring at `accounts.ts:78-92` says what the store reads of a file, and it owes the same sentence.
+
+```seal
+verdict: fixed 73110d3
+answer: Applied the record's reading: the store reads an account as made only where its folder is `accounts/<id>` of the run folder, and the class docstring says so. The new case of the `AccountStore` group read `[true, true]` before the fix where it asks `[false, true]` (red), and passes after it, with the handed folder's file kept and the made folder removed. Its mutation went red.
+```
 
 ### 4. The sign-in pane runs in the daemon's whole environment, though the adapter's comment and phase 3's record say it runs in the cleared one
 
@@ -142,6 +158,12 @@ Why it matters: claimed: "It runs the lookup's CLI with `auth login`, in `claude
 
 The case belongs in `apps/desktop/test/accounts.test.ts`, in the sign-in case at line 841: a variable set in the daemon's `process.env` for the case is absent from the environment the sign-in's stand-in records.
 
+```seal
+verdict: fixed 57981ce
+location: `apps/desktop/src/daemon/daemon.ts`, `apps/desktop/src/daemon/adapters/adapter.ts`, `apps/desktop/test/accounts.test.ts`, `apps/desktop/test/fixtures/claude-auth-stand-in/claude`
+answer: Applied the record's fix: `#spawnPane` takes `inherit`, and a sign-in pane is spawned with its command's environment alone, to which `terminalEnv` adds the terminal's names. The stand-in CLI now writes the environment its `auth login` was given, and the sign-in case sets a variable in the daemon's `process.env` and reads it absent beside `CLAUDE_CONFIG_DIR` of the account. Before the fix the variable was present (red). The docstring of `LoginCommand`, which said the variables are given over the daemon's environment, now says the whole environment. `claude.ts:610` and `trail/phases/phase-3.md:20` hold at HEAD. Its mutation went red.
+```
+
 ### 5. The window offers a change of account that the daemon always refuses, though scope item 9 and phase 4's record say it offers only one that can succeed
 
 ```seal
@@ -156,6 +178,12 @@ Two fixes stand, and the frame chooses:
 
 - The daemon sends with each account the real path of its folder's `projects`, read when it sends the accounts and null where none stands, as `Account.conversations?: string | null`. `paneAccountChange` then offers an account only where that path equals the pane's account's and is not null. The protocol comment, `frame/design.md` *Data & interfaces*, *The protocol*, and a case of `apps/desktop/test/view.test.ts` follow.
 - The frame rewrites the sentence of *Scope* item 9 to what is built: the dialog offers every other account, and shows the daemon's refusal for one whose folder keeps other conversations. The phase record's claim is then wrong history, and `gaps.md` names the row for the owner's walk.
+
+```seal
+verdict: fixed 7018e12
+location: `apps/desktop/src/renderer/view.ts`, `apps/desktop/src/shared/protocol.ts`, `apps/desktop/src/daemon/daemon.ts`, `apps/desktop/src/daemon/adapters/adapter.ts`, `apps/desktop/src/daemon/adapters/claude-accounts.ts`, `apps/desktop/src/daemon/adapters/claude.ts`, `apps/desktop/src/daemon/adapters/fake.ts`, `apps/desktop/test/accounts.test.ts`, `apps/desktop/test/view.test.ts`
+answer: Built the first fix, the frame's choice at `64b3e3d`: `RoleAdapter.conversationsOf` answers the real path of a folder's `projects` (the Claude adapter through `claude-accounts.ts#conversationsIn`, the fake the same way), the daemon sends it with each account as `Account.conversations`, read each time it sends the accounts, and its own comparison at the request reads the same method. `paneAccountChange` lists an account only where that value is the pane's account's and not null, and gives nothing where none qualifies, so no "Change Account…" stands. The view case now holds scenario 9's A, B, C and D and lists B alone. Before the fix the daemon sent no value and the dialog listed every other account (red). 8 of 8 mutations went red. Four pins of the accounts message gained the field.
+```
 
 ### 6. Two sentences say Owlery reads nothing of a handed folder, and the daemon reads its plugins and its conversations' folder
 
@@ -175,6 +203,11 @@ You can hand over an existing config folder by its path, and Owlery then makes a
 ```ts
 // apps/desktop/src/shared/protocol.ts:765, the clause in place of the one quoted
   // ... With `folder` the person hands over a config folder: an absolute path to a folder that exists and is no account's yet, and the daemon makes nothing in the folder and reads of it only which plugins it enables and the real path of its `projects`. ...
+```
+
+```seal
+verdict: fixed 9f3fb38
+answer: The changelog's sentence is the record's, and the protocol's clause on `addAccount` now says the daemon reads of a handed folder only which plugins it enables and, through the adapter, the real path of the folder it keeps its conversations in. The same commit brings the changelog fragment along for the other fixes: the change's offer and its new refusals, the sign-in's environment, the made folder's place and an adapter without accounts. After it, `git grep -n -i -e 'reads nothing of' -e 'makes, reads' -- apps/desktop/src apps/desktop/test seal/threads/1795400734-accounts-per-repository docs` finds no such sentence outside this record.
 ```
 
 ### 7. Two policy sentences that this build changes have no operation in *Rule changes*
@@ -232,6 +265,11 @@ In the two `add` operations on *State lives in three places* (`frame/design.md:3
 
 Each new operation is placed by the plugin's reader of rule changes before the fold commits it, as the frame's *Grounding* records for the others.
 
+```seal
+verdict: fixed 87669b4
+answer: The frame's *Rule changes* took the record's operations at `64b3e3d`. This fix pass rewrote the two comment sentences of `screenshots.test.ts` that the frame's *Removes* row names: the parked work item's shell pane runs under the stored account, so its row offers no refresh. The pane kind `shell` declares `accounts` (`apps/desktop/src/daemon/pane-kinds.ts:11`).
+```
+
 ### 8. Through an adapter that declares `limit-refresh` and not `accounts`, a refresh of an account runs under the default login and keeps that login's values as the account's
 
 ```seal
@@ -259,6 +297,12 @@ Why it matters: `refreshUsage` gives the adapter the account's folder only where
 ```
 
 The lines 678-684 of that case then pin the refusal. The snippet stops at the limit values. The same cause names "Work" on such a session's `HeadlessInfo.accountId` and on its ledger entry (`daemon.ts:2113-2125`), which the case at `accounts.test.ts:498` pins as launching "under the account the session names". The fix pass owes either the same change there or a sentence of `frame/design.md` *Scope* item 8 saying that the entry names the setting and not the login.
+
+```seal
+verdict: fixed 5b98161
+location: `apps/desktop/src/daemon/daemon.ts`, `apps/desktop/src/shared/protocol.ts`, `apps/desktop/test/accounts.test.ts`
+answer: Applied the record's refusal of a named account's refresh through an adapter that declares no `accounts`, and launched such an adapter's headless session under none, as the frame's *Scope* items 8 and 13 now say: it carries `accountId: null`, its ledger entry names no account, and its limit values are kept as System default's. `HeadlessInfo.accountId` is typed `number | null`, and the protocol's comments on `ask` and `refreshUsage` say so. The case at `accounts.test.ts:512` and the lines of the refresh case the record names now pin it; before the fix the session carried account 1 and the refresh was answered `done` (red). 5 of 5 mutations went red. `gaps.md` names what stays for such an adapter: the row's offer of a refresh the daemon refuses, and a refresh of System default while a session under none runs.
+```
 
 ## Confirmations
 
