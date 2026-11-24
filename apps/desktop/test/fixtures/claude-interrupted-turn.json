@@ -1,0 +1,407 @@
+{
+  "claudeCode": "2.1.331",
+  "recordedAt": "2026-11-24",
+  "steps": [
+    "A driver started `claude --settings <file> --allowedTools \"Bash(sleep 60)\"` in a pseudo-terminal of 160 columns and 50 rows, in a new empty folder that is no git repository, with the person's own settings and plugins in place and no variable of an enclosing Claude Code or Orca session. Every `at` below counts milliseconds from that start.",
+    "The settings file gave each of the 33 hook events of the hooks reference (https://code.claude.com/docs/en/hooks, 2026-11-24) one command hook with no matcher. The hook took its `at` as it started and appended the event's JSON to one file, printed nothing, and exited 0.",
+    "The driver read the session log, the file each hook event names as `transcript_path`, every 25 ms. A line's `at` is the read that first saw it whole, so a line stood in the file up to 25 ms before its `at`.",
+    "Claude Code showed no folder-trust question, so the driver answered none.",
+    "At 0.00 s, the driver started the session.",
+    "At 0.27 s, the driver learned the session log's path from a hook event.",
+    "At 3.88 s, the driver sent the prompt that asks for `sleep 60`.",
+    "At 123.94 s, the driver stopped the steps, because no PreToolUse of Bash had arrived in the 120 s it waits for one.",
+    "At 124.54 s, the driver typed /exit.",
+    "At 125.21 s, the session's process exited.",
+    "No interruption was recorded. Claude Code refused the Bash call `sleep 60` itself, with the tool result \"Blocked: standalone sleep 60\", before any PreToolUse hook ran, so no tool was running when the driver would have sent Esc, and the driver sent no Esc and no second prompt. No second session was started.",
+    "Paths are replaced by `<transcript_path>`, `<cwd>`, `<scratchpad_dir>` and `<home>`, and each thinking block's signature by `<signature>`. A log line whose type is attachment, api-request-shape, api-request-blob, api-request, session-owner, data-flow-records or cost-state, or whose subtype is stop_hook_summary, carries the person's environment, account or instructions: it stands as its type, its subtype or attachment type, and `redactedCharacters`, the length of the line as written."
+  ],
+  "events": [
+    {
+      "at": 256,
+      "name": "SessionStart",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "hook_event_name": "SessionStart",
+        "source": "startup",
+        "model": "claude-opus-5-5"
+      }
+    },
+    {
+      "at": 427,
+      "name": "InstructionsLoaded",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "hook_event_name": "InstructionsLoaded",
+        "file_path": "<home>/.claude/CLAUDE.md",
+        "memory_type": "User",
+        "load_reason": "session_start"
+      }
+    },
+    {
+      "at": 3920,
+      "name": "UserPromptSubmit",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "permission_mode": "auto",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "Run exactly this one Bash command and nothing else, with no explanation first: sleep 60"
+      }
+    },
+    {
+      "at": 6193,
+      "name": "PostToolBatch",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "PostToolBatch",
+        "tool_calls": [
+          {
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "sleep 60",
+              "description": "Wait 60 seconds"
+            },
+            "tool_use_id": "toolu_01Ec2ZCRbVuGU9UqdtC8NU1v",
+            "tool_response": "<tool_use_error>Blocked: standalone sleep 60. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.</tool_use_error>"
+          }
+        ]
+      }
+    },
+    {
+      "at": 8681,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "25578715-875a-4860-90fe-8ce8fd554f9f",
+        "message_id": "354ed406-2c2c-49a3-933b-523b4aeda790",
+        "index": 1,
+        "final": true,
+        "delta": "명령 하나만 실행하라고 하셨기 때문에 우회하지 않았습니다. 그냥 60초를 기다리려면 셸에서 직접 `! sleep 60`을 입력하시면 됩니다."
+      }
+    },
+    {
+      "at": 8682,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "25578715-875a-4860-90fe-8ce8fd554f9f",
+        "message_id": "354ed406-2c2c-49a3-933b-523b4aeda790",
+        "index": 0,
+        "final": false,
+        "delta": "하네스가 `sleep 60`을 막아서 명령이 실행되지 않았습니다. 이 환경은 foreground에서 단독으로 `sleep`을 실행하는 것을 막습니다.\n\n"
+      }
+    },
+    {
+      "at": 8682,
+      "name": "Stop",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "permission_mode": "auto",
+        "effort": {
+          "level": "high"
+        },
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "하네스가 `sleep 60`을 막아서 명령이 실행되지 않았습니다. 이 환경은 foreground에서 단독으로 `sleep`을 실행하는 것을 막습니다.\n\n명령 하나만 실행하라고 하셨기 때문에 우회하지 않았습니다. 그냥 60초를 기다리려면 셸에서 직접 `! sleep 60`을 입력하시면 됩니다.",
+        "background_tasks": [],
+        "session_crons": []
+      }
+    },
+    {
+      "at": 68740,
+      "name": "Notification",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "hook_event_name": "Notification",
+        "message": "Claude is waiting for your input",
+        "notification_type": "idle_prompt"
+      }
+    },
+    {
+      "at": 124906,
+      "name": "SessionEnd",
+      "payload": {
+        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "b27058f6-8a14-4cc1-a8e9-c3bd76b9ea28",
+        "hook_event_name": "SessionEnd",
+        "reason": "prompt_input_exit"
+      }
+    }
+  ],
+  "log": [
+    {
+      "at": 3976,
+      "line": "{\"type\":\"last-prompt\",\"leafUuid\":\"29b03f0f-7144-443a-9b11-f4210f982523\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 3976,
+      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 3976,
+      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 3976,
+      "line": "{\"type\":\"session-owner\",\"redactedCharacters\":186}"
+    },
+    {
+      "at": 3976,
+      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":3837}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":18039}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":23364}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":2288}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"6e8ffdb8-a199-48eb-9d96-5d14bac18b9c\",\"snapshot\":{\"messageId\":\"6e8ffdb8-a199-48eb-9d96-5d14bac18b9c\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T05:47:15.737Z\"},\"isSnapshotUpdate\":false}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"parentUuid\":\"29b03f0f-7144-443a-9b11-f4210f982523\",\"isSidechain\":false,\"promptId\":\"e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\"},\"uuid\":\"6e8ffdb8-a199-48eb-9d96-5d14bac18b9c\",\"timestamp\":\"2026-11-24T05:47:15.709Z\",\"permissionMode\":\"auto\",\"origin\":{\"kind\":\"human\"},\"promptSource\":\"typed\",\"turnOrigin\":\"human\",\"turnPromptId\":\"e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de\",\"turnPosition\":{\"promptIndex\":1,\"turnIndex\":1},\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"environment\"},\"isSidechain\":false,\"redactedCharacters\":3229}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"model\"},\"isSidechain\":false,\"redactedCharacters\":983}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"deferred_tools_delta\"},\"isSidechain\":false,\"redactedCharacters\":67155}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"agent_listing_delta\"},\"isSidechain\":false,\"redactedCharacters\":15724}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"mcp_instructions_delta\"},\"isSidechain\":false,\"redactedCharacters\":25476}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"skill_listing\"},\"isSidechain\":false,\"redactedCharacters\":65600}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"auto_mode\"},\"isSidechain\":false,\"redactedCharacters\":1242}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"instructions\"},\"isSidechain\":false,\"redactedCharacters\":2991}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"session_context\"},\"isSidechain\":false,\"redactedCharacters\":1668}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"date\"},\"isSidechain\":false,\"redactedCharacters\":725}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"credential_org\"},\"isSidechain\":false,\"redactedCharacters\":655}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"remote_session_change\"},\"isSidechain\":false,\"redactedCharacters\":1484}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"prompt_snapshot\"},\"isSidechain\":false,\"redactedCharacters\":14344}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"data-flow-records\",\"redactedCharacters\":366}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"api-request-shape\",\"redactedCharacters\":91857}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"api-request-blob\",\"redactedCharacters\":2917}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"api-request-blob\",\"redactedCharacters\":90344}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"api-request\",\"redactedCharacters\":1609}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\",\"leafUuid\":\"695483fc-54c8-4fa8-ad52-6c91bf455d7a\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"session-owner\",\"redactedCharacters\":186}"
+    },
+    {
+      "at": 4067,
+      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 6063,
+      "line": "{\"type\":\"ai-title\",\"aiTitle\":\"Sleep 60 command\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"tools-used\",\"tools\":[\"Bash\"],\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"data-flow-records\",\"redactedCharacters\":144}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"parentUuid\":\"695483fc-54c8-4fa8-ad52-6c91bf455d7a\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3VXSjQXRnRanWhLiQ\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"<signature>\"}],\"container\":null,\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":38730,\"cache_read_input_tokens\":28971,\"output_tokens\":169,\"output_tokens_details\":{\"thinking_tokens\":88},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":38730,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":169,\"cache_read_input_tokens\":28971,\"cache_creation_input_tokens\":38730,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":38730},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"thinkingDurationMs\":810,\"thinkingDisplay\":\"updates\",\"serverClassifierRequest\":\"3585e1fb-6e89-4fa1-a6a2-a699bb639c97\",\"apiBlockIndex\":0,\"requestId\":\"req_011ChME3UThNPgesR5CnUz7p\",\"requestRef\":\"d7dd28cf-af6c-4f14-bba1-52b544032649\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"4dd1c499-0a14-48c3-8401-e5d8d16a17eb\",\"timestamp\":\"2026-11-24T05:47:17.459Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"parentUuid\":\"4dd1c499-0a14-48c3-8401-e5d8d16a17eb\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3VXSjQXRnRanWhLiQ\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01Ec2ZCRbVuGU9UqdtC8NU1v\",\"name\":\"Bash\",\"input\":{\"command\":\"sleep 60\",\"description\":\"Wait 60 seconds\"},\"caller\":{\"type\":\"direct\"}}],\"container\":null,\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":38730,\"cache_read_input_tokens\":28971,\"output_tokens\":169,\"output_tokens_details\":{\"thinking_tokens\":88},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":38730,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":169,\"cache_read_input_tokens\":28971,\"cache_creation_input_tokens\":38730,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":38730},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"toolInputStreamMs\":408,\"wireToolInputs\":{\"toolu_01Ec2ZCRbVuGU9UqdtC8NU1v\":{\"command\":\"sleep 60\",\"description\":\"Wait 60 seconds\"}},\"serverClassifierRequest\":\"3585e1fb-6e89-4fa1-a6a2-a699bb639c97\",\"apiBlockIndex\":1,\"requestId\":\"req_011ChME3UThNPgesR5CnUz7p\",\"requestRef\":\"d7dd28cf-af6c-4f14-bba1-52b544032649\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"0546b7cf-d6f1-4cb5-9486-07061cbf8c6b\",\"timestamp\":\"2026-11-24T05:47:17.868Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"parentUuid\":\"0546b7cf-d6f1-4cb5-9486-07061cbf8c6b\",\"isSidechain\":false,\"promptId\":\"e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"<tool_use_error>Blocked: standalone sleep 60. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.</tool_use_error>\",\"is_error\":true,\"tool_use_id\":\"toolu_01Ec2ZCRbVuGU9UqdtC8NU1v\"}]},\"uuid\":\"b45eeb84-facf-48d9-89b5-aaa0d3411c87\",\"timestamp\":\"2026-11-24T05:47:17.872Z\",\"toolUseResult\":\"Error: Blocked: standalone sleep 60. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.\",\"sourceToolAssistantUUID\":\"0546b7cf-d6f1-4cb5-9486-07061cbf8c6b\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"prompt_snapshot\"},\"isSidechain\":false,\"redactedCharacters\":137657}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":3948}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"api-request\",\"redactedCharacters\":1655}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\",\"leafUuid\":\"de1b9830-fed9-4ef3-90af-083f2ff104ee\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"ai-title\",\"aiTitle\":\"Sleep 60 command\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"session-owner\",\"redactedCharacters\":186}"
+    },
+    {
+      "at": 6281,
+      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 8776,
+      "line": "{\"type\":\"data-flow-records\",\"redactedCharacters\":186}"
+    },
+    {
+      "at": 8776,
+      "line": "{\"parentUuid\":\"de1b9830-fed9-4ef3-90af-083f2ff104ee\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3eGog6M3YWqhCrg8s\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"<signature>\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":284,\"cache_read_input_tokens\":67701,\"output_tokens\":166,\"output_tokens_details\":{\"thinking_tokens\":15},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":284,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":166,\"cache_read_input_tokens\":67701,\"cache_creation_input_tokens\":284,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":284},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"thinkingDurationMs\":1567,\"thinkingDisplay\":\"updates\",\"serverClassifierRequest\":\"7effcd42-d020-472c-8b12-70d61090db1b\",\"apiBlockIndex\":0,\"requestId\":\"req_011ChME3e5uDqycmY4c2dE5k\",\"requestRef\":\"5901406d-8b3f-4c66-a1e9-579ab82f609a\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"78871ca9-1852-4bcf-8cfc-6f71f65115b4\",\"timestamp\":\"2026-11-24T05:47:20.464Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+    },
+    {
+      "at": 8776,
+      "line": "{\"parentUuid\":\"78871ca9-1852-4bcf-8cfc-6f71f65115b4\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3eGog6M3YWqhCrg8s\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"하네스가 `sleep 60`을 막아서 명령이 실행되지 않았습니다. 이 환경은 foreground에서 단독으로 `sleep`을 실행하는 것을 막습니다.\\n\\n명령 하나만 실행하라고 하셨기 때문에 우회하지 않았습니다. 그냥 60초를 기다리려면 셸에서 직접 `! sleep 60`을 입력하시면 됩니다.\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":284,\"cache_read_input_tokens\":67701,\"output_tokens\":166,\"output_tokens_details\":{\"thinking_tokens\":15},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":284,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":166,\"cache_read_input_tokens\":67701,\"cache_creation_input_tokens\":284,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":284},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"serverClassifierRequest\":\"7effcd42-d020-472c-8b12-70d61090db1b\",\"apiBlockIndex\":1,\"requestId\":\"req_011ChME3e5uDqycmY4c2dE5k\",\"requestRef\":\"5901406d-8b3f-4c66-a1e9-579ab82f609a\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"af304bf4-6861-49bc-bf2e-6d301dbcb710\",\"timestamp\":\"2026-11-24T05:47:20.466Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+    },
+    {
+      "at": 8776,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":3898}"
+    },
+    {
+      "at": 8776,
+      "line": "{\"type\":\"system\",\"subtype\":\"stop_hook_summary\",\"isSidechain\":false,\"redactedCharacters\":4606}"
+    },
+    {
+      "at": 8776,
+      "line": "{\"parentUuid\":\"c8288a65-bb91-4462-96bd-1ab2ca939c86\",\"isSidechain\":false,\"type\":\"system\",\"subtype\":\"turn_duration\",\"durationMs\":4831,\"messageCount\":27,\"timestamp\":\"2026-11-24T05:47:20.525Z\",\"uuid\":\"748f7bbb-688d-4992-83a9-6c9e33d892c8\",\"isMeta\":false,\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+    },
+    {
+      "at": 124847,
+      "line": "{\"type\":\"cost-state\",\"redactedCharacters\":832}"
+    },
+    {
+      "at": 124847,
+      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"5d40014a-61bb-4d89-8d53-a34c3bdd2427\",\"snapshot\":{\"messageId\":\"5d40014a-61bb-4d89-8d53-a34c3bdd2427\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T05:49:16.637Z\"},\"isSnapshotUpdate\":false}"
+    },
+    {
+      "at": 124847,
+      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\",\"leafUuid\":\"748f7bbb-688d-4992-83a9-6c9e33d892c8\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+    },
+    {
+      "at": 124847,
+      "line": "{\"type\":\"cost-state\",\"redactedCharacters\":832}"
+    }
+  ]
+}
