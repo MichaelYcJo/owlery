@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { Daemon } from "../src/daemon/daemon";
 
 /** Each hook event of the recording and each line its session log gained, with its time. */
-export const RECORDED = JSON.parse(readFileSync(join(__dirname, "fixtures", "claude-interrupted-turn.json"), "utf8")) as { events: { at: number; name: string; payload: Record<string, unknown> }[]; log: { at: number; line: string }[] };
+const RECORDED = JSON.parse(readFileSync(join(__dirname, "fixtures", "claude-interrupted-turn.json"), "utf8")) as { events: { at: number; name: string; payload: Record<string, unknown> }[]; log: { at: number; line: string }[] };
 /** When the log gained the entry of the reply's interruption, and of the Bash call's. */
 export const REPLY_ESC = RECORDED.log.find(({ line }) => line.includes('"text":"[Request interrupted by user]"'))?.at ?? NaN;
 export const TOOL_ESC = RECORDED.log.find(({ line }) => line.includes('"text":"[Request interrupted by user for tool use]"'))?.at ?? NaN;
