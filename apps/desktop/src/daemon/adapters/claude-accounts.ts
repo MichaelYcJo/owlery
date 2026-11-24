@@ -5,9 +5,18 @@
 // (docs/architecture.md, "Authentication of the Claude adapter"). The daemon
 // reaches it through `AccountLogins`, which names no vendor.
 import { execFile } from "node:child_process";
-import { lstatSync, symlinkSync } from "node:fs";
+import { lstatSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { AccountLogins, LoginStatus } from "./adapter";
+
+/** The real path of the folder Claude Code keeps a config folder's conversations in, its `projects`, or null where the folder holds none. */
+export function conversationsIn(folder: string): string | null {
+  try {
+    return realpathSync(join(folder, "projects"));
+  } catch {
+    return null;
+  }
+}
 
 /** The variable that names the config folder Claude Code keeps a login, its state and its settings in. */
 export const CONFIG_DIR_VARIABLE = "CLAUDE_CONFIG_DIR";

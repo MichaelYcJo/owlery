@@ -2950,21 +2950,26 @@ export function accountChoices(held: HeldAccounts, first: string, gives: number)
  * What the window offers before the account of a running pane changes, the
  * pane's `label` naming it: the heading, the sentence that says what the
  * change does, a turn under way cut among it, and each account the pane can
- * change to, which is each but its own, in the daemon's order. Nothing for a
- * pane whose kind resumes no conversation, as a shell's, or is launched under
- * no account, for a sign-in pane, a pane whose process ended, a pane of a
- * daemon of an earlier build, which names no account, and where no account
- * stands beside System default.
+ * change to, in the daemon's order: each but its own whose conversations
+ * (`Account.conversations`) are the pane's account's and not null. Nothing
+ * for a pane whose kind resumes no conversation, as a shell's, or is launched
+ * under no account, for a sign-in pane, a pane whose process ended, a pane of
+ * a daemon of an earlier build, which names no account, and where no account
+ * keeps the pane's conversations, System default alone among them.
  */
 export function paneAccountChange(session: SessionInfo, label: string, paneKinds: readonly PaneKindInfo[], held: HeldAccounts | null): { heading: string; says: string; choices: { value: string; label: string }[] } | null {
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   if (held === null || !offersAccounts(held) || kind?.continues !== true || kind.accounts !== true) return null;
   // A sign-in pane is a shell, so its kind offers it nothing.
   if (!session.alive || session.accountId === null || session.accountId === undefined) return null;
+  // Only an account that keeps the pane's conversations can resume it, and the daemon refuses every other.
+  const kept = held.accounts.find((account) => account.id === session.accountId)?.conversations ?? null;
+  const choices = kept === null ? [] : held.accounts.filter((account) => account.id !== session.accountId && account.conversations === kept);
+  if (choices.length === 0) return null;
   return {
     heading: `Change the account of ${label}`,
     says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",
-    choices: held.accounts.filter((account) => account.id !== session.accountId).map((account) => ({ value: String(account.id), label: account.name })),
+    choices: choices.map((account) => ({ value: String(account.id), label: account.name })),
   };
 }
 

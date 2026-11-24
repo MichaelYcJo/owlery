@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
@@ -1727,16 +1727,8 @@ export class Daemon {
       if (to === from) throw new Error(`The pane runs under "${this.accountNamed(to)}" already.`);
       // The new folder is given the person's names first, its link to the conversations among them.
       this.furnish(to);
-      const conversations = (accountId: number): string | null => {
-        const { configDir } = this.foldersOf(accountId);
-        try {
-          return configDir === null ? null : realpathSync(join(configDir, "projects"));
-        } catch {
-          return null;
-        }
-      };
-      const kept = conversations(from);
-      if (kept === null || kept !== conversations(to)) throw new Error(`"${this.accountNamed(from)}" and "${this.accountNamed(to)}" do not keep the same conversations, so the pane's conversation would not be found under "${this.accountNamed(to)}".`);
+      const kept = this.conversationsOf(from);
+      if (kept === null || kept !== this.conversationsOf(to)) throw new Error(`"${this.accountNamed(from)}" and "${this.accountNamed(to)}" do not keep the same conversations, so the pane's conversation would not be found under "${this.accountNamed(to)}".`);
       session.replacing = true;
       session.terminal.kill();
       // The wait is bounded as an archive's is, so a process that ignores its hangup leaves no request unanswered.
@@ -1794,9 +1786,15 @@ export class Daemon {
     this.broadcast({ type: "accounts", ...this.accountsMessage() });
   }
 
-  /** The accounts as a message carries them: each with its refresh, the default one, and whether the adapter refreshes usage. */
+  /** Where the agent keeps the conversations of an account's config folder, as the adapter reads it now, or null where it keeps none there and where the account has no folder, as System default before the adapter found one. */
+  private conversationsOf(accountId: number): string | null {
+    const { configDir } = this.foldersOf(accountId);
+    return configDir === null ? null : (this.options.roleAdapter.conversationsOf?.(configDir) ?? null);
+  }
+
+  /** The accounts as a message carries them: each with its refresh and where it keeps its conversations, read now, the default one, and whether the adapter refreshes usage. */
   private accountsMessage(): { accounts: Account[]; defaultAccountId: number; refreshesUsage: boolean } {
-    return { accounts: this.accounts.listed((id) => this.refreshes.get(id) ?? null), defaultAccountId: this.accounts.defaultId(), refreshesUsage: this.options.roleAdapter.features.includes("limit-refresh") };
+    return { accounts: this.accounts.listed((id) => this.refreshes.get(id) ?? null).map((account) => ({ ...account, conversations: this.conversationsOf(account.id) })), defaultAccountId: this.accounts.defaultId(), refreshesUsage: this.options.roleAdapter.features.includes("limit-refresh") };
   }
 
   /**

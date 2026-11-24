@@ -72,6 +72,15 @@ export interface RoleAdapter {
    */
   defaultLoginFolder?(): string | null;
   /**
+   * The real path of the folder the agent keeps the conversations of the
+   * config folder `folder` in, or null where the folder holds none. Two
+   * config folders whose answers are one keep the same conversations, so a
+   * conversation of one is resumed under the other. It reads the path alone
+   * and nothing inside it. An adapter without it keeps no conversation two
+   * folders share.
+   */
+  conversationsOf?(folder: string): string | null;
+  /**
    * What the adapter's agent does with an account's config folder: lends a
    * folder the daemon made what belongs to the person, signs a folder in and
    * out, and says whether a login stands in it. The daemon calls it only for

@@ -12,7 +12,7 @@ import { terminalEnv } from "../pty";
 import { writeWholeFile } from "../whole-file";
 import type { RoleStage, Usage } from "../../shared/protocol";
 import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun } from "./adapter";
-import { CONFIG_DIR_VARIABLE, claudeLogins } from "./claude-accounts";
+import { CONFIG_DIR_VARIABLE, claudeLogins, conversationsIn } from "./claude-accounts";
 import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
 
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
@@ -607,6 +607,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       }
     },
     defaultLoginFolder,
+    conversationsOf: conversationsIn,
     // The CLI the lookup finds signs a folder in and out, under the environment a role session is given, so no variable of the daemon's reaches it.
     logins: claudeLogins({ locate: located, envOf: (path, folder) => claudeEnv(env, path, folder), ownFolder: defaultLoginFolder }),
   };

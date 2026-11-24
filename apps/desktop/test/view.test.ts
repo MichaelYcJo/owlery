@@ -4316,22 +4316,32 @@ describe("accounts in the window", () => {
     ]);
   });
 
-  it("offers to change the account of a running Claude Code pane, to each account but its own, and says before the change that a turn under way is cut; offers nothing for a shell, a sign-in pane, an ended pane, a pane of a daemon of an earlier build, and where no account stands beside System default (scenario 8's window)", () => {
+  it("offers to change the account of a running Claude Code pane to each account that keeps the pane's account's conversations, and says before the change that a turn under way is cut; offers nothing where no account keeps them, for a shell, a sign-in pane, an ended pane, a pane of a daemon of an earlier build, and where no account stands beside System default (scenarios 8 and 9's window)", () => {
     const kinds: PaneKindInfo[] = KINDS.map((kind) => ({ ...kind, accounts: true }));
+    // A keeps the conversations B keeps, C keeps its own, D keeps none, and System default's folder is not found yet.
+    const kept = "/Users/person/.claude/projects";
+    const [a, b, c, d] = [
+      { ...WORK, id: 1, name: "A", conversations: kept },
+      { ...HOME, id: 2, name: "B", conversations: kept },
+      { ...HOME, id: 3, name: "C", folder: "/Users/person/.claude-c", conversations: "/Users/person/.claude-c/projects" },
+      { ...HOME, id: 4, name: "D", folder: "/Users/person/.claude-d", conversations: null },
+    ];
+    const shared = { accounts: [{ ...SYSTEM, conversations: null }, a, b, c, d], defaultId: 0 };
     const running = session(3, { accountId: 1 });
-    expect(paneAccountChange(running, "Claude Code", kinds, HELD)).toEqual({
+    expect(paneAccountChange(running, "Claude Code", kinds, shared)).toEqual({
       heading: "Change the account of Claude Code",
       says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",
-      choices: [
-        { value: "0", label: "System default" },
-        { value: "2", label: "Home" },
-      ],
+      choices: [{ value: "2", label: "B" }],
     });
-    expect(paneAccountChange(session(4, { kind: "shell", accountId: 1 }), "Shell", kinds, HELD)).toBeNull();
-    expect(paneAccountChange(session(9, { kind: "shell", workItemId: null, accountId: 1, signsIn: 1 }), "Shell", kinds, HELD)).toBeNull();
-    expect(paneAccountChange({ ...running, alive: false }, "Claude Code", kinds, HELD)).toBeNull();
-    expect(paneAccountChange(running, "Claude Code", KINDS, HELD)).toBeNull();
-    expect(paneAccountChange(session(5), "Claude Code", kinds, HELD)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", kinds, { accounts: [{ ...SYSTEM, conversations: null }, a, c, d], defaultId: 0 })).toBeNull();
+    // Two accounts that keep no conversations keep none in common, and a daemon that sends no place offers none.
+    expect(paneAccountChange(session(3, { accountId: 4 }), "Claude Code", kinds, shared)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", kinds, HELD)).toBeNull();
+    expect(paneAccountChange(session(4, { kind: "shell", accountId: 1 }), "Shell", kinds, shared)).toBeNull();
+    expect(paneAccountChange(session(9, { kind: "shell", workItemId: null, accountId: 1, signsIn: 1 }), "Shell", kinds, shared)).toBeNull();
+    expect(paneAccountChange({ ...running, alive: false }, "Claude Code", kinds, shared)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", KINDS, shared)).toBeNull();
+    expect(paneAccountChange(session(5), "Claude Code", kinds, shared)).toBeNull();
     expect(paneAccountChange(running, "Claude Code", kinds, { accounts: [SYSTEM], defaultId: 0 })).toBeNull();
     expect(paneAccountChange(running, "Claude Code", kinds, null)).toBeNull();
     // The pane's menu offers it before "Close Pane", only for such a pane.

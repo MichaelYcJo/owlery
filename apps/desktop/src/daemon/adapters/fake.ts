@@ -2,6 +2,8 @@
 // nothing, so the daemon's cases run a role session's whole flow, and the
 // connector's shape is held by two adapters from the start
 // (docs/architecture.md, "Rules that keep it portable", rule 3).
+import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import type { RoleStage, Usage } from "../../shared/protocol";
 import type { AccountLogins, PermissionAction, RoleAdapter, RoleEvent, RoleFeature } from "./adapter";
 
@@ -50,6 +52,14 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
     features: options.features ?? ["role-tools", "permission-requests", "accounts", "limit-refresh"],
     notice: () => Promise.resolve(options.notice ?? null),
     defaultLoginFolder: () => options.defaultLoginFolder ?? null,
+    // The fake keeps a folder's conversations where Claude Code does, in its `projects`, so a case links two folders' `projects` to share them.
+    conversationsOf: (folder) => {
+      try {
+        return realpathSync(join(folder, "projects"));
+      } catch {
+        return null;
+      }
+    },
     ...(options.logins ? { logins: options.logins } : {}),
     start({ prompt, cwd, role, accountDir, refresh }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
-import { claudeEnv } from "../src/daemon/adapters/claude";
+import { claudeAdapter, claudeEnv } from "../src/daemon/adapters/claude";
 import { authArgs, claudeLogins, LINKED_NAMES, linkOwn, loginStatusOf } from "../src/daemon/adapters/claude-accounts";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
 import { AccountStore } from "../src/daemon/accounts";
@@ -471,7 +471,8 @@ describe("the daemon's accounts", () => {
     expect(ready).toMatchObject({ accounts: [SYSTEM_DEFAULT], defaultAccountId: SYSTEM_DEFAULT_ID });
     const work = handedFolder();
     await c.request({ type: "addAccount", name: "Work", folder: work });
-    const listed = [SYSTEM_DEFAULT, { id: 1, name: "Work", made: false, folder: work, signedIn: null, loginEndsAt: null, limits: [], refresh: null }];
+    // The daemon sends with each account where it keeps its conversations, and neither folder holds any.
+    const listed = [{ ...SYSTEM_DEFAULT, conversations: null }, { id: 1, name: "Work", made: false, folder: work, signedIn: null, loginEndsAt: null, limits: [], refresh: null, conversations: null }];
     expect(await c.message("accounts")).toEqual({ type: "accounts", accounts: listed, defaultAccountId: SYSTEM_DEFAULT_ID, refreshesUsage: true });
     await c.request({ type: "setDefaultAccount", id: 1 });
     expect(await c.message("accounts", (m) => m.defaultAccountId === 1)).toEqual({ type: "accounts", accounts: listed, defaultAccountId: 1, refreshesUsage: true });
@@ -523,6 +524,24 @@ describe("the daemon's accounts", () => {
     c.send({ type: "readLedger", requestId: 78, workItemId });
     expect((await c.message("ledger", (m) => m.workItemId === workItemId)).entries.map((entry) => entry.account)).toEqual([null]);
     expect(new AccountStore(runDir).listed().map((account) => account.limits)).toEqual([[{ ...limit, at: 1_000_000 }], []]);
+  });
+
+  it("sends with each account the real path of the folder its agent keeps its conversations in, as the adapter reads it each time the accounts are sent, and null where the folder holds none and for System default while the adapter has found no folder (scenario 9)", async () => {
+    const own = folder();
+    mkdirSync(join(own, "projects"));
+    const linked = handedFolder();
+    symlinkSync(join(own, "projects"), join(linked, "projects"));
+    const bare = handedFolder();
+    const { c } = await daemon({ roleAdapter: fakeAdapter({ defaultLoginFolder: own }) });
+    await c.request({ type: "addAccount", name: "Linked", folder: linked });
+    await c.request({ type: "addAccount", name: "Bare", folder: bare });
+    const kept = realpathSync(join(own, "projects"));
+    expect((await c.message("accounts", (m) => m.accounts.length === 3)).accounts.map((account) => account.conversations)).toEqual([kept, kept, null]);
+    mkdirSync(join(bare, "projects"));
+    await c.request({ type: "renameAccount", id: 2, name: "Bare no more" });
+    expect((await c.message("accounts", (m) => m.accounts[2]?.name === "Bare no more")).accounts[2]?.conversations).toBe(realpathSync(join(bare, "projects")));
+    const unfound = await daemon({ roleAdapter: fakeAdapter() });
+    expect(unfound.ready.accounts?.[0]?.conversations).toBeNull();
   });
 
   it("renames an account at a request, answers before it sends every client the accounts, refuses an empty name, System default and an id it keeps none of with a sentence, and leaves a ledger entry written before the rename with the name it had (the rename of scenario 11)", async () => {
@@ -774,6 +793,15 @@ describe("Claude Code's part of the accounts", () => {
     expect(LINKED_NAMES).not.toContain(".credentials.json");
   });
 
+  it("answers where a config folder keeps its conversations by the real path of its projects, through the adapter, so a folder whose projects links into the person's answers as the person's does, and null for a folder that holds none (scenario 9)", () => {
+    const own = folder();
+    mkdirSync(join(own, "projects"));
+    const linked = handedFolder();
+    symlinkSync(join(own, "projects"), join(linked, "projects"));
+    const { conversationsOf } = claudeAdapter({});
+    expect([conversationsOf?.(own), conversationsOf?.(linked), conversationsOf?.(handedFolder())]).toEqual([realpathSync(join(own, "projects")), realpathSync(join(own, "projects")), null]);
+  });
+
   it("reads the CLI's word on a login from how `auth status` exited and the end it printed, and nothing from any other exit", () => {
     expect(authArgs("login")).toEqual(["auth", "login"]);
     expect(authArgs("status")).toEqual(["auth", "status"]);
@@ -840,8 +868,8 @@ describe("the accounts Owlery makes", () => {
     expect(linksIn(work)).toEqual(linked);
     const sent = await c.message("accounts", (m) => m.accounts.length === 3);
     expect(sent.accounts.slice(1)).toEqual([
-      { id: 1, name: "Early", made: true, folder: early, signedIn: null, loginEndsAt: null, limits: [], refresh: null },
-      { id: 2, name: "Work", made: true, folder: work, signedIn: null, loginEndsAt: null, limits: [], refresh: null },
+      { id: 1, name: "Early", made: true, folder: early, signedIn: null, loginEndsAt: null, limits: [], refresh: null, conversations: null },
+      { id: 2, name: "Work", made: true, folder: work, signedIn: null, loginEndsAt: null, limits: [], refresh: null, conversations: realpathSync(join(own, "projects")) },
     ]);
     rmSync(join(work, "skills"));
     const { workItemId } = await workItemIn(c);
@@ -873,7 +901,7 @@ describe("the accounts Owlery makes", () => {
     const pane = (await c.message("started", (m) => m.requestId === 700)).session;
     expect(pane).toMatchObject({ kind: "shell", alive: true, workItemId: null, accountId: 1, signsIn: 1 });
     const signed = await c.message("accounts", (m) => m.accounts[1]?.signedIn === true);
-    expect(signed.accounts[1]).toEqual({ id: 1, name: "Work", made: true, folder: work, signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z"), limits: [], refresh: null });
+    expect(signed.accounts[1]).toEqual({ id: 1, name: "Work", made: true, folder: work, signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z"), limits: [], refresh: null, conversations: null });
     await c.message("inbox", (m) => m.sessions.some((session) => session.id === pane.id && !session.alive));
     expect(calls()).toEqual([`auth login|${work}`, `auth status|${work}`]);
     const given = readFileSync(join(here, "login-env"), "utf8").split("\n");
@@ -995,7 +1023,7 @@ describe("the accounts Owlery makes", () => {
     const { workItemId } = await workItemIn(c);
     await asked(c, workItemId, 1);
     expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "done" });
-    expect((await c.message("accounts", (m) => m.accounts.length === 1)).accounts).toEqual([SYSTEM_DEFAULT]);
+    expect((await c.message("accounts", (m) => m.accounts.length === 1)).accounts).toEqual([{ ...SYSTEM_DEFAULT, conversations: null }]);
     expect(contents(handed)).toEqual(before);
     expect(calls()).toEqual([]);
   });

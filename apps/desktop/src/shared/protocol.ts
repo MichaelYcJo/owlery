@@ -348,6 +348,19 @@ export interface Account {
   limits: AccountLimit[];
   /** The refresh of the account's usage that runs, or how the last one ended, and null where none ran since the daemon started. */
   refresh: AccountRefresh | null;
+  /**
+   * The real path of the folder the account's agent keeps its conversations
+   * in, which the daemon asks of the adapter and reads each time it sends the
+   * accounts. Null where the account's folder holds none and, for System
+   * default, while the adapter has found no folder. Two accounts whose values
+   * are one and not null keep the same conversations, so a pane's account
+   * changes from one to the other (`changeAccount`). The window compares the
+   * values and reads nothing at the path. The value can be old by the time a
+   * change is asked, and the daemon's own reading at the request decides. A
+   * daemon of an earlier build sends no such field, and a client reads its
+   * absence as null.
+   */
+  conversations?: string | null;
 }
 
 /**
