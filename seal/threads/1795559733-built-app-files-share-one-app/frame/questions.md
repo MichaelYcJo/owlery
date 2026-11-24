@@ -1,0 +1,16 @@
+# Questions for the planner: built-app-files-share-one-app
+
+The judgments the ticket left open that the tree or a probe answered, each with the place that holds its grounds:
+
+- What a launch costs against a reset of one open app: `frame/design.md` *Grounding*, the two rows of the framer's probe and the two rows of `check` run 45500047201.
+- Whether an open app can be reset for the next file with no change to the app's code: `frame/design.md` *Grounding*, the rows on the daemon's environment, the page's own reload and `about:blank`.
+- What a reset would have to clear in the main process: `frame/design.md` *Grounding*, the row that lists the holders.
+- Whether the shared app is built in this work item until row Q1 is answered: `frame/plan.md` *Alternatives considered*, rows 1 and 2.
+- Whether the batch rule may forbid a run of one built-app file alone: `frame/design.md` *Grounding*, the policy row on rule 15.
+- Where the batch rule stands: `frame/design.md` *Grounding*, the policy row on *Measure before building*.
+- Whether the measurement is a committed command or a probe's numbers: `frame/plan.md` *Alternatives considered*, row 5.
+- Which other work items of the release this work meets, and in what order they merge: `frame/plan.md` *Overlap with the release*.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | Issue #149 asks for one open app that every built-app file shares, so that a run and a fix pass launch the app once. The framer's probe measured a launch with its stop at about 650 ms and a reset of one open app at about 300 ms on the owner's Mac, so one open app saves about 350 ms for each launch, about 6 s of a run of the suite. On GitHub's runner a whole one-case built-app file took 2.4 s, and the suite took 738 s, 480 s of them in `test/chain.test.ts`. Is the shared app built against that measurement? The tree cannot answer it and no probe can: the issue's *Done when* lines are the owner's, and whether a gain of this size is worth a reset between files that every later built-app case must hold to is a value the owner is accountable for. | a person: the owner | **(a) Not built.** This work item publishes the measurement with its command, adds `pnpm run test:app` and writes the batch rule. The issue's first and second *Done when* lines stay unbuilt and are named in `gaps.md` *Not done* with the measured saving. The pull request then does not close issue #149 by those two lines, and the owner closes or keeps the issue. **(b) Built.** The orchestrator resumes the framer, who adds the phases of `frame/plan.md` *Alternatives considered* row 2: a `globalSetup` that starts one app, `BuiltApp.open` with the reset in six parts, the files that need a fresh app kept on `BuiltApp.start`, and a record of an app left open between runs. #154 and #168 then merge before this work. The rule of `frame/design.md` *Rule changes* is rewritten, since its last sentence says the files share no app. | (a). Phase 1 measures the saving again with ten runs, and where its median is 1 s or more for each launch the crafter stops and the orchestrator resumes the framer, as `frame/plan.md` *Phases* row 1 states. | open |
