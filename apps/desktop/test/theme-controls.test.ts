@@ -223,7 +223,13 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       turn: string;
       fillColour: string;
     }
-    const marks = (): Promise<Record<string, { drawn: Mark; themed: Mark }>> =>
+    /** How wide the filled part is across the middle of the mark, in units of the mark's square of 16, and the width and the height of its box. */
+    interface Lit {
+      across: number;
+      width: number;
+      height: number;
+    }
+    const marks = (): Promise<Record<string, { drawn: Mark; themed: Mark; lit: Lit }>> =>
       app.evaluate(
         `(() => {
           const real = document.querySelector("#inbox-lines .state-icon.no-agent");
@@ -245,9 +251,15 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
             }
             const part = (name) => getComputedStyle(mark.querySelector("path." + name));
             const works = state === "working";
+            // The filled part as the engine draws it: the points of the mark's middle row it fills, a tenth of a unit apart, and its box.
+            const filled = mark.querySelector("path.fill");
+            let across = 0;
+            for (let x = 0.05; x < 16; x += 0.1) if (filled.isPointInFill(new DOMPoint(x, 8))) across += 1;
+            const box = filled.getBBox();
             found[state] = {
               drawn: { line: part("line").getPropertyValue("d"), fill: part("fill").getPropertyValue("d"), track: part("track").getPropertyValue("d"), turn: part("turn").getPropertyValue("d"), fillColour: part("fill").fill },
               themed: { line: shape("--shape-" + state), fill: shape("--shape-" + state + "-fill"), track: shape(works ? "--shape-working-track" : null), turn: shape(works ? "--shape-working-turn" : null), fillColour: colour(state === "waiting" || state === "failed" ? "--state-" + state + "-fill" : "--state-" + state) },
+              lit: { across: across / 10, width: box.width, height: box.height },
             };
             if (!own) mark.remove();
           }
@@ -256,6 +268,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
         })()`,
       );
     const seen: Record<string, Record<string, Mark>> = {};
+    const lit: Record<string, Record<string, Lit>> = {};
     for (const [theme, appearance] of [
       ["night-watch", "light"],
       ["register", "dark"],
@@ -265,13 +278,26 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       await choose("appearance", appearance);
       const found = await marks();
       seen[theme] = {};
-      for (const [state, { drawn, themed }] of Object.entries(found)) {
+      lit[theme] = {};
+      for (const [state, { drawn, themed, lit: filled }] of Object.entries(found)) {
         expect({ theme, state, ...drawn }).toEqual({ theme, state, ...themed });
         // Every state has a part that is drawn.
         expect([drawn.line, drawn.fill, drawn.track, drawn.turn].filter((part) => part !== "none").length).toBeGreaterThan(0);
         seen[theme][state] = drawn;
+        lit[theme][state] = filled;
       }
     }
+    // Night watch draws how far work has come as how full the moon is: the filled part, dark or light as the appearance gives the state's colour, is wider across the mark's middle at work than asleep, and wider finished than at work.
+    const moon = lit["night-watch"] ?? {};
+    expect(moon["no-agent"]?.across).toBeGreaterThan(0);
+    expect(moon.working?.across).toBeGreaterThan(moon["no-agent"]?.across ?? Number.POSITIVE_INFINITY);
+    expect(moon.finished?.across).toBeGreaterThan(moon.working?.across ?? Number.POSITIVE_INFINITY);
+    // Finished is a wholly filled disc: a filled part as wide as it is tall, and no line, no track and no part that turns. At work is a half-filled disc, and nothing of it turns.
+    expect(moon.finished?.width).toBeGreaterThan(0);
+    expect(moon.finished?.width).toBeCloseTo(moon.finished?.height ?? 0, 2);
+    const full = seen["night-watch"]?.finished;
+    expect({ line: full?.line, track: full?.track, turn: full?.turn }).toEqual({ line: "none", track: "none", turn: "none" });
+    expect({ track: seen["night-watch"]?.working?.track, turn: seen["night-watch"]?.working?.turn }).toEqual({ track: "none", turn: "none" });
     // The comparison reads shapes: a wait is Night watch's eye with its pupil, Register's filled box and Desk's filled disc, and the eye's pupil is filled in a colour of its own in the light appearance.
     expect(seen["night-watch"]?.waiting?.line).toMatch(/^path\(/);
     expect(seen.register?.waiting?.line).toBe("none");
