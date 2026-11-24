@@ -1,0 +1,21 @@
+#!/bin/sh
+# The stand-in for the person's `gh` in the screenshot run, whose login shell
+# (sample-pane.sh) puts this folder first on its PATH. It reaches no GitHub.
+# The daemon reads a stored pull request again while a window is connected,
+# and this answers that read: the pull request open, with the worktree's head
+# as its head and two checks that passed. Each call's arguments are noted on
+# one line of `sample-gh.calls` in the daemon's run folder, so the run reads
+# that every call came here and was a read. A call that is no `pr view` exits
+# 97: the run starts no chain, so nothing opens or edits a pull request. The
+# address and the checks are invented examples.
+[ -z "$OWLERY_RUN_DIR" ] || printf '%s\n' "$*" >> "$OWLERY_RUN_DIR/sample-gh.calls"
+url='https://github.com/owner/project/pull/12'
+case "$1 $2" in
+  "pr view")
+    printf '{"number":12,"url":"%s","state":"OPEN","isDraft":false,"headRefOid":"%s","mergedAt":null,"statusCheckRollup":[{"__typename":"CheckRun","name":"seal","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/actions/runs/7/job/21"},{"__typename":"CheckRun","name":"Owlery seal","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/runs/22"}]}\n' "$url" "$(git rev-parse HEAD)"
+    ;;
+  *)
+    echo "the stand-in for gh answers pr view alone" >&2
+    exit 97
+    ;;
+esac
