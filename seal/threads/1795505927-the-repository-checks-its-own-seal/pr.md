@@ -10,8 +10,9 @@ Part of #146. The issue closes when `release/v0.0.3` reaches `main`.
 
 ### For the owner
 
-- The job's name `records` is `frame/questions.md` Q1's default, built in phase 2; another name is a one-line change in `records-place.ts#workflowText` and the workflow.
-- This pull request runs its own `.github/workflows/owlery-seal.yml`, which fetches the check from `release/v0.0.3`, so the check posts under the earlier name `Owlery seal` this once; from the next pull request on, the check is `seal`. Requiring `seal` on the branch is the owner's step.
-- Once this merges, a Claude Code pane of this repository with the AgenticSeal plugin enabled asks once which chain it carries.
+- "What is the workflow's job named, once the posted check takes the name `seal`?" (`frame/questions.md` Q1, open; its default `records` is built)
+- "From this pull request on, GitHub runs the workflow `seal` with the job `records`, and no `hygiene`." (`frame/plan.md` *Operational impact*, first bullet)
+- "An administrator who required the check requires it again under `seal`." (`frame/plan.md` *Operational impact*, fourth bullet)
+- "Where the owner's Claude Code enables the AgenticSeal plugin for this repository, the window asks the owner once." (`frame/plan.md` *Operational impact*, fifth bullet)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
