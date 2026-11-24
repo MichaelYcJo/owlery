@@ -2081,7 +2081,8 @@ export type MenuAction =
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
-  | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number };
+  | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number }
+  | { do: "pane"; accountId: number | null };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -2944,6 +2945,31 @@ export function accountRemoval(held: HeldAccounts, id: number, repositories: rea
 /** The choices of a menu of accounts: a first one, of the value "", that leaves the account to the setting above, named `first` with the account `gives` it gives, then each account by its id, in the daemon's order. */
 export function accountChoices(held: HeldAccounts, first: string, gives: number): { value: string; label: string }[] {
   return [{ value: "", label: `${first} (${accountName(held, gives)})` }, ...held.accounts.map((account) => ({ value: String(account.id), label: account.name }))];
+}
+
+/**
+ * The menu of a button that opens a pane of `kind`, opened at a secondary
+ * click: its first item opens the pane under the account `gives`, the one
+ * the work item gives, named as the Ask row's menu names it, and an item for
+ * each other account follows, in the daemon's order, below a rule. Each
+ * opens that one pane under its account (`accountId`, null for the work
+ * item's). None for a kind that takes no account, and none where no account
+ * stands beside System default, as against a daemon of an earlier build.
+ */
+export function newPaneMenu(kind: PaneKindInfo | undefined, held: HeldAccounts | null, gives: number): MenuItem[] {
+  if (held === null || !offersAccounts(held) || kind?.accounts !== true) return [];
+  const others = held.accounts.filter((account) => account.id !== gives);
+  return [
+    { label: `The work item's (${accountName(held, gives)})`, description: "Open the pane under the account the work item gives", action: { do: "pane", accountId: null }, divides: false },
+    ...others.map((account, index) => ({ label: account.name, description: `Open the pane under ${account.name}`, action: { do: "pane", accountId: account.id } as const, divides: index === 0 })),
+  ];
+}
+
+/** The tooltip of a button that opens a pane: its own `hint`, and where the button has a menu of accounts (`newPaneMenu`), the sentence that says it is there. */
+export function paneButtonTitle(hint: string | null, offersMenu: boolean): string {
+  const menu = "Right-click to open it under another account";
+  if (!offersMenu) return hint ?? "";
+  return hint === null ? menu : `${hint}. ${menu}`;
 }
 
 /**

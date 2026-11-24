@@ -102,6 +102,8 @@ import {
   paneKey,
   paneMenu,
   paneAccountChange,
+  newPaneMenu,
+  paneButtonTitle,
   paneTabs,
   parkNotifications,
   permissionNotifications,
@@ -4314,6 +4316,22 @@ describe("accounts in the window", () => {
       { value: "1", label: "Work" },
       { value: "2", label: "Home" },
     ]);
+  });
+
+  it("gives a button that opens a pane of a kind that takes an account a menu whose first item opens it under the account the work item gives, named as the Ask row's menu names it, and the other accounts after it, and says so in the button's tooltip; gives none to a kind that takes no account, and none where no account stands beside System default (scope item 10)", () => {
+    const kinds: PaneKindInfo[] = KINDS.map((kind) => ({ ...kind, accounts: kind.kind === "claude" }));
+    const claude = kinds.find((kind) => kind.kind === "claude");
+    expect(newPaneMenu(claude, HELD, 1)).toEqual([
+      { label: "The work item's (Work)", description: "Open the pane under the account the work item gives", action: { do: "pane", accountId: null }, divides: false },
+      { label: "System default", description: "Open the pane under System default", action: { do: "pane", accountId: 0 }, divides: true },
+      { label: "Home", description: "Open the pane under Home", action: { do: "pane", accountId: 2 }, divides: false },
+    ]);
+    expect(newPaneMenu(kinds.find((kind) => kind.kind === "shell"), HELD, 1)).toEqual([]);
+    expect(newPaneMenu(claude, { accounts: [SYSTEM], defaultId: 0 }, 0)).toEqual([]);
+    expect(newPaneMenu(claude, null, 0)).toEqual([]);
+    expect(paneButtonTitle(null, true)).toBe("Right-click to open it under another account");
+    expect(paneButtonTitle("Start on the latest conversation of this worktree", true)).toBe("Start on the latest conversation of this worktree. Right-click to open it under another account");
+    expect([paneButtonTitle(null, false), paneButtonTitle("Start on the latest conversation of this worktree", false)]).toEqual(["", "Start on the latest conversation of this worktree"]);
   });
 
   it("offers to change the account of a running Claude Code pane to each account that keeps the pane's account's conversations, and says before the change that a turn under way is cut; offers nothing where no account keeps them, for a shell, a sign-in pane, an ended pane, a pane of a daemon of an earlier build, and where no account stands beside System default (scenarios 8 and 9's window)", () => {

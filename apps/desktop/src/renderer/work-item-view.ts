@@ -12,7 +12,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import type { HeadlessInfo, LedgerEntry, PaneKind, SealRecords, SessionInfo, WorkItem } from "../shared/protocol";
+import { type HeadlessInfo, type LedgerEntry, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { openMenu as openItemMenu } from "./menu";
 import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
   answersFor,
@@ -46,6 +47,8 @@ import {
   paneChoices,
   paneKey,
   paneAccountChange,
+  newPaneMenu,
+  paneButtonTitle,
   paneMenu,
   type PaneMenuAct,
   paneTabs,
@@ -161,7 +164,6 @@ const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
 const askAccount = byId<HTMLSelectElement>("ask-account");
-const paneAccount = byId<HTMLSelectElement>("pane-account");
 const headlessList = byId<HTMLUListElement>("headless");
 const questionsSection = byId("questions");
 const questionsHead = byId("questions-head");
@@ -196,28 +198,40 @@ function chosenAccount(menu: HTMLSelectElement): { accountId?: number } {
   return menu.hidden || menu.value === "" ? {} : { accountId: Number(menu.value) };
 }
 
-/** Fills the two menus of a new session's account for the work item, the one beside the pane buttons and the one beside the "Ask" field, each keeping the choice it held where that is still an account, and hides both where there is no account to choose. */
+/** The account a work item gives its new sessions where they name none: its own, else its repository's, else the default. */
+function givenAccount(workItem: WorkItem): number {
+  const repository = held.repositories.find((listed) => listed.id === workItem.repoId);
+  return workItem.accountId ?? repository?.accountId ?? held.accounts?.defaultId ?? SYSTEM_DEFAULT_ID;
+}
+
+/**
+ * Fills the menu of a new headless session's account beside the "Ask"
+ * field for the work item, keeping the choice it held where that is still an
+ * account, and hides it where there is no account to choose. Gives each
+ * button that opens a pane the tooltip that says where it has a menu of
+ * accounts (./view, `newPaneMenu`).
+ */
 function showAccountMenus(workItem: WorkItem): void {
   const accounts = held.accounts;
   const offered = offersAccounts(accounts);
-  for (const menu of [paneAccount, askAccount]) {
-    menu.hidden = !offered;
-    if (!accounts || !offered) {
-      menu.replaceChildren();
-      delete menu.dataset.choices;
-      continue;
-    }
-    const kept = menu.value;
-    const repository = held.repositories.find((listed) => listed.id === workItem.repoId);
-    const gives = workItem.accountId ?? repository?.accountId ?? accounts.defaultId;
-    const choices = accountChoices(accounts, "The work item's", gives);
-    // A menu whose choices stand as they were is left as it is, so a redraw closes none a person holds open.
-    const key = JSON.stringify([workItem.id, choices]);
-    if (menu.dataset.choices === key) continue;
-    menu.dataset.choices = key;
-    menu.replaceChildren(...choices.map(({ value, label }) => new Option(label, value)));
-    menu.value = choices.some((choice) => choice.value === kept) ? kept : "";
+  for (const button of paneButtons.querySelectorAll<HTMLButtonElement>("button[data-kind]")) {
+    const kind = held.paneKinds.find((offeredKind) => offeredKind.kind === button.dataset.kind);
+    button.title = paneButtonTitle(button.dataset.hint ?? null, newPaneMenu(kind, accounts, givenAccount(workItem)).length > 0);
   }
+  askAccount.hidden = !offered;
+  if (!accounts || !offered) {
+    askAccount.replaceChildren();
+    delete askAccount.dataset.choices;
+    return;
+  }
+  const kept = askAccount.value;
+  const choices = accountChoices(accounts, "The work item's", givenAccount(workItem));
+  // A menu whose choices stand as they were is left as it is, so a redraw closes none a person holds open.
+  const key = JSON.stringify([workItem.id, choices]);
+  if (askAccount.dataset.choices === key) return;
+  askAccount.dataset.choices = key;
+  askAccount.replaceChildren(...choices.map(({ value, label }) => new Option(label, value)));
+  askAccount.value = choices.some((choice) => choice.value === kept) ? kept : "";
 }
 
 /** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
@@ -700,22 +714,41 @@ function showSize(): void {
   stripSize.textContent = screen ? `${screen.term.cols} \u00d7 ${screen.term.rows}` : "";
 }
 
-/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, once `beforePane` lets it open. */
-function start(kind: PaneKind, continueLatest: boolean): void {
+/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, under `accountId` where one is given and otherwise under the work item's, once `beforePane` lets it open. */
+function start(kind: PaneKind, continueLatest: boolean, accountId: number | null = null): void {
   const workItemId = held.viewing;
   if (workItemId === undefined) return;
-  const account = chosenAccount(paneAccount);
-  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}), ...account }));
+  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}), ...(accountId === null ? {} : { accountId }) }));
 }
 
-/** Builds, once per connection, the view's button for each choice the kinds of pane the daemon offers give. */
+/**
+ * Builds, once per connection, the view's button for each choice the kinds
+ * of pane the daemon offers give. A press opens the pane under the account
+ * the work item gives. A secondary click, a press of the right button or
+ * with the Control key, opens the button's menu of accounts where it has one
+ * (./view, `newPaneMenu`), and the item chosen opens that one pane under its
+ * account.
+ */
 export function showPaneButtons(): void {
   paneButtons.replaceChildren(
     ...paneChoices(held.paneKinds).map(({ kind, text, hint, continueLatest }) => {
       const button = document.createElement("button");
       button.textContent = text;
-      if (hint !== null) button.title = hint;
+      button.dataset.kind = kind;
+      if (hint !== null) {
+        button.title = hint;
+        button.dataset.hint = hint;
+      }
       button.addEventListener("click", () => start(kind, continueLatest));
+      button.addEventListener("contextmenu", (event) => {
+        const workItem = viewed();
+        const items = workItem ? newPaneMenu(held.paneKinds.find((offered) => offered.kind === kind), held.accounts, givenAccount(workItem)) : [];
+        if (items.length === 0) return;
+        event.preventDefault();
+        openItemMenu(`Accounts to open ${text.replace(/^\+ /, "")} under`, items, { x: event.clientX, y: event.clientY }, (action) => {
+          if (action.do === "pane") start(kind, continueLatest, action.accountId);
+        }, () => button);
+      });
       return button;
     }),
   );

@@ -507,9 +507,9 @@
 
       #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #ask-form { flex: none; display: flex; gap: var(--space-3); }
-      #ask-form input { flex: 1; min-width: 0; }
-      /* The account a new session runs under, beside the field and beside the buttons that open a pane: its first choice is the work item's. */
-      #ask-account, #pane-account { flex: none; max-width: var(--tab-width); height: var(--control-height); font-size: var(--size-second); }
+      #ask-form input { flex: 1; min-width: 12em; }
+      /* The account a new headless session runs under, beside the field: its first choice is the work item's, and it gives way in width before the field does. */
+      #ask-account { flex: 0 1 auto; min-width: 0; max-width: var(--tab-width); height: var(--control-height); font-size: var(--size-second); }
       #headless { min-height: 0; overflow: auto; font-size: var(--size-second); }
       #headless li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
       #headless li:last-child { border-bottom: 0; }
@@ -731,8 +731,6 @@
           <div id="pane-bar">
             <div id="tabs"></div>
             <button id="side-by-side" aria-pressed="false" title="Show up to four of this work item's panes at once">Side by side</button>
-            <!-- Hidden where the daemon keeps no account beside System default. -->
-            <select id="pane-account" aria-label="Account of a new pane" hidden></select>
             <div id="pane-buttons"></div>
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>
