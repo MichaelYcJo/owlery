@@ -60,4 +60,4 @@ The hand check needs `pnpm install` in the worktree and a `claude` the person's 
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | The pull request's title takes `test:`, and the kind that came closest is `fix:`. | The defect is the hand check's own: it passed where the session made no `Bash` call, so the daemon's refusal went unread. The diff changes a test file, a new test helper and two scripts of the test runner, and nothing a person's start of the app runs; a `fix:` title would tell a reader of the release note that the app changed. | the plugin's `skills/commit-pr-convention/SKILL.md` *Pull request titles*, and the prefix of issue #191's title |
