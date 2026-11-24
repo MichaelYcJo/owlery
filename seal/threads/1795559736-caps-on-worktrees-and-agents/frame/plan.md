@@ -45,7 +45,7 @@ Each phase ends with its cases passing through the narrow run of the files its *
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1. A person sees the reading and changes a cap | *Scope* items 1, 2, 3, 4 and 13 | Scenarios 1, 3, 10, 16 and 17, in `apps/desktop/test/machine.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/view.test.ts` and the built-app file `apps/desktop/test/machine-dialog.test.ts`, each new case seen red as contract rule 15 asks | |
+| 1. A person sees the reading and changes a cap | *Scope* items 1, 2, 3, 4 and 13 | Scenarios 1, 3, 10, 16 and 17, in `apps/desktop/test/machine.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/view.test.ts` and the built-app file `apps/desktop/test/machine-dialog.test.ts`, each new case seen red as contract rule 15 asks | Built at `962f019`, `3c40037`, `ae0f416` and `1e80e1e`; `trail/phases/phase-1.md` |
 | 2. A session over the agent cap waits | *Scope* items 5, 6, 7, 8 and 9 | Scenarios 2, 4, 5, 6, 7, 8 and 9, in `machine.test.ts`, `daemon.test.ts`, `apps/desktop/test/chain.test.ts`, `apps/desktop/test/ledger.test.ts`, `apps/desktop/test/keep-awake.test.ts` and `view.test.ts`. The phase record lists every reader of a headless state the builder found and how it takes `queued` | |
 | 3. A creation warns | *Scope* items 10 and 11 | Scenarios 11, 12 and 13, in `daemon.test.ts`, `apps/desktop/test/repositories.test.ts`, `view.test.ts` and `machine-dialog.test.ts` | |
 | 4. More panes side by side | *Scope* item 12 | Scenarios 14 and 15, in `view.test.ts` and `machine-dialog.test.ts`, and the search of scenario 15 run at the phase's head | |
