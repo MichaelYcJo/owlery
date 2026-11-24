@@ -4,7 +4,9 @@
 // and needs no login. Its first answer to a session that holds `Bash` is one
 // call of that tool with the command it was given, so the call the check is
 // about is made by the stand-in and not by a model's turn. Every other request
-// to the messages endpoint is answered with one line of text.
+// to the messages endpoint is answered with one line of text. It answers only
+// what a run showed the CLI asks: any other request is refused with 404 and
+// its method and path, and the check prints every request the stand-in kept.
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -73,11 +75,6 @@ export async function startModelStandIn(command: string): Promise<{ url: string;
       const path = request.url ?? "";
       received.push({ method: request.method ?? "", path, body });
       const pathname = new URL(path, "http://stand-in").pathname;
-      if (request.method === "POST" && pathname === "/v1/messages/count_tokens") {
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ input_tokens: 1 }));
-        return;
-      }
       if (request.method === "POST" && pathname === "/v1/messages") {
         const tools = Array.isArray(body?.tools) ? (body.tools as { name?: unknown }[]).map((tool) => tool.name) : [];
         const block: Block = tools.includes("Bash") && toolResults(body).length === 0 ? { type: "tool_use", id: "toolu_stand_in_1", name: "Bash", input: { command, description: "The stand-in model's one call" } } : { type: "text", text: STAND_IN_TEXT };

@@ -13,13 +13,15 @@
 // lists to their bytes.
 //
 // The second runs the real CLI against a stand-in for the model on the
-// loopback (`model-stand-in.ts`), with a key that is no key and a home and a
-// config folder of its own, so it costs nothing and reads no file of the
-// person's Claude Code folder. The stand-in answers the session's first turn
-// with one shell command that appends to a file, which a proofer's grant and
-// a sealer's refuse, so the call is made whatever a model would choose. The
-// case reads the stream for the session's tools and the request, what the
-// stand-in was told of the refusal, and the file for its bytes.
+// loopback (`model-stand-in.ts`), with a key that is no key and a home of its
+// own, and the daemon takes a config folder of the case's as System
+// default's, so the CLI costs nothing and reads no file of the person's
+// Claude Code folder. The stand-in answers the session's first turn with one
+// shell command that appends to a file, which a proofer's grant and a
+// sealer's refuse, so the call is made whatever a model would choose. The
+// case reads the stream for the session's tools and the request, the case's
+// config folder for the session's conversation, what the stand-in was told
+// of the refusal, and the file for its bytes.
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -73,11 +75,12 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
 
   /**
    * Launches one session as the pair given on `prompt`, in a work item of a scratch repository, and gives the session as
-   * it ended, the lines of its output stream, every message the daemon sent, and the work item's folder. `model` is a
-   * stand-in model's address: given, every run of the CLI the daemon makes goes to it with a key that is no key, and
-   * under a home and a config folder of the kept folder's.
+   * it ended, the lines of its output stream, every message the daemon sent, the work item's folder, and the case's
+   * config folder. `model` is a stand-in model's address: given, every run of the CLI the daemon makes goes to it with a
+   * key that is no key and under a home of the kept folder's, and the daemon takes a config folder of the kept folder's
+   * as System default's. Without it, the config folder is null and the launch is the person's own.
    */
-  async function launched(prompt: string, role: RoleStage, model?: string): Promise<{ headless: HeadlessInfo; lines: Record<string, unknown>[]; messages: ServerMessage[]; worktree: string }> {
+  async function launched(prompt: string, role: RoleStage, model?: string): Promise<{ headless: HeadlessInfo; lines: Record<string, unknown>[]; messages: ServerMessage[]; worktree: string; config: string | null }> {
     // The CLI as the adapter finds it, through the person's login shell. The adapter is then given a shell that names a
     // script in its place: the script runs that CLI with the arguments and the environment the adapter gave it, and
     // keeps a copy of what it printed.
@@ -97,19 +100,21 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
       chmodSync(file, 0o755);
       return file;
     };
+    const config = model === undefined ? null : join(kept, "config");
     // Set in the script, because the daemon passes a session none of its own variables, and before the read of the
-    // version, so that run takes them too.
+    // version, so that run takes them too. The config folder is the daemon's to give, below.
     let pointed = "";
-    if (model !== undefined) {
+    if (config !== null) {
       const home = join(kept, "home");
-      const config = join(kept, "config");
       mkdirSync(home);
       mkdirSync(config);
-      pointed = `export ANTHROPIC_BASE_URL='${model}'\nexport ANTHROPIC_API_KEY='stand-in-key-not-a-secret'\nexport HOME='${home}'\nexport CLAUDE_CONFIG_DIR='${config}'\nexport CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\n`;
+      pointed = `export ANTHROPIC_BASE_URL='${model}'\nexport ANTHROPIC_API_KEY='stand-in-key-not-a-secret'\nexport HOME='${home}'\nexport CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\n`;
     }
     // The daemon also runs the CLI at its start, to read its version, and that run's output is no part of the stream.
     const copying = script("claude-copying", `${pointed}if [ "$*" = "--version" ]; then exec '${cli}' --version; fi\n'${cli}' "$@" | tee '${stream}'`);
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${copying}' '${path}'`);
+    // With a config folder, the shell's third line names it, as a login shell that exports `CLAUDE_CONFIG_DIR` does: the
+    // daemon then takes it as System default's folder and gives it to the session.
+    const shell = script("shell", config === null ? `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${copying}' '${path}'` : `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${copying}' '${path}' '${config}'`);
 
     const bundleDir = join(__dirname, "..", "dist", "bundle");
     const token = "r".repeat(64);
@@ -149,7 +154,7 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     const lines = (existsSync(stream) ? readFileSync(stream, "utf8").split("\n").filter(Boolean) : []).map((line) => JSON.parse(line) as Record<string, unknown>);
     const result = lines.find((line) => line.type === "result");
     console.log(JSON.stringify({ kept, headless, usage: result?.usage, modelUsage: result?.modelUsage, permissionDenials: result?.permission_denials, numTurns: result?.num_turns }, null, 2));
-    return { headless, lines, messages, worktree: workItem.worktree };
+    return { headless, lines, messages, worktree: workItem.worktree, config };
   }
 
   it.skipIf(!RUN)("answers from its definition, from the appended rules and from a file of the bundle, and changes no settings file and no plugin list", async () => {
@@ -176,7 +181,7 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     } finally {
       await model.close();
     }
-    const { headless, lines, messages, worktree } = ended;
+    const { headless, lines, messages, worktree, config } = ended;
     const init = lines.find((line) => line.type === "system" && line.subtype === "init") as { tools?: string[]; permissionMode?: string; apiKeySource?: string; claude_code_version?: string } | undefined;
     const told = model.received.flatMap((request) => toolResults(request.body)).map((result) => ({ isError: result.is_error, content: typeof result.content === "string" ? result.content : JSON.stringify(result.content) }));
     console.log(
@@ -196,6 +201,8 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     expect([...(init?.tools ?? [])].sort()).toEqual(["Bash", "Glob", "Grep", "Read"]);
     expect(init?.permissionMode).toBe("default");
     expect(init?.apiKeySource).toBe("ANTHROPIC_API_KEY");
+    // The session ran under the case's config folder, which the daemon gave it as System default's, and wrote its conversation there.
+    expect(existsSync(join(config ?? "", "projects")), "the session wrote no conversation into the case's config folder").toBe(true);
     // The stand-in was asked for the session's turns. Where it was not, the call below was never made, and nothing the case reads says anything of the daemon.
     const asked = model.received.filter((request) => request.method === "POST" && new URL(request.path, "http://stand-in").pathname === "/v1/messages");
     expect(asked.length, "the CLI did not reach the stand-in model").toBeGreaterThan(0);
