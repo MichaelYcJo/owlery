@@ -1828,9 +1828,8 @@ export class Daemon {
       this.refreshStops.delete(id);
       void stopRun();
       if (this.closed) return;
-      // An account removed while its refresh ran keeps nothing of it.
-      if (this.accounts.holds(id)) this.refreshes.set(id, { state: "ended", at: now(), handed, usage, error });
-      else this.refreshes.delete(id);
+      // No account is removed while its refresh runs (`runningUnder`), so the account still stands.
+      this.refreshes.set(id, { state: "ended", at: now(), handed, usage, error });
       this.broadcastAccounts();
     };
     const limit = setTimeout(() => end("The refresh gave no result within a minute and was stopped."), this.options.refreshLimitMs ?? REFRESH_LIMIT_MS);

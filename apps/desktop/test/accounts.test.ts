@@ -640,8 +640,9 @@ describe("a refresh of an account's usage", () => {
     expect(started[1]).toEqual({ prompt: REFRESH_PROMPT, cwd: join(runDir, "accounts", "refresh"), refresh: true });
   });
 
-  it("says where the CLI handed over no value, and that a refresh which gives no result within its limit was stopped, keeping no number of either (scenario 15)", async () => {
-    const { c } = await daemon({ roleAdapter: fakeAdapter({ usage: () => null }) });
+  it("says where the CLI handed over no value, that a refresh which gives no result within its limit was stopped, and why a refresh failed, keeping no number of any; and refuses a call its session asks for (scenario 15)", async () => {
+    // A session that asks for a call is told no, and goes on to its result.
+    const { c } = await daemon({ roleAdapter: fakeAdapter({ usage: () => null, asks: () => [{ tool: "Bash", action: "run", path: null, text: "ls" }] }) });
     await c.request({ type: "addAccount", name: "Work", folder: handedFolder() });
     const from = c.messages.length;
     await c.request({ type: "refreshUsage", id: 1 });
@@ -650,6 +651,48 @@ describe("a refresh of an account's usage", () => {
     const later = slow.c.messages.length;
     await slow.c.request({ type: "refreshUsage", id: SYSTEM_DEFAULT_ID });
     expect((await accountsAfter(slow.c, later, SYSTEM_DEFAULT_ID, (account) => account.refresh?.state === "ended")).accounts[0]).toMatchObject({ limits: [], refresh: { state: "ended", handed: 0, error: "The refresh gave no result within a minute and was stopped." } });
+    for (const [fail, error] of [
+      ["result", "the fake adapter was told to fail"],
+      ["exit", "The refresh's session exited with code 1 and gave no result."],
+      ["start", "the fake adapter was told not to start"],
+    ] as const) {
+      const failing = await daemon({ roleAdapter: fakeAdapter({ fail }) });
+      const at = failing.c.messages.length;
+      expect(await failing.c.request({ type: "refreshUsage", id: SYSTEM_DEFAULT_ID })).toMatchObject({ type: "done" });
+      expect((await accountsAfter(failing.c, at, SYSTEM_DEFAULT_ID, (account) => account.refresh?.state === "ended")).accounts[0]?.refresh).toMatchObject({ handed: 0, error });
+    }
+  });
+
+  it("gives a folder Owlery made its missing names before the refresh starts, gives an adapter that declares no accounts no folder, and stops a refresh that runs at the daemon's close (scope item 13)", async () => {
+    const furnished: string[] = [];
+    const logins: AccountLogins = { furnish: (at) => void furnished.push(at), signIn: () => Promise.reject(new Error("no")), status: () => Promise.reject(new Error("no")), signOut: () => Promise.resolve() };
+    const { adapter, started } = noted(fakeAdapter({ logins }));
+    const { c, runDir } = await daemon({ roleAdapter: adapter });
+    await c.request({ type: "addAccount", name: "Made" });
+    furnished.length = 0;
+    const from = c.messages.length;
+    await c.request({ type: "refreshUsage", id: 1 });
+    await accountsAfter(c, from, 1, (account) => account.refresh?.state === "ended");
+    expect(furnished).toEqual([join(runDir, "accounts", "1")]);
+    expect(started).toEqual([expect.objectContaining({ refresh: true, accountDir: join(runDir, "accounts", "1") })]);
+    const bare = noted(fakeAdapter({ features: ["limit-refresh"] }));
+    const plain = await daemon({ roleAdapter: bare.adapter });
+    await plain.c.request({ type: "addAccount", name: "Work", folder: handedFolder() });
+    const at = plain.c.messages.length;
+    await plain.c.request({ type: "refreshUsage", id: 1 });
+    await accountsAfter(plain.c, at, 1, (account) => account.refresh?.state === "ended");
+    expect(bare.started).toEqual([{ prompt: REFRESH_PROMPT, cwd: join(plain.runDir, "accounts", "refresh"), refresh: true }]);
+    let stops = 0;
+    const slow = fakeAdapter({ delayMs: 5000 });
+    const held = await daemon({ roleAdapter: { ...slow, start: async (options, listener) => {
+      const run = await slow.start(options, listener);
+      return { ...run, stop: () => ((stops += 1), run.stop()) };
+    } } });
+    await held.c.request({ type: "refreshUsage", id: SYSTEM_DEFAULT_ID });
+    await held.c.until(() => (stops === 0 ? true : undefined));
+    await new Promise((r) => setTimeout(r, 50));
+    await held.d.close();
+    expect(stops).toBe(1);
   });
 
   it("refuses with its reason, and starts nothing, a refresh while a pane or a working session runs under the account or a refresh of it runs, for an id it keeps none of, and through an adapter that declares no refresh; and starts none at the daemon's start, at a client's hello, or as the daemon's clock passes an hour with no press (scenario 15)", async () => {
@@ -672,6 +715,8 @@ describe("a refresh of an account's usage", () => {
     await c.message("headless", (m) => ask.type === "asked" && m.headless.id === ask.headless.id && m.headless.state !== "working");
     expect(await c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "done" });
     expect(await c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "error", message: 'The usage of "Work" is being refreshed already.' });
+    // A refresh runs under its account, so the account is not removed meanwhile.
+    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "error", message: '"Work" is not removed while something runs under it: a refresh of its usage.' });
     expect(await c.request({ type: "refreshUsage", id: 9 })).toMatchObject({ type: "error", message: "No account 9 is kept." });
     expect(started.filter((options) => "refresh" in options)).toHaveLength(1);
     const plain = await daemon({ roleAdapter: fakeAdapter({ features: ["role-tools", "permission-requests", "accounts"] }) });
