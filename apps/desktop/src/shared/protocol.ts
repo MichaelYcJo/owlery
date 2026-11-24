@@ -536,6 +536,68 @@ export interface LedgerEntry {
   usage: Usage | null;
 }
 
+/** One place a finding names: a path from the repository's top, and the line or the span of lines its record writes after the colon, or null. */
+export interface FindingPlace {
+  path: string;
+  lines: string | null;
+}
+
+/** A finding of a review round, as its committed record holds it. */
+export interface BackFinding {
+  number: number;
+  /** The words of the finding's heading after its number. */
+  says: string;
+  severity: string;
+  places: FindingPlace[];
+  /** The fix pass's close, or null where the finding is open. */
+  close: { verdict: "fixed" | "rejected" | "deferred"; commit: string | null; home: string | null; answer: string | null } | null;
+  /** The earlier finding this one reopens, and the earlier finding or round it is a regression of. */
+  reopens: { round: number; finding: number } | null;
+  regression: { round: number; finding: number | null } | null;
+}
+
+/** One review round, as its committed record holds it. */
+export interface BackRound {
+  round: number;
+  /** The commit the round block's `target:` names, or null where the record holds no round block the reader returns. */
+  target: string | null;
+  findings: BackFinding[];
+  /** The earlier findings this round confirmed. */
+  confirms: { round: number; finding: number }[];
+  /** How many lines of the record the reader refused. */
+  unread: number;
+}
+
+/** The seal's record: the fields of `docs/product.md` *The seal*, with who built and who judged. */
+export interface SealRecord {
+  commit: string;
+  branch: string | null;
+  base: string;
+  item: string;
+  gate: string | null;
+  rounds: number;
+  builtBy: string[];
+  judgedBy: string | null;
+  model: string | null;
+  rules: string | null;
+}
+
+/** What the committed records of a work item say for the back of its seal, read at the branch's head commit. The daemon sends each string cut at 2,000 characters. */
+export interface SealRecords {
+  /** The head commit the records were read at. */
+  head: string;
+  /** The seal's record, or null where the newest verdict block is no seal. */
+  record: SealRecord | null;
+  /** The commit that broke the seal, or null where the seal is not broken or no commit is named. */
+  brokenBy: { commit: string; subject: string } | null;
+  /** The rounds, the first first. */
+  rounds: BackRound[];
+  /** One for each call a stage's role was refused: the stage's kind and round, read from the row of `trail/refusals.md` that names it, as in `ruling 2`, and the rule's name. */
+  refusals: { kind: ChainStageKind; round: number; rule: string }[];
+  /** How many rows of `trail/refusals.md` were not read. */
+  unreadRefusals: number;
+}
+
 /** What a headless session is doing: `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error. */
 export type HeadlessState = "working" | "finished" | "failed";
 
@@ -663,6 +725,8 @@ export type ClientMessage =
   | { type: "answerPermission"; requestId: number; workItemId: number; id: number; allow: boolean }
   // Asks for the cost ledger of one work item, archived or not: the entries of the stages that ended in it since its `createdAt`. The daemon answers with a `ledger`, and with an `error` for an id it lists no work item under, as a deleted work item's.
   | { type: "readLedger"; requestId: number; workItemId: number }
+  // Asks for what the committed records of one work item, archived or not, say for the back of its seal, read at its branch's head commit. The daemon answers with a `sealRecords`, with the empty value for a work item whose worktree holds no directory of its own or two, and with an `error` for an id it lists no work item under and for a branch whose head it cannot read.
+  | { type: "readSealRecords"; requestId: number; workItemId: number }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
@@ -688,6 +752,8 @@ export type ServerMessage =
   | { type: "workItemLoss"; requestId: number; id: number; loss: WorkItemLoss }
   // Answers a `readLedger`: the work item's entries in the order their stages ended, and how many lines of the ledger's file the daemon could not read as an entry, of any work item. A daemon of an earlier build answers a `readLedger` with nothing.
   | { type: "ledger"; requestId: number; workItemId: number; entries: LedgerEntry[]; unread: number }
+  // Answers a `readSealRecords`. A daemon of an earlier build answers a `readSealRecords` with nothing.
+  | { type: "sealRecords"; requestId: number; workItemId: number; records: SealRecords }
   // Answers a `readGateOutput`: the last characters of what the command of the work item's newest broad gate printed on its two streams, in the order they arrived, as many as the daemon keeps at most (`GATE_OUTPUT_CHARS` of `src/daemon/gate.ts`). `cut` says that the text is as long as that bound, so the command printed that many characters or more and the text may open after the output's start. The daemon keeps the text in its run folder, so a daemon started later answers the same. A daemon of an earlier build answers a `readGateOutput` with nothing.
   | { type: "gateOutput"; requestId: number; workItemId: number; text: string; cut: boolean }
   // Answers a `planRecords` with what a setup of the repository `id` would do.

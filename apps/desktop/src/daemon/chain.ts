@@ -35,7 +35,7 @@ import type { PermissionAction } from "./adapters/adapter";
 import { RECORD_FILE, readDecisionRecord } from "./decision-record";
 import { ASK_BLOCK, CONVERGENCE_BLOCK, ROUND_BASE, RULING_BLOCK, type Block, type Kind, field, gfmLines, read, stripped } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
-import type { RefusalRule } from "./role-grants";
+import { REFUSAL_RULES, type RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
 import { GATE_FILE, GUARANTEE_FILE, type Verdict, readGate, readGuarantee, runHeading } from "./seal-records";
 import { commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits } from "./worktrees";
@@ -84,7 +84,7 @@ export function roundFile(round: number): string {
 }
 
 /** The round a file's name gives as `round-<N>.md`, as `pr-check/lib/routing.py#round_number` reads it, or null. */
-function roundNumber(name: string): number | null {
+export function roundNumber(name: string): number | null {
   const [, digits] = /^round-(\d+)\.md$/u.exec(name) ?? [];
   return digits === undefined ? null : Number(digits);
 }
@@ -793,13 +793,28 @@ export interface StageRefusals {
   calls: readonly RefusedCall[];
 }
 
-/** What a call does, as a row of the refusals says it. */
-const CALL_DOES: Record<PermissionAction, string> = { read: "reads a file", write: "writes a file", run: "runs a command", other: "something else" };
+/** A kind of a stage as a row of the refusals names it: `fix pass` for `fix-pass`, and the kind's own word for every other. */
+function kindCell(kind: ChainStageKind): string {
+  return kind === "fix-pass" ? "fix pass" : kind;
+}
 
 /** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`, `ruling 2`, `seal 2`. */
 function stageCell(kind: ChainStageKind, round: number): string {
-  return `${kind === "fix-pass" ? "fix pass" : kind} ${String(round)}`;
+  return `${kindCell(kind)} ${String(round)}`;
 }
+
+/** The stage a row's cell names, as `stageCell` writes it, or null where it names none. */
+function cellStage(cell: string): { kind: ChainStageKind; round: number } | null {
+  const [, word, digits] = /^(.+) (0|[1-9][0-9]*)$/u.exec(cell) ?? [];
+  const kind = CHAIN_STAGE_KINDS.find((each) => kindCell(each) === word);
+  return kind === undefined || digits === undefined ? null : { kind, round: Number(digits) };
+}
+
+/** The heading row and the delimiter row of the table `refusalsText` writes. */
+const REFUSALS_HEAD = ["| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|"];
+
+/** What a call does, as a row of the refusals says it. */
+const CALL_DOES: Record<PermissionAction, string> = { read: "reads a file", write: "writes a file", run: "runs a command", other: "something else" };
 
 /** A tool's name as a table's cell holds it: on one line, with no `|` that would end the cell, and 100 characters of it at most. The name is the agent's own word for its tool. */
 function toolCell(tool: string): string {
@@ -814,10 +829,34 @@ function toolCell(tool: string): string {
  * a path or a command.
  */
 export function refusalsText(before: string | null, workItem: string, refused: StageRefusals): string {
-  const head = [`# Refused calls: ${workItem}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", ""].join("\n");
+  const head = [`# Refused calls: ${workItem}`, "", ...REFUSALS_HEAD, ""].join("\n");
   const stood = before ?? head;
   const rows = refused.calls.map((call) => `| ${stageCell(refused.kind, refused.round)} | ${refused.role} | ${toolCell(call.tool)} | ${CALL_DOES[call.action]} | ${call.rule} |\n`);
   return `${stood}${stood.endsWith("\n") ? "" : "\n"}${rows.join("")}`;
+}
+
+/**
+ * The refused calls a work item's `trail/refusals.md` holds, as
+ * `refusalsText` writes them: each row's stage, the kind and the round its
+ * cell names as `stageCell` writes it, and its rule's name, in the file's
+ * order, and how many rows were not read. A line that opens with `|` and is
+ * neither the heading row nor the delimiter row is a row. A row that does not hold the five cells, whose stage is none
+ * `stageCell` writes, or whose rule is none of `REFUSAL_RULES`, is counted as
+ * not read and gives nothing.
+ */
+export function readRefusals(text: string): { refusals: { kind: ChainStageKind; round: number; rule: RefusalRule }[]; unread: number } {
+  const refusals: { kind: ChainStageKind; round: number; rule: RefusalRule }[] = [];
+  let unread = 0;
+  for (const line of text.split("\n").map((each) => each.replace(/\r$/u, ""))) {
+    if (!line.startsWith("|") || REFUSALS_HEAD.includes(line)) continue;
+    const cells = line.endsWith("|") ? line.slice(1, -1).split("|").map((cell) => cell.trim()) : [];
+    const [cell = "", , , , rule = ""] = cells;
+    const stage = cellStage(cell);
+    const known = REFUSAL_RULES.find((each) => each === rule);
+    if (cells.length !== 5 || stage === null || known === undefined) unread += 1;
+    else refusals.push({ ...stage, rule: known });
+  }
+  return { refusals, unread };
 }
 
 /** Every reference a record makes to an earlier record: its `confirms:` lines, and each finding's `reopens:` and `regression:` lines, in the record's order. */

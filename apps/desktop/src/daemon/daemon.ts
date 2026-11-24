@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -90,6 +90,7 @@ import { THE_SESSION, isSessionId } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
 import { GATE_FILE, GUARANTEE_FILE, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
+import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
@@ -169,6 +170,28 @@ interface RecordRead {
   questions: Question[];
   unread: Unread[];
   recorded: Recorded;
+}
+
+/** What the records say for the back of a seal as a client is sent it: each string cut at `STATE_TEXT_CHARS`. */
+function sealRecordsOf(records: SealRecords): SealRecords {
+  const { record, brokenBy } = records;
+  return {
+    head: records.head,
+    record: record === null ? null : { ...record, commit: cutText(record.commit), branch: cutText(record.branch), base: cutText(record.base), item: cutText(record.item), gate: cutText(record.gate), builtBy: record.builtBy.map(cutText), judgedBy: cutText(record.judgedBy), model: cutText(record.model), rules: cutText(record.rules) },
+    brokenBy: brokenBy === null ? null : { commit: brokenBy.commit, subject: cutText(brokenBy.subject) },
+    rounds: records.rounds.map((round) => ({
+      ...round,
+      findings: round.findings.map((finding) => ({
+        ...finding,
+        says: cutText(finding.says),
+        severity: cutText(finding.severity),
+        places: finding.places.map(({ path, lines }) => ({ path: cutText(path), lines: cutText(lines) })),
+        close: finding.close === null ? null : { ...finding.close, home: cutText(finding.close.home), answer: cutText(finding.close.answer) },
+      })),
+    })),
+    refusals: records.refusals,
+    unreadRefusals: records.unreadRefusals,
+  };
 }
 
 /** What the records say of the chain as a client is sent it: a verdict's reason or question cut at `STATE_TEXT_CHARS`. */
@@ -1314,6 +1337,25 @@ export class Daemon {
         // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost, are not read as its own.
         const { entries, unread } = this.ledger.read(held.item.id, held.item.createdAt);
         this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
+        return;
+      }
+      case "readSealRecords": {
+        const answer = async (): Promise<void> => {
+          try {
+            const held = this.store.workItem(message.workItemId);
+            if (!held) throw new Error(`no work item ${String(message.workItemId)}`);
+            const { item } = held;
+            const head = await branchHead(held.repository.folder, item.branch);
+            if (head === null) throw new Error(`Owlery cannot read the head of the branch ${item.branch}.`);
+            const directory = workItemDirectory(item.worktree, item.branch);
+            // The seal the records are read with is the one the head holds, read again, so the commit that broke it is named for that head.
+            const records = directory === null ? noSealRecords(head) : await sealRecords(item.worktree, directory, head, await workItemSeal(item, head));
+            this.send(socket, { type: "sealRecords", requestId: message.requestId, workItemId: item.id, records: sealRecordsOf(records) });
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        void answer();
         return;
       }
       case "answerPermission": {

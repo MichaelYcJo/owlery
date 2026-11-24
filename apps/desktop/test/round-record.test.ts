@@ -200,10 +200,12 @@ describe("the reader of a round record", () => {
         number: 1,
         heading: "### 1. filled",
         line: 9,
+        severity: "must",
         located: ["path"],
+        places: [{ path: "path", lines: "12" }],
         regression: { round: 1, finding: 1, line: 15 },
         reopens: null,
-        close: { verdict: "fixed", commit: "1a2b3c4", home: null, located: [], line: 24, end: 27 },
+        close: { verdict: "fixed", commit: "1a2b3c4", home: null, answer: "filled", located: [], line: 24, end: 27 },
       },
     ]);
     expect(got.held).toEqual([1]);
@@ -215,12 +217,45 @@ describe("the reader of a round record", () => {
     expect(got.refusals).toEqual([]);
     expect(got.target).toEqual({ said: "fedcba9, fixes 0123abc..fedcba9", commit: "fedcba9", base: null, fixes: { from: "0123abc", to: "fedcba9" }, original: "1234567", line: 4 });
     expect(got.findings.map(({ number, located, regression, reopens, close }) => ({ number, located, regression, reopens, close }))).toEqual([
-      { number: 1, located: ["src/a.ts", "src/b.ts"], regression: { round: 1, finding: 2, line: 16 }, reopens: null, close: { verdict: "fixed", commit: "89abcde", home: null, located: ["test/a.test.ts"], line: 26, end: 30 } },
+      { number: 1, located: ["src/a.ts", "src/b.ts"], regression: { round: 1, finding: 2, line: 16 }, reopens: null, close: { verdict: "fixed", commit: "89abcde", home: null, answer: "The reader refuses the second block.", located: ["test/a.test.ts"], line: 26, end: 30 } },
       { number: 2, located: ["docs/c.md"], regression: null, reopens: { round: 1, finding: 1, line: 37 }, close: null },
     ]);
     // A heading quoted in a fence opens no finding, and a confirmation that names none is no reference.
     expect(got.held).toEqual([1, 2]);
     expect(got.confirmations).toEqual([{ round: 1, finding: 3, line: 45 }]);
+  });
+
+  it("gives each finding its severity and each place of its location with the line or the span of lines its record writes after the colon, or null, and each close its answer, or null where it holds none", () => {
+    const got = readRoundRecord(
+      record(
+        ROUND,
+        "## Findings",
+        "### 1. A symptom",
+        sealed("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`, `src/c.ts`"),
+        sealed("verdict: fixed 89abcde", "answer: The guard moved above the read."),
+        "### 2. Another",
+        sealed("severity: nit, for a person", "location: `docs/d.md`"),
+        sealed("verdict: rejected"),
+        "### 3. A third",
+        sealed("severity: should", "location: `e.ts:7`"),
+      ),
+    );
+    expect(got.refusals).toEqual([]);
+    expect(got.findings.map(({ number, severity, places, located, close }) => ({ number, severity, places, located, answer: close === null ? undefined : close.answer }))).toEqual([
+      {
+        number: 1,
+        severity: "must",
+        places: [
+          { path: "src/a.ts", lines: "12" },
+          { path: "src/b.ts", lines: "3-9" },
+          { path: "src/c.ts", lines: null },
+        ],
+        located: ["src/a.ts", "src/b.ts", "src/c.ts"],
+        answer: "The guard moved above the read.",
+      },
+      { number: 2, severity: "nit, for a person", places: [{ path: "docs/d.md", lines: null }], located: ["docs/d.md"], answer: null },
+      { number: 3, severity: "should", places: [{ path: "e.ts", lines: "7" }], located: ["e.ts"], answer: undefined },
+    ]);
   });
 
   it("gives a rejected close and a deferred one, and a regression that names a round alone", () => {

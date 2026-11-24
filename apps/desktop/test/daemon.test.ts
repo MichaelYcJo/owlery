@@ -4204,6 +4204,38 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
   });
 });
 
+describe("the records of the back of a seal", { timeout: 60_000 }, () => {
+  const NAME = "1795400730-sealed-work";
+  const headOf = (folder: string): string => git(folder, "rev-parse", "HEAD").trim();
+
+  it("answers a `readSealRecords` with what the records of the work item's directory say at its branch's head, with the empty value for a work item with no directory, and with an error for an id it lists no work item under and for a branch whose head it cannot read", async () => {
+    const { made, c, workItems } = await standing(cleanups, ["Sealed work", "No directory", "Gone branch"], { commitPollMs: 60_000 });
+    const [a, b, gone] = workItems as [(typeof workItems)[number], (typeof workItems)[number], (typeof workItems)[number]];
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    const sealed = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
+    expect(sealed).toMatchObject({ type: "sealRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, brokenBy: null, refusals: [], unreadRefusals: 0 } });
+    expect(sealed.type === "sealRecords" ? sealed.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
+    expect(await c.asked({ type: "readSealRecords", requestId: 2, workItemId: b.id })).toEqual({
+      type: "sealRecords",
+      requestId: 2,
+      workItemId: b.id,
+      records: { head: headOf(b.worktree), record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 },
+    });
+    expect(await c.asked({ type: "readSealRecords", requestId: 3, workItemId: 99 })).toEqual({ type: "error", requestId: 3, message: "no work item 99" });
+    git(made.repo, "update-ref", "-d", `refs/heads/${gone.branch}`);
+    expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(gone.branch) });
+  });
+
+  it("names the commit that broke a broken seal, read with the seal the head holds", async () => {
+    const { c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 60_000 });
+    const a = workItems[0]!;
+    commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+    git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
+    expect(await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id })).toMatchObject({ type: "sealRecords", records: { brokenBy: { commit: headOf(a.worktree), subject: "fix: change the greeting" } } });
+  });
+});
+
 describe("the commit of a person's word", () => {
   const DEFAULT = { kind: "default", says: "Start from main.", grounds: "The default base." } as const;
   const WHO = "Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>";

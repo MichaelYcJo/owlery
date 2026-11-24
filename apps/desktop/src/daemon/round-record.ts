@@ -34,22 +34,31 @@ export interface Target {
   line: number;
 }
 
-/** A finding's close block: its verdict, the commit of a `fixed` one, the home of a `deferred` one, the paths its own `location:` names, and the 1-based lines of its opener and its closer. */
+/** A finding's close block: its verdict, the commit of a `fixed` one, the home of a `deferred` one, the value of its `answer:` line or null where it holds none, the paths its own `location:` names, and the 1-based lines of its opener and its closer. */
 export interface Close {
   verdict: "fixed" | "rejected" | "deferred";
   commit: string | null;
   home: string | null;
+  answer: string | null;
   located: string[];
   line: number;
   end: number;
 }
 
-/** One finding: its heading and the heading's number and 1-based line, the paths its `location:` names, its references, and its close, null where it is open. */
+/** One place a `location:` line names: a path, and the line or the span of lines written after its colon, or null where none is. */
+export interface Place {
+  path: string;
+  lines: string | null;
+}
+
+/** One finding: its heading and the heading's number and 1-based line, the value of its `severity:` line, the paths its `location:` names and each place with its lines, its references, and its close, null where it is open. */
 export interface Finding {
   number: number;
   heading: string;
   line: number;
+  severity: string;
   located: string[];
+  places: Place[];
   regression: Reference | null;
   reopens: Reference | null;
   close: Close | null;
@@ -148,9 +157,17 @@ function reference(found: NonNullable<ReturnType<typeof field>>): Reference {
   return { round: Number(round), finding: finding === undefined ? null : Number(finding), line: found.line };
 }
 
-/** The paths a `location:` value names, in order: each backticked item to its first colon, which the value's shape keeps out of a path. */
+/** The places a `location:` value names, in order: each backticked item's path to its first colon, which the value's shape keeps out of a path, and what follows the colon, or null where the item holds none. */
+function locationPlaces(value: string): Place[] {
+  return value.split(", ").map((item) => {
+    const [path = "", ...lines] = item.replace(/^`+/, "").replace(/`+$/, "").split(":");
+    return { path, lines: lines.length === 0 ? null : lines.join(":") };
+  });
+}
+
+/** The paths a `location:` value names, in order. */
 function locationPaths(value: string): string[] {
-  return value.split(", ").map((item) => item.replace(/^`+/, "").replace(/`+$/, "").split(":")[0] ?? "");
+  return locationPlaces(value).map(({ path }) => path);
 }
 
 function targetOf(block: Block): Target {
@@ -170,6 +187,7 @@ function closeOf(block: Block): Close {
     verdict: (verdict?.value.split(" ", 1)[0] ?? "") as Close["verdict"],
     commit: verdict?.groups.commit ?? null,
     home: verdict?.groups.home ?? null,
+    answer: field(block, "answer:")?.value ?? null,
     located: location === undefined ? [] : locationPaths(location.value),
     line: block.line,
     end: block.end,
@@ -245,11 +263,14 @@ export function readRoundRecord(text: string): RoundRecord {
     if (finding === undefined || wrong.length > 0) continue;
     const regression = field(finding, "regression:");
     const reopens = field(finding, "reopens:");
+    const places = locationPlaces(field(finding, "location:")?.value ?? "");
     findings.push({
       number: Number(number),
       heading: headings[at] ?? "",
       line: first + 1,
-      located: locationPaths(field(finding, "location:")?.value ?? ""),
+      severity: field(finding, "severity:")?.value ?? "",
+      located: places.map(({ path }) => path),
+      places,
       regression: regression === undefined ? null : reference(regression),
       reopens: reopens === undefined ? null : reference(reopens),
       close: close === undefined ? null : closeOf(close),
