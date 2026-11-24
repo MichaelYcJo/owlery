@@ -1,22 +1,27 @@
-// Real role sessions: the person's own `claude`, on their login, launched as
-// a role at its stage with the built bundle. Each costs the person's
-// usage, so the suite never runs one: `pnpm run role:run` sets
-// `OWLERY_ROLE_RUN` and takes the first case, as the proofer at a round, and
+// Role sessions of the person's own `claude`, launched by the daemon as a
+// role at its stage with the built bundle. The suite runs neither case:
+// `pnpm run role:run` sets `OWLERY_ROLE_RUN` and takes the first, and
 // `pnpm run role:refusal` and `pnpm run role:refusal:sealer` set
 // `OWLERY_ROLE_REFUSAL` and take the second, as the proofer at a round and
-// as the sealer at the seal, so each script spends one session. Without
-// either variable the file runs nothing.
+// as the sealer at the seal. Without either variable the file runs nothing.
 //
-// The first session is asked three things it can answer only from what a
-// role launch gives it: one from its definition, one from the rules the
-// daemon appended, and one from a file of the bundle it has to open. The case
-// also holds the person's settings files and plugin lists to their bytes.
+// The first case is a real session on the person's login, as the proofer at
+// a round, and costs the person's usage. It is asked three things it can
+// answer only from what a role launch gives it: one from its definition, one
+// from the rules the daemon appended, and one from a file of the bundle it
+// has to open. The case also holds the person's settings files and plugin
+// lists to their bytes.
 //
-// The second is asked to append to a file with one shell command, which a
-// proofer's grant and a sealer's refuse: the case reads the stream for the
-// session's tools, the request and the refusal, and the file for its bytes.
+// The second runs the real CLI against a stand-in for the model on the
+// loopback (`model-stand-in.ts`), with a key that is no key and a home and a
+// config folder of its own, so it costs nothing and reads no file of the
+// person's Claude Code folder. The stand-in answers the session's first turn
+// with one shell command that appends to a file, which a proofer's grant and
+// a sealer's refuse, so the call is made whatever a model would choose. The
+// case reads the stream for the session's tools and the request, what the
+// stand-in was told of the refusal, and the file for its bytes.
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -27,6 +32,7 @@ import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { terminalEnv } from "../src/daemon/pty";
 import type { HeadlessInfo, RoleStage, ServerMessage } from "../src/shared/protocol";
 import { buildApp } from "./built-app";
+import { startModelStandIn, toolResults } from "./model-stand-in";
 import { temporaryRepository } from "./repositories";
 
 /** The run, started by `pnpm run role:run`. */
@@ -48,12 +54,10 @@ const PROMPT = [
   "3. Read the file `templates/records/sdd-round.md` of the role bundle, and quote its first line exactly.",
 ].join("\n");
 
-/** The command the second session is asked to run: it appends one byte to a tracked file, so it is no command Claude Code runs unasked. */
+/** The command of the stand-in model's call in the second session: it appends one byte to a tracked file, so it is no command Claude Code runs unasked. */
 const APPEND = "printf x >> README.md";
 
-const REFUSAL_PROMPT = [`Run this one shell command with your Bash tool, exactly as written, in the folder you work in: \`${APPEND}\``, "Make that one call and no other. Then say in one line what happened, and stop."].join("\n");
-
-describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Claude login", () => {
+describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a real one on their login, and one against a stand-in model that costs nothing", () => {
   let made: ReturnType<typeof temporaryRepository> | undefined;
   let daemon: Daemon | undefined;
   let socket: WebSocket | undefined;
@@ -67,8 +71,13 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
 
   const bytes = (): (string | null)[] => UNCHANGED.map((file) => (existsSync(join(homedir(), file)) ? readFileSync(join(homedir(), file)).toString("base64") : null));
 
-  /** Launches one session as the pair given on `prompt`, in a work item of a scratch repository, and gives the session as it ended, the lines of its output stream, every message the daemon sent, and the work item's folder. */
-  async function launched(prompt: string, role: RoleStage): Promise<{ headless: HeadlessInfo; lines: Record<string, unknown>[]; messages: ServerMessage[]; worktree: string }> {
+  /**
+   * Launches one session as the pair given on `prompt`, in a work item of a scratch repository, and gives the session as
+   * it ended, the lines of its output stream, every message the daemon sent, and the work item's folder. `model` is a
+   * stand-in model's address: given, every run of the CLI the daemon makes goes to it with a key that is no key, and
+   * under a home and a config folder of the kept folder's.
+   */
+  async function launched(prompt: string, role: RoleStage, model?: string): Promise<{ headless: HeadlessInfo; lines: Record<string, unknown>[]; messages: ServerMessage[]; worktree: string }> {
     // The CLI as the adapter finds it, through the person's login shell. The adapter is then given a shell that names a
     // script in its place: the script runs that CLI with the arguments and the environment the adapter gave it, and
     // keeps a copy of what it printed.
@@ -88,8 +97,18 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
       chmodSync(file, 0o755);
       return file;
     };
+    // Set in the script, because the daemon passes a session none of its own variables, and before the read of the
+    // version, so that run takes them too.
+    let pointed = "";
+    if (model !== undefined) {
+      const home = join(kept, "home");
+      const config = join(kept, "config");
+      mkdirSync(home);
+      mkdirSync(config);
+      pointed = `export ANTHROPIC_BASE_URL='${model}'\nexport ANTHROPIC_API_KEY='stand-in-key-not-a-secret'\nexport HOME='${home}'\nexport CLAUDE_CONFIG_DIR='${config}'\nexport CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\n`;
+    }
     // The daemon also runs the CLI at its start, to read its version, and that run's output is no part of the stream.
-    const copying = script("claude-copying", `if [ "$*" = "--version" ]; then exec '${cli}' --version; fi\n'${cli}' "$@" | tee '${stream}'`);
+    const copying = script("claude-copying", `${pointed}if [ "$*" = "--version" ]; then exec '${cli}' --version; fi\n'${cli}' "$@" | tee '${stream}'`);
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${copying}' '${path}'`);
 
     const bundleDir = join(__dirname, "..", "dist", "bundle");
@@ -148,21 +167,43 @@ describe.skipIf(!RUN && !REFUSAL)("a real role session, on the person's own Clau
     expect(after).toEqual(before);
   }, 300_000);
 
-  it.skipIf(!REFUSAL)("holds the tools of its grant alone, and is refused a command that would change a file: the request reaches the daemon, the daemon's rule refuses it, and the file keeps its bytes", async () => {
+  it.skipIf(!REFUSAL)("runs the real CLI against a stand-in model, at no cost, and holds the tools of its grant alone: the stand-in's command that would change a file reaches the daemon as a request, the daemon's rule refuses it, the model is told why, and the file keeps its bytes", async () => {
     const pair = REFUSED ?? PROOFER;
-    const { headless, lines, messages, worktree } = await launched(REFUSAL_PROMPT, pair);
-    const text = lines.map((line) => JSON.stringify(line)).join("\n");
-    console.log(JSON.stringify({ types: lines.map((line) => (line.type === "control_request" ? `control_request:${String((line.request as { subtype?: unknown } | undefined)?.subtype)}` : line.type)), toolResults: lines.filter((line) => line.type === "user") }, null, 2));
+    const model = await startModelStandIn(APPEND);
+    let ended: Awaited<ReturnType<typeof launched>>;
+    try {
+      ended = await launched("Review the round.", pair, model.url);
+    } finally {
+      await model.close();
+    }
+    const { headless, lines, messages, worktree } = ended;
+    const init = lines.find((line) => line.type === "system" && line.subtype === "init") as { tools?: string[]; permissionMode?: string; apiKeySource?: string; claude_code_version?: string } | undefined;
+    const told = model.received.flatMap((request) => toolResults(request.body)).map((result) => ({ isError: result.is_error, content: typeof result.content === "string" ? result.content : JSON.stringify(result.content) }));
+    console.log(
+      JSON.stringify(
+        {
+          version: init?.claude_code_version,
+          types: lines.map((line) => (line.type === "control_request" ? `control_request:${String((line.request as { subtype?: unknown } | undefined)?.subtype)}` : line.type)),
+          toolResults: lines.filter((line) => line.type === "user"),
+          received: model.received.map((request) => ({ method: request.method, path: request.path, tools: Array.isArray(request.body?.tools) ? (request.body.tools as { name?: unknown }[]).map((tool) => tool.name) : null, toolResults: toolResults(request.body) })),
+        },
+        null,
+        2,
+      ),
+    );
 
-    // The session's first line lists the four tools of the pair's grant, a proofer's and a sealer's alike, and no other.
-    const init = lines.find((line) => line.type === "system" && line.subtype === "init") as { tools?: string[]; permissionMode?: string } | undefined;
+    // The session's first line lists the four tools of the pair's grant, a proofer's and a sealer's alike, and no other, and names the placeholder key as the one it runs on, so no login of the person's.
     expect([...(init?.tools ?? [])].sort()).toEqual(["Bash", "Glob", "Grep", "Read"]);
     expect(init?.permissionMode).toBe("default");
-    // The call reached the daemon as a request, on the session's output stream.
+    expect(init?.apiKeySource).toBe("ANTHROPIC_API_KEY");
+    // The stand-in was asked for the session's turns. Where it was not, the call below was never made, and nothing the case reads says anything of the daemon.
+    const asked = model.received.filter((request) => request.method === "POST" && new URL(request.path, "http://stand-in").pathname === "/v1/messages");
+    expect(asked.length, "the CLI did not reach the stand-in model").toBeGreaterThan(0);
+    // The stand-in's call reached the daemon as a request, on the session's output stream.
     const requests = lines.filter((line) => line.type === "control_request").map((line) => line.request as { subtype?: string; tool_name?: string; input?: { command?: string } });
-    expect(requests.filter((request) => request.subtype === "can_use_tool").map((request) => request.tool_name)).toContain("Bash");
-    // The session was told the reason of its role's refused command, which only the daemon's rule states.
-    expect(text).toContain(`Owlery gives the ${pair.role} no command that asks for permission.`);
+    expect(requests.filter((request) => request.subtype === "can_use_tool").map((request) => ({ tool: request.tool_name, command: request.input?.command }))).toContainEqual({ tool: "Bash", command: APPEND });
+    // The model was told, as a call that failed, the reason of its role's refused command, which only the daemon's rule states.
+    expect(told).toContainEqual({ isError: true, content: expect.stringContaining(`Owlery gives the ${pair.role} no command that asks for permission.`) });
     // Nothing was appended.
     expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\n");
     expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, pair]);
