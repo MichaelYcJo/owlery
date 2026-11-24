@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type Seal, type SealRecords, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack } from "../shared/seal-back";
 
 /**
@@ -125,7 +125,7 @@ function permissionsOf(workItem: WorkItem): readonly PermissionAsk[] {
   return (workItem.permissions as PermissionAsk[] | undefined) ?? [];
 }
 
-/** A work item's chain: the one the daemon sends, null where no chain ran for the work item, and undefined for a daemon of an earlier build, which sends no such field and offers no "Get a seal". */
+/** A work item's chain: the one the daemon sends, null where no chain ran for the work item, and undefined for a daemon of an earlier build, which sends no such field. */
 function chainOf(workItem: WorkItem): Chain | null | undefined {
   return workItem.chain as Chain | null | undefined;
 }
@@ -2751,13 +2751,52 @@ export function settingsBases(plan: PlanAnswered | null, chosen: string | null):
  * What the settings dialog sends for a repository: the name where it is
  * another than the one a person gave, null for an empty one, and the base
  * where the menu's value is another than the repository's, null for the
- * first choice. A field that did not change is left out, and an object with
- * none is nothing to send.
+ * first choice, and the chain of its Claude Code panes where the menu's
+ * value is another than the answer kept, null for no answer. A field that
+ * did not change is left out, and an object with none is nothing to send.
  */
-export function settingsFields(repository: Repository, name: string, base: string): { name?: string | null; defaultBase?: string | null } {
+export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? ""): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null } {
   const named = name.trim() || null;
   const chosen = base || null;
-  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }) };
+  const runs = chain === "owlery" || chain === "plugin" ? chain : null;
+  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }), ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }) };
+}
+
+/** Which chain a repository's Claude Code panes run, or null for a repository of a daemon of an earlier build, which sends none: the window then asks no choice for it. */
+export function paneChainOf(repository: Repository | undefined): RepositoryChain | null {
+  return (repository as { chain?: RepositoryChain } | undefined)?.chain ?? null;
+}
+
+/**
+ * Whether the window asks which chain runs before it opens a pane of `kind`
+ * in a repository: for a Claude Code pane of a repository on the owl chain
+ * whose Claude Code enables the AgenticSeal plugin, while the person gave no
+ * answer. One chain seals a repository, and the daemon launches such a pane
+ * with nothing of the owl chain until an answer is kept. A shell is asked
+ * nothing, and neither is a repository the window does not hold.
+ */
+export function asksChain(repository: Repository | undefined, kind: PaneKind): boolean {
+  const chain = paneChainOf(repository);
+  return kind === "claude" && chain !== null && chain.owl && chain.plugin && chain.chosen === null;
+}
+
+/** The menu's choices of a chain, by the value the menu holds for each: the empty value is no answer, which has the window ask at the next Claude Code pane. */
+export const CHAIN_CHOICES: readonly { value: "" | ChainChoice; label: string }[] = [
+  { value: "", label: "Ask at the next Claude Code pane" },
+  { value: "owlery", label: "The owl chain" },
+  { value: "plugin", label: "The AgenticSeal plugin" },
+];
+
+/**
+ * The chain's field of a repository's settings: whether the dialog shows
+ * it, and the value its menu holds. It is shown where the choice is read,
+ * which is a repository on the owl chain whose Claude Code enables the
+ * AgenticSeal plugin, and where an answer is kept, so an answer a person
+ * gave can be seen and changed though the plugin is off now.
+ */
+export function settingsChain(repository: Repository): { shown: boolean; value: "" | ChainChoice } {
+  const chain = paneChainOf(repository);
+  return { shown: chain !== null && ((chain.owl && chain.plugin) || chain.chosen !== null), value: chain?.chosen ?? "" };
 }
 
 /**
@@ -2770,51 +2809,15 @@ export function askButton(prompt: string, workItem: WorkItem): { enabled: boolea
   return { enabled: true, title: `Ask in ${workItem.title}` };
 }
 
-/** The daemon's refusal of a press of "Get a seal": its sentence, with the state of the work item's chain and the time the chain took it as the window held them at the refusal, each null where no chain ran for the work item. */
-export interface SealRefusal {
-  says: string;
-  state: Chain["state"] | null;
-  since: number | null;
-}
-
-/** The refusal the daemon answered a press of "Get a seal" with, for the work item as the window holds it at the answer, or for none where the window no longer lists it. */
-export function refusedSeal(workItem: WorkItem | undefined, says: string): SealRefusal {
-  const chain = workItem && chainOf(workItem);
-  return { says, state: chain?.state ?? null, since: chain?.since ?? null };
-}
-
 /**
- * The "Get a seal" button of a work item's view, which starts the work
- * item's chain: its words, whether it is drawn, whether it can be pressed,
- * its title, the chain's sentence that stands above it, and the refusal
- * under it. Its words are "Get a new seal" where the seal the branch's head
- * holds is broken, and "Get a seal" otherwise: it sends the same request
- * either way, and the daemon runs the step the order owes. It
- * is drawn where the daemon sent the work item's chain, a chain or none,
- * and not for a daemon of an earlier build, which sends no such field and
- * starts no chain. It cannot be pressed while the chain is running, nor
- * while `asked`, the window's own request to start it, waits for the
- * daemon's answer. `refused` is the daemon's refusal of the window's last
- * request for the work item (`refusedSeal`), or null. Its sentence is said
- * while the chain stands as it stood when the daemon refused, in that state
- * since that time, and not while the chain runs: a chain that took a state
- * since then ran, whoever started it, and what refused the press may no
- * longer hold.
+ * The sentence of a work item's chain, which stands at its view's foot under
+ * the seal's words: where the chain of the daemon stands. It is empty where
+ * no chain ran for the work item, and for a daemon of an earlier build,
+ * which sends no chain. Nothing in the window starts a chain, so the foot
+ * holds nothing to press.
  */
-export function sealButton(workItem: WorkItem, asked: boolean, refused: SealRefusal | null): { words: string; offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
-  const chain = chainOf(workItem);
-  const words = workItem.seal?.state === "broken" ? "Get a new seal" : "Get a seal";
-  if (chain === undefined) return { words, offered: false, enabled: false, title: "", says: "", refusal: "" };
-  const running = chain?.state === "running";
-  const stands = refused !== null && refused.state === (chain?.state ?? null) && refused.since === (chain?.since ?? null);
-  return {
-    words,
-    offered: true,
-    enabled: !running && !asked,
-    title: running ? "The chain is running." : asked ? "The chain is starting." : `Start the review rounds on ${workItem.title}`,
-    says: chain?.says ?? "",
-    refusal: running || !stands ? "" : refused.says,
-  };
+export function chainSays(workItem: WorkItem): string {
+  return chainOf(workItem)?.says ?? "";
 }
 
 /** The headless sessions the window holds, with one the daemon just sent: in place of the one of the same id, or after the others. */

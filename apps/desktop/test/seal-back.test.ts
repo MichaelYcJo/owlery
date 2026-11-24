@@ -58,6 +58,9 @@ function records(rounds: BackRound[], more: Partial<SealRecords> = {}): SealReco
   return { head: A, record: RECORD, brokenBy: null, rounds, refusals: [], unreadRefusals: 0, ...more };
 }
 
+/** What the back says of the costs where the ledger holds no stage of the chain. */
+const OUTSIDE_DAEMON = "The stages of this chain ran outside Owlery's daemon, in a pane's session or in another tool, and Owlery read no cost of them.";
+
 describe("the back of a seal, composed", () => {
   it("says that rounds that caught nothing caught nothing, in the head and in the round's part, with the round's stage and the sum of its cost", () => {
     const back = composeBack(records([round(1)]), [entry({ kind: "round", round: 1 })], 0);
@@ -154,11 +157,11 @@ describe("the back of a seal, composed", () => {
     expect([ended({ state: "failed", stopped: "request" }), ended({ state: "failed", stopped: "daemon" }), ended({ state: "finished" })]).toEqual(["Stopped", "Stopped with the daemon", null]);
   });
 
-  it("sets no session outside the chain in a round, whatever its pair, and counts them with their cost in one line of their own", () => {
+  it("sets no session outside the chain in a round, whatever its pair, and counts them with their cost in one line of their own and in no sum of the chain, which then holds no stage of the ledger", () => {
     const entries = [entry(null, { usage: usage(0.05) }), entry(null, { stage: { role: "proofer", stage: "round" }, usage: usage(0.07) })];
     const back = composeBack(records([round(1)]), entries, 0);
     expect(back.rounds.map(({ stages }) => stages)).toEqual([[]]);
-    expect([back.after, back.sums, back.outside]).toEqual([[], [], "2 sessions asked outside the chain cost $0.12 converted."]);
+    expect([back.after, back.sums, back.outside]).toEqual([[], [OUTSIDE_DAEMON], "2 sessions asked outside the chain cost $0.12 converted."]);
     expect(composeBack(records([]), [entry(null, { usage: null })], 0).outside).toBe("1 session asked outside the chain reported no cost.");
   });
 
@@ -186,6 +189,17 @@ describe("the back of a seal, composed", () => {
       ["Round 2", "No record of round 2 is committed.", ["Round 2"]],
     ]);
     expect(back.sums).toEqual(["The chain's stages cost $0.66 converted."]);
+  });
+
+  it("says where the costs are where the records hold a round or a verdict and the ledger holds no stage of the chain: the stages ran outside the daemon and Owlery read no cost of them, and says nothing of it where the ledger holds a stage of the chain or the records hold neither", () => {
+    expect(composeBack(records([round(1)]), [], 0).sums).toEqual([OUTSIDE_DAEMON]);
+    // A verdict with no round, and a round with no verdict.
+    expect(composeBack(records([]), [], 0).sums).toEqual([OUTSIDE_DAEMON]);
+    expect(composeBack(records([round(1)], { record: null }), [], 0).sums).toEqual([OUTSIDE_DAEMON]);
+    // One stage of the chain in the ledger, whatever it reported, and the daemon ran the chain.
+    expect(composeBack(records([round(1)]), [entry({ kind: "round", round: 1 })], 0).sums).toEqual(["The chain's stages cost $0.28 converted."]);
+    expect(composeBack(records([round(1)]), [entry({ kind: "gate", round: 1 })], 0).sums).toEqual([]);
+    expect(composeBack(records([], { record: null }), [], 0).sums).toEqual([]);
   });
 
   it("gives the seal's record as rows of a label and a value, the commit that broke a broken seal, the refused calls of each stage, and the lines not read", () => {

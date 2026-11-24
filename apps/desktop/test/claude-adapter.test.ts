@@ -576,7 +576,7 @@ describe("a role's rules file", () => {
         "",
         "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.",
         "",
-        "The bundle holds documents only. A path under those four directories that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+        "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
         "",
       ].join("\n"),
     );
@@ -588,6 +588,23 @@ describe("a role's rules file", () => {
         `\n\nYou hold these tools and no other: ${toolsOf(pair).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.\n\n`,
       );
     }
+  });
+
+  it("opens the rules of a pane's subagent with a head that differs from a role session's in two sentences: the documents are not said to be in its context, and it holds those of the tools its definition names that the session offers, under the person's own permission settings, with no word of the daemon", () => {
+    for (const pair of ROLE_STAGES) {
+      const session = rulesHead("/app/dist/bundle", pair).split("\n");
+      const pane = rulesHead("/app/dist/bundle", pair, "pane").split("\n");
+      expect(rulesHead("/app/dist/bundle", pair, "session").split("\n"), pair.role).toEqual(session);
+      expect(pane.length, pair.role).toBe(session.length);
+      expect(pane.flatMap((line, index) => (line === session[index] ? [] : [line])), pair.role).toEqual([
+        "The documents below follow this head whole, in this order, so do not open them again in the bundle:",
+        "You hold, of the tools your definition names, those the session that started you offers, and that session's tools where your definition names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call.",
+      ]);
+      expect(pane.join("\n"), pair.role).not.toContain("daemon");
+    }
+    const bundle = scratchBundle(temporaryFolder());
+    expect(rulesText(bundle, PROOFER, "pane").startsWith(`${rulesHead(bundle, PROOFER, "pane")}\n===== skills/core/SKILL.md =====\n`)).toBe(true);
+    expect(rulesText(bundle, PROOFER, "pane").slice(rulesHead(bundle, PROOFER, "pane").length)).toBe(rulesText(bundle, PROOFER).slice(rulesHead(bundle, PROOFER).length));
   });
 
   it("holds the head, then each document after a line that names it, whole and without its frontmatter, in the table's order", () => {

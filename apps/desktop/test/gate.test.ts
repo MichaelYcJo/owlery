@@ -181,7 +181,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const gate = 'pwd -P; git rev-parse HEAD; for fd in 0 1 2; do if [ -t $fd ]; then echo "$fd terminal"; else echo "$fd none"; fi; done; echo "$OWLERY_CASE"';
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin", OWLERY_CASE: "the case's own" }, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
-    expect(await c.getSeal(a.id, 1)).toBe("done");
+    expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
     expect(chain.stages.at(-3)).toMatchObject({ kind: "gate", state: "finished", gate: { command: gate, exitCode: 0, output: true } });
     // The head the command read is the commit of round 1's record: the run's own record and the sealer's verdict are the two commits after it.
@@ -194,13 +194,13 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     asShell(shell(`echo asked >> '${out}/asked'; printf '\\n__owlery_path=%s\\n' "/stand-in/bin:$PATH"`));
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate: 'echo "$PATH"; env | grep -c -E "^(TERM|COLORTERM)="; true', gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
-    expect(await c.getSeal(a.id, 1)).toBe("done");
+    expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     expect(await output(c, a.id, 2)).toMatch(/^\/stand-in\/bin:.*\n0\n$/u);
     write(a.worktree, "feature.txt", "Another greeting\n");
     commitAll(a.worktree, "feat: greet again");
     c.messages.length = 0;
-    expect(await c.getSeal(a.id, 3)).toBe("done");
+    expect(await c.startChain(a.id)).toBe("done");
     expect((await c.chain(a.id, "rested")).stages.map(({ kind }) => kind)).toEqual(["round", "gate", "seal", "pull-request", "round", "gate", "seal", "pull-request"]);
     expect(readFileSync(join(out, "asked"), "utf8")).toBe("asked\n");
   });
@@ -210,7 +210,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const closing = folder();
     asShell(slow(closing));
     const closed = await standing(cleanups, ["Sealed work"], { gate: `echo ran >> '${closing}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
-    expect(await closed.c.getSeal(closed.workItems[0]!.id, 1)).toBe("done");
+    expect(await closed.c.startChain(closed.workItems[0]!.id)).toBe("done");
     await stands(join(closing, "asked"));
     await closed.d.close();
     expect(existsSync(join(closing, "ran"))).toBe(false);
@@ -219,7 +219,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     asShell(slow(archiving));
     const archived = await standing(cleanups, ["Sealed work"], { gate: `echo ran >> '${archiving}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     const a = archived.workItems[0]!;
-    expect(await archived.c.getSeal(a.id, 1)).toBe("done");
+    expect(await archived.c.startChain(a.id)).toBe("done");
     await stands(join(archiving, "asked"));
     expect((await archived.c.asked({ type: "archiveWorkItem", requestId: 2, id: a.id, running: { panes: [], headless: [] } })).type).toBe("done");
     const chain = await archived.c.chain(a.id, "stopped");
@@ -237,7 +237,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const d = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, roleAdapter: roles(), commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), runDir, worktreesRoot: made.root, now: () => NOW });
     const port = await d.listen(0);
     cleanups.push(() => d.close());
-    const c = await client(`ws://127.0.0.1:${String(port)}`, cleanups);
+    const c = await client({ url: `ws://127.0.0.1:${String(port)}`, d }, cleanups);
     await c.message("ready");
     const created = await c.asked({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Given the id", kind: "shell", cols: 80, rows: 24 });
     expect(created).toMatchObject({ type: "workItemCreated", workItem: { id: 1 } });
@@ -254,14 +254,14 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const d = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, roleAdapter: roles({ proofer: clean }), commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), worktreesRoot: made.root, now: () => NOW, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
     const port = await d.listen(0);
     cleanups.push(() => d.close());
-    const c = await client(`ws://127.0.0.1:${String(port)}`, cleanups);
+    const c = await client({ url: `ws://127.0.0.1:${String(port)}`, d }, cleanups);
     await c.message("ready");
     const created = await c.asked({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Kept in memory", kind: "shell", cols: 80, rows: 24 });
     if (created.type !== "workItemCreated") throw new Error(`the work item was not created: ${JSON.stringify(created)}`);
     const { id, worktree } = created.workItem;
     write(worktree, "feature.txt", "A greeting\n");
     commitAll(worktree, "feat: greet");
-    expect(await c.getSeal(id, 2)).toBe("done");
+    expect(await c.startChain(id)).toBe("done");
     expect((await c.chain(id, "stopped")).stages.at(-1)).toMatchObject({ kind: "gate", state: "failed", gate: { exitCode: 1, output: true } });
     expect(await output(c, id, 3)).toBe("kept\n");
     const loss = await c.asked({ type: "readLoss", requestId: 4, id });

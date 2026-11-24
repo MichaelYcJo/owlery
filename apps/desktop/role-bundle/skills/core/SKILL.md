@@ -2,7 +2,7 @@
 name: core
 description: |
   The values every AgenticSeal party judges by, and the rule a mechanism is
-  kept against. Not a command to run: the daemon appends it to the system prompt of every role session.
+  kept against. Not a command to run: it opens the rules file Owlery hands every role.
   Use when: two designs break no rule either way and one has to be chosen,
   or a mechanism's keep is in question.
   NOT for: a rule true of every agent (`agent-contract`), one agent's own
@@ -104,12 +104,12 @@ one of those protections, is guidance.
 |---|---|---|
 | No review without a build | a round reads a committed tree and its record names the commit | `skills/code-review/scripts/chain_check.py`'s records arm: every record carries one `target:` line, and HEAD descends from the last record's commit and from every `fixed` commit |
 | No fix that no round reads | every change after the last round is read by a round, or by the sealer where it touched the work item's records alone and each finding it closed is located in those records alone | the same check: the last record is at HEAD or only the work item's records follow it, and every `fixed` or `rejected` finding is named by the next record |
-| No seal without the broad run at HEAD | the sealer guarantees a tree the command in the repository's `Broad gate` key of `seal/config.json` passed at HEAD | Owlery's daemon launches the sealer only where the newest run of `trail/gate.md` holds at the branch's head, and writes no verdict where the head moved (`agents/sealer.md` *The daemon holds that the gate passed on the audited commit*); the same check's broad gate arm |
-| No pull request without a seal | nothing reaches the base that the last independent party did not guarantee | the same check's guarantee arm: a ready pull request fails without `Verdict: sealed` at HEAD; and its body arm: a ready pull request fails where its body's seal section, which Owlery's daemon writes, holds a verdict block other than the newest of the work item's `guarantee.md` at HEAD |
+| No seal without the broad run at HEAD | the sealer guarantees a tree the command in the repository's `Broad gate` key of `seal/config.json` passed at HEAD | Owlery's order owes the sealer's stage only where the newest run of `trail/gate.md` holds at the branch's head, and Owlery writes no verdict where the head moved (`agents/sealer.md` *Owlery holds that the gate passed on the audited commit*); the same check's broad gate arm |
+| No pull request without a seal | nothing reaches the base that the last independent party did not guarantee | the same check's guarantee arm: a ready pull request fails without `Verdict: sealed` at HEAD; and its body arm: a ready pull request fails where its body's seal section, which Owlery composes, holds a verdict block other than the newest of the work item's `guarantee.md` at HEAD |
 
 The check refuses only a ready pull request, where its GitHub Actions
 workflow is installed; before the pull request, and in local mode, the four
-rows are held by the daemon's order of the stages and by the orchestrator keeping
+rows are held by Owlery's order of the stages and by the orchestrator keeping
 `skills/code-review/orchestration.md` *Orchestrator: the pull request opens
 once the sealer seals*.
 
