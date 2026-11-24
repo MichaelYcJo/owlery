@@ -11,6 +11,8 @@ import {
   askButton,
   askedSection,
   asksFetch,
+  backKey,
+  backShown,
   BASE_ANSWER_MS,
   baseKey,
   baseMenu,
@@ -24,6 +26,7 @@ import {
   changesSince,
   choiceNote,
   closeAsks,
+  codeParts,
   commandKey,
   commitLines,
   daemonEnding,
@@ -45,6 +48,7 @@ import {
   GATE_OUTPUT_SHOWS,
   gateLine,
   headlessKey,
+  hasBack,
   headlessLines,
   hiddenRepositories,
   historyLines,
@@ -77,6 +81,7 @@ import {
   noticeWithout,
   notificationFor,
   notificationOpens,
+  opensToBack,
   placeWords,
   pullRequestFacts,
   pullRequestNotifications,
@@ -148,7 +153,8 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -1762,6 +1768,71 @@ describe("the seal a work item's head holds", () => {
     expect(sealNotifications([SEALED], [SEALED], undefined)).toEqual([]);
     expect(sealNotifications([SEALED], [{ ...LOGIN, seal: null }], undefined)).toEqual([]);
     expect(sealNotifications([BROKEN], [SEALED], undefined)).toEqual([]);
+  });
+});
+
+describe("the back of a seal in a work item's view", () => {
+  const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
+  const HOLDS: Seal = { state: "sealed", commit: COMMIT, why: null };
+  const BROKE: Seal = { state: "broken", commit: COMMIT, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+  const ROUNDS: Recorded = { framed: false, rounds: 1, gate: null, verdict: null };
+  const RESTS: Chain = { state: "rested", says: "The chain rests.", since: 5, stages: [] };
+  const RECORDS: SealRecords = { head: COMMIT, record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 };
+  const ENTRY: LedgerEntry = { workItemId: 1, repo: "/r/project", branch: "owlery/fix-the-login-bug", stage: null, chain: null, startedAt: 0, endedAt: 60_000, state: "finished", stopped: null, usage: { costUsd: 0.12, converted: true, models: [] } };
+
+  it("gives the strip the back's tab where the work item's seal is a seal, sealed or broken, where its records count a round, or where the daemon sent its chain, and none where its seal is null or was not sent and nothing else holds", () => {
+    expect(hasBack({ ...LOGIN, seal: HOLDS })).toBe(true);
+    expect(hasBack({ ...LOGIN, seal: BROKE })).toBe(true);
+    expect(hasBack({ ...LOGIN, recorded: ROUNDS })).toBe(true);
+    expect(hasBack({ ...LOGIN, chain: RESTS })).toBe(true);
+    // A null seal and one the daemon sent none of are read alike, and records that count no round hold no back.
+    expect(hasBack(LOGIN)).toBe(false);
+    expect(hasBack({ ...LOGIN, seal: null })).toBe(false);
+    expect(hasBack({ ...LOGIN, seal: null, recorded: { ...ROUNDS, rounds: 0 } })).toBe(false);
+  });
+
+  it("opens a view entered with no pane to the back where the work item's seal is a seal, sealed or broken, and to a pane where one is given or where no seal is held", () => {
+    expect(opensToBack({ ...LOGIN, seal: HOLDS }, undefined)).toBe(true);
+    expect(opensToBack({ ...LOGIN, seal: BROKE }, undefined)).toBe(true);
+    // A pane given, as from a session's notification, is the one in front.
+    expect(opensToBack({ ...LOGIN, seal: HOLDS }, 3)).toBe(false);
+    // Rounds and a chain give the strip the back's tab, and the view still opens to a pane.
+    expect(opensToBack({ ...LOGIN, seal: null, recorded: ROUNDS, chain: RESTS }, undefined)).toBe(false);
+    expect(opensToBack(LOGIN, undefined)).toBe(false);
+    expect(opensToBack(undefined, undefined)).toBe(false);
+  });
+
+  it("asks for the back again where the work item's seal, its records or its chain differ from the ones it asked at, a seal read where none was sent among them, and not where another field differs", () => {
+    const asked = backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS });
+    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, title: "Fix the login", newCommits: 4 })).toBe(asked);
+    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, seal: null })).not.toBe(asked);
+    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, seal: HOLDS })).not.toBe(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, seal: BROKE }));
+    expect(backKey({ ...LOGIN, recorded: { ...ROUNDS, rounds: 2 }, chain: RESTS })).not.toBe(asked);
+    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: { ...RESTS, state: "running" } })).not.toBe(asked);
+  });
+
+  it("parts a text of the back into its words and its code, the words between two backticks being code, and leaves a backtick with no partner as it stands", () => {
+    expect(codeParts("Fixed in `86cb04d`")).toEqual([
+      { text: "Fixed in ", code: false },
+      { text: "86cb04d", code: true },
+    ]);
+    expect(codeParts("`a.ts:3` and `b.ts`.")).toEqual([
+      { text: "a.ts:3", code: true },
+      { text: " and ", code: false },
+      { text: "b.ts", code: true },
+      { text: ".", code: false },
+    ]);
+    expect(codeParts("Open")).toEqual([{ text: "Open", code: false }]);
+    expect(codeParts("a ` b")).toEqual([{ text: "a ` b", code: false }]);
+    expect(codeParts("")).toEqual([]);
+  });
+
+  it("shows Reading the records. in the back's place until the records and the ledger have both answered, the refusal where either was refused, and the back composed from both", () => {
+    expect(backShown({ records: null, ledger: null, refusal: null })).toBe("Reading the records.");
+    expect(backShown({ records: RECORDS, ledger: null, refusal: null })).toBe("Reading the records.");
+    expect(backShown({ records: null, ledger: { entries: [ENTRY], unread: 0 }, refusal: null })).toBe("Reading the records.");
+    expect(backShown({ records: RECORDS, ledger: null, refusal: "no work item 1" })).toBe("no work item 1");
+    expect(backShown({ records: RECORDS, ledger: { entries: [ENTRY], unread: 2 }, refusal: null })).toEqual(composeBack(RECORDS, [ENTRY], 2));
   });
 });
 
