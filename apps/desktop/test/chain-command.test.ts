@@ -245,6 +245,24 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(read(seal.prompt)).toContain("The branch changed these paths since it left its base:\n- `feature.txt`");
   });
 
+  it("goes on where the base branch round 1's record names gained a commit the branch does not hold, reading the branch from the commit the two last shared", async () => {
+    const on = commandOn(cleanups);
+    git(on.repo, "branch", "release/x", on.main);
+    await on.said(["start", "--base", "release/x"]);
+    const first = await on.said(["owed", "--base", "release/x"]);
+    await on.said(["round", on.answer("round-1.md", clean(givenRound(read(first.prompt)))), "--base", "release/x"]);
+    // Another pull request merges into the base branch after round 1, and this branch does not take it.
+    git(on.repo, "checkout", "--quiet", "release/x");
+    write(on.repo, "other.txt", "Another work item\n");
+    commitAll(on.repo, "feat: another work item");
+    git(on.repo, "checkout", "--quiet", BRANCH);
+    expect(await on.said(["owed"])).toEqual({ step: "gate", round: 1, head: head(on.repo) });
+    await on.said(["gate"]);
+    const seal = await on.said<Owed>(["owed"]);
+    expect(seal.target).toBe(`${seal.commit ?? ""} against release/x`);
+    expect(read(seal.prompt)).not.toContain("other.txt");
+  });
+
   it("writes the routing's `Automation` row with the answer `start` is given and none where it is given none, and refuses an answer other than `yes` and `no` and an answer a standing routing does not hold", async () => {
     const on = commandOn(cleanups);
     expect(await on.run(["start", "--automation", "maybe"])).toEqual({ code: 1, out: "", err: "`start` takes `--automation` with `yes` or `no`: whether the run goes on without stopping for a question.\n" });
