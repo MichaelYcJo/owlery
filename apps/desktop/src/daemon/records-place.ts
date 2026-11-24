@@ -156,7 +156,9 @@ function checkOf(folder: string): string | null {
 /**
  * Whether a folder is on the owl chain: Owlery's workflow stands in it,
  * committed or not. A Claude Code pane that opens in such a folder carries
- * the chain (`pane-chain.ts#carriedIn`). A folder with AgenticSeal's
+ * the chain, but where the person's Claude Code enables the AgenticSeal
+ * plugin there and they did not choose the owl chain for the repository
+ * (`pane-chain.ts#carriedIn`). A folder with AgenticSeal's
  * `hygiene.yml` alone, with no check, or that does not stand is on none of
  * Owlery's. The folder is read as it stands at the call, and nothing of it
  * is kept.
