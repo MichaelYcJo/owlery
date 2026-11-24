@@ -2,7 +2,7 @@
 
 ## What this phase found
 
-Built at `23167047`. Paths without a root are under `apps/desktop/`.
+Built at `23167047`, with a comment corrected at `1a6710aa`. Paths without a root are under `apps/desktop/`.
 
 ### The frame against the tree
 
@@ -36,6 +36,7 @@ All with `OWLERY_BACKGROUND=1`, after the wait for other suites, at `23167047`.
 - One command over `test/approval-line.test.ts`, `test/ask-section.test.ts`, `test/decisions-and-questions.test.ts`, `test/seal-back-view.test.ts` and `test/screenshots.test.ts`. `vitest.config.ts` runs these built-app files one at a time. 5 files passed, with 18 cases passed and 1 skipped. The skipped case is the screenshot run, which starts the app only under `pnpm run screenshots`. The same command was run a second time to list each case by name, and passed the same way.
 - `pnpm run screenshots`, alone, with `OWLERY_SCREENSHOT_DIR` naming a folder of the phase's scratch. It passed, with 1 case passed and 7 skipped, and wrote 22 PNG files, one per view in Night watch's dark and light appearances. No screenshot file was left in the tree, so no file was handled under `docs/design.md` *A pull request that changes the window carries its screenshots*.
 - The five changed test files were typechecked with the repository's `tsconfig.json`, narrowed to those files, before the commit. `tsc` exited 0.
+- `1a6710aa` changes one comment of `test/ask-section.test.ts`, which said the page's list already holds earlier cases' notifications. The surviving mutant shows it holds none there, so the comment now says the list keeps whatever an earlier case raised. Only `tsc` over the five files was run after it, and it exited 0. The boundary runs above were not repeated for a comment.
 
 `test/notification-click.test.ts`, `test/notifier.test.ts` and the other files that start the built app were not run in this phase. Phase 2 changed none of the paths they read. `gaps.md` *Not verified* names who runs them.
 
