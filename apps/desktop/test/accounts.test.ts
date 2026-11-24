@@ -717,13 +717,14 @@ describe("the accounts Owlery makes", () => {
     const own = ownFolder();
     const before = contents(own);
     const { cli, calls } = authStandIn();
-    // The plugin is enabled in the account's folder alone, so a repository's chain says which folder it was read in. No reading of commits reads it again meanwhile.
-    let enabledIn: string | null = null;
-    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => own) }), pluginEnabled: (_folder, _checkout, configDir) => configDir !== null && configDir === enabledIn, commitPollMs: 3_600_000 });
+    // The plugin is enabled in the accounts' folders alone, so a repository's chain says whether it was read in one. No reading of commits reads it again meanwhile.
+    const enabledIn = new Set<string>();
+    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => own) }), pluginEnabled: (_folder, _checkout, configDir) => configDir !== null && enabledIn.has(configDir), commitPollMs: 3_600_000 });
     await c.request({ type: "addAccount", name: "Work" });
     await c.request({ type: "addAccount", name: "Home" });
     const work = join(runDir, "accounts", "1");
-    enabledIn = work;
+    const home = join(runDir, "accounts", "2");
+    enabledIn.add(work).add(home);
     expect(Object.keys(linksIn(work))).toHaveLength(5);
     const one = await workItemIn(c);
     const two = await workItemIn(c);
@@ -750,6 +751,18 @@ describe("the accounts Owlery makes", () => {
       [two.workItemId, 2],
     ]);
     expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toMatchObject({ defaultId: 0, accounts: [{ id: 2 }] });
+    // A repository set to an account that is not the default is read again where its own setting is cleared.
+    await c.request({ type: "setRepository", id: two.repositoryId, accountId: 2 });
+    await c.message("inbox", (m) => m.repositories[1]?.accountId === 2 && chainOf(m, two.repositoryId) === true);
+    const later = c.messages.length;
+    expect(await c.request({ type: "removeAccount", id: 2 })).toMatchObject({ type: "done" });
+    const after = await c.until(() => c.messages.slice(later).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox"));
+    expect(after.repositories.map((repository) => [repository.accountId, repository.chain?.plugin])).toEqual([
+      [null, false],
+      [null, false],
+    ]);
+    expect(after.workItems.map((item) => item.accountId)).toEqual([null, null]);
+    expect(calls()).toEqual([`auth logout|${work}`, `auth logout|${home}`]);
     expect(contents(own)).toEqual(before);
   });
 
