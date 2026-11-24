@@ -1186,6 +1186,27 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(status(a.worktree)).toEqual([]);
   });
 
+  it("starts only once a rename of the branch that is under way has ended, so the chain runs on the branch's new name", async () => {
+    const stood = await standing(cleanups, ["First name"], { roleAdapter: roles({ proofer: clean }) });
+    const { c } = stood;
+    const a = stood.workItems[0]!;
+    // The rename is held at git's own rename of the branch, and the start waits behind it.
+    const held = heldGit(cleanups, stood.made.base, '[ "$1" = branch ] && [ "$2" = -m ]');
+    c.send({ type: "renameWorkItem", requestId: 1, id: a.id, title: "Second name", branch: true });
+    await c.until(() => (held.waiting() ? true : undefined));
+    let answer: string | undefined;
+    const started = c.startChain(a.id).then((said) => (answer = said));
+    // A start that did not wait would have answered by now: its reads of the worktree take a fraction of this.
+    await new Promise((r) => setTimeout(r, 1500));
+    expect([answer, c.workItem(a.id)?.chain ?? null]).toEqual([undefined, null]);
+    held.release();
+    await c.message("done", (m) => m.requestId === 1);
+    expect(await started).toBe("done");
+    await c.chain(a.id, "rested");
+    expect(git(a.worktree, "symbolic-ref", "--short", "HEAD").trim()).toBe("owlery/second-name");
+    expect(declaredBranch(git(a.worktree, "show", "HEAD:seal/threads/1795388700-second-name/routing.md"))).toBe("owlery/second-name");
+  });
+
   it("starts no stage in a work item that was archived between two stages: the chain stops and says so, with the round's record committed", async () => {
     const { adapter, started } = noted(roles());
     const stood = await standing(cleanups, ["Shelved"], { roleAdapter: adapter });
