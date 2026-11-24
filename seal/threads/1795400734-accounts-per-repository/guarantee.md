@@ -1,5 +1,27 @@
 # Guarantee: 1795400734-accounts-per-repository
 
+## The re-audit at `c46e9ce`
+
+The second run audits `c46e9ce` against `c409dbb`. Three commits follow the first run's target, `95d5f36`. Each one touches this work item's records alone (`git log --no-merges --name-only 95d5f36..HEAD`, executed):
+
+- `17bba09` commits this file.
+- `9559f09` changes two sentences of `frame/design.md`.
+- `c46e9ce` changes one sentence of `changelog.md`.
+
+`git diff --stat 95d5f36 HEAD -- apps` prints nothing, so no claim about the code moved. The first run's re-runs of the code carry to `c46e9ce` unchanged. This run re-reads only the coordinates the three commits touched (executed).
+
+- **The broad gate still covers HEAD.** `git log --no-merges --name-only cdd38c3..HEAD ^c409dbb` lists `trail/gate.md`, `guarantee.md`, `frame/design.md` and `changelog.md` of this work item, and no other path (executed).
+- **The body check passes again.** `seal pr-body seal/threads/1795400734-accounts-per-repository --body <the prompt's body file> --check` exited 0 at `c46e9ce` (executed). `pr.md` is unchanged since `95d5f36` (`git diff --quiet`, exit 0, executed).
+- **Both sentences the first run found false now hold.**
+  - `changelog.md:7` now reads: "A work item's view always names the account its sessions take where they name none of their own. The inbox names it only where it differs from the one the repository gives, and a pane's tab names it only where it differs from the work item's." That is what the tree does. `view.ts:2829` (`viewAccount`) calls `accountFor(null, …)`. `work-item-view.ts:1263` draws it whenever accounts are offered. `view.ts:2816` (`lineAccount`) names an account only where it differs from the repository's. `view.ts:2835` (`tabAccount`) names one only where it differs from the work item's. The fragment's next sentence, "With System default alone, the window shows none of this", covers the window that offers no accounts (read).
+  - `frame/design.md:270` now cites "*Scope* 8's "each session says which account it runs under"", and those words are the heading of scope item 8 at `frame/design.md:161` (read).
+- **The narrower point the first run raised on `frame/design.md:163` is corrected too.** The sentence now says that, closed on its first item, the menu shows the work item's prefix and about 18 characters of a name. Closed on another account, it shows that account's name without the prefix, cut at the same width. `view.ts:2947` labels each other account by its name alone. `index.html:512` caps the one select at `--tab-width` (read). The comment at `index.html:511` still speaks of the first choice alone. It is a code comment that no commit since changed, and it states nothing false of that choice.
+- **No other copy of the false sentences stands.** `git grep -n -e "Scope\* 10's" -e "view name the account where"` over the work item, outside `trail/` and this file, printed nothing (exit 1, executed).
+
+No party now disagrees with the issue or the tree.
+
+## The first run, at `95d5f36`
+
 The audit read the tree at `95d5f36` against `c409dbb`, the commit `release/v0.0.3@{upstream}` and `origin/release/v0.0.3` resolve to. The local branch `release/v0.0.3` stands at `c82c611`, behind its remote, so it was not used.
 
 `trail/gate.md` names `cdd38c3 against c409dbb`. `cdd38c3` is an ancestor of HEAD, and `git log --no-merges --name-only cdd38c3..HEAD ^c409dbb` lists one commit, `95d5f36`, which touches `trail/gate.md` of this work item alone (executed). `seal pr-body seal/threads/1795400734-accounts-per-repository --body <the prompt's body file> --check` exited 0 (executed). `seal/config.json` names English for both language keys, so no `pr.<lang>.md` is owed. `git ls-files seal/parity.json` printed nothing, so no comparison with an original is owed (executed).
@@ -26,6 +48,9 @@ Each run below took place in a `git clone --no-local` of the worktree at `95d5f3
 | Owlery reads no credential, Keychain entry or token variable | `frame/design.md` scenario 12 | `git grep -n -i -e 'credentials' -e 'keychain' -e 'find-generic-password' -e 'OAUTH_TOKEN' -- apps/desktop/src` at `95d5f36` | Holds: printed nothing, exit 1 (executed) |
 | Round 5's fix diff changes no code beyond one CSS comment | `trail/rounds/round-5.md` | `git diff --stat b76da02 9a58a55`, and the changed lines under `apps` | Holds: one comment line of `apps/desktop/src/renderer/index.html` changed, beside two records (executed) |
 | Each screenshot `pr.md` links stands at the commit that last changed it | `pr.md` *Screenshots* | `git log --format=%h -- <shot>` for each of the ten shots | Holds: the inbox, settings and accounts shots last changed at `9202d1f`, the menu shots at `927f12d` and the view shots at `a91b3d9`, the commits `pr.md` links (executed) |
+| Second run: the corrected `changelog.md:7` describes what the view, the inbox and a pane's tab name | `c46e9ce` | `git show c46e9ce` read against `view.ts:2816-2838` and `work-item-view.ts:1263` | Holds (read) |
+| Second run: the corrected `frame/design.md:270` cites the scope item that holds its words, and `:163` describes both closed states of the Ask menu | `9559f09` | `git show 9559f09` read against `frame/design.md:161`, `view.ts:2947` and `index.html:512` | Holds (read) |
+| Second run: the gate's run still covers HEAD, the body check passes, and no stale copy of either false sentence stands | `trail/gate.md`, the body file, the work item | `git log --no-merges --name-only cdd38c3..HEAD ^c409dbb`; `seal pr-body … --check`; `git grep` for the two old phrasings | Holds: only paths of this work item follow `cdd38c3`, the check exits 0, and the search prints nothing (executed) |
 | Each row of `frame/design.md` *Removes* stands no more in the tree | `frame/design.md` *Removes* | Each coordinate opened, with `grep` for each quoted sentence in its file; `git diff --stat c409dbb...HEAD -- docs README.md README.ko.md` | Holds. The five comment sentences are rewritten: `claude.ts:107`, `protocol.ts:530`, `claude-plugins.ts:19-27` with `main.ts:62`, `built-app.ts:160-170` and `screenshots.test.ts:14` with `:575`. `#pane-account` and its part of the rule are gone, so `index.html:512` names `#ask-account` alone, and nothing in `apps/desktop/src` reads a pane-bar select. The three rows that belong to the settle concern the policy root, which the diff does not touch (executed for the searches and the diff, read for the rest) |
 
 These claims were read and not re-run:
@@ -37,6 +62,8 @@ These claims were read and not re-run:
 The broad gate is the orchestrator's run that `trail/gate.md` records. This audit ran nothing broad.
 
 ## The parties
+
+The rows below are the first run's, at `95d5f36`. At `c46e9ce`, the design's two disagreements, the changelog's one and that of the judgment at `468bd81` are each corrected, as *The re-audit at `c46e9ce`* above reads them. Every other cell carries, because no other coordinate changed.
 
 | Party | Says | Agrees with | Disagrees with |
 |---|---|---|---|
@@ -52,4 +79,9 @@ The broad gate is the orchestrator's run that `trail/gate.md` records. This audi
 ```seal
 target: 95d5f36 against c409dbb
 Verdict: withheld reason: two sentences of the work item's records do not hold against the tree. The changelog fragment's claim at changelog.md:7 that a work item's view names the account only where it differs from the repository's is contradicted by apps/desktop/src/renderer/view.ts:2829 (viewAccount), work-item-view.ts:1263 and view.test.ts:4214, which name it whenever accounts are offered, as frame/design.md:163 says. The orchestrator's judgment at frame/design.md:270 (468bd81) cites "each session says which account it runs under" as scope item 10's, and those words are scope item 8's heading (frame/design.md:161)
+```
+
+```seal
+target: c46e9ce against c409dbb
+Verdict: sealed
 ```
