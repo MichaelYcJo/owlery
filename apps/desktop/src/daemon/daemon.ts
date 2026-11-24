@@ -20,6 +20,8 @@ import {
   type ChainBase,
   CHAIN_STAGES_KEPT,
   ChainStop,
+  GATE_STOPPED_BEFORE_START,
+  GATE_WAITS_SAYS,
   OPEN_PULL_REQUEST,
   ORCHESTRATOR,
   PARKED_SAYS,
@@ -73,6 +75,7 @@ import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecor
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
+import { BROAD_GATE_NAME, MachineTurns, NO_READING_LIMIT, type Turn } from "./machine-turns";
 import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
@@ -355,9 +358,10 @@ interface HeadlessSession {
   entered: boolean;
 }
 
-/** A broad gate whose command runs: its process, the wait for its time limit, and what stopped it before it ended by itself, once something did, with the second half of the sentence that says so. */
+/** A broad gate that asked for its turn on the machine: its process once the command started, what ends its ask before then, the wait for its time limit, and what stopped it before it ended by itself, once something did, with the second half of the sentence that says so. */
 interface RunningGate {
-  process: GateProcess;
+  process: GateProcess | undefined;
+  asking: AbortController;
   limit: NodeJS.Timeout | undefined;
   stopped: { by: "limit" | "request" | "daemon"; why: string } | null;
 }
@@ -433,8 +437,10 @@ export class Daemon {
   private noticeAsks = 0;
   // The work items whose chain is running, by their ids, each with the promise of its run's end. A chain is here from its start until it rests, between two stages too, when no session of it works.
   private readonly chains = new Map<number, Promise<void>>();
-  // The broad gates whose command runs, by their work items' ids. A work item's chain runs one stage at a time, so it holds one at most.
+  // The broad gates that asked for their turn on the machine and have not ended, by their work items' ids: those that wait and those whose command runs. A work item's chain runs one stage at a time, so it holds one at most.
   private readonly gates = new Map<number, RunningGate>();
+  // The turns on the machine, which every broad gate asks for before its command starts. The queue lives in memory alone.
+  private readonly turns: MachineTurns;
   // The `PATH` of the person's interactive login shell, asked of that shell once in the daemon's life, at the first broad gate: null where the shell printed none.
   private gatePath: Promise<string | null> | undefined;
   // What each work item's newest broad gate printed, by the work item's id, where the daemon was given no run folder to keep it in.
@@ -467,6 +473,8 @@ export class Daemon {
     this.keepAwake = new KeepAwakeStore(options.runDir);
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
+    // A change of the queue changes what a work item's `machineWait` says.
+    this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now, changed: () => !this.closed && this.broadcastInbox() });
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
     for (const held of this.store.workItems()) if (held.item.archivedAt !== null) this.readRecord(held);
     this.flushTimes();
@@ -2515,7 +2523,7 @@ export class Daemon {
     return this.options.version;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; with the requests of its headless sessions that wait for the person, the oldest first; and with the heavy command of its worktree that waits for a turn on the machine. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -2531,6 +2539,7 @@ export class Daemon {
       ...(read === undefined ? {} : { seal: read.seal }),
       permissions: [...this.headless.values()].flatMap((session) => (session.info.workItemId === item.id ? [...session.asks.values()] : [])).sort((a, b) => a.id - b.id),
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
+      machineWait: this.turns.waitOf(item.worktree),
     };
   }
 
@@ -3152,6 +3161,16 @@ export class Daemon {
    * item records no base commit, nothing starts and the chain stops with a
    * sentence that says so.
    *
+   * The gate then asks for its turn on the machine (`machine-turns.ts`), in
+   * the place of a broad gate, and its command starts once the turn is
+   * given. Where the turn does not come at once, the gate is listed with the
+   * chain as its newest stage, one that waits (`GateRun.waits`), the chain's
+   * sentence says so, and once the turn comes the head and the tree are read
+   * as above again, so the command still runs on the commit the order was
+   * read at. A stop that arrives before the command starts ends the ask,
+   * starts no command and enters no run in the ledger, and the stage fails.
+   * The turn ends once the command's process has exited.
+   *
    * Only the exit of the daemon's own process counts. Where the command
    * exits with 0, and the head and the tree then stand as they stood, the
    * daemon appends one run block, `run: <head> against <base commit>`, to
@@ -3179,7 +3198,6 @@ export class Daemon {
     } catch (error) {
       throw new StageStopped(gateNotRunSays(error instanceof Error ? error.message : String(error)));
     }
-    const { command } = owed;
     const env = await this.commandEnvironment();
     // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
     if (this.closed) throw new ChainStop("the daemon closed");
@@ -3187,46 +3205,84 @@ export class Daemon {
     if (gone !== null) throw new ChainStop(gone);
     const before = this.store.workItem(item.id)?.item.chain;
     if (!before) throw new ChainStop("the daemon no longer keeps the work item");
-    // From here to the stage's listing nothing waits, so a stop that arrives finds the gate.
-    this.dropGateOutput(item.id);
-    const startedAt = now();
-    const started = startGate({ command, cwd: worktree, env, outputChars: this.options.gateOutputChars });
-    const gate: RunningGate = { process: started, limit: undefined, stopped: null };
-    gate.limit = setTimeout(() => void this.stopGate(item.id, "limit", "the command reached its time limit and was stopped"), this.options.gateLimitMs ?? GATE_LIMIT_MS);
+    // The gate is held from its ask on, so a stop that arrives while it waits for its turn finds it and ends the ask.
+    const gate: RunningGate = { process: undefined, asking: new AbortController(), limit: undefined, stopped: null };
     this.gates.set(item.id, gate);
-    const run: GateRun = { command: cutText(command), exitCode: null, output: false };
-    const working: ChainStage = { kind: "gate", round, state: "working", failure: null, startedAt, endedAt: null, headlessId: null, refusals: 0, gate: run };
-    this.chainSet(item.id, { ...before, says: runningSays("gate", round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
-    // The command's process has exited before anything else of the chain happens in the worktree.
-    const end = await started.ended;
-    clearTimeout(gate.limit);
-    this.gates.delete(item.id);
-    const endedAt = now();
-    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round }, startedAt, endedAt, state, stopped, usage: null, account: null });
-    if (this.closed) {
-      enter("failed", "daemon");
-      throw new ChainStop("the daemon closed");
-    }
-    const output = this.keepGateOutput(item.id, end.output);
-    let failure: string | null = null;
-    // A command that was stopped did not pass, whatever it exited with: one that takes the signal can exit with 0.
-    if (gate.stopped !== null) failure = gate.stopped.why;
-    else if (end.error !== null) failure = `the command did not start: ${end.error}`;
-    else if (end.signal !== null) failure = `the signal ${end.signal} ended the command`;
-    else if (end.exitCode !== 0) failure = `the command exited with code ${String(end.exitCode)}`;
-    else {
-      try {
-        await recordGate(place, { head: owed.head, base: owed.base }, this.turnOf(item));
-      } catch (error) {
-        if (this.closed) throw error;
-        failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
+    let turn: Turn | null = null;
+    try {
+      const asked = this.turns.ask({ folder: worktree, name: BROAD_GATE_NAME, place: "gate", gone: gate.asking.signal });
+      const listed: ChainStage | undefined = asked.waits ? { kind: "gate", round, state: "working", failure: null, startedAt: now(), endedAt: null, headlessId: null, refusals: 0, gate: { command: cutText(owed.command), exitCode: null, output: false, waits: true } } : undefined;
+      if (listed !== undefined) this.chainSet(item.id, { ...before, says: GATE_WAITS_SAYS, stages: [...before.stages, listed].slice(-CHAIN_STAGES_KEPT) });
+      /** Fails the stage that waited, which no command ran for, with why. */
+      const unstarted = (failure: string): void => {
+        const chain = this.store.workItem(item.id)?.item.chain;
+        if (chain && listed !== undefined) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === listed ? { ...listed, state: "failed", failure, endedAt: now(), gate: { command: cutText(owed.command), exitCode: null, output: false } } : stage)) });
+      };
+      // Read through a call, since a stop sets it while the gate waits.
+      const stopped = (): boolean => gate.stopped !== null;
+      turn = await asked.turn;
+      if (listed !== undefined && turn !== null && !stopped()) {
+        try {
+          owed = await gateOwed(place, standing, base);
+        } catch (error) {
+          const why = error instanceof Error ? error.message : String(error);
+          if (this.closed) throw new ChainStop("the daemon closed");
+          unstarted(why.replace(/\.+$/u, ""));
+          throw new StageStopped(gateNotRunSays(why));
+        }
       }
+      if (this.closed) throw new ChainStop("the daemon closed");
+      if (turn === null || stopped()) {
+        unstarted(GATE_STOPPED_BEFORE_START);
+        throw new StageStopped(stoppedSays("gate", round, GATE_STOPPED_BEFORE_START));
+      }
+      const { command } = owed;
+      const listing = this.store.workItem(item.id)?.item.chain;
+      if (!listing) throw new ChainStop("the daemon no longer keeps the work item");
+      this.dropGateOutput(item.id);
+      const startedAt = now();
+      const started = startGate({ command, cwd: worktree, env, outputChars: this.options.gateOutputChars });
+      gate.process = started;
+      gate.limit = setTimeout(() => void this.stopGate(item.id, "limit", "the command reached its time limit and was stopped"), this.options.gateLimitMs ?? GATE_LIMIT_MS);
+      const run: GateRun = { command: cutText(command), exitCode: null, output: false };
+      const working: ChainStage = { kind: "gate", round, state: "working", failure: null, startedAt, endedAt: null, headlessId: null, refusals: 0, gate: run };
+      // The stage that waited becomes the one that runs, and a gate whose turn came at once is listed as it starts.
+      this.chainSet(item.id, { ...listing, says: runningSays("gate", round), stages: listed === undefined ? [...listing.stages, working].slice(-CHAIN_STAGES_KEPT) : listing.stages.map((stage) => (stage === listed ? working : stage)) });
+      // The command's process has exited before anything else of the chain happens in the worktree.
+      const end = await started.ended;
+      turn.end();
+      clearTimeout(gate.limit);
+      this.gates.delete(item.id);
+      const endedAt = now();
+      const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round }, startedAt, endedAt, state, stopped, usage: null, account: null });
+      if (this.closed) {
+        enter("failed", "daemon");
+        throw new ChainStop("the daemon closed");
+      }
+      const output = this.keepGateOutput(item.id, end.output);
+      let failure: string | null = null;
+      // A command that was stopped did not pass, whatever it exited with: one that takes the signal can exit with 0.
+      if (gate.stopped !== null) failure = gate.stopped.why;
+      else if (end.error !== null) failure = `the command did not start: ${end.error}`;
+      else if (end.signal !== null) failure = `the signal ${end.signal} ended the command`;
+      else if (end.exitCode !== 0) failure = `the command exited with code ${String(end.exitCode)}`;
+      else {
+        try {
+          await recordGate(place, { head: owed.head, base: owed.base }, this.turnOf(item));
+        } catch (error) {
+          if (this.closed) throw error;
+          failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
+        }
+      }
+      const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt, gate: { ...run, exitCode: end.exitCode, output } };
+      enter(ended.state === "finished" ? "finished" : "failed", gate.stopped?.by ?? null);
+      const chain = this.store.workItem(item.id)?.item.chain;
+      if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
+      if (failure !== null) throw new StageStopped(stoppedSays("gate", round, failure));
+    } finally {
+      turn?.end();
+      if (this.gates.get(item.id) === gate) this.gates.delete(item.id);
     }
-    const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt, gate: { ...run, exitCode: end.exitCode, output } };
-    enter(ended.state === "finished" ? "finished" : "failed", gate.stopped?.by ?? null);
-    const chain = this.store.workItem(item.id)?.item.chain;
-    if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
-    if (failure !== null) throw new StageStopped(stoppedSays("gate", round, failure));
   }
 
   /**
@@ -3370,13 +3426,20 @@ export class Daemon {
    * signals the command's process group and kills it where the command has
    * not exited after the wait (`gate.ts#startGate`). The gate's stage then
    * fails with `why`, the first one given where two stops arrive, and its
-   * entry of the ledger says what stopped it. It gives the promise of the
-   * command's end, and nothing where no gate of the work item runs.
+   * entry of the ledger says what stopped it. A gate whose command has not
+   * started yet, as one that waits for its turn on the machine, has its ask
+   * ended, and its stage fails with `GATE_STOPPED_BEFORE_START`. It gives
+   * the promise of the command's end, at once where no command started, and
+   * nothing where no gate of the work item asked for its turn.
    */
   private stopGate(workItemId: number, by: "limit" | "request" | "daemon", why: string): Promise<void> | undefined {
     const gate = this.gates.get(workItemId);
     if (gate === undefined) return undefined;
     gate.stopped ??= { by, why };
+    if (gate.process === undefined) {
+      gate.asking.abort();
+      return Promise.resolve();
+    }
     return gate.process.stop();
   }
 

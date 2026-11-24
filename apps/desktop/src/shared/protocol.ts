@@ -320,6 +320,15 @@ export interface WorkItem {
   pullRequest: PullRequest | null;
   /** The id of the account set on the work item, or null where none is set there. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   accountId?: number | null;
+  /** The heavy command of its worktree that waits for a turn on the machine, the one that began to wait first where several do, or null where none waits. The daemon stores no queue, so a look keeps none. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  machineWait?: MachineWait | null;
+}
+
+/** A heavy command that waits for its turn on the machine: its name, when it asked, by the daemon's clock, and how many of those that wait go before it. */
+export interface MachineWait {
+  name: string;
+  since: number;
+  ahead: number;
 }
 
 /** The id of "System default": the login the person's shell gives with nothing passed. It is always an account, has no folder and is never removed. */
@@ -443,6 +452,8 @@ export interface GateRun {
   exitCode: number | null;
   /** Whether a `readGateOutput` of the work item has text to answer with: the run has ended and the command printed something the daemon kept. */
   output: boolean;
+  /** True while the gate waits for its turn on the machine and its command has not started, and absent once it starts or the wait ends without a start. The store does not keep it. A daemon of an earlier build sends no such field. */
+  waits?: true;
 }
 
 /** One stage a chain ran or is running. */

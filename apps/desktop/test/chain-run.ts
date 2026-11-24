@@ -274,25 +274,33 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * such key. Once the work items stand, the repository gets a bare
  * repository as its remote `origin`, and the daemon is given a stand-in for
  * `gh` (`ghStandIn`), so a chain that ends sealed pushes there and opens its
- * pull request at the stand-in.
+ * pull request at the stand-in. With `apart: true` each title after the
+ * first has a repository of its own, made the same way with a remote of its
+ * own, and `made` is the first title's.
  */
-export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null } = {}) {
-  const made = temporaryRepository();
-  cleanups.push(made.remove);
-  const { root = true, gate = "true", ...daemonOptions } = options;
-  if (root) {
-    write(made.repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-    write(made.repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", ...(gate === null ? {} : { "Broad gate": gate }) }, null, 2)}\n`);
-    commitAll(made.repo, "chore: add the place for work records");
-  }
+export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean } = {}) {
+  const { root = true, gate = "true", apart = false, ...daemonOptions } = options;
+  const repository = (): ReturnType<typeof temporaryRepository> => {
+    const repo = temporaryRepository();
+    cleanups.push(repo.remove);
+    if (root) {
+      write(repo.repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+      write(repo.repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", ...(gate === null ? {} : { "Broad gate": gate }) }, null, 2)}\n`);
+      commitAll(repo.repo, "chore: add the place for work records");
+    }
+    return repo;
+  };
+  const made = repository();
   const runDir = join(made.base, "run");
   mkdirSync(runDir);
   const workItems = [];
   for (const [index, title] of titles.entries()) {
-    const place = await createWorktree({ folder: made.repo, title, root: made.root });
+    const own = apart && index > 0 ? repository() : made;
+    const place = await createWorktree({ folder: own.repo, title, root: own.root });
     write(place.worktree, "feature.txt", "A greeting\n");
     commitAll(place.worktree, "feat: greet");
     workItems.push({ id: index + 1, title, createdAt: 1, ...place });
+    if (own !== made) bareRemote(own.base, own.repo);
   }
   writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));
   const remote = bareRemote(made.base, made.repo);

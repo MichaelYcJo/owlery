@@ -118,6 +118,12 @@ export function runningSays(kind: ChainStageKind, round: number): string {
   return `${stageName(kind, round)} is running.`;
 }
 
+/** The sentence of a chain whose broad gate waits for its turn on the machine. */
+export const GATE_WAITS_SAYS = "The broad gate waits for the machine.";
+
+/** Why a broad gate failed that was stopped before its command started: while it waited for its turn on the machine, or between its turn and the start. */
+export const GATE_STOPPED_BEFORE_START = "it was stopped before its command started";
+
 /** The sentence of a chain that is reading the records, before its first stage and between two. */
 export const READING_SAYS = "Owlery is reading the work item's records.";
 
