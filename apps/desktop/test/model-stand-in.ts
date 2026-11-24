@@ -3,10 +3,12 @@
 // `ANTHROPIC_BASE_URL` and a key that is no key, so the check spends no usage
 // and needs no login. Its first answer to a session that holds `Bash` is one
 // call of that tool with the command it was given, so the call the check is
-// about is made by the stand-in and not by a model's turn. Every other request
-// to the messages endpoint is answered with one line of text. It answers only
-// what a run showed the CLI asks: any other request is refused with 404 and
-// its method and path, and the check prints every request the stand-in kept.
+// about is made by the stand-in and not by a model's turn. Every other
+// streamed request to the messages endpoint is answered with one line of
+// text. It answers only what a run showed the CLI asks, streamed messages
+// requests: any other request, a messages request that is not streamed among
+// it, is refused with 404 and its method and path, and the check prints every
+// request the stand-in kept.
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -75,19 +77,15 @@ export async function startModelStandIn(command: string): Promise<{ url: string;
       const path = request.url ?? "";
       received.push({ method: request.method ?? "", path, body });
       const pathname = new URL(path, "http://stand-in").pathname;
-      if (request.method === "POST" && pathname === "/v1/messages") {
-        const tools = Array.isArray(body?.tools) ? (body.tools as { name?: unknown }[]).map((tool) => tool.name) : [];
+      if (request.method === "POST" && pathname === "/v1/messages" && body?.stream === true) {
+        const tools = Array.isArray(body.tools) ? (body.tools as { name?: unknown }[]).map((tool) => tool.name) : [];
         const block: Block = tools.includes("Bash") && toolResults(body).length === 0 ? { type: "tool_use", id: "toolu_stand_in_1", name: "Bash", input: { command, description: "The stand-in model's one call" } } : { type: "text", text: STAND_IN_TEXT };
-        const stop = block.type === "tool_use" ? "tool_use" : "end_turn";
-        if (body?.stream === true) streamed(response, body.model, block, stop);
-        else {
-          response.writeHead(200, { "content-type": "application/json" });
-          response.end(JSON.stringify(message(body?.model, [block], stop)));
-        }
+        streamed(response, body.model, block, block.type === "tool_use" ? "tool_use" : "end_turn");
         return;
       }
+      // No run showed the CLI ask anything else, a messages request that is not streamed among it, so it is refused by name and printed.
       response.writeHead(404, { "content-type": "application/json" });
-      response.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: `The stand-in model answers no ${request.method ?? ""} ${pathname}.` } }));
+      response.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: `The stand-in model answers no ${request.method ?? ""} ${pathname}${pathname === "/v1/messages" ? " that is not streamed" : ""}.` } }));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
