@@ -22,7 +22,7 @@
 ELECTRON_RUN_AS_NODE=1 node_modules/.bin/electron node_modules/vitest/vitest.mjs list --project app --filesOnly --json=<file>
 ```
 
-This collects the files without running a case (executed, exit 0). It named 20 files, each with the project name `app`: the 19 built-app files and `test/launch.test.ts`. The run's own count, 20 test files, equals that list. The `buildApp` import pattern of `vitest.config.ts` matched 20 test files (executed: `grep -lE` over `test/*.test.ts`). So `--project app` runs the `app` project's files and no file of the `unit` project. The list is the same filter as the run, and is not the run itself. Which two files the run skipped is not named by its output.
+This collects the files without running a case (executed, exit 0). It named 20 files, each with the project name `app`: the 20 built-app files, `test/launch.test.ts` among them. The run's own count, 20 test files, equals that list. The `buildApp` import pattern of `vitest.config.ts` matched 20 test files (executed: `grep -lE` over `test/*.test.ts`). So `--project app` runs the `app` project's files and no file of the `unit` project. The list is the same filter as the run, and is not the run itself. Which two files the run skipped is not named by its output.
 
 ### Scenario 5
 

@@ -1,6 +1,6 @@
 # Launch: the built app for each test file, against one app left open
 
-**One app left open for every built-app file would save 507 ms for each launch, so each built-app file keeps launching an app of its own.** On the owner's Mac a launch without its build took 688 ms at the median of ten, and a reset of one open app took 181 ms. A run of the suite makes about 17 launches, so one open app would save about 8.6 s of a run, against a reset between files that would have to clear everything the app's main process holds. The open app also held more memory after each reset. A built-app file is a test file that starts the built app; `vitest.config.ts` puts every such file in the `app` project.
+**One app left open for every built-app file would save 507 ms for each launch, so each built-app file that starts the app keeps launching an app of its own.** On the owner's Mac a launch without its build took 688 ms at the median of ten, and a reset of one open app took 181 ms. A run of the suite makes about 17 launches, so one open app would save about 8.6 s of a run, against a reset between files that would have to clear everything the app's main process holds. The open app also held more memory after its tenth reset than before its first. A built-app file is a test file that imports `buildApp` from `test/built-app.ts`, which is how `vitest.config.ts` puts it in the `app` project. Each builds `dist/`. Most start the app in every run, and five start it only where a variable of their own is set: `test/launch.test.ts`, `test/memory.test.ts`, `test/screenshots.test.ts`, `test/pane-session.test.ts` and `test/role-session.test.ts`.
 
 ## What was measured
 
@@ -39,7 +39,7 @@ The measurement's highest start (656 ms) and highest stop (1460 ms) are each one
 
 ## A launch
 
-A launch is what each built-app file makes: it builds `dist/`, starts the app, waits for ready, and stops the app with its daemon. One build that is not timed runs first, since in the suite each file builds after the file before it has built.
+A launch is what each built-app file that starts the app in a run of the suite makes: it builds `dist/`, starts the app, waits for ready, and stops the app with its daemon. One build that is not timed runs first, since in the suite each file builds after the file before it has built.
 
 | A launch, ms, of 10 | Median | Lowest | Highest |
 |---|---|---|---|
@@ -81,7 +81,7 @@ The open app held 57.6 MB more after ten resets than before the first. An app la
 
 ## The built-app files as one batch
 
-`pnpm run test:app` ran the 20 files of the `app` project, one at a time, and no other file. 18 files passed and 2 were skipped; 203 cases passed and 8 were skipped. The run took 143.4 s. Every one of the 20 files is a built-app file or `test/launch.test.ts`, whose import of `buildApp` puts it in the project.
+`pnpm run test:app` ran the 20 files of the `app` project, one at a time, and no other file. 18 files passed and 2 were skipped; 203 cases passed and 8 were skipped. The run took 143.4 s. The 20 files are every built-app file, `test/launch.test.ts` among them.
 
 ## On GitHub's runner
 
