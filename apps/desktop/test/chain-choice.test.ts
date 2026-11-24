@@ -67,7 +67,7 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     made = temporaryRepository("chain-choice");
     // A repository on the owl chain: its checkout holds Owlery's workflow, committed, so a work item's worktree holds it. It holds a place for work records too, so its registration offers no setup of one.
     mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(made.repo, ".github", "workflows", "owlery-seal.yml"), "name: Owlery seal\n");
+    writeFileSync(join(made.repo, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
     mkdirSync(join(made.repo, "seal"));
     writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
     writeFileSync(join(made.repo, "seal", "config.json"), '{ "Mode": "shared", "Broad gate": "true" }\n');

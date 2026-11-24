@@ -78,7 +78,7 @@ describe("carriedIn", () => {
   function onOwlChain(): string {
     const folder = scratch();
     mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: Owlery seal\n");
+    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
     return folder;
   }
   const NO_PLUGIN = () => ({ enabled: { "notes@somewhere": true }, agenticSeal: [] });
@@ -88,7 +88,7 @@ describe("carriedIn", () => {
     const carries = carriedIn(chain, NO_PLUGIN);
     expect(carries(start(folder))).toBeNull();
     mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: Owlery seal\n");
+    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
     // Nothing of the folder is kept between two launches.
     expect(carries(start(folder))).toEqual({ chain, enabledPlugins: null });
     expect(carries(start(join(folder, "absent")))).toBeNull();

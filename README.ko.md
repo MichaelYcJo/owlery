@@ -25,19 +25,19 @@ pnpm --filter @owlery/desktop start
 
 ## GitHub의 인장 검사
 
-저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-seal.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `Owlery seal`이라는 이름의 GitHub 검사로 올립니다. 워크플로 자신의 잡 `seal`은 `Owlery seal`이 실패하면 실패하고, 통과하거나 중립이면 통과합니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 인장 구역에서도 읽습니다. 인장 구역은 작업의 `guarantee.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다. 인장 뒤에 커밋을 올리면 새 인장을 받을 때까지 검사가 실패합니다. 검사는 앱과 같은 커밋된 기록을 읽고, 앱이 준 인장 뒤에 들어온 것은 둘이 똑같이 판정합니다. 앱의 체인이 커밋하지 않은 기록, 곧 손으로 쓰거나 다른 도구가 쓴 기록은 둘이 다르게 판정할 수 있습니다.
+저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-seal.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `seal`이라는 이름의 GitHub 검사로 올립니다. 워크플로 자신의 잡 `records`는 `seal`이 실패하면 실패하고, 통과하거나 중립이면 통과합니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 인장 구역에서도 읽습니다. 인장 구역은 작업의 `guarantee.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다. 인장 뒤에 커밋을 올리면 새 인장을 받을 때까지 검사가 실패합니다. 검사는 앱과 같은 커밋된 기록을 읽고, 앱이 준 인장 뒤에 들어온 것은 둘이 똑같이 판정합니다. 앱의 체인이 커밋하지 않은 기록, 곧 손으로 쓰거나 다른 도구가 쓴 기록은 둘이 다르게 판정할 수 있습니다. 인장과 깨진 인장의 제목은, 제목이 가리키는 판정 블록마다 owl 체인(Owlery의 에이전트 체인)이 쓰는 `rules:` 줄이 있으면 owl 체인을 밝히고, AgenticSeal 플러그인의 sealer가 쓴 블록처럼 그 줄이 없는 블록이 하나라도 있으면 어떤 체인도 밝히지 않습니다.
 
-| `Owlery seal`의 결과 | 제목 | 언제 |
+| `seal`의 결과 | 제목 | 언제 |
 |---|---|---|
-| 통과 | "Sealed at"과 인장이 찍힌 커밋 | head 커밋에 인장이 있는 ready 상태의 PR, 그리고 ready가 되면 통과할 draft |
-| 실패 | "Seal broken: a commit landed after"와 인장이 찍힌 커밋 | 인장 뒤에 들어온 커밋이 인장을 깬 ready 상태의 PR. 베이스를 머지한 커밋도 인장을 깹니다 |
+| 통과 | "Sealed by the owl chain at"과 인장이 찍힌 커밋. owl 체인이 찍지 않은 인장에는 "Sealed at"과 인장이 찍힌 커밋 | head 커밋에 인장이 있는 ready 상태의 PR, 그리고 ready가 되면 통과할 draft |
+| 실패 | "Seal of the owl chain broken: a commit landed after"와 인장이 찍힌 커밋. owl 체인이 찍지 않은 인장에는 "Seal broken: a commit landed after"와 인장이 찍힌 커밋 | 인장 뒤에 들어온 커밋이 인장을 깬 ready 상태의 PR. 베이스를 머지한 커밋도 인장을 깹니다 |
 | 실패 | "No seal at the head commit" | head 커밋에 인장이 없는 ready 상태의 PR |
 | 실패 | "The records are refused" | 기록이 검사의 다른 부분에서 거절된 ready 상태의 PR |
 | 중립 | "Draft: judged when it is ready" | ready가 되면 거절될 draft |
 | 통과 | "Not judged: no work item is declared" | 작업을 하나도 밝히지 않은 PR |
 | 실패 | "The seal check could not run" | 검사가 체크아웃이나 판정 기준인 base 브랜치를 읽지 못했을 때 |
 
-**검사를 필수로 정하는 것은 저장소의 관리자입니다.** 관리자는 GitHub에서 base 브랜치에 걸린 저장소 규칙 가운데 상태 검사 통과를 요구하는 규칙에 `Owlery seal`을 넣습니다. Owlery는 저장소의 설정을 하나도 바꾸지 않고, 앱의 "Records and check" 대화 상자도 같은 것을 말합니다. 포크에서 온 PR은 `Owlery seal` 검사를 받지 않습니다. GitHub가 그 워크플로 실행에 검사를 쓸 수 없는 토큰을 주기 때문입니다. 그래서 필수 검사는 관리자가 통과시킬 때까지 그 PR을 붙잡아 둡니다. Owlery의 워크플로 대신 AgenticSeal의 `hygiene.yml`을 두는 저장소에는 `Owlery seal` 검사가 올라오지 않습니다.
+**검사를 필수로 정하는 것은 저장소의 관리자입니다.** 관리자는 GitHub에서 base 브랜치에 걸린 저장소 규칙 가운데 상태 검사 통과를 요구하는 규칙에 `seal`을 넣습니다. Owlery는 저장소의 설정을 하나도 바꾸지 않고, 앱의 "Records and check" 대화 상자도 같은 것을 말합니다. 포크에서 온 PR은 `seal` 검사를 받지 않습니다. GitHub가 그 워크플로 실행에 검사를 쓸 수 없는 토큰을 주기 때문입니다. 그래서 필수 검사는 관리자가 통과시킬 때까지 그 PR을 붙잡아 둡니다. Owlery의 워크플로 대신 AgenticSeal의 `hygiene.yml`을 두는 저장소에는 `seal` 검사가 올라오지 않습니다.
 
 **판정은 검사이고, 승인 리뷰가 아닙니다.** Owlery는 리뷰를 쓰지 않고 아무것도 머지하지 않습니다. 머지는 사람이 합니다.
 

@@ -3045,7 +3045,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     return blocks.at(-1) ?? "";
   };
   /** The seal section the stage writes over a verdict block. */
-  const sectionOf = (block: string): string => ["<!-- owlery:seal -->", "## Owlery seal", "", `The newest verdict of \`${GUARANTEE}\`. A seal binds the commit it names, and the check \`Owlery seal\` says whether it holds at this pull request's head commit:`, "", block, "<!-- /owlery:seal -->"].join("\n");
+  const sectionOf = (block: string): string => ["<!-- owlery:seal -->", "## Seal", "", `The newest verdict of \`${GUARANTEE}\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", block, "<!-- /owlery:seal -->"].join("\n");
   /** The stage of a pull request after the round given, listed as no session. */
   const pullRequestStage = (round: number, more: Partial<ChainStage> = {}): ChainStage => ({ kind: "pull-request", round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: null, ...more });
 
@@ -3181,13 +3181,13 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   });
 
   it("stores the checks its read of the pull request gives, and the watch reads the pull request again a short wait after the stage, though it listed no check, since GitHub lists the checks a push starts only later", async () => {
-    const rollup = (status: string, conclusion: string | null = null) => [{ __typename: "CheckRun", name: "Owlery seal", status, conclusion, detailsUrl: "https://github.com/owner/project/runs/1", workflowName: "seal" }];
+    const rollup = (status: string, conclusion: string | null = null) => [{ __typename: "CheckRun", name: "seal", status, conclusion, detailsUrl: "https://github.com/owner/project/runs/1", workflowName: "seal" }];
     const viewed = (at: string, status: string, conclusion: string | null = null) => ({ out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup(status, conclusion) }) });
     const queued = await standing(cleanups, ["Queued work"], { roleAdapter: roles({ proofer: clean }) });
     queued.gh.answer("view", viewed("a".repeat(40), "QUEUED"));
     expect(await queued.c.startChain(queued.workItems[0]!.id)).toBe("done");
     await queued.c.chain(queued.workItems[0]!.id, "rested");
-    expect(queued.c.workItem(queued.workItems[0]!.id)?.pullRequest).toMatchObject({ checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: "https://github.com/owner/project/runs/1" }], listCount: 1 });
+    expect(queued.c.workItem(queued.workItems[0]!.id)?.pullRequest).toMatchObject({ checks: "pending", list: [{ name: "seal", state: "pending", link: "https://github.com/owner/project/runs/1" }], listCount: 1 });
     // The stand-in's own answer lists no check, at the head the stage pushed.
     const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), prPollMs: 300 });
     const a = workItems[0]!;

@@ -153,7 +153,7 @@ const BASE = "c".repeat(40);
 const BLOCK = [`target: ${GATE} against main`, "Verdict: sealed", "built-by: the session, s-1", "judged-by: s-2", "model: fake", "rules: owlery 0.0.2"];
 
 /** The seal section the composer writes for `BLOCK`. */
-const SECTION = [SECTION_OPEN, "## Owlery seal", "", `The newest verdict of \`${DIRECTORY}/guarantee.md\`. A seal binds the commit it names, and the check \`Owlery seal\` says whether it holds at this pull request's head commit:`, "", "```seal", ...BLOCK, "```", SECTION_CLOSE].join("\n");
+const SECTION = [SECTION_OPEN, "## Seal", "", `The newest verdict of \`${DIRECTORY}/guarantee.md\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", "```seal", ...BLOCK, "```", SECTION_CLOSE].join("\n");
 
 /** A round record with one finding closed by the verdict given, or with none. */
 function round(number: number, closed: string | null): string {
@@ -298,7 +298,7 @@ describe("the body of a pull request", () => {
 
   it("replaces a part whose text holds a marker line of the seal section or of the back's by the line that names its record, whatever the body's length, so the body holds each marker once", async () => {
     const made = repository();
-    const changelog = ["- The body opens with the seal section:", "", "```", SECTION_OPEN, "## Owlery seal", `  ${SECTION_CLOSE}  `, "```", ""].join("\n");
+    const changelog = ["- The body opens with the seal section:", "", "```", SECTION_OPEN, "## Seal", `  ${SECTION_CLOSE}  `, "```", ""].join("\n");
     const head = records(made, { changelog, decisions: DECISIONS });
     const body = pullRequestBody(await bodyRecords(made.repo, head, DIRECTORY), BACK, 1_000_000);
     expect(body).toBe(`${[SECTION, BACK_PART, held("## What changed", "changelog.md"), GATE_PART, DECIDED].join("\n\n")}\n`);
@@ -423,7 +423,7 @@ describe("the back of the seal in a pull request's body", () => {
 });
 
 describe("the seal section and the back's section of a body a person may have edited", () => {
-  const OLD = [SECTION_OPEN, "## Owlery seal", "", "```seal", `target: ${OLDER} against main`, "Verdict: sealed", "```", SECTION_CLOSE];
+  const OLD = [SECTION_OPEN, "## Seal", "", "```seal", `target: ${OLDER} against main`, "Verdict: sealed", "```", SECTION_CLOSE];
   const OLD_BACK = [BACK_OPEN, "## The back of the seal", "", "The review rounds caught nothing. Findings by round: 0.", BACK_CLOSE];
   /** The reason a replacing of the back's section was refused with, or the text "replaced". */
   const backRefused = (body: string): string => {

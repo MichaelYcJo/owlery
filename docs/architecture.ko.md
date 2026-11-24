@@ -270,8 +270,8 @@ check: apps/desktop/test/seal-state.test.ts apps/desktop/test/daemon.test.ts app
 
 ### AgenticSeal과의 호환
 
-AgenticSeal 플러그인 사용자는 지금처럼 Claude Code에서 그대로 씁니다. Owlery의 기록 형식은 AgenticSeal의 형식에서 출발했고, Owlery의 것입니다. 호환은 Owlery에 쓸모가 있는 곳에서만 지킵니다. Owlery가 자기 PR에 인장을 찍기 전까지는([마일스톤](roadmap.ko.md#마일스톤) 2행) 이 저장소의 기록을 플러그인의 검사와 Owlery의 검사가 함께 읽습니다. `decisions.md`는 AgenticSeal이 읽지 않는 파일이고, AgenticSeal의 검사는 이 파일이 있을 때와 없을 때 같은 답을 냅니다(2026-11-22 실험, 0.38.2와 0.38.4).
-check: apps/desktop/test/pr-check.test.ts
+AgenticSeal 플러그인 사용자는 지금처럼 Claude Code에서 그대로 씁니다. Owlery의 기록 형식은 AgenticSeal의 형식에서 출발했고, Owlery의 것입니다. 이슈 #146의 PR부터 이 저장소의 PR은 Owlery 자신의 워크플로가 검사하고, 플러그인의 검사는 그중 어느 것도 읽지 않습니다. 플러그인의 검사는 owl 체인이 판정 블록에 쓰는 `built-by:`나 `rules:` 같은 줄을 거절하므로, 두 검사를 나란히 돌리지 않습니다. 이 저장소의 워크플로는 Owlery가 앱의 버전에 맞춰 쓰는 것이고, 버전을 올리는 PR이 그 파일을 다시 씁니다. 호환은 Owlery에 쓸모가 있는 곳에서 지킵니다. Owlery의 검사는 플러그인의 프로세스가 쓰는 형식의 작업 기록도 여전히 읽고, 이 저장소의 작업은 그 프로세스가 만드는 동안 그 형식의 기록을 갖습니다. 플러그인이 짠 PR 본문은 읽지 않습니다.
+check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts
 
 ## 순서는 코드가, 판단은 orchestrator가
 
