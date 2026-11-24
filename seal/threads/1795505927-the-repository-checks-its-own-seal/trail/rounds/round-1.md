@@ -26,6 +26,11 @@ The fix touches only this sentence. No other statement of the fact is wrong: `fr
 - This pull request runs its own `.github/workflows/owlery-seal.yml`, which fetches the check from `release/v0.0.3`, so the check posts under the earlier name `Owlery seal` this once; from the next pull request on, the check is `seal`. Requiring `seal` on the branch is the owner's step.
 ```
 
+```seal
+verdict: fixed f3c2643
+answer: The finding holds: a `pull_request` run reads the workflow of the pull request's merge commit, which holds this pull request's `owlery-seal.yml` and no `hygiene.yml`, and only the check that workflow clones comes from `release/v0.0.3`. `pr.md:14` now reads the paste-ready sentence word for word, the one line of `pr.md` the orchestrator let this pass change. `git grep` for the old wording prints only this record's quote of it.
+```
+
 ### 2. Phase 2 kept the test stand-ins' job id `seal` on the claim that the id is the plugin's, but the plugin's template names its job `hygiene`
 
 ```seal
@@ -49,6 +54,11 @@ const PLUGIN_CHECK = 'jobs:\n  hygiene:\n    steps:\n      - run: python3 "$RUNN
 ```
 
 The claim at `trail/phases/phase-2.md:15` stays as the phase wrote it. The fix pass's close names the correction, since a phase record is history and is not rewritten.
+
+```seal
+verdict: fixed 8b5830c
+answer: The finding holds: the `hygiene.yml` at `66b3991` and the plugin's 0.38.7 template both open their job as `hygiene`. Both stand-ins now name the job `hygiene`, as the paste-ready fix gives them, and the docstring at `records-place.test.ts:15` holds as written. No assertion moved: `records-place.test.ts` passed whole, 30 cases with the five that write the stand-in among them, and the one case of `daemon.test.ts` that writes it, "launches a Claude Code pane of a work item whose worktree holds Owlery's workflow", passed alone (executed at `f3c2643`, whose test files are those of `8b5830c`, the daemon's case after `pgrep -fl vitest` printed nothing). No other stand-in in the tree writes a job `seal` (executed: `git grep`). The claim at `trail/phases/phase-2.md:15` that the id `seal` is the plugin's stays as the phase wrote it, since a phase record is history: this close is its correction, and the id the plugin writes is `hygiene`.
+```
 
 ## Confirmations
 
