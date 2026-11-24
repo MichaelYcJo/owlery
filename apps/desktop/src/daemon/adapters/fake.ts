@@ -15,13 +15,13 @@ export interface FakeAsk {
 }
 
 export interface FakeAdapterOptions {
-  /** The answer to a prompt, in the pieces it arrives in, for the role the session was started with, if any. When absent the answer is a text that quotes the prompt, and names the role and the stage of a session started with one. */
+  /** The answer to a prompt, in the pieces it arrives in, for the role the session was started with, if any. When absent the answer is a text that quotes the prompt, names the role and the stage of a session started with one, and ends with the config folder of a session started under an account's. */
   pieces?: (prompt: string, role?: RoleStage) => string[];
   /** The requests a session raises before its answer, for the prompt and the role it was started with, if any. Each is reported under the id `ask-<n>`, counted from 1 in each session. The session waits until each is answered, but for the ones it withdraws, and its answer then opens with one line for each answer it was given, in the requests' order: `allowed: <tool>` or `refused: <tool>: <reason>`. */
   asks?: (prompt: string, role?: RoleStage) => FakeAsk[];
   /** What a session does in its folder before the first piece of its answer, after its requests were answered: it is called with the folder, the prompt and the role the session was started with, if any, and awaited. A case's crafter commits a fix and appends a close block through it. */
   work?: (cwd: string, prompt: string, role?: RoleStage) => void | Promise<void>;
-  /** The features the adapter declares, in place of both. */
+  /** The features the adapter declares, in place of all three. */
   features?: readonly RoleFeature[];
   /** `start`: no session starts. `result`: the turn ends with an error, and exit 1. `exit`: the process exits 1 without a result. */
   fail?: "start" | "result" | "exit";
@@ -41,12 +41,13 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
   let sessions = 0;
   return {
     name: "fake",
-    features: options.features ?? ["role-tools", "permission-requests"],
+    features: options.features ?? ["role-tools", "permission-requests", "accounts"],
     notice: () => Promise.resolve(options.notice ?? null),
-    start({ prompt, cwd, role }, listener) {
+    start({ prompt, cwd, role, accountDir }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const asks = options.asks?.(prompt, role) ?? [];
-      const pieces = options.pieces?.(prompt, role) ?? [role ? `As the ${role.role} at the stage ${role.stage}, you asked: "${prompt}"` : `You asked: "${prompt}"`];
+      const under = accountDir === undefined ? "" : ` under the config folder ${accountDir}`;
+      const pieces = options.pieces?.(prompt, role) ?? [`${role ? `As the ${role.role} at the stage ${role.stage}, you asked: "${prompt}"` : `You asked: "${prompt}"`}${under}`];
       const errorOutput = options.errorOutput ?? "";
       sessions += 1;
       const named = options.session?.(prompt, role) ?? { id: `fake-${String(sessions)}`, model: "fake" };

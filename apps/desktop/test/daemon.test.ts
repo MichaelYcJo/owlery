@@ -29,7 +29,7 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
@@ -40,7 +40,7 @@ const NOTHING_RECORDED = { framed: false, rounds: 0, gate: null, verdict: null }
 /** What a repository holds of the fields a person sets, before any is set. */
 /** What a repository holds of the records place where its checkout holds none. */
 const NO_RECORDS = { root: null, check: null, broadGate: null };
-const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS };
+const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS, accountId: null };
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -495,8 +495,8 @@ describe("work items", () => {
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
-    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
+    expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["accountId", "customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
     expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
@@ -4957,7 +4957,7 @@ describe("headless sessions", () => {
     const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ pieces: () => ["A barn ", "owl."] }) }, 2);
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?" });
-    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
+    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null, accountId: 0 };
     expect(await one.message("asked")).toEqual({ type: "asked", requestId: 5, headless: working });
     for (const c of [one, two]) {
       await c.message("headless", (m) => m.headless.state === "finished");
@@ -4988,7 +4988,7 @@ describe("headless sessions", () => {
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     const role = { role: "proofer", stage: "round" } as const;
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?", role });
-    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role });
+    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role, accountId: 0 });
     for (const c of [one, two]) {
       const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
       expect(headless.answer).toBe('As the proofer at the stage round, you asked: "Which owl?"');
@@ -5140,7 +5140,7 @@ describe("headless sessions", () => {
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null, accountId: 0 });
   });
 
   it("lists no headless session where none was asked, and counts them apart from the panes", async () => {
@@ -5500,7 +5500,7 @@ describe("headless sessions", () => {
   describe("the ledger", () => {
     type Client = Awaited<ReturnType<typeof client>>;
     const USAGE: Usage = { costUsd: 0.25, converted: true, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, costUsd: 0.25 }] };
-    const ENTRY_FIELDS = ["branch", "chain", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
+    const ENTRY_FIELDS = ["account", "branch", "chain", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
     const PROOFER = { role: "proofer", stage: "round" } as const;
 
     /** A run folder the case's daemons share, removed after the case. */
@@ -5540,7 +5540,7 @@ describe("headless sessions", () => {
       clock = 3000;
       await asked(c, workItem.id, "And you?");
       const answer = await ledgerOf(c, workItem.id);
-      const kept = { workItemId: workItem.id, repo: workItem.repo, branch: workItem.branch, state: "finished", stopped: null };
+      const kept = { workItemId: workItem.id, repo: workItem.repo, branch: workItem.branch, state: "finished", stopped: null, account: { id: 0, name: "System default" } };
       expect(answer).toEqual({
         type: "ledger",
         requestId: answer.requestId,
@@ -5561,7 +5561,7 @@ describe("headless sessions", () => {
       const status = () => [git(workItem.worktree, "status", "--porcelain", "--ignored"), git(workItem.repo, "status", "--porcelain", "--ignored")];
       const before = status();
       await asked(c, workItem.id, "Which owl?", PROOFER);
-      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, chain: null, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
+      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, chain: null, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE, account: { id: 0, name: "System default" } };
       expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [kept], unread: 0 });
       expect(status()).toEqual(before);
       await first.close();
@@ -6661,7 +6661,7 @@ describe("keeping the Mac awake", () => {
     const runDir = runFolder();
     const { url } = await daemon({ runDir });
     const c = await client(url);
-    expect(Object.keys(await c.message("ready")).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(await c.message("ready")).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
     c.send({ type: "setKeepAwake", choice: "always" });
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 999 });
     await c.message("error", (m) => m.requestId === 1);

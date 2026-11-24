@@ -43,6 +43,13 @@ function chainOf(value: unknown): LedgerEntry["chain"] | undefined {
   return { kind: value.kind as ChainStageKind, round: value.round };
 }
 
+/** The account a value names: a whole id with a name, null, or nothing where it names none. A line written before entries named the account holds none, and names none. */
+function accountOf(value: unknown): LedgerEntry["account"] | undefined {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || !isWhole(value.id) || typeof value.name !== "string") return undefined;
+  return { id: value.id, name: value.name };
+}
+
 /** The entry a line's value is, with the protocol's fields alone, or nothing where it is no entry. */
 function entryOf(value: unknown): LedgerEntry | undefined {
   if (!isRecord(value)) return undefined;
@@ -53,8 +60,9 @@ function entryOf(value: unknown): LedgerEntry | undefined {
   const stage = stageOf(value.stage);
   const chain = chainOf(value.chain);
   const usage = usageOf(value.usage);
-  if (stage === undefined || chain === undefined || usage === undefined) return undefined;
-  return { workItemId, repo, branch, stage, chain, startedAt, endedAt, state, stopped, usage };
+  const account = accountOf(value.account);
+  if (stage === undefined || chain === undefined || usage === undefined || account === undefined) return undefined;
+  return { workItemId, repo, branch, stage, chain, startedAt, endedAt, state, stopped, usage, account };
 }
 
 /** Whether the file's last byte is no line break: a crash or a failed append cut its last line. A file that does not exist has none. */

@@ -32,8 +32,8 @@ export interface RoleRun {
   answer(id: string, answer: { allow: true } | { allow: false; reason: string }): void;
 }
 
-/** A feature an adapter can declare: it sets a session's tools by its role, and it reports permission requests and takes their answers. */
-export type RoleFeature = "role-tools" | "permission-requests";
+/** A feature an adapter can declare: it sets a session's tools by its role, it reports permission requests and takes their answers, and it launches a session under the account whose config folder it is given. */
+export type RoleFeature = "role-tools" | "permission-requests" | "accounts";
 
 export interface RoleAdapter {
   readonly name: string;
@@ -44,10 +44,12 @@ export interface RoleAdapter {
    * its events to `listener`, none of them before the promise resolves. With
    * `role`, the session is launched as that role at that stage, with whatever
    * the adapter's agent takes a role through; without it the session has no
-   * role. The promise rejects, with a message a person can read, where no
+   * role. With `accountDir`, which the daemon gives only an adapter that
+   * declares `accounts`, the session runs under the login that config folder
+   * holds. The promise rejects, with a message a person can read, where no
    * session started.
    */
-  start(options: { prompt: string; cwd: string; role?: RoleStage }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
+  start(options: { prompt: string; cwd: string; role?: RoleStage; accountDir?: string }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
   /**
    * What a person should know of the adapter's agent before any session
    * starts, as a sentence a window shows as it is, or null where there is

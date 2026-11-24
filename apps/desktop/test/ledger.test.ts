@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -59,11 +59,23 @@ function entry(startedAt: number, more: Partial<LedgerEntry> = {}): LedgerEntry 
     state: "finished",
     stopped: null,
     usage: { costUsd: 0.25, converted: true, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: 0, costUsd: 0.25 }] },
+    account: { id: 0, name: "System default" },
     ...more,
   };
 }
 
 describe("Ledger", () => {
+  it("gives each entry the account its stage ran under, by the id and the name it was written with, and a line written before entries named an account with none (scenario 10)", () => {
+    const runDir = runFolder();
+    const ledger = new Ledger(runDir);
+    const work = entry(1000, { account: { id: 1, name: "Work" } });
+    const home = entry(1100, { account: { id: 2, name: "Home" } });
+    for (const added of [work, home]) ledger.add(added);
+    const { account: _, ...before } = entry(1200);
+    appendFileSync(join(runDir, "ledger.jsonl"), `${JSON.stringify(before)}\n`);
+    expect(new Ledger(runDir).read(7, 0)).toEqual({ entries: [work, home, entry(1200, { account: null })], unread: 0 });
+  });
+
   it("appends each entry as one line of a file the user alone can read, and gives a work item's entries in the order they were added, to a second store on the folder too", () => {
     const runDir = runFolder();
     const ledger = new Ledger(runDir);
@@ -124,7 +136,7 @@ describe("Ledger", () => {
     expect(lines(runDir)).toEqual([JSON.stringify(added), ""]);
   });
 
-  it("reads as an entry only a line with every field in its type, a stage a pair the protocol lists, the gate or none, a chain's stage a kind the protocol lists with a whole round or none, and a usage with its mark, and reads a line an earlier build wrote with no chain's stage as one that names none", () => {
+  it("reads as an entry only a line with every field in its type, a stage a pair the protocol lists, the gate or none, a chain's stage a kind the protocol lists with a whole round or none, a usage with its mark, and an account with a whole id and a name or none, and reads a line an earlier build wrote with no chain's stage as one that names none", () => {
     const runDir = runFolder();
     const good = entry(1000);
     const model = good.usage!.models[0]!;
@@ -158,6 +170,13 @@ describe("Ledger", () => {
       { ...good, usage: { costUsd: 0.25, converted: true, models: [null] } },
       { ...good, usage: { costUsd: 0.25, converted: true, models: [{ ...model, model: 1 }] } },
       ...(["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "costUsd"] as const).map((count) => ({ ...good, usage: { ...good.usage, models: [{ ...model, [count]: "10" }] } })),
+      { ...good, account: "Work" },
+      { ...good, account: [] },
+      { ...good, account: { id: "1", name: "Work" } },
+      { ...good, account: { id: 1.5, name: "Work" } },
+      { ...good, account: { id: -1, name: "Work" } },
+      { ...good, account: { id: 1 } },
+      { ...good, account: { id: 1, name: 7 } },
     ];
     const right = [
       entry(1001, { stage: { role: "crafter", stage: "fix-pass" }, chain: { kind: "fix-pass", round: 1 } }),
@@ -169,10 +188,10 @@ describe("Ledger", () => {
       // The orchestrator's one pair, for a ruling and for a judgment, which the chain's stage tells apart.
       entry(1008, { stage: { role: "orchestrator", stage: "judgment" }, chain: { kind: "ruling", round: 2 } }),
       entry(1009, { stage: { role: "orchestrator", stage: "judgment" }, chain: { kind: "judgment", round: 2 } }),
-      entry(1010, { stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 0 }, usage: null }),
+      entry(1010, { stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 0 }, usage: null, account: null }),
     ];
     // A field the protocol does not name is not given with the entry.
-    const more = { ...entry(1005), vendor: "x", stage: { role: "proofer", stage: "round", more: "x" }, chain: { kind: "round", round: 1, more: "x" }, usage: { ...good.usage, raw: "x", models: [{ ...model, raw: "x" }] } };
+    const more = { ...entry(1005), vendor: "x", stage: { role: "proofer", stage: "round", more: "x" }, chain: { kind: "round", round: 1, more: "x" }, usage: { ...good.usage, raw: "x", models: [{ ...model, raw: "x" }] }, account: { id: 0, name: "System default", folder: "x" } };
     // A line a build before the chain's stage was named wrote: every field but `chain`.
     const { chain: _, ...earlier } = entry(1011);
     writeFileSync(join(runDir, "ledger.jsonl"), `${[...wrong, ...right, more, earlier].map((value) => JSON.stringify(value)).join("\n")}\n`);

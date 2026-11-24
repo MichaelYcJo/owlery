@@ -43,9 +43,9 @@ describe("the fake adapter", () => {
     expect((await runWhole(fakeAdapter({ fail: "exit" }), "Q")).map((event) => event.type)).toEqual(["session", "exit"]);
   });
 
-  it("declares its name and the two features, or the list it was told to declare in their place", () => {
+  it("declares its name and the three features, or the list it was told to declare in their place", () => {
     expect(fakeAdapter().name).toBe("fake");
-    expect(fakeAdapter().features).toEqual(["role-tools", "permission-requests"]);
+    expect(fakeAdapter().features).toEqual(["role-tools", "permission-requests", "accounts"]);
     expect(fakeAdapter({ features: ["role-tools"] }).features).toEqual(["role-tools"]);
     expect(fakeAdapter({ features: [] }).features).toEqual([]);
   });
@@ -77,6 +77,21 @@ describe("the fake adapter", () => {
     ]);
     expect((await run(fakeAdapter(), "Q", { role: "crafter", stage: "fix-pass" }))[0]).toEqual({ type: "text", text: 'As the crafter at the stage fix-pass, you asked: "Q"' });
     expect((await run(fakeAdapter(), "Q"))[0]).toEqual({ type: "text", text: 'You asked: "Q"' });
+  });
+
+  it("started under an account's folder, names that folder at the end of the text it answers with, and started under none names none", async () => {
+    const under = async (role?: RoleStage): Promise<RoleEvent[]> => {
+      const events: RoleEvent[] = [];
+      await new Promise<void>((resolve) => {
+        void fakeAdapter().start({ prompt: "Q", cwd: "/nowhere", accountDir: "/accounts/work", ...(role ? { role } : {}) }, (event) => {
+          if (event.type !== "session") events.push(event);
+          if (event.type === "exit") resolve();
+        });
+      });
+      return events;
+    };
+    expect((await under())[0]).toEqual({ type: "text", text: 'You asked: "Q" under the config folder /accounts/work' });
+    expect((await under({ role: "proofer", stage: "round" })).at(-2)).toMatchObject({ type: "result", text: 'As the proofer at the stage round, you asked: "Q" under the config folder /accounts/work' });
   });
 
   it("gives its pieces the role it was started with, and nothing where it was started with none", async () => {

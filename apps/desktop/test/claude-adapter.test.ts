@@ -92,7 +92,7 @@ describe("the Claude adapter's launch", () => {
     }
   });
 
-  it("gives the session five names of the environment and nothing else of the daemon's", () => {
+  it("gives a session under System default, where the login shell holds no config folder, five names of the environment and nothing else of the daemon's, the daemon's own config folder neither", () => {
     const daemonEnv = {
       HOME: "/Users/person",
       USER: "person",
@@ -103,13 +103,28 @@ describe("the Claude adapter's launch", () => {
       CLAUDECODE: "1",
       ANTHROPIC_API_KEY: "not-passed",
       OWLERY_RUN_DIR: "/run",
+      CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon",
     };
-    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin")).toEqual({
+    const five = {
       HOME: "/Users/person",
       USER: "person",
       PATH: "/Users/person/.local/bin:/usr/bin",
       LANG: "ko_KR.UTF-8",
       CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+    };
+    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin")).toEqual(five);
+    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin", null)).toEqual(five);
+    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin", "")).toEqual(five);
+  });
+
+  it("gives a session the config folder it is given, an account's or the login shell's, as CLAUDE_CONFIG_DIR beside the five names", () => {
+    expect(claudeEnv({ HOME: "/Users/person", USER: "person", LANG: "ko_KR.UTF-8", CLAUDE_CONFIG_DIR: "/elsewhere" }, "/usr/bin", "/Users/person/accounts/work")).toEqual({
+      HOME: "/Users/person",
+      USER: "person",
+      PATH: "/usr/bin",
+      LANG: "ko_KR.UTF-8",
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+      CLAUDE_CONFIG_DIR: "/Users/person/accounts/work",
     });
   });
 
@@ -137,9 +152,11 @@ describe("finding the user's CLI", () => {
     expect(lookupCommand({}).command).toBe("/bin/zsh");
   });
 
-  it("reads the CLI's path and the shell's PATH from between whatever else the shell printed", () => {
-    const printed = "Welcome back\n\n__owlery_cli=/Users/person/.local/bin/claude\n__owlery_path=/Users/person/.local/bin:/usr/bin\nbye\n";
-    expect(parseLookup(printed)).toEqual({ cli: "/Users/person/.local/bin/claude", path: "/Users/person/.local/bin:/usr/bin" });
+  it("reads the CLI's path, the shell's PATH and the shell's config folder from between whatever else the shell printed, and no config folder where the shell holds none or printed no such line", () => {
+    const printed = "Welcome back\n\n__owlery_cli=/Users/person/.local/bin/claude\n__owlery_path=/Users/person/.local/bin:/usr/bin\n__owlery_config=/Users/person/.claude-work\nbye\n";
+    expect(parseLookup(printed)).toEqual({ cli: "/Users/person/.local/bin/claude", path: "/Users/person/.local/bin:/usr/bin", configDir: "/Users/person/.claude-work" });
+    expect(parseLookup("\n__owlery_cli=/bin/claude\n__owlery_path=/usr/bin\n__owlery_config=\n")).toEqual({ cli: "/bin/claude", path: "/usr/bin", configDir: null });
+    expect(parseLookup("\n__owlery_cli=/bin/claude\n__owlery_path=/usr/bin\n")).toEqual({ cli: "/bin/claude", path: "/usr/bin", configDir: null });
   });
 
   it("finds nothing where the shell names no file: an empty answer, an alias, or no answer at all", () => {
@@ -149,12 +166,16 @@ describe("finding the user's CLI", () => {
     expect(parseLookup("")).toBeUndefined();
   });
 
-  it("the script it runs prints both, in a real shell", async () => {
+  it("the script it runs prints the three, in a real shell, and an empty config folder where the shell holds none", async () => {
     const folder = temporaryFolder();
     script(folder, "claude", "exit 0");
     const { execFileSync } = await import("node:child_process");
     const printed = execFileSync("/bin/sh", ["-c", LOOKUP_SCRIPT], { env: { PATH: `${folder}:/usr/bin:/bin` }, encoding: "utf8" });
-    expect(parseLookup(printed)).toEqual({ cli: join(folder, "claude"), path: `${folder}:/usr/bin:/bin` });
+    expect(parseLookup(printed)).toEqual({ cli: join(folder, "claude"), path: `${folder}:/usr/bin:/bin`, configDir: null });
+    const configured = execFileSync("/bin/sh", ["-u", "-c", LOOKUP_SCRIPT], { env: { PATH: `${folder}:/usr/bin:/bin`, CLAUDE_CONFIG_DIR: "/Users/person/.claude-work" }, encoding: "utf8" });
+    expect(parseLookup(configured)?.configDir).toBe("/Users/person/.claude-work");
+    // A shell that refuses an unset name still prints the lines.
+    expect(parseLookup(execFileSync("/bin/sh", ["-u", "-c", LOOKUP_SCRIPT], { env: { PATH: `${folder}:/usr/bin:/bin` }, encoding: "utf8" }))?.configDir).toBeNull();
   });
 });
 
@@ -163,20 +184,20 @@ describe("the Claude adapter's run", () => {
    * A shell that stands for the user's login shell and names `cli` as the CLI
    * it found. It counts its own runs in a file beside it.
    */
-  function fakeShell(folder: string, cli: string): { env: NodeJS.ProcessEnv; lookups: () => number } {
+  function fakeShell(folder: string, cli: string, configDir = ""): { env: NodeJS.ProcessEnv; lookups: () => number } {
     const count = join(folder, "lookups");
     writeFileSync(count, "");
-    const shell = script(folder, "shell", `echo x >> '${count}'\nprintf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script(folder, "shell", `echo x >> '${count}'\nprintf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' '${configDir}'`);
     return { env: { SHELL: shell, HOME: folder, USER: "person", SECRET: "not-passed" }, lookups: () => readFileSync(count, "utf8").length / 2 };
   }
 
-  /** Starts one run and gives its events once it has exited. */
-  async function run(env: NodeJS.ProcessEnv, prompt: string, cwd: string): Promise<RoleEvent[]> {
+  /** Starts one run, under the account's folder where one is given, and gives its events once it has exited. */
+  async function run(env: NodeJS.ProcessEnv, prompt: string, cwd: string, accountDir?: string): Promise<RoleEvent[]> {
     const adapter = claudeAdapter(env);
     const events: RoleEvent[] = [];
     await new Promise<void>((resolve, reject) => {
       adapter
-        .start({ prompt, cwd }, (event) => {
+        .start({ prompt, cwd, ...(accountDir === undefined ? {} : { accountDir }) }, (event) => {
           events.push(event);
           if (event.type === "exit") resolve();
         })
@@ -185,9 +206,22 @@ describe("the Claude adapter's run", () => {
     return events;
   }
 
-  it("declares its name and the two features: it sets a session's tools by its role, and it reports permission requests and takes their answers", () => {
+  it("declares its name and the three features: it sets a session's tools by its role, it reports permission requests and takes their answers, and it launches a session under an account's folder", () => {
     expect(claudeAdapter({}).name).toBe("claude");
-    expect(claudeAdapter({}).features).toEqual(["role-tools", "permission-requests"]);
+    expect(claudeAdapter({}).features).toEqual(["role-tools", "permission-requests", "accounts"]);
+  });
+
+  it("launches the CLI with the account's folder as CLAUDE_CONFIG_DIR where it is given one, over the login shell's, with the login shell's where it is given none, and with no such name where the shell holds none either (the role session's half of scenario 3)", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", [`env | sort > '${folder}/env'`, `echo '{"type":"result","is_error":false,"result":"owl"}'`, "cat > /dev/null", "exit 0"].join("\n"));
+    const configOf = (): string | undefined => readFileSync(join(folder, "env"), "utf8").split("\n").find((line) => line.startsWith("CLAUDE_CONFIG_DIR="))?.slice("CLAUDE_CONFIG_DIR=".length);
+    const shellHolds = fakeShell(folder, cli, "/Users/person/.claude-of-the-shell").env;
+    await run(shellHolds, "Q", folder, "/Users/person/accounts/work");
+    expect(configOf()).toBe("/Users/person/accounts/work");
+    await run(shellHolds, "Q", folder);
+    expect(configOf()).toBe("/Users/person/.claude-of-the-shell");
+    await run({ ...fakeShell(folder, cli).env, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" }, "Q", folder);
+    expect(configOf()).toBeUndefined();
   });
 
   it("launches the CLI the shell found, in the folder, with the flags and the five names, writes the handshake and then the prompt on standard input, ends the input at the result, and maps what it prints", async () => {
