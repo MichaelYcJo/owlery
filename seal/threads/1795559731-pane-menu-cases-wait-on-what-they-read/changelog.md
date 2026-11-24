@@ -1,0 +1,7 @@
+# Changelog: the pane menu cases wait on what they read
+
+Issue #168. Two cases of the pane's menu failed now and then in CI. The cause was in the app. A pane that comes back onto the stage takes a terminal screen the pane before it emptied, and the window draws the pane again from the daemon's replay of its output. Before that replay was drawn, the screen already sent what a person typed or pasted, and the emptied terminal held none of the modes the pane's program had set. A paste then reached a program that had asked for pastes in brackets without them, and a shell would run a pasted text of several lines line by line.
+
+- **A pane that comes back onto the stage takes no keys and no paste until the window has drawn its output again.** What a person types or pastes in that moment is dropped, not held. Before, it was dropped for part of that moment and sent without the program's modes for the rest. A pane the window draws for the first time since its page loaded, a pane a person just opened among them, takes keys as before.
+- **The two cases of the pane's menu wait for what they read.** The case that opens the menu waits until the pane's output is drawn again before it copies it, and presses "Paste" again for up to fifteen seconds while the pane receives nothing. A case of `apps/desktop/test/terminal-basics.test.ts` that fails no longer leaves its panes or "Side by side" to the cases after it.
+- **The desktop app's version is 0.0.4.**
