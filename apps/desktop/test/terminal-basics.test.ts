@@ -16,7 +16,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CARD_LEAVE_MS, CARD_SHOW_MS } from "../src/renderer/view";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received } from "./korean-pane";
@@ -78,6 +78,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   let linesFile: string;
   /** The panes the cases opened so far. A daemon numbers the panes it starts from 1. */
   let panes = 0;
+  /** The panes `openPane` opened so far. */
+  const openedPanes: number[] = [];
 
   /** The file the shell pane with a number writes its process id to. */
   const pidFile = (pane: number): string => `${receivedFile}-${pane}.pid`;
@@ -122,6 +124,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click(`#pane-buttons button:nth-child(${button + 1})`);
     await app.until(`${TABS}.length === ${before.length + 1}`, `a tab more than ${before.join(", ") || "none"}`);
     panes += 1;
+    openedPanes.push(panes);
     return panes;
   }
 
@@ -132,19 +135,30 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
   }
 
-  /** Has a client of the daemon other than the window close a pane, as a second window of the app would. */
-  async function closeFromElsewhere(pane: number): Promise<void> {
+  /** Has a client of the daemon other than the window close the panes among `asked` that the daemon holds, as a second window of the app would, and answers with the panes it closed. */
+  async function closeFromElsewhere(...asked: number[]): Promise<number[]> {
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);
-    await new Promise<void>((resolve, reject) => {
+    const ready = await new Promise<{ sessions: { id: number }[] }>((resolve, reject) => {
       socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")), { once: true });
-      // The daemon answers a hello it takes with `ready`, and a close sent before that is no client's.
-      socket.addEventListener("message", () => resolve(), { once: true });
+      // The daemon answers a hello it takes with `ready`, which lists the panes it holds, and a close sent before that is no client's.
+      socket.addEventListener("message", (event) => resolve(JSON.parse(String(event.data)) as { sessions: { id: number }[] }), { once: true });
       socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })), { once: true });
     });
-    socket.send(JSON.stringify({ type: "close", id: pane }));
+    const held = asked.filter((pane) => ready.sessions.some((session) => session.id === pane));
+    for (const pane of held) socket.send(JSON.stringify({ type: "close", id: pane }));
     socket.close();
+    return held;
   }
+
+  // A case that fails stops at its failing line, and leaves the panes it opened and "Side by side" as they were there. The cases after it start from one tab, the first pane's, with "Side by side" off. A case that passes leaves what the case after it reads: it closes its panes itself, or hands its pane on, as the case "makes a path a pane printed a link…" hands its pane to the case after it. So this acts after a case that failed alone.
+  afterEach(async ({ task }) => {
+    if (task.result?.state !== "fail") return;
+    const left = await closeFromElsewhere(...openedPanes);
+    if (left.length > 0) await app.until(`${TABS}.length === 1`, "one tab, once the panes the failed case left are closed");
+    // The button is pressed from the page, since a case that failed may have left another screen in front of the view that holds it.
+    await app.evaluate(`void (document.getElementById("side-by-side").getAttribute("aria-pressed") === "true" && document.getElementById("side-by-side").click())`);
+  });
 
   /** Puts the one work item's view in front from another screen, by its line in the sidebar. */
   async function openView(): Promise<void> {
@@ -994,6 +1008,9 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click("#side-by-side");
     await app.click("#tabs .tab:nth-child(2) .label");
     await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the new pane in front again");
+    // The pane came back onto the stage, and "Select All" below reads its screen, which its replay draws again.
+    await comeOnto(9, 0, OVER_LINK, "the link on the pane's first row, drawn again from its replay");
+    await pointAway();
 
     // A press outside the menu closes it, and so does a second press of the right button, which opens the menu where it was pressed.
     await openMenu();
@@ -1045,16 +1062,17 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
       await app.click("#tabs .tab:nth-child(2) .label");
       await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the pane of the menu in front again");
     };
-    /** Presses the menu's "Paste" after the pane came back, and answers what the pane's process was handed. A screen sends nothing until its terminal has drawn the replay (src/renderer/view.ts, `screenTurns`), so a press made before that hands the process nothing, and it is made again after a second without a byte, three times at most. */
+    /** Presses the menu's "Paste" after the pane came back, and answers what the pane's process was handed. The screen of a pane that came back sends it nothing until its terminal has drawn the pane's replay (src/renderer/view.ts, `screenTurns`), so a press made before that hands the process nothing. The press is made again after a second without a byte, until fifteen seconds have passed, the bound `BuiltApp.until` waits. */
     const pasteOnceBack = async (): Promise<string> => {
-      for (let presses = 1; ; presses++) {
+      const deadline = Date.now() + 15_000;
+      for (;;) {
         await pressMenuItem("Paste");
         for (let reads = 0; reads < 5; reads++) {
           const got = (await handed.next(0)).toString("utf8");
           // A moment more for what follows the first bytes.
           if (got !== "") return got + (await handed.next(0)).toString("utf8");
         }
-        if (presses === 3) return "";
+        if (Date.now() >= deadline) return "";
       }
     };
 
