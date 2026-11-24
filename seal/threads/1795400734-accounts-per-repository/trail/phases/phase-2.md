@@ -51,4 +51,6 @@ Reading the range against HEAD found one fault there, fixed at `c3adebc`: an `ac
 
 **The first boundary run found five pins the narrow runs had not reached.** Four cases of `daemon.test.ts` pin a pane's whole `SessionInfo` and lacked `accountId`. A fifth compares the look's sessions with the pane the daemon started, and the look keeps no account. They are fixed at `7802122`, and the whole of `daemon.test.ts` then passed, 345 cases. Executed.
 
+**The phase boundary.** One command ran the twelve files at `c3adebc`: the ten the phase row names, `pane-kinds.test.ts` and `menu.test.ts`. 12 files passed, 1053 cases passed and 1 was skipped, the screenshot run's own case, which runs only under `OWLERY_SCREENSHOTS`. Executed. A second run of the set was stopped before it ended, because #146's worktree started a run of its own beside it, and its result is not counted.
+
 **The pull request's screenshots.** The run with `OWLERY_SCREENSHOTS=1` wrote 22 files in Night watch, dark and light: the Accounts dialog, an inbox whose line names "Work", and the settings with the account's field. They stand in the crafter's scratch directory, outside the tree. Executed.
