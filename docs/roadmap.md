@@ -66,7 +66,7 @@ A release ships one milestone or stands between two. One GitHub milestone titled
   check: apps/desktop/test/settle.test.ts
 - **A release's pull requests merge into its branch by squash, and the release branch merges into `main` by a merge commit.** GitHub rulesets on the repository enforce both, and the repository's admins may bypass them (the owner, 2026-11-20). So each work item is one commit on the release branch.
 - **A work item that makes a bullet of an earlier changelog fragment of the same release untrue rewrites that bullet in its own pull request.** The release's note is built from its fragments, so a bullet left as it was would ship beside the one that contradicts it. The release's settle reads every fragment against the release branch's head before it removes the records, and rewrites a bullet no work item rewrote.
-- **Each milestone has to be in effect before the next one's work starts.** The owner works in the build of milestone 1 while building milestone 2, and the owl chain seals Owlery's own PRs from release 0.0.3 on ([Why this order](#why-this-order), ground 4).
+- **Each milestone has to be in effect before the next one's work starts.** The owner works in the build of milestone 1 while building milestone 2, and the owl chain seals Owlery's own PRs from the pull request of issue #176 on ([Why this order](#why-this-order), ground 4).
 - **A single `release: 0.1.0` would hold every issue of v0.1.** No event in the tracker would then mark a milestone as done.
 - **The earlier releases cannot be 0.1.0 to 0.5.0.** The names v0.2 and v0.3 are taken by later goals ([Later versions](#later-versions)).
 
