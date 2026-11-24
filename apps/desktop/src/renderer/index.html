@@ -523,10 +523,12 @@
       dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
       dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
       dialog input, dialog select { flex: 1; min-width: 0; font-size: var(--size-text); }
-      /* A choice of a dialog: its box, then its words, on one line. */
+      /* A choice of a dialog: its box or its mark, then its words, on one line. */
       dialog label.check { display: flex; align-items: center; gap: var(--space-3); color: var(--ink); }
       dialog label.check:has(input:disabled) { color: var(--ink-faint); }
-      dialog input[type="checkbox"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      dialog input[type="checkbox"], dialog input[type="radio"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      /* One of two choices is marked in the strong ink, as an option of a question is, and never in the system's own accent. */
+      dialog input[type="radio"] { accent-color: var(--ink-strong); }
       #rename-plan { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-faint); overflow-wrap: anywhere; }
       #rename-error, dialog .refusal { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
       /* What a dialog says before it asks, and the things it names: each on a line, a long one cut at the dialog's edge. */

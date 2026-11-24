@@ -119,6 +119,10 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     // The form stays under the dialog with what was typed, and the owl chain is the choice the dialog opens on.
     expect([await open("work-item-dialog"), await value<string>(`document.getElementById("work-item-title").value`)]).toEqual([true, "Chosen"]);
     expect(await value<boolean[]>(`[document.getElementById("chain-owlery").checked, document.getElementById("chain-plugin").checked]`)).toEqual([true, false]);
+    // Each choice's mark is drawn, at the size of the form's own box, so the person sees which of the two is chosen.
+    const [box, ...marks] = await value<number[]>(`["work-item-register-only", "chain-owlery", "chain-plugin"].map((id) => document.getElementById(id).getBoundingClientRect().width)`);
+    expect(box).toBeGreaterThan(0);
+    expect(marks).toEqual([box, box]);
     // The dialog says why it asks, what each answer does to the pane, and that no file of the person's is changed.
     expect(await value<string[]>(`[...document.querySelectorAll("#chain-dialog .head, #chain-dialog .says, #chain-dialog label, #chain-dialog button")].map((part) => part.textContent.trim())`)).toEqual([
       "Choose the chain of this repository's Claude Code panes",
