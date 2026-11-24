@@ -118,7 +118,7 @@ export class SessionLogWatch {
     } else this.held = Buffer.concat([this.held, rest]);
   }
 
-  /** Ends the watch and calls `failed`, unless it ended already: a log that stands at once but cannot be watched is read once more, and that read can fail too. */
+  /** Ends the watch and calls `failed`, unless it ended already. A log that stood only after the watch began is watched and then read at once, so where `fs.watch` refuses it, the read that follows can fail too. */
   private fail(error: unknown): void {
     if (this.ended) return;
     this.end();

@@ -1,8 +1,26 @@
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LINE_BYTES, SessionLogWatch } from "../src/daemon/session-log";
+
+// A case refuses `fs.watch` and the read's open, as a full table of watches would. Every other case watches and reads as the system does.
+const refuse = vi.hoisted(() => ({ on: false }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  const refused = (call: string) => Object.assign(new Error(`EMFILE: too many open files, ${call}`), { code: "EMFILE" });
+  return {
+    ...actual,
+    watch: ((...args: Parameters<typeof actual.watch>) => {
+      if (refuse.on) throw refused("watch");
+      return actual.watch(...args);
+    }) as typeof actual.watch,
+    openSync: ((...args: Parameters<typeof actual.openSync>) => {
+      if (refuse.on) throw refused("open");
+      return actual.openSync(...args);
+    }) as typeof actual.openSync,
+  };
+});
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -78,5 +96,17 @@ describe("SessionLogWatch", () => {
     const made = watch();
     await pause(500);
     expect([lines, failures.map(({ message }) => message.replace(/^.*\//, "")), made.open]).toEqual([[], ["session.jsonl did not stand within 300 ms"], false]);
+  });
+
+  it("fails once where a log that stood only after it began can be neither watched nor read", async () => {
+    const { log, lines, failures, watch } = watched(null);
+    const made = watch();
+    writeFileSync(log, '{"one":1}\n');
+    refuse.on = true;
+    cleanups.push(() => {
+      refuse.on = false;
+    });
+    await pause(250);
+    expect([lines, failures.map(({ message }) => message), made.open]).toEqual([[], ["EMFILE: too many open files, watch"], false]);
   });
 });
