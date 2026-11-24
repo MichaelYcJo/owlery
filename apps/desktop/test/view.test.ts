@@ -4,6 +4,7 @@ import {
   accountName,
   accountRemoval,
   accountRows,
+  REFRESH_SAYS,
   heldAccounts,
   lineAccount,
   offersAccounts,
@@ -159,13 +160,14 @@ import {
   workItemFields,
   workItemMenu,
   type FormPlan,
+  type HeldAccounts,
   type InboxLine,
   type MenuEntry,
   type SealSince,
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -4163,13 +4165,13 @@ describe("viewFacts", () => {
 });
 
 describe("accounts in the window", () => {
-  const SYSTEM = { id: 0, name: "System default", made: false, folder: null, signedIn: null, loginEndsAt: null };
-  const WORK = { id: 1, name: "Work", made: false, folder: "/Users/person/.claude-work", signedIn: null, loginEndsAt: null };
-  const HOME = { id: 2, name: "Home", made: false, folder: "/Users/person/.claude-home", signedIn: null, loginEndsAt: null };
+  const SYSTEM = { id: 0, name: "System default", made: false, folder: null, signedIn: null, loginEndsAt: null, limits: [], refresh: null };
+  const WORK = { id: 1, name: "Work", made: false, folder: "/Users/person/.claude-work", signedIn: null, loginEndsAt: null, limits: [], refresh: null };
+  const HOME = { id: 2, name: "Home", made: false, folder: "/Users/person/.claude-home", signedIn: null, loginEndsAt: null, limits: [], refresh: null };
   const HELD = { accounts: [SYSTEM, WORK, HOME], defaultId: 0 };
 
   it("holds the accounts and the default a daemon sends, and none against a daemon of an earlier build, which sends neither, so the window shows no account control and no account name (scenario 14)", () => {
-    expect(heldAccounts({ accounts: [SYSTEM, WORK], defaultAccountId: 1 })).toEqual({ accounts: [SYSTEM, WORK], defaultId: 1 });
+    expect(heldAccounts({ accounts: [SYSTEM, WORK], defaultAccountId: 1 })).toEqual({ accounts: [SYSTEM, WORK], defaultId: 1, refreshesUsage: false });
     expect(heldAccounts({})).toBeNull();
     expect(offersAccounts(null)).toBe(false);
     expect(lineAccount({ ...LOGIN, accountId: 1 }, PROJECT, [], [], null)).toBe("");
@@ -4221,10 +4223,51 @@ describe("accounts in the window", () => {
 
   it("lists the rows of the Accounts dialog in the daemon's order, each with its name, its folder, whether it is the default, whether it keeps its name, its sign-in in words and whether it offers one", () => {
     expect(accountRows({ ...HELD, defaultId: 1 }, NOW)).toEqual([
-      { id: 0, name: "System default", folder: "The folder your login shell gives Claude Code", isDefault: false, fixed: true, signIn: null, offersSignIn: false },
-      { id: 1, name: "Work", folder: "/Users/person/.claude-work", isDefault: true, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true },
-      { id: 2, name: "Home", folder: "/Users/person/.claude-home", isDefault: false, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true },
+      { id: 0, name: "System default", folder: "The folder your login shell gives Claude Code", isDefault: false, fixed: true, signIn: null, offersSignIn: false, usage: [], refreshed: null, offersRefresh: false },
+      { id: 1, name: "Work", folder: "/Users/person/.claude-work", isDefault: true, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true, usage: [], refreshed: null, offersRefresh: false },
+      { id: 2, name: "Home", folder: "/Users/person/.claude-home", isDefault: false, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true, usage: [], refreshed: null, offersRefresh: false },
     ]);
+  });
+
+  it("offers \"Refresh usage\" on a row, with what a refresh spends said beside it, only where the daemon refreshes usage, no refresh of the account runs, and no live pane nor working session runs under it (scenario 15's control)", () => {
+    const held = { ...HELD, refreshesUsage: true };
+    const offers = (heldNow: HeldAccounts, sessions: SessionInfo[] = [], running: HeadlessInfo[] = []): boolean[] => accountRows(heldNow, NOW, sessions, running).map((row) => row.offersRefresh);
+    expect(offers(held)).toEqual([true, true, true]);
+    expect(offers(HELD)).toEqual([false, false, false]);
+    expect(offers({ ...held, refreshesUsage: false })).toEqual([false, false, false]);
+    expect(offers(held, [session(3, { accountId: 1 }), session(4, { accountId: 2, alive: false })])).toEqual([true, false, true]);
+    expect(offers(held, [], [headless(5, { accountId: 2 }), headless(6, { accountId: 0, state: "finished" })])).toEqual([true, true, false]);
+    expect(offers({ ...held, accounts: [SYSTEM, { ...WORK, refresh: { state: "running", startedAt: NOW } }, HOME] })).toEqual([true, false, true]);
+    expect(REFRESH_SAYS).toBe("A refresh starts one short Claude Code session under the account, and uses a little of its limit.");
+  });
+
+  it("says each limit value the CLI handed over with its window and its time, and no number it did not hand over; and the last refresh, running or ended, with what it handed over and its cost (scenario 15's row)", () => {
+    const rowOf = (account: Partial<Account>): { usage: string[]; refreshed: string | null } => {
+      const { usage, refreshed } = accountRows({ accounts: [SYSTEM, { ...WORK, ...account }], defaultId: 0 }, NOW)[1]!;
+      return { usage, refreshed };
+    };
+    expect(
+      rowOf({
+        limits: [
+          { status: "near", used: 0.42, resetsAt: NOW + 90 * 60_000, window: "five_hour", at: NOW - 5 * 60_000 },
+          { status: "ok", used: null, resetsAt: null, window: "seven_day", at: NOW - 5 * 60_000 },
+          { status: null, used: null, resetsAt: null, window: null, at: NOW },
+          { status: "reached", used: 1, resetsAt: NOW - 60_000, window: "an_hourly", at: NOW - 3 * 3_600_000 },
+        ],
+      }).usage,
+    ).toEqual([
+      "5-hour limit: near the limit, 42% used, resets in 1 h 30 min, as of 5 min ago",
+      "Weekly limit: within the limit, as of 5 min ago",
+      "Usage limit: Claude Code gave no value, as of less than a minute ago",
+      "an_hourly: the limit is reached, 100% used, its reset time has passed, as of 3 h ago",
+    ]);
+    expect(rowOf({}).usage).toEqual([]);
+    expect(rowOf({}).refreshed).toBeNull();
+    expect(rowOf({ refresh: { state: "running", startedAt: NOW } }).refreshed).toBe("Refreshing the usage\u2026");
+    const converted = { costUsd: 0.003, converted: true, models: [] };
+    expect(rowOf({ refresh: { state: "ended", at: NOW - 2 * 60_000, handed: 1, usage: converted, error: null } }).refreshed).toBe("Refreshed 2 min ago. It cost under $0.01, converted at API prices and not charged.");
+    expect(rowOf({ refresh: { state: "ended", at: NOW, handed: 0, usage: { ...converted, costUsd: 0.02, converted: false }, error: null } }).refreshed).toBe("The refresh less than a minute ago ended, and Claude Code handed over no usage value. It cost $0.02.");
+    expect(rowOf({ refresh: { state: "ended", at: NOW, handed: 0, usage: null, error: "The refresh gave no result within a minute and was stopped." } }).refreshed).toBe("The refresh less than a minute ago failed: The refresh gave no result within a minute and was stopped. It reported no cost.");
   });
 
   it("says each account's sign-in as the agent last gave it: not signed in, signed in with no end named, the time until its login ends, and that it may have ended once that time is past (the sign-in of scenario 11)", () => {

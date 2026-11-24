@@ -79,6 +79,7 @@ import {
   accountChoices,
   accountRemoval,
   accountRows,
+  REFRESH_SAYS,
   heldAccounts,
   offersAccounts,
   shownSetup,
@@ -852,7 +853,9 @@ function openAccounts(): void {
  * Draws the Accounts dialog's rows: each account's name, with its folder and
  * its sign-in under it, the default said in words or the button that makes
  * it the default, the buttons that sign it in and read its sign-in again,
- * and the buttons that rename and remove it; while it is renamed, the field
+ * and the buttons that rename and remove it, its limit values and its last
+ * refresh under its sign-in, and "Refresh usage" with what a refresh spends
+ * said beside it; while it is renamed, the field
  * and its two buttons; and while its removal is asked, what the removal does
  * and clears, and its two buttons. The sign-in pane the dialog draws is
  * shown under the list.
@@ -860,7 +863,8 @@ function openAccounts(): void {
 function showAccounts(): void {
   showSignIn();
   byId("accounts-list").replaceChildren(
-    ...accountRows(held.accounts, Date.now()).map((row) => {
+    // Whether a session runs under an account is read as the dialog is drawn: a session that starts later is refused its refresh by the daemon, in words.
+    ...accountRows(held.accounts, Date.now(), held.sessions, held.headless).map((row) => {
       const item = document.createElement("li");
       item.dataset.account = String(row.id);
       const button = (text: string, act: () => void): HTMLButtonElement => {
@@ -936,6 +940,12 @@ function showAccounts(): void {
         signIn.textContent = row.signIn;
         named.append(signIn);
       }
+      for (const line of [...row.usage, ...(row.refreshed === null ? [] : [row.refreshed]), ...(row.offersRefresh ? [REFRESH_SAYS] : [])]) {
+        const said = document.createElement("span");
+        said.className = "account-folder";
+        said.textContent = line;
+        named.append(said);
+      }
       if (row.isDefault) {
         const said = document.createElement("span");
         said.className = "is-default";
@@ -951,6 +961,10 @@ function showAccounts(): void {
           button("Sign in", () => askedSignIn(askAccounts((requestId) => ({ type: "signIn", requestId, id, ...SIGN_IN_SIZE })), id)),
           button("Check sign-in", () => askAccounts((requestId) => ({ type: "readSignIn", requestId, id }))),
         );
+      }
+      if (row.offersRefresh) {
+        const id = row.id;
+        acts.append(button("Refresh usage", () => askAccounts((requestId) => ({ type: "refreshUsage", requestId, id }))));
       }
       if (!row.fixed)
         acts.append(

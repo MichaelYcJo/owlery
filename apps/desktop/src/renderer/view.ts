@@ -3,8 +3,8 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type Account, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
-import { type Back, composeBack } from "../shared/seal-back";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -2780,12 +2780,14 @@ export function settingsFields(repository: Repository, name: string, base: strin
 export interface HeldAccounts {
   accounts: Account[];
   defaultId: number;
+  /** Whether the daemon refreshes an account's usage; no where absent. */
+  refreshesUsage?: boolean;
 }
 
-/** The accounts and the default a `ready` or an `accounts` message carries, or null for a daemon of an earlier build, which sends neither: the window then shows no account control and no account's name. */
-export function heldAccounts(message: { accounts?: Account[]; defaultAccountId?: number }): HeldAccounts | null {
+/** The accounts and the default a `ready` or an `accounts` message carries, with whether the daemon refreshes usage, or null for a daemon of an earlier build, which sends no accounts: the window then shows no account control and no account's name. */
+export function heldAccounts(message: { accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean }): HeldAccounts | null {
   if (message.accounts === undefined || message.defaultAccountId === undefined) return null;
-  return { accounts: [...message.accounts], defaultId: message.defaultAccountId };
+  return { accounts: [...message.accounts], defaultId: message.defaultAccountId, refreshesUsage: message.refreshesUsage === true };
 }
 
 /** Whether the window offers a choice of account: only where the daemon keeps an account beside System default, since with System default alone there is nothing to choose. */
@@ -2841,6 +2843,8 @@ export function tabAccount(session: SessionInfo, workItem: WorkItem, repository:
  * removed, as System default does, its sign-in in words, and whether it
  * offers "Sign in", as an account with a folder does. System default's
  * sign-in is the person's own terminal's, so its row says nothing of it.
+ * Then its usage: one line for each limit value its sessions handed over,
+ * its last refresh in words, and whether it offers "Refresh usage".
  */
 export interface AccountRow {
   id: number;
@@ -2850,6 +2854,37 @@ export interface AccountRow {
   fixed: boolean;
   signIn: string | null;
   offersSignIn: boolean;
+  usage: string[];
+  refreshed: string | null;
+  offersRefresh: boolean;
+}
+
+/** What the Accounts dialog says beside "Refresh usage", before the press. */
+export const REFRESH_SAYS = "A refresh starts one short Claude Code session under the account, and uses a little of its limit.";
+
+/** A limit's name as the agent names it, in words where Owlery knows the name, and as the agent wrote it otherwise. */
+function windowWords(window: string | null): string {
+  if (window === null) return "Usage limit";
+  return { five_hour: "5-hour limit", seven_day: "Weekly limit", seven_day_opus: "Weekly Opus limit", seven_day_sonnet: "Weekly Sonnet limit" }[window] ?? window;
+}
+
+/** One limit value in words, `now` being the window's clock: its name, each value the agent gave and no other, and how long ago it arrived. */
+function limitWords(limit: AccountLimit, now: number): string {
+  const said = [
+    ...(limit.status === null ? [] : [{ ok: "within the limit", near: "near the limit", reached: "the limit is reached" }[limit.status]]),
+    ...(limit.used === null ? [] : [`${String(Math.round(limit.used * 100))}% used`]),
+    ...(limit.resetsAt === null ? [] : [limit.resetsAt > now ? `resets in ${ageOf(now, limit.resetsAt)}` : "its reset time has passed"]),
+  ];
+  return `${windowWords(limit.window)}: ${said.length === 0 ? "Claude Code gave no value" : said.join(", ")}, as of ${ageOf(limit.at, now)} ago`;
+}
+
+/** An account's last refresh in words, `now` being the window's clock: that it runs, or how it ended, whether Claude Code handed over a value, and the cost its turn reported. Nothing where none ran. */
+function refreshWords(refresh: AccountRefresh | null, now: number): string | null {
+  if (refresh === null) return null;
+  if (refresh.state === "running") return "Refreshing the usage\u2026";
+  const cost = refresh.usage === null || refresh.usage.costUsd === null ? "It reported no cost." : `It cost ${costWords(refresh.usage.costUsd)}${refresh.usage.converted ? ", converted at API prices and not charged" : ""}.`;
+  if (refresh.error !== null) return `The refresh ${ageOf(refresh.at, now)} ago failed: ${refresh.error} ${cost}`;
+  return refresh.handed === 0 ? `The refresh ${ageOf(refresh.at, now)} ago ended, and Claude Code handed over no usage value. ${cost}` : `Refreshed ${ageOf(refresh.at, now)} ago. ${cost}`;
 }
 
 /** An account's sign-in in words, as the agent last gave it, `now` being the window's clock: whether a login stands, and the time until it ends where the agent named an end. Once that time is past the login may have ended, which the agent says when asked again. */
@@ -2861,9 +2896,16 @@ function signInWords(account: Account, now: number): string | null {
   return account.loginEndsAt > now ? `Signed in, the login ends in ${ageOf(now, account.loginEndsAt)}` : "Signed in, the login may have ended";
 }
 
-/** The rows of the Accounts dialog, in the daemon's order, System default first, `now` being the window's clock. */
-export function accountRows(held: HeldAccounts | null, now: number): AccountRow[] {
+/**
+ * The rows of the Accounts dialog, in the daemon's order, System default
+ * first, `now` being the window's clock. "Refresh usage" stands where the
+ * daemon refreshes usage, no refresh of the account runs, and none of the
+ * `sessions` is a live pane under it nor any of `headless` a working session
+ * under it, since a session hands over its values itself.
+ */
+export function accountRows(held: HeldAccounts | null, now: number, sessions: readonly SessionInfo[] = [], headless: readonly HeadlessInfo[] = []): AccountRow[] {
   if (held === null) return [];
+  const runs = (id: number): boolean => sessions.some((session) => session.alive && session.accountId === id) || headless.some((session) => session.state === "working" && session.accountId === id);
   return held.accounts.map((account) => ({
     id: account.id,
     name: account.name,
@@ -2872,6 +2914,9 @@ export function accountRows(held: HeldAccounts | null, now: number): AccountRow[
     fixed: account.id === SYSTEM_DEFAULT_ID,
     signIn: signInWords(account, now),
     offersSignIn: account.folder !== null,
+    usage: account.limits.map((limit) => limitWords(limit, now)),
+    refreshed: refreshWords(account.refresh, now),
+    offersRefresh: held.refreshesUsage === true && account.refresh?.state !== "running" && !runs(account.id),
   }));
 }
 

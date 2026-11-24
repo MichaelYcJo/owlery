@@ -571,8 +571,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       {
         writeRun: (runDir) => {
           writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
-          // One account handed over by its folder, an empty one of the run's own: no session of the scene runs under it, and nothing reads it. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in.
-          writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: HANDED_ID + 1, defaultId: SYSTEM_DEFAULT_ID, accounts: [{ id: HANDED_ID, name: HANDED, adapter: "claude", folder: handedFolder, made: false, signedIn: true, loginEndsAt: stored + 26 * 24 * 60 * 60_000 }] }), { mode: 0o600 });
+          // One account handed over by its folder, an empty one of the run's own: no session of the scene runs under it, and nothing reads it. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in, and holds the limit values a session last handed over, so the dialog draws them and the offer of a refresh. No refresh starts: nothing of the run presses it.
+          const limits = [
+            { status: "ok", used: 0.42, resetsAt: stored + 3 * 60 * 60_000, window: "five_hour", at: stored - 20 * 60_000 },
+            { status: "ok", used: 0.18, resetsAt: stored + 4 * 24 * 60 * 60_000, window: "seven_day", at: stored - 20 * 60_000 },
+          ];
+          writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: HANDED_ID + 1, defaultId: SYSTEM_DEFAULT_ID, accounts: [{ id: HANDED_ID, name: HANDED, adapter: "claude", folder: handedFolder, made: false, signedIn: true, loginEndsAt: stored + 26 * 24 * 60 * 60_000, limits }], systemLimits: [] }), { mode: 0o600 });
           // What the parked chain's gate printed, which its line's "Show output" draws.
           mkdirSync(join(runDir, GATE_OUTPUT_FOLDER), { mode: 0o700 });
           writeFileSync(join(runDir, GATE_OUTPUT_FOLDER, "1.txt"), GATE_PRINTED, { mode: 0o600 });
