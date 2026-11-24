@@ -809,7 +809,7 @@ function askAccounts(message: (requestId: number) => ClientMessage): void {
   send(message(requestId));
 }
 
-/** Takes the daemon's answer to a request of the Accounts dialog: `done` empties what the request was typed in, and a refusal is said in the dialog. It answers whether the request was the dialog's. */
+/** Takes the daemon's answer to a request of the Accounts dialog: `done` empties the name typed to add an account and closes a row's rename field, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
 function takeAccountsAnswer(requestId: number, refusal: string | null): boolean {
   if (!accountsAsked.delete(requestId)) return false;
   if (refusal !== null) {
@@ -817,7 +817,10 @@ function takeAccountsAnswer(requestId: number, refusal: string | null): boolean 
     return true;
   }
   accountsError.textContent = "";
-  // What arrives next is the `accounts` that carries the change, which draws the list again.
+  accountsName.value = "";
+  renamingAccount = undefined;
+  // The `accounts` that carries a change draws the list again, and a request that changed nothing sends none.
+  if (accountsDialog.open) showAccounts();
   return true;
 }
 
@@ -1698,11 +1701,8 @@ function onMessage(message: ServerMessage): void {
       // An account was added, renamed or made the default, here or in another client: every name drawn of one is drawn again.
       held.accounts = heldAccounts(message);
       showAccountsEntry();
-      if (accountsDialog.open) {
-        renamingAccount = undefined;
-        accountsName.value = "";
-        showAccounts();
-      }
+      // What a person typed in the dialog stays: a change another client made closes no field of this one.
+      if (accountsDialog.open) showAccounts();
       // The lists stand as they were: each screen draws the names again.
       showSidebar();
       listInFront()?.show();
