@@ -110,8 +110,8 @@ function givenReading(text: string): MachineReading {
   } catch {
     throw refused;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw refused;
-  const fields = value as Record<string, unknown>;
+  // A value that is no object holds none of the fields, and is refused by the first.
+  const fields = Object(value) as Record<string, unknown>;
   const amount = (name: string, absent?: number): number => {
     const field = fields[name] ?? absent;
     if (typeof field !== "number" || !Number.isFinite(field) || field < 0) throw refused;
@@ -147,9 +147,10 @@ export class LimitsStore {
       // No person has set a cap here, or the file is not ours.
       return;
     }
-    if (typeof value !== "object" || value === null) return;
+    // A value that is no object holds no cap.
+    const stored = Object(value) as Record<string, unknown>;
     for (const cap of CAPS) {
-      const set = (value as Record<string, unknown>)[cap];
+      const set = stored[cap];
       if (capRefusal(cap, set) === null) this.caps[cap] = set as number;
     }
   }

@@ -6738,8 +6738,8 @@ describe("the caps on the machine", () => {
   it("sends in `ready` what it read of the machine, the worktrees' folder's disk among it, and each cap's proposal with the numbers it came from, each cap following its proposal (scenario 1)", async () => {
     const { ready, reads, root } = await machined();
     expect(ready.machine).toEqual(PROPOSED);
-    expect(reads.length).toBeGreaterThan(0);
-    expect(new Set(reads)).toEqual(new Set([root]));
+    // Once at the daemon's start, and again at each of the two hellos.
+    expect(reads).toEqual([root, root, root]);
   });
 
   it("takes a cap a person sets, tells every client after its `done`, keeps it in `limits.json` for the daemon started next on the run folder, and follows the proposal again once the cap is set to null (scenario 3)", async () => {
@@ -6783,6 +6783,44 @@ describe("the caps on the machine", () => {
     expect((await c.message("machine")).machine).toEqual(PROPOSED);
     for (const each of both) expect(told(each)).toHaveLength(each === c ? 1 : 0);
     expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+  });
+
+  it("answers `done`, and tells and writes nothing, where a cap is set to the value it holds", async () => {
+    const { runDir, c, bystander } = await machined();
+    c.send({ type: "setCaps", requestId: 1, agents: 3 });
+    await bystander.message("machine");
+    rmSync(join(runDir, "limits.json"));
+    c.send({ type: "setCaps", requestId: 2, agents: 3, worktrees: null });
+    await c.message("done", (m) => m.requestId === 2);
+    bystander.send({ type: "readMachine" });
+    expect((await bystander.message("machine", (m) => m.machine.agents.set === 3 && told(bystander).length === 2)).machine.agents.set).toBe(3);
+    expect(told(c)).toHaveLength(1);
+    expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+  });
+
+  it("keeps a cap in memory and stays up where its run folder cannot be written, and says so in its log", async () => {
+    const said: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void said.push(args);
+    cleanups.push(() => {
+      console.error = error;
+    });
+    const unwritable = mkdtempSync(join(tmpdir(), "owlery-caps-"));
+    cleanups.push(() => rmSync(unwritable, { recursive: true, force: true }));
+    const { url, c } = await machined({ runDir: join(unwritable, "removed") });
+    c.send({ type: "setCaps", requestId: 1, panes: 2 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect((await c.message("machine")).machine.panes.set).toBe(2);
+    expect((await (await client(url)).message("ready")).machine?.panes.set).toBe(2);
+    expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the caps on the machine were not written: /)]);
+  });
+
+  it("counts a headless session while it works, and tells every client when it starts and when it ends", async () => {
+    const { c, both } = await machined({ roleAdapter: fakeAdapter({ delayMs: 200 }) });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    for (const each of both) await each.message("machine", (m) => m.machine.agents.running === 0);
+    for (const each of both) expect(told(each).map((m) => m.agents.running)).toEqual([1, 0]);
   });
 
   it("reads the machine again at a `readMachine`, and sends what it read to the client that asked alone", async () => {

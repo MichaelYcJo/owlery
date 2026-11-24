@@ -3550,6 +3550,8 @@ describe("capChanges", () => {
   it("refuses, with the daemon's sentence and before anything is sent, a value that is no whole number from 1, or over 16 for the panes", () => {
     expect(capChanges(rows({}), fields({ agents: "2.5" }))).toEqual({ refusal: "The cap on agents at once is a whole number from 1." });
     expect(capChanges(rows({}), fields({ worktrees: "many" }))).toEqual({ refusal: "The cap on worktrees is a whole number from 1." });
+    // Text a number is read from in another notation is no whole number as a person types one.
+    expect(capChanges(rows({}), fields({ agents: "1e1" }))).toEqual({ refusal: "The cap on agents at once is a whole number from 1." });
     expect(capChanges(rows({}), fields({ panes: "17" }))).toEqual({ refusal: "The cap on panes side by side is a whole number from 1 to 16." });
   });
 });
