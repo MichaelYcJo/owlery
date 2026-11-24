@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { agentSaid } from "../src/daemon/agent-events";
+import { agentSaid, isInterruptionEntry } from "../src/daemon/agent-events";
 
 describe("agentSaid", () => {
   it("reads the tool's name of a Claude Code permission request, and no text", () => {
@@ -96,5 +98,40 @@ describe("agentSaid", () => {
     const kept = agentSaid("PreToolUse", { tool_name: "AskUserQuestion", tool_input: { questions: [{ header: "No text" }, ...nine] } }).questions ?? [];
     expect(kept.map(({ asks }) => asks)).toEqual(nine.slice(0, 8).map(({ question }) => question));
     expect(kept.map(({ options }) => options.map(({ label }) => label))).toEqual(Array.from({ length: 8 }, () => Array.from({ length: 8 }, (_, of) => `Choice ${of + 1}`)));
+  });
+});
+
+describe("isInterruptionEntry", () => {
+  /** Each line the session log gained in the recording of a Claude Code session in which the person interrupted a reply and then a Bash call. */
+  const RECORDED = (JSON.parse(readFileSync(join(__dirname, "fixtures", "claude-interrupted-turn.json"), "utf8")) as { log: { line: string }[] }).log.map(({ line }) => line);
+  /** The entry Claude Code wrote when the person interrupted the reply. */
+  const REPLY = JSON.parse(RECORDED.find((line) => line.includes('"text":"[Request interrupted by user]"')) ?? "null") as Record<string, unknown>;
+  const changed = (change: Record<string, unknown>): string => JSON.stringify({ ...REPLY, ...change });
+  const saying = (content: unknown): Record<string, unknown> => ({ message: { role: "user", content } });
+
+  it("reads the recording's two interruption entries as interruptions, the reply's and the tool call's, and no other line the recording's log gained", () => {
+    expect(RECORDED.filter(isInterruptionEntry).map((line) => (JSON.parse(line) as { message: { content: { text: string }[] } }).message.content[0]?.text)).toEqual(["[Request interrupted by user]", "[Request interrupted by user for tool use]"]);
+  });
+
+  it("reads either marker as an interruption without the white space at its ends, beside other blocks, and where the entry says it is no subagent's and no message cut it", () => {
+    expect(isInterruptionEntry(changed(saying([{ type: "text", text: " [Request interrupted by user for tool use]\n" }])))).toBe(true);
+    expect(isInterruptionEntry(changed(saying([{ type: "image" }, { type: "text", text: "[Request interrupted by user]" }])))).toBe(true);
+    expect(isInterruptionEntry(changed({ isSidechain: false, interruptedBySendNow: false }))).toBe(true);
+  });
+
+  it("reads no interruption in a subagent's entry, one a message the person sent wrote, an assistant's that quotes the marker, a person's whose text holds it among other words, a line that is no JSON, and an empty line", () => {
+    for (const line of [
+      changed({ isSidechain: true }),
+      changed({ interruptedBySendNow: true }),
+      changed({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "[Request interrupted by user]" }] } }),
+      changed(saying([{ type: "text", text: "Why did the log say [Request interrupted by user]?" }])),
+      changed(saying("[Request interrupted by user]")),
+      changed(saying([{ type: "tool_result", text: "[Request interrupted by user]" }])),
+      "[Request interrupted by user]",
+      '{"type":"user","message":',
+      "",
+    ]) {
+      expect(isInterruptionEntry(line), line).toBe(false);
+    }
   });
 });
