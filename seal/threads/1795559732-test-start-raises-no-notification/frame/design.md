@@ -21,6 +21,7 @@ What the tree and the earlier records gave, each labelled:
 | Eleven files that start the built app replace nothing, so a notification their page raises reaches macOS: `test/chain-choice.test.ts`, `test/daemon-restart.test.ts`, `test/keep-awake.test.ts`, `test/korean-input.test.ts`, `test/memory.ts`, `test/records-dialog.test.ts`, `test/role-bundle.test.ts`, `test/terminal-basics.test.ts`, `test/theme-controls.test.ts`, `test/work-item-form.test.ts` and `test/work-item-menu.test.ts` | executed | `git grep -l 'BuiltApp.start' -- test`, each file then tested with `git grep -q 'window.Notification'` |
 | A page under the switch does construct `Notification`: the recorder of `test/notification-click.test.ts` receives the page's calls in an app started with `OWLERY_BACKGROUND=1` | read | `test/notification-click.test.ts:79-91`, `:113-116`; `test/built-app.ts:207`. The frame ran no case |
 | The three files that read a notification read its title and its body, and two of them call the handler the page set on it | read | `test/approval-line.test.ts:264`, `test/ask-section.test.ts:185-194`, `test/notification-click.test.ts:70`, `:118`, `:139` |
+| Three of those files also put a new, empty list on `window.__notifications`, at four places: inside each of the three recorders, and once more in a case of `test/ask-section.test.ts`, which empties the list so that it reads its own notifications alone | executed | `git grep -n '__notifications = ' 5e03a948 -- apps/desktop` prints `test/approval-line.test.ts:123`, `test/ask-section.test.ts:72`, `test/ask-section.test.ts:167` and `test/notification-click.test.ts:81`, and no other line |
 | The page's code is built as one self-running script, so a case reaches a value of the page only where the page puts it on `window` | read | `build.mjs` (the renderer's entry, `format: "iife"`), `test/built-app.ts` (`evaluate`) |
 | The page calls nothing else that the system draws for it | executed | `git grep -n -E '\b(alert\|confirm\|prompt)\(\|setAppBadge\|new Audio\|requestPermission\|window\.open' 5e03a948 -- src/renderer src/preload`, with each `\|` typed as a bare bar, prints nothing |
 | Release 0.0.2 left this out of #148 with the ground that macOS draws the notification and the window does not | executed | `git show c193260b:seal/threads/1795343000-background-window-unseen/frame/design.md`, line 42, and that work item's `guarantee.md`, lines 15 and 33 |
@@ -37,7 +38,7 @@ In:
 1. **The page learns that the app started in the background.** `OwleryApi` gains the member `background`, a boolean the preload reads from the main process before the page's first script runs, as it reads the saved appearance. The main process answers with the value `takeBackground` returned.
 2. **One function decides who raises a notification.** A new module of the page, `src/renderer/notifier.ts`, exports `chooseNotifier(background, system)`. It imports nothing of the browser, so its cases run without the app. In the background its `raise` constructs nothing of the system's: it keeps the title, the body and a handler that starts empty as one entry of a list, and returns that entry. Otherwise `raise` returns what `system` returns and the list stays empty.
 3. **The page raises every notification through that function.** Both places of `takeLists` call `raise` and set the click's handler on what it returns, as they set it on the `Notification` today. The page's one `new Notification` is the `system` it hands to `chooseNotifier`. Where `window.owlery.background` is true the page puts the list on `window.__notifications`, the name three files already read.
-4. **The cases read what the page kept.** The six files of *Removes* drop their replacements. `test/approval-line.test.ts`, `test/ask-section.test.ts` and `test/notification-click.test.ts` read `window.__notifications` as the page fills it, and call the handler the page set on an entry where they called it before.
+4. **The cases read what the page kept.** The six files of *Removes* drop their replacements. `test/approval-line.test.ts`, `test/ask-section.test.ts` and `test/notification-click.test.ts` read `window.__notifications` as the page fills it, and call the handler the page set on an entry where they called it before. No case puts a list of its own on `window.__notifications`: the page fills the list it put there at load and no other, so a case that replaces it waits on a list nobody fills. The case of `test/ask-section.test.ts` that reads its own notifications alone takes the list's length before its requests and reads the entries after that place.
 5. **A case holds that the system's `Notification` is never constructed in the background.** `test/notification-click.test.ts` puts a stand-in that counts its constructions in the place of the page's `Notification`. After the page has kept an entry, the count is 0.
 6. **The comments that say what a background start holds back say the notification too:** the head of `src/main/main.ts`, `src/main/background.ts#startsInBackground` and the head of `src/shared/ipc.ts`.
 
@@ -53,11 +54,12 @@ Out:
 
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
-| A test start raises nothing over the owner's screen | Given the built app started with `OWLERY_BACKGROUND=1` and a stand-in that counts constructions in the place of the page's `Notification`. When a pane behind another comes to wait. Then `window.__notifications` holds one entry with the work item's title and the body `Needs you`, and the stand-in counts 0 | The case of *Scope* item 5 in `test/notification-click.test.ts`. It is seen red with `chooseNotifier` returning `system` in the background |
+| A test start raises nothing over the owner's screen | Given the built app started with `OWLERY_BACKGROUND=1` and a stand-in that counts constructions in the place of the page's `Notification`. When a pane behind another comes to wait. Then `window.__notifications` holds one entry with the work item's title and the body `Needs you`, and the stand-in counts 0 | The case of *Scope* item 5 in `test/notification-click.test.ts`. Its count is seen red with a `chooseNotifier` that keeps the entry in the background and also calls `system`. A `chooseNotifier` that keeps nothing fails the case earlier, at its wait for the kept entry |
 | The cases read what the page would have raised | Given the same start. When a session asks for a call to be allowed, a seal breaks, or a pane waits or finishes. Then each case reads the title and the body from `window.__notifications`, and a call of an entry's `onclick` opens the view as a click on the notification does | The cases of `test/approval-line.test.ts`, `test/ask-section.test.ts` and `test/notification-click.test.ts` that read `window.__notifications`, each file run alone |
 | No file replaces the page's `Notification` to keep the system quiet | Given the tree after the build. When the test folder is searched for a replacement. Then only the counting stand-in of *Scope* item 5 is found | `git grep -n 'window.Notification' -- apps/desktop` prints lines of `test/notification-click.test.ts` only. At `5e03a948` it prints the lines *Grounding* lists, each of which a row of *Removes* takes out (executed) |
 | A person's start is unchanged | Given `chooseNotifier(false, system)`. When `raise` is called with a title and a body. Then `system` is called once with them, `raise` returns what `system` returned, and the list is empty | A case of the new `test/notifier.test.ts`. The banner on the screen of a person's start is a person's run (`frame/questions.md` Q1) |
 | The page raises through one place | Given the tree after the build. When the page's code is searched for the system's constructor. Then one line holds it | `git grep -n 'new Notification' -- apps/desktop/src` prints one line, in `src/renderer/renderer.ts`. At `5e03a948` it prints two lines of that file (*Grounding*, executed) |
+| No case puts a list of its own in the place of the page's | Given the tree after the build. When the app's folder is searched for an assignment to `window.__notifications`. Then the page's own is the one found | `git grep -n '__notifications = ' -- apps/desktop` prints one line, in `src/renderer/renderer.ts`. At `5e03a948` it prints the lines *Grounding* lists, each inside a coordinate of *Removes* (executed) |
 | A page loaded again still raises nothing | Given the built app in the background and its page reloaded. When a notification would be raised. Then the page keeps it and constructs nothing | `test/screenshots.test.ts` reloads its page with no replacement installed before the load, and `pnpm run screenshots`, the one command under which that file starts the app, passes. The fact reaches the page from the preload at each load (*Scope* item 1) |
 
 ## Data & interfaces
@@ -68,19 +70,24 @@ Out:
 - `src/renderer/notifier.ts`:
 
   ```ts
-  /** What the page sets a click's handler on: the system's notification, or an entry the page kept. */
+  /** What the page sets a click's handler on: the system's notification, or an entry the page kept. The system's calls its handler with the click's event, which the page's handlers do not read. */
   export interface Raised {
-    onclick: (() => void) | null;
+    onclick: ((...event: never[]) => unknown) | null;
   }
   /** An entry the page kept where the app started in the background. */
   export interface Kept extends Raised {
     title: string;
     body: string;
   }
-  export function chooseNotifier(background: boolean, system: (title: string, body: string) => Raised): { raise(title: string, body: string): Raised; kept: Kept[] };
+  /** Raises the page's notifications, and holds the ones it kept. */
+  export interface Notifier {
+    raise(title: string, body: string): Raised;
+    kept: Kept[];
+  }
+  export function chooseNotifier(background: boolean, system: (title: string, body: string) => Raised): Notifier;
   ```
 
-  The exact types are the build's to settle against the typechecker. What is fixed is the behaviour of *Scope* item 2 and the three members a kept entry holds: `title`, `body` and `onclick`.
+  `onclick` takes a handler of any arguments because the system's `Notification` calls its handler with the click's event: a handler typed as taking none is refused by the typechecker where the page hands the system's notification to `chooseNotifier` (TS2322, `trail/phases/phase-1.md` *Decisions*). A handler that takes no argument can be set on both and called on a kept entry.
 - `window.__notifications`: the `kept` list, set by the page where `window.owlery.background` is true and absent otherwise. `Window` is declared with it as an optional member beside `owlery` (`src/renderer/renderer.ts:101-105`).
 
 ## Rule changes
@@ -124,6 +131,7 @@ The work adds one mechanism, the function of *Scope* item 2 with the member that
 |---|---|---|
 | The recorder that replaces the page's `Notification` and keeps a title and a body | `apps/desktop/test/approval-line.test.ts:122-129`, with the sentence of its head at lines 15 and 16 | The page keeps the entry itself (*Scope* item 3), and the case at line 264 reads it |
 | The recorder that replaces the page's `Notification` and keeps the object with its handler | `apps/desktop/test/ask-section.test.ts:70-81`, with the sentence of its head at lines 8 and 9 | The page keeps the entry with its handler, and the case at lines 185 to 194 reads and calls it |
+| The new list a case puts on `window.__notifications` so that it reads its own notifications alone, with the comment above it | `apps/desktop/test/ask-section.test.ts:166-167` | The case takes the length of the page's list at that place and reads the entries after it (*Scope* item 4), at lines 185 to 194 |
 | The same recorder | `apps/desktop/test/notification-click.test.ts:79-91`, with the words of its head at lines 2, 3 and 5 that name it | The page keeps the entry. The counting stand-in of *Scope* item 5 takes its place in this file and keeps nothing the cases read as a notification |
 | The class that does nothing in the place of the page's `Notification` | `apps/desktop/test/decisions-and-questions.test.ts:145-146`, with the sentence of its head at lines 21 to 23 | Nothing needs to own it: the page constructs no `Notification` in the background |
 | The same class | `apps/desktop/test/seal-back-view.test.ts:96`, with the clause of its head at lines 16 and 17 | Nothing needs to own it, on the same ground |
