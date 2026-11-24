@@ -1738,7 +1738,7 @@ export class Daemon {
       session.replacing = false;
       // The process ends the pane when it exits, as any end of it does.
       if (!exitedInTime) throw new Error("The pane's process did not end in time, so its account was not changed. The pane ends once its process exits.");
-      // What ended the pane while its process ended, its close, an archive or a removal of its work item, or the daemon's close, had its exit reported as the pane's end.
+      // What ended the pane while its process ended: its close, an archive or a removal of its work item, whose end its exit reported, or the daemon's close.
       if (this.closed || session.ended || this.sessions.get(id) !== session) throw new Error("The pane was closed before its account changed.");
       if (!this.accounts.holds(to)) {
         // The account was removed while the process ended: the pane stays ended under its own account and says why.
@@ -2301,8 +2301,8 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
-      // A change of the account waits on this exit, unless the pane's close, an archive, a removal or the daemon's close ended the pane meanwhile: then the exit is the pane's end.
-      if (session.replacing && !this.closed && !session.ended && this.sessions.get(id) === session) {
+      // A change of the account waits on this exit, unless the pane's close, an archive or a removal ended the pane meanwhile: then the exit is the pane's end.
+      if (session.replacing && !session.ended) {
         clearTimeout(session.silentStart);
         this.endLog(session);
         exited();
