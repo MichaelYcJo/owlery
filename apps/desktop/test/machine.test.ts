@@ -57,6 +57,7 @@ describe("the proposal of the cap on agents", () => {
     const four = agentsProposal(small, five.slice(0, 4));
     expect(four).toEqual({ proposed: 6, byCores: 8, byMemory: 6, perAgentBytes: 679 * MIB, measured: 4 });
     expect(agentsSays(small, four)).toBe("The default is 6: the 6 that half of 8 GB holds at 679 MB an agent (not measured on this Mac yet: 4 agents of the 5 it takes), fewer than the 8 cores.");
+    expect(agentsSays(small, agentsProposal(small, five.slice(0, 1)))).toContain("(not measured on this Mac yet: 1 agent of the 5 it takes)");
   });
 
   it("says the cores where they are as many as the memory gives, and is never under 1", () => {
@@ -154,6 +155,20 @@ describe("the reading of the machine", () => {
       },
     });
     expect(readMachine({}, none.given).read(join(at, "a")).disk).toBeNull();
+    // A path through a file is walked up as one that does not stand; any other error is no disk, read at the folder alone.
+    const failing = (code: string) => {
+      const asked: string[] = [];
+      const failed = probes(() => "4", {
+        statfs: (place) => {
+          asked.push(place);
+          if (place === join(at, "file", "worktrees")) throw Object.assign(new Error(code), { code });
+          return { freeBytes: 1, totalBytes: 2 };
+        },
+      });
+      return { disk: readMachine({}, failed.given).read(join(at, "file", "worktrees")).disk, asked };
+    };
+    expect(failing("ENOTDIR")).toEqual({ disk: { freeBytes: 1, totalBytes: 2 }, asked: [join(at, "file", "worktrees"), join(at, "file")] });
+    expect(failing("EACCES")).toEqual({ disk: null, asked: [join(at, "file", "worktrees")] });
   });
 
   it("takes the reading `OWLERY_MACHINE` holds in place of the machine's, and asks the machine nothing (scenario 16)", () => {
@@ -162,6 +177,8 @@ describe("the reading of the machine", () => {
     expect(reader.read(folder())).toEqual({ ...OWNERS_MAC, load: 0 });
     expect(readMachine({ OWLERY_MACHINE: JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, freeBytes: 0, totalBytes: 0, load: 2.5 }) }, given).read("/").load).toBe(2.5);
     expect(calls).toEqual({ memoryBytes: 0, cores: 0, load: 0, sysctl: [], statfs: [] });
+    // Set empty, it holds no reading, and the machine is read.
+    expect(readMachine({ OWLERY_MACHINE: "" }, given).read("/").performanceCores).toBe(4);
   });
 
   it.each([
@@ -170,6 +187,9 @@ describe("the reading of the machine", () => {
     ["an object without the free disk", JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, totalBytes: 0 })],
     ["a count of cores that is no whole number above 0", JSON.stringify({ memoryBytes: 1, cores: 0, performanceCores: 1, freeBytes: 0, totalBytes: 0 })],
     ["a number given as text", JSON.stringify({ memoryBytes: "1", cores: 1, performanceCores: 1, freeBytes: 0, totalBytes: 0 })],
+    ["performance cores in a fraction", JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 2.5, freeBytes: 0, totalBytes: 0 })],
+    ["a number under 0",JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, freeBytes: -1, totalBytes: 0 })],
+    ["a number past what a number holds", '{"memoryBytes":1e999,"cores":1,"performanceCores":1,"freeBytes":0,"totalBytes":0}'],
   ])("refuses `OWLERY_MACHINE` that holds %s, with a sentence", (_, text) => {
     expect(() => readMachine({ OWLERY_MACHINE: text }, probes(() => "4").given)).toThrow("OWLERY_MACHINE is not a JSON object with memoryBytes, cores, performanceCores, freeBytes and totalBytes, each a number of 0 or more and the cores whole numbers from 1");
   });

@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { agentsSays, CAP_NAMES, capRefusal, PANES_MOST, panesSays, readingSays, worktreesSays } from "../shared/machine";
+import { agentsSays, CAP_NAMES, capRefusal, panesSays, readingSays, worktreesSays } from "../shared/machine";
 import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
@@ -1507,13 +1507,12 @@ export function keepAwakeControl(keepAwake: KeepAwake | null): { choice: KeepAwa
   return { choice: keepAwake.choice, title: `Keep awake: ${KEEP_AWAKE_CHOICES.find(({ value }) => value === keepAwake.choice)?.label ?? keepAwake.choice}` };
 }
 
-/** One cap's row of the Machine dialog: its name, the value its field shows, or null for an empty field, its proposal, or null where there is none, the most it takes where it has a most, whether it follows its proposal, and the sentence that states the proposal. */
+/** One cap's row of the Machine dialog: its name, the value its field shows, or null for an empty field, its proposal, or null where there is none, whether it follows its proposal, and the sentence that states the proposal. */
 export interface CapRow {
   cap: Cap;
   label: string;
   value: number | null;
   proposed: number | null;
-  most: number | null;
   isDefault: boolean;
   says: string;
 }
@@ -1528,10 +1527,10 @@ export interface CapRow {
 export function machineDialog(machine: Machine | null): { reading: string; rows: CapRow[] } | null {
   if (!machine) return null;
   const { reading, agents, worktrees, panes } = machine;
-  const row = (cap: Cap, set: number | null, proposed: number | null, says: string, most: number | null = null): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, most, isDefault: set === null, says });
+  const row = (cap: Cap, set: number | null, proposed: number | null, says: string): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, isDefault: set === null, says });
   return {
     reading: readingSays(reading),
-    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed), PANES_MOST)],
+    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed))],
   };
 }
 

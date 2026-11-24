@@ -3499,9 +3499,9 @@ describe("machineDialog", () => {
     expect(machineDialog(MACHINE)).toEqual({
       reading: "36 GB of memory, 12 cores of which 6 are performance cores, a load of 3.9, and 25.1 GB free of 494.4 GB on the worktrees' disk.",
       rows: [
-        { cap: "agents", label: "Agents at once", value: 6, proposed: 6, most: null, isDefault: true, says: "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." },
-        { cap: "worktrees", label: "Worktrees", value: null, proposed: null, most: null, isDefault: true, says: "Nothing is proposed until a worktree is measured on this Mac." },
-        { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, most: 16, isDefault: true, says: "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB." },
+        { cap: "agents", label: "Agents at once", value: 6, proposed: 6, isDefault: true, says: "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." },
+        { cap: "worktrees", label: "Worktrees", value: null, proposed: null, isDefault: true, says: "Nothing is proposed until a worktree is measured on this Mac." },
+        { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, isDefault: true, says: "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB." },
       ],
     });
   });
@@ -3524,9 +3524,9 @@ describe("machineDialog", () => {
 
 describe("capChanges", () => {
   const rows = (set: { agents?: number; worktrees?: number }): CapRow[] => [
-    { cap: "agents", label: "Agents at once", value: set.agents ?? 6, proposed: 6, most: null, isDefault: set.agents === undefined, says: "" },
-    { cap: "worktrees", label: "Worktrees", value: set.worktrees ?? null, proposed: null, most: null, isDefault: set.worktrees === undefined, says: "" },
-    { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, most: 16, isDefault: true, says: "" },
+    { cap: "agents", label: "Agents at once", value: set.agents ?? 6, proposed: 6, isDefault: set.agents === undefined, says: "" },
+    { cap: "worktrees", label: "Worktrees", value: set.worktrees ?? null, proposed: null, isDefault: set.worktrees === undefined, says: "" },
+    { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, isDefault: true, says: "" },
   ];
   const fields = (text: Partial<Record<Cap, string>>, toDefault: Cap[] = []) => ({
     agents: { text: text.agents ?? "6", toDefault: toDefault.includes("agents") },
