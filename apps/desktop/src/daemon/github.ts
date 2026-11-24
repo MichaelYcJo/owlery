@@ -481,7 +481,7 @@ function listedRounds(back: Back): number {
  */
 export function backSection(back: Back, directory: string, held = 0): string {
   const listed = back.rounds.filter((round) => round.findings.length > 0);
-  const given = new Set(listed.slice(Math.max(0, listed.length - held)).map((round) => round.round));
+  const given = new Set((held > 0 ? listed.slice(-held) : []).map((round) => round.round));
   const blocks = [`${BACK_OPEN}\n## The back of the seal`, back.head.join(" ")];
   for (const round of back.rounds) {
     blocks.push(`### ${round.title}`);
