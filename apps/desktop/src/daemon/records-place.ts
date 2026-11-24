@@ -21,7 +21,7 @@ const ROOTS = ["seal", "agentic-seal"] as const;
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
 /** The script AgenticSeal's workflow runs, by its path in the plugin: a `hygiene.yml` that names it is the check. */
-const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
+export const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
 /** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
 const FILE_MODES = ["100644", "100755"];
 /**
@@ -151,6 +151,20 @@ export function rootOf(folder: string): string | null {
 function checkOf(folder: string): string | null {
   if (stands(folder, WORKFLOW)) return WORKFLOW;
   return runsPluginCheck(textOf(join(folder, PLUGIN_WORKFLOW))) ? PLUGIN_WORKFLOW : null;
+}
+
+/**
+ * Whether a folder is on the owl chain: Owlery's workflow stands in it,
+ * committed or not. A Claude Code pane that opens in such a folder carries
+ * the chain, but where the person's Claude Code enables the AgenticSeal
+ * plugin there and they did not choose the owl chain for the repository
+ * (`pane-chain.ts#carriedIn`). A folder with AgenticSeal's
+ * `hygiene.yml` alone, with no check, or that does not stand is on none of
+ * Owlery's. The folder is read as it stands at the call, and nothing of it
+ * is kept.
+ */
+export function onOwlChain(folder: string): boolean {
+  return stands(folder, WORKFLOW);
 }
 
 /**

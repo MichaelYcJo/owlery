@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Chain, Group, PullRequest, WorktreeSetup } from "../shared/protocol";
+import type { Chain, Group, ChainChoice, PullRequest, WorktreeSetup } from "../shared/protocol";
 import { type WrittenChain, chainRead, isChain } from "./chain";
 import { isPullRequest, pullRequestOf } from "./github";
 import { writeWholeFile } from "./whole-file";
@@ -28,7 +28,7 @@ export interface StoredWorkItem {
   archivedAt: number | null;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
-  /** Its chain: where the run a `getSeal` started stands, with the stages of every start, or null where none ran for it. */
+  /** Its chain: where the run `Daemon#startChain` started stands, with the stages of every start, or null where none ran for it. */
   chain: Chain | null;
   /** Its pull request, as GitHub last answered, or null where the daemon opened none for it. */
   pullRequest: PullRequest | null;
@@ -45,6 +45,8 @@ export interface StoredRepository {
   /** The base a person chose for its new work items, or null for the repository's default base. */
   defaultBase: string | null;
   hidden: boolean;
+  /** The chain a person chose for its Claude Code panes, or null where they gave no answer. */
+  paneChain: ChainChoice | null;
   addedAt: number;
   groups: Group[];
   workItems: StoredWorkItem[];
@@ -90,8 +92,10 @@ function isStoredWorkItem(value: unknown): value is WrittenWorkItem {
   );
 }
 
-/** A stored repository as a file holds one, its work items as the file holds them. */
-type WrittenRepository = Omit<StoredRepository, "workItems"> & { workItems: WrittenWorkItem[] };
+const isChainChoice = (value: unknown): value is ChainChoice => value === "owlery" || value === "plugin";
+
+/** A stored repository as a file holds one, its work items as the file holds them: one written before a person's choice of a chain was kept has none. */
+type WrittenRepository = Omit<StoredRepository, "workItems" | "paneChain"> & { paneChain?: ChainChoice | null; workItems: WrittenWorkItem[] };
 
 function isStoredRepository(value: unknown): value is WrittenRepository {
   return (
@@ -102,6 +106,7 @@ function isStoredRepository(value: unknown): value is WrittenRepository {
     isTextOrNull(value.icon) &&
     isTextOrNull(value.defaultBase) &&
     typeof value.hidden === "boolean" &&
+    (value.paneChain === undefined || value.paneChain === null || isChainChoice(value.paneChain)) &&
     typeof value.addedAt === "number" &&
     Array.isArray(value.groups) &&
     value.groups.every(isGroup) &&
@@ -203,7 +208,9 @@ function readJson(file: string): unknown {
  * pane, since the next daemon gives that pane's id to another. A work item
  * written before a chain was kept is read with none, and one whose chain was
  * running is read with that chain stopped (`chain.ts#chainRead`). A work
- * item written before a pull request was kept is read with none.
+ * item written before a pull request was kept is read with none. A
+ * repository written before a person's choice of a chain for its Claude
+ * Code panes was kept is read with no answer.
  *
  * Where that file does not exist, the store starts from `work-items.json`,
  * the list a build before the repositories wrote: one repository for each
@@ -241,7 +248,7 @@ export class RepositoryStore {
     if (!Array.isArray(repositories) || !repositories.every(isStoredRepository)) return;
     if (isStored(value)) this.counts = { nextWorkItemId: value.nextWorkItemId, nextRepositoryId: value.nextRepositoryId, nextGroupId: value.nextGroupId };
     // Only the fields of the store, whatever else the file's entries carry.
-    for (const { id, folder, name, icon, defaultBase, hidden, addedAt, groups, workItems } of repositories) {
+    for (const { id, folder, name, icon, defaultBase, hidden, paneChain, addedAt, groups, workItems } of repositories) {
       this.held.push({
         id,
         folder,
@@ -249,6 +256,7 @@ export class RepositoryStore {
         icon,
         defaultBase,
         hidden,
+        paneChain: paneChain ?? null,
         addedAt,
         groups: groups.map((group) => ({ id: group.id, name: group.name })),
         workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup, chain, pullRequest }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup), chain: chainRead(chain, this.now()), pullRequest: pullRequest ? pullRequestOf(pullRequest) : null })),
@@ -340,16 +348,16 @@ export class RepositoryStore {
 
   /**
    * Sets on a repository the fields given, of those a person sets: its
-   * name, its icon, the base of its new work items and whether it is hidden.
-   * It answers whether the repository is another than it was, and writes the
+   * name, its icon, the base of its new work items, whether it is hidden and
+   * the chain of its Claude Code panes. It answers whether the repository is another than it was, and writes the
    * store only where it is. Undefined where no repository has the id.
    */
-  setRepository(id: number, fields: Partial<Pick<StoredRepository, "name" | "icon" | "defaultBase" | "hidden">>): boolean | undefined {
+  setRepository(id: number, fields: Partial<Pick<StoredRepository, "name" | "icon" | "defaultBase" | "hidden" | "paneChain">>): boolean | undefined {
     const repository = this.repository(id);
     if (!repository) return undefined;
-    const { name = repository.name, icon = repository.icon, defaultBase = repository.defaultBase, hidden = repository.hidden } = fields;
-    if (name === repository.name && icon === repository.icon && defaultBase === repository.defaultBase && hidden === repository.hidden) return false;
-    Object.assign(repository, { name, icon, defaultBase, hidden });
+    const { name = repository.name, icon = repository.icon, defaultBase = repository.defaultBase, hidden = repository.hidden, paneChain = repository.paneChain } = fields;
+    if (name === repository.name && icon === repository.icon && defaultBase === repository.defaultBase && hidden === repository.hidden && paneChain === repository.paneChain) return false;
+    Object.assign(repository, { name, icon, defaultBase, hidden, paneChain });
     this.write();
     return true;
   }
@@ -394,7 +402,7 @@ export class RepositoryStore {
       return { repository: known, changed };
     }
     const id = this.counts.nextRepositoryId++;
-    const repository: StoredRepository = { id, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: this.now(), groups: [], workItems: [] };
+    const repository: StoredRepository = { id, folder, name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, addedAt: this.now(), groups: [], workItems: [] };
     this.held.push(repository);
     return { repository, changed: true };
   }
@@ -411,7 +419,7 @@ export class RepositoryStore {
       let repository = this.held.find((known) => known.folder === folder);
       if (!repository) {
         // The time its first work item was made, so each start before the first change gives the same store.
-        repository = { id: this.held.length + 1, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: createdAt, groups: [], workItems: [] };
+        repository = { id: this.held.length + 1, folder, name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, addedAt: createdAt, groups: [], workItems: [] };
         this.held.push(repository);
       }
       repository.workItems.push({ id, title, branch, worktree, createdAt, baseCommit: baseCommit ?? null, baseBranch: baseBranch ?? null, ...UNSET });

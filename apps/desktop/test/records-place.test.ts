@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MARKER, SUBJECT, planRecords, proposedBroadGate, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
+import { MARKER, SUBJECT, onOwlChain, planRecords, proposedBroadGate, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
 import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
@@ -146,6 +146,20 @@ describe("the records place", () => {
     const plugin = repository();
     write(plugin, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
     expect(readRecordsPlace(plugin).check).toBe(".github/workflows/hygiene.yml");
+  });
+
+  it("reads a folder as on the owl chain where Owlery's workflow stands in it, committed or not, and as on none where AgenticSeal's check stands alone, where a project's own hygiene.yml does, and where no workflow does", () => {
+    const repo = repository();
+    expect(onOwlChain(repo)).toBe(false);
+    write(repo, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
+    expect(onOwlChain(repo)).toBe(false);
+    write(repo, ".github/workflows/hygiene.yml", "name: hygiene\njobs:\n  lint:\n    steps:\n      - run: npm run lint\n");
+    expect(onOwlChain(repo)).toBe(false);
+    // The folder is read as it stands, so a branch that installs the workflow carries the chain before its commit.
+    write(repo, WORKFLOW, workflowText(VERSION));
+    expect(onOwlChain(repo)).toBe(true);
+    // A folder that does not stand holds no workflow.
+    expect(onOwlChain(join(repo, "absent"))).toBe(false);
   });
 
   it("writes only what a root lacks: the config.json of a root that holds none, and no Broad gate into a config.json that stands without the key", async () => {

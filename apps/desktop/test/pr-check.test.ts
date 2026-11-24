@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { planRecords, setUpRecords } from "../src/daemon/records-place";
 import { workItemSeal } from "../src/daemon/seal-state";
 import { type Cleanups, commitSeal, guaranteeWith, proofs, roles, roundRecord, standing } from "./chain-run";
+import { commandOn, sealThrough } from "./chain-command-run";
 import { git, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
@@ -187,14 +188,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: (given) => (given.round === 2 && !verifies ? "No record." : proofs(given)) }, { asks }) });
     const a = workItems[0]!;
     const worktree = { base: join(a.worktree, ".."), repo: a.worktree };
-    expect(await c.getSeal(a.id, 1)).toBe("done");
+    expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "stopped");
     const owed = check(worktree, "ready", true);
     expect(owed.output).toContain("a verifying round is owed");
     expect(owed.exit).toBe(1);
 
     verifies = true;
-    expect(await c.getSeal(a.id, 2)).toBe("done");
+    expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     // The daemon's own records, read by the check's Python: the rounds, the run block and the verdict block with the daemon's lines.
     const sealed = check(worktree, "ready", false, false);
@@ -337,7 +338,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const usage = { costUsd: 0.25, converted: true, models: [{ model: "fake", inputTokens: 1000, outputTokens: 200, cacheReadTokens: 3000, cacheWriteTokens: 400, costUsd: 0.25 }] };
     const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { usage: () => usage }) });
     const a = workItems[0]!;
-    expect(await c.getSeal(a.id, 1)).toBe("done");
+    expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     const created = gh.calls().findIndex((call) => call[1] === "create");
     const body = gh.bodies()[created] ?? "";
@@ -816,9 +817,23 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(check(made, "ready", false, false).exit).toBe(0);
   });
 
-  it("says of a verdict that is not sealed what Owlery does next, at the verdict's line: the person fixes what a withheld reason names and starts \"Get a seal\" again, an undecided question is decided by the orchestrator agent or answered in Owlery, and the gate and the sealer's stage then append their blocks", () => {
+  it("passes, as a ready pull request, a branch a pane's session sealed through the chain command, with the body the command composes and with none", async () => {
+    const on = commandOn(cleanups);
+    await sealThrough(on);
+    const made = { base: on.folder, repo: on.repo };
+    const { body } = await on.said<{ body: string }>(["body"]);
+    const composed = await run(made, { body: readFileSync(body, "utf8") });
+    expect(composed.output).not.toContain("guarantee.md:");
+    expect(composed.exit, composed.output).toBe(0);
+    expect((await run(made, { body: null })).exit).toBe(0);
+    // The same branch with its verdict taken off is refused, so the pass above read the command's records.
+    git(on.repo, "reset", "--quiet", "--hard", "HEAD~1");
+    expect((await run(made, { body: null })).exit).toBe(1);
+  });
+
+  it("says of a verdict that is not sealed what Owlery does next, at the verdict's line: the person fixes what a withheld reason names and the chain is started again, in the pane's session or by the daemon, an undecided question is decided by the pane's session or by the orchestrator agent, or answered by the person, and the gate and the sealer's stage then append their blocks", () => {
     const next =
-      ": a ready pull request needs `sealed`. Where the reason of a `withheld` verdict names something to fix, fix it and start \"Get a seal\" again in Owlery. The question of an `undecided` verdict is decided by Owlery's orchestrator agent, or answered in Owlery where it parked the work item. Owlery's daemon then runs the broad gate and the sealer's stage on the new head, and each appends its block";
+      ": a ready pull request needs `sealed`. Where the reason of a `withheld` verdict names something to fix, fix it and start the chain again, in the pane's session or by Owlery's daemon. The question of an `undecided` verdict is decided by the pane's session or by Owlery's orchestrator agent, or answered by the person. The chain then runs the broad gate and the sealer's stage on the new head, and each appends its block";
     const made = reviewed();
     gated(made);
     guaranteed(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: the changelog names `gone.ts`, which the tree does not hold"));

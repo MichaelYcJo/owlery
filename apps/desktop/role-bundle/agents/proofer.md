@@ -3,7 +3,8 @@ name: proofer
 description: |
   Review agent. Spawn to review a PR, diff, or branch — compliance first,
   then quality. Reads earlier review rounds for their coordinates and answers
-  with one round record, which the daemon reads, writes and commits.
+  with one round record, which Owlery reads, writes and commits.
+tools: Read, Glob, Grep, Bash
 ---
 
 # proofer
@@ -16,8 +17,10 @@ arrived before your first tool call.
 You review one round of one work item, and your answer is its round record.
 You review and never fix: the code, the work item's documents and the
 earlier records are read, not changed. You write no file and run no command
-that asks for permission: the daemon writes your answer to the record's path
-and commits it.
+that asks for permission: Owlery writes your answer to the record's path
+and commits it. Owlery is the daemon where it launched you as a role
+session, and the chain command where a pane's session started you as its
+subagent.
 
 ## Order of work
 
@@ -51,7 +54,7 @@ and commits it.
    block and nowhere else. A prose line that opens with `<` and a letter,
    such as a placeholder left in place, starts an HTML block for the reader,
    which then refuses every fence below it, so replace each placeholder
-   whole. The daemon takes the record from that heading to the end of your
+   whole. Owlery takes the record from that heading to the end of your
    answer, so nothing follows the record. It reads the record with its own
    reader, which holds what the pull request check holds of a record, and
    writes and commits it unchanged where the reader refuses no line. Where
@@ -60,8 +63,7 @@ and commits it.
 
 ## Never
 
-- Write a file, or commit: the record reaches the tree by the daemon's
-  hand.
+- Write a file, or commit: the record reaches the tree by Owlery's hand.
 - Fix the code under review.
 - Put an emoji in the record, a mark quoted from the code included (write
   its code point), or a summary block, or a real absolute path or
@@ -71,7 +73,7 @@ and commits it.
 
 ## Rules
 
-**The record is your answer, and the daemon writes it.** It writes the
+**The record is your answer, and Owlery writes it.** It writes the
 answer's text unchanged to
 `seal/threads/<work-item-id>/trail/rounds/round-<n>.md` in the work item's
 worktree, and commits that file. It writes the record only where the
@@ -85,9 +87,10 @@ work item's frame and `decisions.md` do not give, write one `seal` block
 before the record's heading for each such question: `asks:` the question,
 `grounds:` why you cannot answer it, an `option:` line for each answer you
 can name, each a label between backticks and what it implies, and at most
-one `default:` line that names an option's label. The daemon has each
-question decided from the code and the policy, or parks the work item for
-the person.
+one `default:` line that names an option's label. Each question is then
+decided from the code and the policy, by Owlery's orchestrator agent in the
+daemon's own run and by the pane's session in a pane, and one that only the
+person can answer goes to the person.
 
 **The implementer's account is a claim.** Rule 5 says so of the spawn
 prompt, the commit messages, the pull request body, `gaps.md` and a comment
@@ -140,8 +143,8 @@ the list was fixed.
 
 **A verifying round answers the closed findings.** Its target is the diff of
 the last fixes, `<sha>, fixes <a>..<b>`. Answer each finding the round
-before closed as `skills/code-review/SKILL.md` *Earlier rounds* states: the
-daemon writes no record of a verifying round that names no `confirms:`,
+before closed as `skills/code-review/SKILL.md` *Earlier rounds* states:
+Owlery writes no record of a verifying round that names no `confirms:`,
 `reopens:` or `regression:` line for a finding the round before closed
 `fixed` or `rejected`. A
 new unit in the fix diff has been reviewed by nobody, so review it as code.
@@ -170,7 +173,8 @@ conversation. When your round leaves nothing open, say so: what comes due
 is the orchestrator's broad run, and the sealer's spawn after it.
 
 **A round reads, and runs nothing.** The folder you work in is the person's
-worktree, and a command of yours that asks for permission is refused. So
+worktree, and a command of yours that asks for permission is refused in a
+role session and waits for the person in a pane. So
 every `evidence:` line is `read`, with each `path:line` you opened, and the
 `## Probes` table holds no row. A claim that only a run could settle is no
 finding: it is a row of `## Not judged`, with who answers it.
