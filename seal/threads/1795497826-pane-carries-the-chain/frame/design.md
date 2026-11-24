@@ -46,7 +46,7 @@ Not run by the framing run, and run since by phase 4's probe: that an interactiv
 
 ## Scope
 
-**The subject of this work item is the policy root's text and the code that follows it, so its pull request edits `docs/` directly.** The issue is the owner's reversal of sentences three policy documents state, and its *Done when* names the sections. The release's later items (#146, #182, #176) and the owner's walk (#184) read those documents before any settle. So *Rule changes* holds the no-change block, and items 15 to 18 below say what each section states.
+**The subject of this work item is the policy root's text and the code that follows it, so its pull request edits `docs/` directly.** The issue is the owner's reversal of sentences three policy documents state, and its *Done when* names the sections. The release's later items (#146, #176) and the owner's walk (#184) read those documents before any settle; #182 was framed and merged before them. So *Rule changes* holds the no-change block, and items 15 to 18 below say what each section states.
 
 **Owlery's chain is named the owl chain.** The owner named it on 2026-11-24 (issue #181, the comment of `2026-11-24T06:15:30Z`, read): Owlery is the app, and the owl chain is the roles that judge. Every document and every text of the bundle that this work writes says "the owl chain" where it names that chain. The check's name, `Owlery seal`, is left as it stands: issue #146 renames it `seal`.
 
