@@ -45,7 +45,7 @@ One probe ran, once, on 2026-11-25 against Claude Code 2.1.331 (executed). It wa
 In:
 
 1. **The hand check's session is the real CLI, launched by the daemon as today, with the stand-in model behind it.** The case starts the stand-in model before it launches the session and closes it when the case ends.
-2. **The wrapper script points every run of the CLI in the hand check at the stand-in model and at temporary folders.** It sets `ANTHROPIC_BASE_URL` to the stand-in model's address, `ANTHROPIC_API_KEY` to a placeholder that is no key, `HOME` and `CLAUDE_CONFIG_DIR` to two folders the case makes under its kept folder, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. It sets them before its `--version` branch, so the daemon's read of the version takes them too. The hand check therefore reads and writes nothing of the person's Claude Code folder and spends none of the person's usage.
+2. **The wrapper script points every run of the CLI in the hand check at the stand-in model and at a home of its own, and the daemon gives the session its config folder.** The case makes two folders under its kept folder, a home and a config folder. The wrapper script sets `ANTHROPIC_BASE_URL` to the stand-in model's address, `ANTHROPIC_API_KEY` to a placeholder that is no key, `HOME` to the case's home, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. It sets them before its `--version` branch, so the daemon's read of the version takes them too. The case's stand-in shell prints a third line, `__owlery_config=` with the case's config folder, so `claude.ts#parseLookup` gives the daemon that folder as System default's: the adapter passes it to the session as `CLAUDE_CONFIG_DIR`, as it passes an account's folder, and the wrapper script does not set that variable. Every run of the CLI therefore reads and writes nothing of the person's Claude Code folder and spends none of the person's usage. The daemon's read of where System default keeps its conversations (`claude-accounts.ts#conversationsIn`, from `daemon.ts#readAgentNotice`) resolves `projects` under the case's config folder. At `c8dc3fa0` the shell printed no such line, and that read resolved `projects` under `.claude` of the person's home and opened no file there (`trail/phases/phase-1.md`). Whether the daemon reads another path of the person's folder in the hand check is `frame/questions.md` Q3.
 3. **The stand-in model issues the refused call.** *Data & interfaces* states its answers. The first request of the session is answered with one `Bash` call whose command is `role-session.test.ts#APPEND`.
 4. **The case asserts what the daemon's refusal leaves, in this order.** The `init` line's tools and permission mode, as today, and its `apiKeySource`, which is `ANTHROPIC_API_KEY`. A `can_use_tool` request for `Bash` whose command is `APPEND`, on the session's output stream. A `tool_result` among the requests the stand-in model received whose content holds the reason `verdictOn` writes for the pair and whose `is_error` is true. The bytes of `README.md`. The session's state, error and role as the daemon holds them. No permission waiting for the person.
 5. **A failure names its cause.** Where the stand-in model received no request, the case fails on an assertion whose message says that the CLI did not reach the stand-in model. Where it received a request and the stream holds no `can_use_tool` request, the case fails on the request's assertion. Neither failure reads as the daemon not refusing.
@@ -53,6 +53,8 @@ In:
 7. **`pnpm run role:run` keeps a real model on the person's login.** `launched` takes the stand-in model as an optional argument. Without it, the wrapper script's text and the launch are what they are at `92f94607`.
 8. **The file's text says what each case is.** The comment that opens `role-session.test.ts`, the `describe` title and the hand check's `it` title say that the first case is a real session on the person's login and that the second runs the real CLI against a stand-in model and costs nothing.
 9. **The hand check is run three times in a row for each pair**, `pnpm run role:refusal` and `pnpm run role:refusal:sealer`, and the phase record names each run's result and the CLI's version each run printed.
+10. **The two scripts print what the case prints, whoever runs them.** `role:refusal` and `role:refusal:sealer` of `apps/desktop/package.json` pass `--reporter=default` to the runner after the test file. With no reporter named, Vitest 4.1.12 picks its reporter `agent` where the environment is an agent's, as `std-env` reads `AI_AGENT` and `CLAUDECODE` (read in the installed `vitest`), and that reporter hides a passing case's `console.log`: the plain script printed neither the kept folder nor the version (`trail/phases/phase-1.md`, executed there). The record of *Scope* item 9 is written by an agent from those lines.
+11. **The stand-in model answers what a run showed the CLI asks, and refuses the rest by name.** It holds no answer for `POST /v1/messages/count_tokens`: no run of 2.1.331 sent it (`trail/phases/phase-1.md`). Such a request takes the 404 row of *Data & interfaces*, which stays, because the server owes every request an answer and the case prints each request it received.
 
 Out:
 
@@ -60,23 +62,25 @@ Out:
 - **`pnpm run role:run` and `pnpm run pane:run`.** Each asks a real model a question its definition allows, and neither failed.
 - **The daemon, the adapter and the role bundle.** The rule, the launch and the definitions are correct as they stand: the role declined a call its definition forbids.
 - **Issue #110's line "the window says so".** A person sees the window, in the walk of #184.
-- **`apps/desktop/package.json`.** The three scripts keep their names and their variables.
+- **The names and the variables of the scripts.** `role:run`, `role:refusal` and `role:refusal:sealer` keep both. *Scope* item 10 adds one option to the last two.
+- **The other scripts that print for a person and run one file:** `role:run`, `pane:run`, `korean:typed`, `measure:memory` and `screenshots`, each of whose test files calls `console.log` (`grep -l 'console.log'` over the five files, executed at `cdcd28cd`). Under an agent's environment each takes the same reporter. No record of this work is written from their output, and this work runs none of them.
 
 ## User scenarios & acceptance *(mandatory)*
 
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
-| 1. The proofer's call is refused | Given the built bundle and an installed `claude`. When `pnpm run role:refusal` runs. Then the case passes, three runs in a row. | The runs of *Scope* item 9, in `trail/phases/phase-1.md` with the version each printed. |
+| 1. The proofer's call is refused | Given the built bundle and an installed `claude`. When `pnpm run role:refusal` runs. Then the case passes, three runs in a row. | The runs of *Scope* item 9, in `trail/phases/phase-1.md` with the version each printed, and again in `trail/phases/phase-2.md` at the tree that holds *Scope* items 10 and 11 and item 2 as it now reads. |
 | 2. The sealer's call is refused | Given the same. When `pnpm run role:refusal:sealer` runs. Then the case passes, three runs in a row, and the reason names the sealer. | The same record. |
 | 3. The check fails where the daemon does not refuse | Given `role-grants.ts#GRANTS` edited so that a proofer at a round holds `runs: true`, uncommitted. When `pnpm run role:refusal` runs. Then the case fails on the reason's assertion, and `README.md` of the scratch repository holds `a repository\nx`. | Seen red once by the builder, then the edit is reverted. The phase record quotes the failing line. |
 | 4. The check does not pass where no call is made | Given the stand-in model edited to answer its first request with text and no call, uncommitted. When `pnpm run role:refusal` runs. Then the case fails on the assertion of the `can_use_tool` request. | Seen red once by the builder, then the edit is reverted. The phase record quotes the failing line. |
-| 5. The hand check touches nothing of the person's | Given a run of scenario 1. Then the CLI's `HOME` and config folder are the two folders under the case's kept folder, and the `init` line's `apiKeySource` is `ANTHROPIC_API_KEY`. | The case asserts `apiKeySource`. The wrapper script's text is read. |
+| 5. No run of the CLI touches anything of the person's | Given a run of scenario 1. Then the CLI's `HOME` and config folder are the two folders under the case's kept folder, the `init` line's `apiKeySource` is `ANTHROPIC_API_KEY`, and the case's config folder holds what the session wrote. | The case asserts `apiKeySource`, and asserts that the case's config folder holds a `projects` folder after the session. The wrapper script's and the stand-in shell's text are read. |
 | 6. The real session's case is as it was | Given `OWLERY_ROLE_RUN=1` and no `OWLERY_ROLE_REFUSAL`. Then the wrapper script's text and the launch are those of `92f94607`. | Read in the diff. The case is not run by the build: `frame/questions.md` Q1. |
 | 7. The old prompt is gone | After the build, `git grep -n 'REFUSAL_PROMPT' -- apps/desktop` prints nothing. | The search of *Grounding*, run again at the phase's commit. |
+| 8. The plain script prints under an agent's environment | Given `AI_AGENT` or `CLAUDECODE` set, as an agent's shell has them. When `pnpm run role:refusal` runs with no further argument. Then its output holds the line that names the CLI's version. | The runs of `trail/phases/phase-2.md` are made with no further argument, and the record quotes the version line of one. |
 
 ## Data & interfaces
 
-No schema, protocol message or endpoint of the app changes. The work adds one helper of the tests and changes one test file.
+No schema, protocol message or endpoint of the app changes. The work adds one helper of the tests, changes one test file, and adds one option to two scripts.
 
 **`apps/desktop/test/model-stand-in.ts`, new.** It exports one function that starts a server of `node:http` on `127.0.0.1` at a port the system gives, and returns the server's address, the requests it received, and a function that closes it. It takes the command of the call it issues. Its answers:
 
@@ -85,12 +89,13 @@ No schema, protocol message or endpoint of the app changes. The work adds one he
 | `POST /v1/messages…` whose `tools` name `Bash` and whose `messages` hold no `tool_result` | One assistant message with one `tool_use` block: `name` `Bash`, `input` `{ command, description }`, and `stop_reason` `tool_use` |
 | `POST /v1/messages…` whose `messages` hold a `tool_result` | One assistant message with one line of text and `stop_reason` `end_turn` |
 | Any other `POST /v1/messages…`, such as one whose `tools` name no `Bash` | The same line of text |
-| `POST /v1/messages/count_tokens…` | `{ "input_tokens": 1 }` |
-| Anything else | Status 404 with an error body |
+| Anything else | Status 404 with an error body that names the method and the path |
 
 A request with `stream: true` is answered as server-sent events, in the order the probe sent them: `message_start`, `content_block_start`, `content_block_delta` (an `input_json_delta` holding the whole input for the call, a `text_delta` for text), `content_block_stop`, `message_delta` with the `stop_reason`, `message_stop`. A request without it is answered with the message as one JSON body. Each answer names the model the request named. The server keeps, for each request, its method, its path and its parsed body.
 
-**`apps/desktop/test/role-session.test.ts#launched`.** It gains an optional third argument, the stand-in model's address. With it, the wrapper script opens with one `export` line for each variable of *Scope* item 2. Without it, the script is unchanged.
+**`apps/desktop/test/role-session.test.ts#launched`.** It gains an optional third argument, the stand-in model's address. With it, the wrapper script opens with one `export` line for each variable *Scope* item 2 has it set, and the stand-in shell prints the `__owlery_config` line. Without it, both scripts are unchanged.
+
+**`apps/desktop/package.json`.** The scripts `role:refusal` and `role:refusal:sealer` end with `test/role-session.test.ts --reporter=default`.
 
 ## Rule changes
 
