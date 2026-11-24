@@ -462,7 +462,7 @@ function findingLine(line: FindingLine): HTMLElement {
     shown.textContent = place;
     places.append(shown, " ");
   }
-  return item("finding", part("number", `${String(line.number)}.`), part("says", line.says), withCode(line.open ? "close open" : "close", line.close), row(part("severity", line.severity), places), ...(line.names === null ? [] : [part("names", line.names)]));
+  return item("finding", part("number", `${String(line.number)}.`), withCode("says", line.says), withCode(line.open ? "close open" : "close", line.close), row(part("severity", line.severity), places), ...(line.names === null ? [] : [part("names", line.names)]));
 }
 
 /** One round's part of the back: its title with the commit it read, its findings or the sentence of a round with none, the lines of its record not read, and the stages that ran for it. */
@@ -500,7 +500,7 @@ export function backParts(back: Back | string, seal: Seal | null | undefined): H
   words.append(withCode("head", shown.words, "h2"), ...(shown.why === "" ? [] : [withCode("why", shown.why, "p")]));
   if (back.brokenBy !== null) {
     const broken = withCode("broken-by", back.brokenBy.says, "p");
-    broken.append(" ", part("subject", back.brokenBy.subject));
+    broken.append(" ", withCode("subject", back.brokenBy.subject));
     words.append(broken);
   }
   const head = document.createElement("header");

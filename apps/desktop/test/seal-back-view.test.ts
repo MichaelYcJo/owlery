@@ -4,10 +4,13 @@
 // `claude` runs and no chain starts: a pane it starts ends at once, and its
 // tab stays. A second client of the daemon makes three work items. In the
 // first one's worktree the file commits, with git, the records of a chain
-// that sealed it after one fix: round 1 with a finding, the commit that
-// fixed it, the fix pass's close, round 2 that confirms it, the broad gate's
-// run and the seal. It then appends the entries of that chain's stages to
-// the daemon's ledger, which the daemon reads at each `readLedger`. In the
+// that sealed it after one fix: round 1 with a finding whose symptom holds a
+// word in backticks, the commit that fixed it, the fix pass's close, round 2
+// that confirms it, the broad gate's run and the seal. It then appends the
+// entries of that chain's stages to the daemon's ledger, which the daemon
+// reads at each `readLedger`. While that work item's back is in front, the
+// case commits there once more, with a subject that holds a word in
+// backticks, which breaks the seal. In the
 // second one's worktree it commits the records of a seal and one commit
 // after them, which breaks the seal. The third has no seal, no round and no
 // chain. The page's `Notification` is replaced, so nothing reaches the
@@ -30,12 +33,15 @@ const BROKEN = { title: "Cache the avatars", records: "1795400732-cache-the-avat
 const PLAIN = { title: "Rename the settings" };
 /** A work item made while the sealed one's back is in front, so the daemon sends a list. */
 const LATER = { title: "Tidy the changelog" };
+/** The symptom of the sealed work item's finding, and the subject of the commit that breaks its seal, each with a word in backticks. */
+const SYMPTOM = "The greeting in `feature.txt` misses its full stop";
+const BREAKING = "feat: add `later`";
 
 /**
  * Commits in a worktree on the work item's branch the records of a chain
  * that sealed it after one fix, each in a commit of its own as a chain
  * commits them: the routing, round 1 on the routing's commit with finding 1
- * at `feature.txt:1`, the commit that fixes it, the fix pass's close of the
+ * at `feature.txt:1`, its symptom `SYMPTOM`, the commit that fixes it, the fix pass's close of the
  * finding with that commit, round 2 on the commits after round 1's target,
  * which confirms the fix, the broad gate's run on round 2's commit against
  * `base`, and a seal of that commit. Gives the commit that fixed the
@@ -46,7 +52,10 @@ function commitSealedAfterAFix(folder: string, given: { workItem: string; branch
   const record = `${directory}/trail/rounds/round-1.md`;
   write(folder, `${directory}/routing.md`, routingText(given.workItem, given.branch, TODAY));
   const routed = commitAll(folder, "chore: declare the work item's routing");
-  write(folder, record, roundRecord(`# Review round 1: ${given.workItem}`, `${routed} against main`, [1]));
+  const round1 = roundRecord(`# Review round 1: ${given.workItem}`, `${routed} against main`, [1]);
+  const heading = "### 1. The greeting of line 1 misses its full stop\n";
+  if (!round1.includes(heading)) throw new Error("round 1's record holds no finding 1 to give the symptom");
+  write(folder, record, round1.replace(heading, `### 1. ${SYMPTOM}\n`));
   commitAll(folder, "chore: record review round 1");
   write(folder, "feature.txt", "A greeting.\n");
   const fix = commitAll(folder, "fix: end the greeting");
@@ -177,7 +186,7 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     made?.remove();
   }, 30_000);
 
-  it("opens a sealed work item to its back, with the seal's record, a finding at its file and line with the commit that fixed it and each stage's converted cost, draws it again for no list that leaves its seal, records and chain as they were, names the commit that broke a broken seal, gives no back to a work item with no seal, no round and no chain, and lets the back's answers go while a pane is in front and asks again when the back comes back", async () => {
+  it("opens a sealed work item to its back, with the seal's record, a finding at its file and line with the commit that fixed it and each stage's converted cost, draws the code of a finding's symptom and of a breaking commit's subject in the fixed-width face, draws it again for no list that leaves its seal, records and chain as they were, lets the back's answers go while a pane is in front and asks again when the back comes back, asks again when a commit breaks the seal while the back is in front, names the commit that broke a broken seal, and gives no back to a work item with no seal, no round and no chain", async () => {
     // Each view is opened once its line shows the seal the daemon read at the branch's head. The sidebar's lines draw no seal, and the inbox's do.
     await app.click("#nav-inbox");
     await app.until(`document.querySelector('#inbox-lines button[data-work-item="${sealed.id}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${broken.id}"] .seal[data-seal="broken"]')`, "the sealed and the broken seal on their lines", 30_000);
@@ -198,6 +207,9 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     expect(back.text).toContain(`Fixed in ${fixedIn.slice(0, 7)}`);
     expect(back.text).toContain("$0.28 converted");
     expect(back.text).toContain("The chain's stages cost $1.12 converted.");
+    // The finding's symptom is drawn with its code in the fixed-width face, and no text of the back shows a backtick.
+    expect(await app.evaluate<string | undefined>(`document.querySelector("#back .finding .says code")?.textContent`)).toBe("feature.txt");
+    expect(back.text).not.toContain("`");
     expect(await sent()).toEqual({ readSealRecords: 1, readLedger: 1 });
 
     // A list the daemon sends while the back is in front, which changes none of the sealed work item's seal, records or chain, leaves the back as it was drawn, so a selection in it stays, and asks nothing.
@@ -220,6 +232,17 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     await app.click("#tabs .tab.back .label");
     await app.until(`document.querySelector("#back .round")`, "the back drawn again");
     expect(await sent()).toEqual({ readSealRecords: 2, readLedger: 2 });
+    // A commit after the seal breaks it while the back is in front: the seal the next list carries differs from the one the window asked at, so the back is asked for again and drawn as broken, the commit's subject with its code in the fixed-width face.
+    writeFileSync(join(sealed.worktree, "later.ts"), "later.ts\n");
+    git(sealed.worktree, "add", "later.ts");
+    git(sealed.worktree, "commit", "--quiet", "-m", BREAKING);
+    const later = git(sealed.worktree, "rev-parse", "HEAD").trim();
+    await app.until(`document.querySelector("#back .broken-by")`, "the sealed work item's back drawn again as broken", 30_000);
+    expect(await sent()).toEqual({ readSealRecords: 3, readLedger: 3 });
+    const laterBack = await backShown();
+    expect(laterBack.text).toContain(`Broken by ${later.slice(0, 7)}`);
+    expect(await app.evaluate<string | undefined>(`document.querySelector("#back .broken-by .subject code")?.textContent`)).toBe("later");
+    expect(laterBack.text).not.toContain("`");
 
     await openView(broken);
     await app.until(`document.querySelector("#back .broken-by")`, "the back of the broken work item drawn");
