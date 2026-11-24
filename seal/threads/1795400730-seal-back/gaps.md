@@ -24,4 +24,4 @@ Phase 2: nothing.
 
 Phase 3: nothing.
 
-Phase 4: the right column's foot and the approval line show a broken seal's sentence with its backticks as written, where the back draws the words between them as code. Phase 3 found it, and it is issue #44's ground, which changes those two places, so this work leaves it.
+Phase 4: the right column's foot and the approval line show a broken seal's sentence with its backticks as written, where the back draws the words between them as code. Phase 3 found it. Issue #44, which merged, left that sentence as written on purpose, and its records leave how a broken seal's sentence is drawn to the owner (#44's `frame/questions.md` Q1). The orchestrator carries the question to the owner, so this work leaves both places as they are.
