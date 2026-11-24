@@ -5,9 +5,12 @@
 // a later commit broke, and writes one PNG file for each view (the summary,
 // the inbox, a work item's view, the view of the parked work item, the view
 // of the finished work item, the view of the broken one, a work item's menu,
-// the "New work item" form, the dialog of the chain choice and the
-// repository's settings) in each appearance of the theme a first run
-// opens in. The repository is on the owl chain, and the Claude Code config
+// the "New work item" form, the dialog of the chain choice, the
+// repository's settings and the Accounts dialog) in each appearance of the
+// theme a first run opens in. The daemon keeps one account beside System
+// default, handed over by an empty folder of the run's own, and the parked
+// work item is set to it, so its line names it and the settings show the
+// account's field. No session of the scene runs under it. The repository is on the owl chain, and the Claude Code config
 // folder the run gives the app enables a stand-in for the AgenticSeal
 // plugin, so the window holds the choice of a chain. The run stores the
 // answer "the AgenticSeal plugin" before the app starts, so no pane of the
@@ -91,7 +94,7 @@ import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
 import { createWorktree } from "../src/daemon/worktrees";
 import { WINDOW_SIZE } from "../src/main/window-size";
-import type { Chain, ChainStage, ClientMessage, PullRequest, ServerMessage, SessionInfo, WorkItem, WorktreeSetup } from "../src/shared/protocol";
+import { type Chain, type ChainStage, type ClientMessage, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { commitFile, git, temporaryRepository } from "./repositories";
 import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, roundRecord, TODAY, write } from "./chain-run";
@@ -166,6 +169,9 @@ const SETUP_ENDS_WITH = 0;
 const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
 /** The first work item, which the run stores with a parked chain whose broad gate passed: its worktree holds the records of a round and of the broad gate's run, in the folder of the records this name gives, and its record of questions holds `ASKED_OF_PARKED`. Its view is the view "parked". */
 const PARKED = WORK_ITEMS[0]?.title ?? "";
+/** The account the run hands over by its folder, and the id the daemon keeps it under. */
+const HANDED = "Work";
+const HANDED_ID = 1;
 const PARKED_RECORDS = "1795396351-choose-the-base-of-the-hotfix";
 /** The repository's broad gate command, as its `config.json` names it, the script it runs, which the repository holds, and what a run of it prints, which the run stores as the output of the parked chain's gate. No chain runs, so nothing runs the command. */
 const GATE = "sh scripts/check.sh";
@@ -236,6 +242,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-dialog.png",
       "night-watch-dark-chain.png",
       "night-watch-dark-settings.png",
+      "night-watch-dark-accounts.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
@@ -246,11 +253,12 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-dialog.png",
       "night-watch-light-chain.png",
       "night-watch-light-settings.png",
+      "night-watch-light-accounts.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(60);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(60);
-    expect(all[59]).toEqual({ theme: "desk", appearance: "light", view: "settings", file: "desk-light-settings.png" });
+    expect(all).toHaveLength(66);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(66);
+    expect(all[65]).toEqual({ theme: "desk", appearance: "light", view: "accounts", file: "desk-light-accounts.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -299,6 +307,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
 
   const SIDEBAR_LINE = `#repositories button[data-work-item="${WORK_ITEMS.length}"]`;
   const PARKED_LINE = `#repositories button[data-work-item="1"]`;
+  /** The folder of the account the run hands over, once the run's temporary folders stand. */
+  let handedFolder = "";
   const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
   const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
   /** The commit the broken work item's seal names, and the commit after it that broke it, once the run has committed them. */
@@ -419,7 +429,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]')`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN} and the preview of ${SHOWN}`);
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)}`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account on the line of ${PARKED} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
@@ -470,6 +480,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await show.inbox();
       await settingsWith(OWL_CHAIN);
     },
+    accounts: async () => {
+      await show.inbox();
+      await app.click("#accounts-button");
+      await app.until(`document.getElementById("accounts-dialog").open && [...document.querySelectorAll("#accounts-list li")].map((row) => row.querySelector(".account-name > span")?.textContent).join() === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with System default and the account handed over");
+    },
   };
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
@@ -491,6 +506,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     settings: async () => {
       await app.click("#settings-cancel");
       await dialogClosed("settings-dialog");
+    },
+    accounts: async () => {
+      await app.click("#accounts-close");
+      await dialogClosed("accounts-dialog");
     },
   };
 
@@ -521,6 +540,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     }
     // The Claude Code config folder the app's daemon reads, which is the run's own: it enables one plugin, installed where the script of AgenticSeal's check stands, so the daemon reads the plugin as enabled in a repository on the owl chain. Nothing of it is run.
     const config = join(made.base, "claude-config");
+    handedFolder = join(made.base, "claude-work");
+    mkdirSync(handedFolder, { recursive: true });
     const installed = join(config, "plugins", "cache", "agenticseal", "agentic", "1.0.0");
     mkdirSync(join(installed, "skills", "code-review", "scripts"), { recursive: true });
     writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
@@ -543,13 +564,15 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const parkedChain: Chain = { state: "parked", says: PARKED_SAYS, since: stored - 50 * 60_000, stages: [ran("round", 1, 0), ran("gate", 1, 1)] };
     const finishedChain: Chain = { state: "rested", says: pullRequestOpenSays(PULL_REQUEST_NUMBER), since: stored - 30 * 60_000, stages: [...FINISHED_STAGES.map(([kind, round], place) => ran(kind, round, place)), ran("pull-request", 2, FINISHED_STAGES.length)] };
     const pullRequest: PullRequest = { number: PULL_REQUEST_NUMBER, url: PULL_REQUEST_ADDRESS, state: "open", head: sealedAt, pushed: sealedAt, checks: "passed", list: CHECKS.map((name) => ({ name, state: "passed", link: null })), listCount: CHECKS.length, readAt: stored, failure: null };
-    // The repository is stored with the answer "the AgenticSeal plugin", so no pane of the scene is asked about and none carries the bundle.
-    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, paneChain: "plugin", addedAt: stored - 3 * 60 * 60_000, groups: [], workItems: [{ ...item(1, PARKED, parkedAt), chain: parkedChain }, { ...item(2, FINISHED, finishedAt), chain: finishedChain, pullRequest }] };
+    // The repository is stored with the answer "the AgenticSeal plugin", so no pane of the scene is asked about and none carries the bundle. The parked work item is set to the account the run hands over, which its repository does not give, so its line names it.
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, paneChain: "plugin", addedAt: stored - 3 * 60 * 60_000, groups: [], workItems: [{ ...item(1, PARKED, parkedAt), chain: parkedChain, accountId: HANDED_ID }, { ...item(2, FINISHED, finishedAt), chain: finishedChain, pullRequest }] };
     app = await BuiltApp.start(
       { SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config },
       {
         writeRun: (runDir) => {
           writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
+          // One account handed over by its folder, an empty one of the run's own: no session of the scene runs under it, and nothing reads it.
+          writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: HANDED_ID + 1, defaultId: SYSTEM_DEFAULT_ID, accounts: [{ id: HANDED_ID, name: HANDED, adapter: "claude", folder: handedFolder, made: false }] }), { mode: 0o600 });
           // What the parked chain's gate printed, which its line's "Show output" draws.
           mkdirSync(join(runDir, GATE_OUTPUT_FOLDER), { mode: 0o700 });
           writeFileSync(join(runDir, GATE_OUTPUT_FOLDER, "1.txt"), GATE_PRINTED, { mode: 0o600 });

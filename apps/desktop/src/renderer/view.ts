@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Account, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack } from "../shared/seal-back";
 
 /**
@@ -1719,10 +1719,11 @@ export function fileLines(workItem: WorkItem): { sum: string; lines: { path: str
 }
 
 /** The facts of a view's right column, in their order: the agent, which is the label of the kind of the pane the state is read from, when the work item was started, its base and its worktree. */
-export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now: number): { label: string; value: string }[] {
+export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now: number, account = ""): { label: string; value: string }[] {
   const kind = paneKinds.find((offered) => offered.kind === entry.session?.kind);
   return [
     { label: "Agent", value: kind ? kind.label : "None" },
+    ...(account === "" ? [] : [{ label: "Account", value: account }]),
     { label: "Started", value: `${ageOf(entry.workItem.createdAt, now)} ago` },
     { label: "Base", value: ahead(entry.workItem).fact },
     { label: "Worktree", value: entry.workItem.worktree },
@@ -2074,7 +2075,7 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
  * opens a folder in Finder, where `app` is null, or in an installed app.
  */
 export type MenuAction =
-  | { do: "rename" | "archive" | "restore" | "delete"; id: number }
+  | { do: "rename" | "account" | "archive" | "restore" | "delete"; id: number }
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
@@ -2131,13 +2132,14 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 /**
  * A work item's menu, in its order: Rename; "Open in", whose submenu lists
  * Finder and each installed editor and terminal; Copy path and Copy branch
- * name; Pin or Unpin, and Mute notifications or Unmute notifications; "Move
+ * name; "Account…", after Rename, where `accounts` says the window offers a
+ * choice of account (`offersAccounts`); Pin or Unpin, and Mute notifications or Unmute notifications; "Move
  * to" for each of `groups`, the groups of its repository, but the one it
  * stands in, and "Move out of" that one; Archive and Delete. The menu of an
  * archived work item holds Restore, "Open in", the two copies and Delete.
  * The folder that is opened and copied is the work item's worktree.
  */
-export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[]): MenuEntry[] {
+export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[], accounts = false): MenuEntry[] {
   const { id, worktree: folder } = workItem;
   const open = openEntries(folder, "the work item's", apps);
   const copies: MenuItem[] = [
@@ -2153,6 +2155,7 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
   if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, open, ...copies, remove(true)];
   return [
     { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
+    ...(accounts ? [{ label: "Account…", description: "Choose the account the work item's new sessions run under.", action: { do: "account" as const, id }, divides: false }] : []),
     open,
     ...copies,
     workItem.pinned
@@ -2751,15 +2754,103 @@ export function settingsBases(plan: PlanAnswered | null, chosen: string | null):
  * What the settings dialog sends for a repository: the name where it is
  * another than the one a person gave, null for an empty one, and the base
  * where the menu's value is another than the repository's, null for the
- * first choice, and the chain of its Claude Code panes where the menu's
- * value is another than the answer kept, null for no answer. A field that
- * did not change is left out, and an object with none is nothing to send.
+ * first choice, the chain of its Claude Code panes where the menu's
+ * value is another than the answer kept, null for no answer, and the
+ * account where the menu's value, an account's id, is another than the one
+ * set on the repository, null for the first choice, which leaves it to the
+ * default. A field that did not change is left out, and an object with
+ * none is nothing to send.
  */
-export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? ""): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null } {
+export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? "", account: string = String(repository.accountId ?? "")): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null; accountId?: number | null } {
   const named = name.trim() || null;
   const chosen = base || null;
   const runs = chain === "owlery" || chain === "plugin" ? chain : null;
-  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }), ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }) };
+  const set = account === "" ? null : Number(account);
+  return {
+    ...(named === repository.customName ? {} : { name: named }),
+    ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }),
+    ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }),
+    ...(set === (repository.accountId ?? null) ? {} : { accountId: set }),
+  };
+}
+
+/** The accounts a daemon keeps and the id of the default one, as the window holds them. */
+export interface HeldAccounts {
+  accounts: Account[];
+  defaultId: number;
+}
+
+/** The accounts and the default a `ready` or an `accounts` message carries, or null for a daemon of an earlier build, which sends neither: the window then shows no account control and no account's name. */
+export function heldAccounts(message: { accounts?: Account[]; defaultAccountId?: number }): HeldAccounts | null {
+  if (message.accounts === undefined || message.defaultAccountId === undefined) return null;
+  return { accounts: [...message.accounts], defaultId: message.defaultAccountId };
+}
+
+/** Whether the window offers a choice of account: only where the daemon keeps an account beside System default, since with System default alone there is nothing to choose. */
+export function offersAccounts(held: HeldAccounts | null): boolean {
+  return held !== null && held.accounts.some((account) => account.id !== SYSTEM_DEFAULT_ID);
+}
+
+/** The name of the account of `id`, or nothing where the window holds no account of it. */
+export function accountName(held: HeldAccounts, id: number): string {
+  return held.accounts.find((account) => account.id === id)?.name ?? "";
+}
+
+/** The account a repository gives its work items: the one set on it, else the default. */
+function repositoryAccount(repository: Repository | undefined, held: HeldAccounts): number {
+  return repository?.accountId ?? held.defaultId;
+}
+
+/**
+ * The name a line of the inbox shows of a work item's account: the work
+ * item's own where it differs from the one its repository gives, else the
+ * first live pane's or working headless session's of the work item whose
+ * account differs from it, and nothing where every one is the repository's,
+ * or where the window holds no accounts.
+ */
+export function lineAccount(workItem: WorkItem, repository: Repository | undefined, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], held: HeldAccounts | null): string {
+  if (held === null) return "";
+  const given = repositoryAccount(repository, held);
+  const differs = (id: number | null | undefined): id is number => id !== null && id !== undefined && id !== given;
+  if (differs(workItem.accountId)) return accountName(held, workItem.accountId);
+  const running = [
+    ...sessions.filter((session) => session.alive && session.workItemId === workItem.id).map((session) => session.accountId),
+    ...headless.filter((session) => session.state === "working" && session.workItemId === workItem.id).map((session) => session.accountId),
+  ].find(differs);
+  return running === undefined ? "" : accountName(held, running);
+}
+
+/** The name a work item's view shows of the account its sessions take where they name none of their own (`accountFor`): its own, else its repository's, else the default. Nothing where the window holds no accounts. */
+export function viewAccount(workItem: WorkItem, repository: Repository | undefined, held: HeldAccounts | null): string {
+  if (held === null) return "";
+  return accountName(held, accountFor(null, workItem, { accountId: repositoryAccount(repository, held) }, held.defaultId));
+}
+
+/** The name a pane's tab shows of the pane's account: the account it was launched under where that differs from the one its work item gives, and nothing for a pane launched under none, under the work item's, or where the window holds no accounts. */
+export function tabAccount(session: SessionInfo, workItem: WorkItem, repository: Repository | undefined, held: HeldAccounts | null): string {
+  if (held === null || session.accountId === null || session.accountId === undefined) return "";
+  const given = accountFor(null, workItem, { accountId: repositoryAccount(repository, held) }, held.defaultId);
+  return session.accountId === given ? "" : accountName(held, session.accountId);
+}
+
+/** One row of the Accounts dialog: the account's id and name, its folder in words, whether it is the default, and whether it keeps its name, as System default does. */
+export interface AccountRow {
+  id: number;
+  name: string;
+  folder: string;
+  isDefault: boolean;
+  fixed: boolean;
+}
+
+/** The rows of the Accounts dialog, in the daemon's order, System default first. */
+export function accountRows(held: HeldAccounts | null): AccountRow[] {
+  if (held === null) return [];
+  return held.accounts.map((account) => ({ id: account.id, name: account.name, folder: account.folder ?? "The folder your login shell gives Claude Code", isDefault: account.id === held.defaultId, fixed: account.id === SYSTEM_DEFAULT_ID }));
+}
+
+/** The choices of a menu of accounts: a first one, of the value "", that leaves the account to the setting above, named `first` with the account `gives` it gives, then each account by its id, in the daemon's order. */
+export function accountChoices(held: HeldAccounts, first: string, gives: number): { value: string; label: string }[] {
+  return [{ value: "", label: `${first} (${accountName(held, gives)})` }, ...held.accounts.map((account) => ({ value: String(account.id), label: account.name }))];
 }
 
 /** Which chain a repository's Claude Code panes run, or null for a repository of a daemon of an earlier build, which sends none: the window then asks no choice for it. */

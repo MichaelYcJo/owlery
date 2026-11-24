@@ -66,6 +66,10 @@ import {
   webTarget,
   withHeadless,
   withoutHeadless,
+  accountChoices,
+  offersAccounts,
+  tabAccount,
+  viewAccount,
 } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
@@ -155,6 +159,8 @@ const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
 const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
+const askAccount = byId<HTMLSelectElement>("ask-account");
+const paneAccount = byId<HTMLSelectElement>("pane-account");
 const headlessList = byId<HTMLUListElement>("headless");
 const questionsSection = byId("questions");
 const questionsHead = byId("questions-head");
@@ -176,6 +182,35 @@ const linkCardElement = byId("link-card");
 /** The work item whose view is on screen, where the window holds it. */
 function viewed(): WorkItem | undefined {
   return held.workItems.find((item) => item.id === held.viewing);
+}
+
+/** The account a menu of a new session's account names, by its id, or nothing for its first choice, which leaves the session to its work item's. A hidden menu names none. */
+function chosenAccount(menu: HTMLSelectElement): { accountId?: number } {
+  return menu.hidden || menu.value === "" ? {} : { accountId: Number(menu.value) };
+}
+
+/** Fills the two menus of a new session's account for the work item, the one beside the pane buttons and the one beside the "Ask" field, each keeping the choice it held where that is still an account, and hides both where there is no account to choose. */
+function showAccountMenus(workItem: WorkItem): void {
+  const accounts = held.accounts;
+  const offered = offersAccounts(accounts);
+  for (const menu of [paneAccount, askAccount]) {
+    menu.hidden = !offered;
+    if (!accounts || !offered) {
+      menu.replaceChildren();
+      delete menu.dataset.choices;
+      continue;
+    }
+    const kept = menu.value;
+    const repository = held.repositories.find((listed) => listed.id === workItem.repoId);
+    const gives = workItem.accountId ?? repository?.accountId ?? accounts.defaultId;
+    const choices = accountChoices(accounts, "The work item's", gives);
+    // A menu whose choices stand as they were is left as it is, so a redraw closes none a person holds open.
+    const key = JSON.stringify([workItem.id, choices]);
+    if (menu.dataset.choices === key) continue;
+    menu.dataset.choices = key;
+    menu.replaceChildren(...choices.map(({ value, label }) => new Option(label, value)));
+    menu.value = choices.some((choice) => choice.value === kept) ? kept : "";
+  }
 }
 
 /** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
@@ -657,7 +692,8 @@ function showSize(): void {
 function start(kind: PaneKind, continueLatest: boolean): void {
   const workItemId = held.viewing;
   if (workItemId === undefined) return;
-  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}) }));
+  const account = chosenAccount(paneAccount);
+  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}), ...account }));
 }
 
 /** Builds, once per connection, the view's button for each choice the kinds of pane the daemon offers give. */
@@ -762,6 +798,7 @@ function showAskSection(): void {
   const workItem = viewed();
   if (!workItem) return;
   showAsk(workItem);
+  showAccountMenus(workItem);
   const lines = headlessLines(held.headless, workItem);
   const gate = gateLine(workItem, gateRead);
   const key = headlessKey(workItem.id, lines, gate);
@@ -1012,6 +1049,9 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   const label = document.createElement("button");
   label.className = "label";
   label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
+  // The pane's account, where it is another than the one its work item gives, stands after its label.
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  const accountName = workItem ? tabAccount(session, workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "";
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
@@ -1025,7 +1065,7 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
     showView();
   });
   close.addEventListener("click", () => closePane(session));
-  tab.append(label, close);
+  tab.append(label, ...(accountName === "" ? [] : [part("account", accountName)]), close);
   return tab;
 }
 
@@ -1132,7 +1172,7 @@ export function showView(): void {
   viewFactsTitle.textContent = line.title;
   showState(viewState, line.state, since);
   viewFactList.replaceChildren(
-    ...viewFacts(entry, held.paneKinds, now).flatMap(({ label, value }) => {
+    ...viewFacts(entry, held.paneKinds, now, offersAccounts(held.accounts) ? viewAccount(workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "").flatMap(({ label, value }) => {
       const term = document.createElement("dt");
       term.textContent = label;
       const said = document.createElement("dd");
@@ -1222,7 +1262,7 @@ function ask(): void {
   // One ask per answer: a second press before the daemon has taken the first would ask the same prompt twice.
   if (askRequest !== undefined || !workItem || !askButton(askField.value, workItem).enabled) return;
   askRequest = request();
-  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value });
+  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value, ...chosenAccount(askAccount) });
 }
 
 /** Takes a headless session the daemon sent, `requestId` being the request it answers where it answers one. */

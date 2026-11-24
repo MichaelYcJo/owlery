@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountChoices,
+  accountName,
+  accountRows,
+  heldAccounts,
+  lineAccount,
+  offersAccounts,
+  viewAccount,
   agentKind,
   ageOf,
   ahead,
@@ -139,6 +146,7 @@ import {
   summaryCount,
   summaryHead,
   summarySentence,
+  tabAccount,
   tabLabel,
   tellsSize,
   viewFacts,
@@ -553,6 +561,15 @@ describe("workItemMenu", () => {
     expect(workItemMenu(LOGIN, [], GROUPS).map((item) => item.label)).toEqual(["Rename", "Open in", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Move to Later", "Move to Drafts", "Archive", "Delete"]);
   });
 
+  it("holds Account… after Rename where the window offers a choice of account, which opens the dialog of the work item's account, and none where it offers none or the work item is archived", () => {
+    expect(plain(workItemMenu(LOGIN, [], [], true)).slice(0, 2)).toEqual([
+      { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
+      { label: "Account…", action: { do: "account", id: 1 }, divides: false },
+    ]);
+    expect(workItemMenu(LOGIN, [], [], false).map((item) => item.label)).not.toContain("Account…");
+    expect(workItemMenu({ ...LOGIN, archivedAt: 50 }, [], [], true).map((item) => item.label)).not.toContain("Account…");
+  });
+
   it("holds for an archived work item, in this order, Restore, Open in with its submenu of Finder and each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
     expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS, GROUPS))).toEqual([
       { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
@@ -899,6 +916,16 @@ describe("settingsFields", () => {
     // A repository of a daemon of an earlier build has no chain, and a menu left on its first choice sends nothing for it.
     const { chain: _, ...earlier } = ANSWERED;
     expect(settingsFields(earlier as Repository, "", "", "")).toEqual({});
+  });
+
+  it("sends the account where the menu's value is another than the one set on the repository, null for the first choice, which leaves it to the default, and nothing where it is the one set or the dialog gives no value", () => {
+    const SET: Repository = { ...PROJECT, accountId: 2 };
+    expect(settingsFields(PROJECT, "", "", "", "2")).toEqual({ accountId: 2 });
+    expect(settingsFields(PROJECT, "", "", "", "0")).toEqual({ accountId: 0 });
+    expect(settingsFields(PROJECT, "", "", "", "")).toEqual({});
+    expect(settingsFields(SET, "", "", "", "2")).toEqual({});
+    expect(settingsFields(SET, "", "", "", "")).toEqual({ accountId: null });
+    expect(settingsFields(SET, "Named", "")).toEqual({ name: "Named" });
   });
 });
 
@@ -4121,6 +4148,90 @@ describe("viewFacts", () => {
   it("says that the work item has no agent where no live pane of it reports a state", () => {
     const entries = workItemEntries([item], [session(3, { kind: "shell" })], KINDS);
     expect(entries.map((entry) => viewFacts(entry, KINDS, NOW)[0])).toEqual([{ label: "Agent", value: "None" }]);
+  });
+
+  it("names the work item's account after the agent where one is given, and no account where none is", () => {
+    const [entry] = workItemEntries([item], [], KINDS);
+    expect(viewFacts(entry!, KINDS, NOW, "Work").slice(0, 2)).toEqual([
+      { label: "Agent", value: "None" },
+      { label: "Account", value: "Work" },
+    ]);
+    expect(viewFacts(entry!, KINDS, NOW, "").map((fact) => fact.label)).toEqual(["Agent", "Started", "Base", "Worktree"]);
+  });
+});
+
+describe("accounts in the window", () => {
+  const SYSTEM = { id: 0, name: "System default", made: false, folder: null };
+  const WORK = { id: 1, name: "Work", made: false, folder: "/Users/person/.claude-work" };
+  const HOME = { id: 2, name: "Home", made: false, folder: "/Users/person/.claude-home" };
+  const HELD = { accounts: [SYSTEM, WORK, HOME], defaultId: 0 };
+
+  it("holds the accounts and the default a daemon sends, and none against a daemon of an earlier build, which sends neither, so the window shows no account control and no account name (scenario 14)", () => {
+    expect(heldAccounts({ accounts: [SYSTEM, WORK], defaultAccountId: 1 })).toEqual({ accounts: [SYSTEM, WORK], defaultId: 1 });
+    expect(heldAccounts({})).toBeNull();
+    expect(offersAccounts(null)).toBe(false);
+    expect(lineAccount({ ...LOGIN, accountId: 1 }, PROJECT, [], [], null)).toBe("");
+    expect(viewAccount(LOGIN, PROJECT, null)).toBe("");
+    expect(tabAccount(session(3, { accountId: 1 }), LOGIN, PROJECT, null)).toBe("");
+    expect(accountRows(null)).toEqual([]);
+  });
+
+  it("offers a choice of account only where the daemon keeps one beside System default", () => {
+    expect(offersAccounts({ accounts: [SYSTEM], defaultId: 0 })).toBe(false);
+    expect(offersAccounts(HELD)).toBe(true);
+  });
+
+  it("names an account by its id, and an id the window holds no account of by nothing", () => {
+    expect(accountName(HELD, 2)).toBe("Home");
+    expect(accountName(HELD, 0)).toBe("System default");
+    expect(accountName(HELD, 9)).toBe("");
+  });
+
+  it("names on a line the work item's account where it differs from the one its repository gives, else a running session's that differs, and nothing where every one is the repository's", () => {
+    const repository = { ...PROJECT, accountId: 1 };
+    expect(lineAccount({ ...LOGIN, accountId: 2 }, repository, [], [], HELD)).toBe("Home");
+    expect(lineAccount({ ...LOGIN, accountId: 1 }, repository, [], [], HELD)).toBe("");
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 1 })], [], HELD)).toBe("");
+    // A live pane of another account, and a working headless session of another.
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 0 })], [], HELD)).toBe("System default");
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 2, alive: false })], [], HELD)).toBe("");
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 2, workItemId: 2 })], [], HELD)).toBe("");
+    expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2 })], HELD)).toBe("Home");
+    expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2, state: "finished" })], HELD)).toBe("");
+    // A repository set to none gives the default.
+    expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], HELD)).toBe("");
+    expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], { ...HELD, defaultId: 1 })).toBe("System default");
+  });
+
+  it("names in a work item's view the account its sessions take where they name none of their own: its own, else its repository's, else the default", () => {
+    expect(viewAccount({ ...LOGIN, accountId: 2 }, { ...PROJECT, accountId: 1 }, HELD)).toBe("Home");
+    expect(viewAccount(LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("Work");
+    expect(viewAccount(LOGIN, PROJECT, { ...HELD, defaultId: 2 })).toBe("Home");
+    expect(viewAccount(LOGIN, undefined, HELD)).toBe("System default");
+  });
+
+  it("names on a pane's tab the pane's account where it differs from the work item's, and nothing for a pane launched under none or under the work item's", () => {
+    expect(tabAccount(session(3, { accountId: 2 }), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("Home");
+    expect(tabAccount(session(3, { accountId: 1 }), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("");
+    expect(tabAccount(session(3, { accountId: null }), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("");
+    expect(tabAccount(session(3), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("");
+  });
+
+  it("lists the rows of the Accounts dialog in the daemon's order, each with its name, its folder, whether it is the default and whether it keeps its name", () => {
+    expect(accountRows({ ...HELD, defaultId: 1 })).toEqual([
+      { id: 0, name: "System default", folder: "The folder your login shell gives Claude Code", isDefault: false, fixed: true },
+      { id: 1, name: "Work", folder: "/Users/person/.claude-work", isDefault: true, fixed: false },
+      { id: 2, name: "Home", folder: "/Users/person/.claude-home", isDefault: false, fixed: false },
+    ]);
+  });
+
+  it("gives an account's menu a first choice that leaves the account to the setting above, named with the account it gives, then each account in the daemon's order", () => {
+    expect(accountChoices(HELD, "The default", 1)).toEqual([
+      { value: "", label: "The default (Work)" },
+      { value: "0", label: "System default" },
+      { value: "1", label: "Work" },
+      { value: "2", label: "Home" },
+    ]);
   });
 });
 

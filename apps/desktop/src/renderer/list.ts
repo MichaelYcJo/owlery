@@ -19,6 +19,7 @@ import {
   lastHere,
   lineBadge,
   lineSince,
+  lineAccount,
   lineText,
   markRanges,
   matchSentence,
@@ -142,7 +143,9 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     button.dataset.workItem = String(workItem.id);
     const first = part("first", "");
     // A pin and a mute each put a mark after the title.
-    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(lineSince(workItem, session), Date.now())));
+    // The account stands after the age where the work item's, or a running session's, is another than the one its repository gives.
+    const account = lineAccount(workItem, held.repositories.find((repository) => repository.id === workItem.repoId), held.sessions, held.headless, held.accounts);
+    first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(lineSince(workItem, session), Date.now())), ...(account === "" ? [] : [part("account", account)]));
     // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question, otherwise the oldest call its headless sessions ask the person to allow, otherwise the sentence of its chain where the chain stopped, and otherwise the stage its chain runs, in short.
     const said = lineText(workItem, session, held.query !== "");
     const second = part("second", "");
