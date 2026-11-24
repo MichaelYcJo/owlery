@@ -4,8 +4,9 @@
 
 | Item | Who must answer |
 |---|---|
-| Q1 of `frame/questions.md`: which hook events Claude Code sends and which log lines it writes when a person presses Esc during a running tool call and during a reply. The one real session of phase 1 recorded neither interruption (`trail/phases/phase-1.md`) | a measurement: a second real `claude` session, which first needs the owner's permission, asked by the orchestrator, and a plan step 2 the framer rewrites around a command Claude Code does not refuse |
+| closed Q1 of `frame/questions.md`: which hook events Claude Code sends and which log lines it writes when a person presses Esc during a tool call and during a reply | recorded by phase 1's second real `claude` session, which the orchestrator's row in `frame/plan.md` *Judgments of the run* allowed: both interruptions wrote an entry of `frame/design.md` *Scope* item 3's shape, and no hook event named either (`trail/phases/phase-1.md`, *The second build*) |
+| What Claude Code sends and writes when Esc stops a Bash call whose command is running. The recording's Esc stopped the `ping` call while its `PreToolUse` hooks still held it, before the command ran (`trail/phases/phase-1.md`, *The second build*), so whether a `PostToolUse` or a `PostToolUseFailure` arrives after such an Esc is not recorded | the orchestrator: whether a further real session records it, or whether *Scope* item 5's rule, which scenario 3 drives with events the case writes, is enough |
 
 ## Not done
 
-Phase 1 did not record the two interruptions that `frame/design.md` *Scope* item 1 asks for. Claude Code 2.1.331 refused the Bash call `sleep 60` before it ran, so there was nothing to interrupt. The owner allowed one session, and the spawn said to start no second one, so phase 1 committed what the one session recorded and stopped. Phases 2 and 3 are not built, because `frame/plan.md` *Phases* says no phase 2 is built on a recording that differs from the frame.
+Phase 1 recorded no Esc during a running command. `frame/plan.md` *How the recording is made (phase 1)* step 4 sends Esc two seconds after the `PreToolUse`, and the call's `PreToolUse` hooks still held it then. The plan allows one real session in this build and no further one, so this phase started none to record it again.

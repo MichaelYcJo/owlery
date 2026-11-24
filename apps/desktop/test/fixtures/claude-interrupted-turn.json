@@ -2,25 +2,29 @@
   "claudeCode": "2.1.331",
   "recordedAt": "2026-11-24",
   "steps": [
-    "A driver started `claude --settings <file> --allowedTools \"Bash(sleep 60)\"` in a pseudo-terminal of 160 columns and 50 rows, in a new empty folder that is no git repository, with the person's own settings and plugins in place and no variable of an enclosing Claude Code or Orca session. Every `at` below counts milliseconds from that start.",
+    "A driver started `claude --settings <file> --allowedTools \"Bash(ping -c 60 127.0.0.1)\" 'Bash(python3 -c \"import time; time.sleep(60)\")'` in a pseudo-terminal of 160 columns and 50 rows, in a new empty folder that is no git repository, with the person's own settings and plugins in place and no variable of an enclosing Claude Code or Orca session. Every `at` below counts milliseconds from that start.",
     "The settings file gave each of the 33 hook events of the hooks reference (https://code.claude.com/docs/en/hooks, 2026-11-24) one command hook with no matcher. The hook took its `at` as it started and appended the event's JSON to one file, printed nothing, and exited 0.",
     "The driver read the session log, the file each hook event names as `transcript_path`, every 25 ms. A line's `at` is the read that first saw it whole, so a line stood in the file up to 25 ms before its `at`.",
     "Claude Code showed no folder-trust question, so the driver answered none.",
     "At 0.00 s, the driver started the session.",
-    "At 0.27 s, the driver learned the session log's path from a hook event.",
-    "At 3.88 s, the driver sent the prompt that asks for `sleep 60`.",
-    "At 123.94 s, the driver stopped the steps, because no PreToolUse of Bash had arrived in the 120 s it waits for one.",
-    "At 124.54 s, the driver typed /exit.",
-    "At 125.21 s, the session's process exited.",
-    "No interruption was recorded. Claude Code refused the Bash call `sleep 60` itself, with the tool result \"Blocked: standalone sleep 60\", before any PreToolUse hook ran, so no tool was running when the driver would have sent Esc, and the driver sent no Esc and no second prompt. No second session was started.",
+    "At 1.02 s, the driver learned the session log's path from a hook event.",
+    "At 4.63 s, the driver sent the prompt that asks for the numbers 1 to 300, in the words \"Write the numbers from 1 to 300, one per line, and nothing else. Use no tool\".",
+    "At 7.72 s, the driver sent Esc during the reply (first interruption).",
+    "At 10.54 s, the driver sent the prompt that asks for `ping -c 60 127.0.0.1`, in the words \"Run exactly this one command with the Bash tool, in the foreground, and do nothing else, with no explanation first: <command>\".",
+    "At 11.89 s, the driver saw the PreToolUse of the Bash call `ping -c 60 127.0.0.1`.",
+    "At 13.90 s, the driver sent Esc during the Bash call (second interruption).",
+    "At 14.11 s, the driver began to wait 75 s after the last Esc.",
+    "At 89.50 s, the driver typed /exit.",
+    "At 90.22 s, the session's process exited.",
+    "Two interruptions were recorded. The first Esc stopped the reply while Claude wrote it, with no tool running. The second Esc came 2 s after the PreToolUse of the Bash call `ping -c 60 127.0.0.1`. Before it, the screen showed \"running PreToolUse hooks… 0/2\" for the call, and it showed no output of ping. The person's own settings add PreToolUse hooks beside the recording's. The call's tool result reads \"The user doesn't want to proceed with this tool use\", with `toolDenialKind` `user-rejected`, and the screen then read \"No result recorded for 1 call\": the Esc stopped the call before its command ran. The driver sent no prompt for `python3 -c \"import time; time.sleep(60)\"`, because the ping call reached its PreToolUse.",
     "Paths are replaced by `<transcript_path>`, `<cwd>`, `<scratchpad_dir>` and `<home>`, and each thinking block's signature by `<signature>`. A log line whose type is attachment, api-request-shape, api-request-blob, api-request, session-owner, data-flow-records or cost-state, or whose subtype is stop_hook_summary, carries the person's environment, account or instructions: it stands as its type, its subtype or attachment type, and `redactedCharacters`, the length of the line as written."
   ],
   "events": [
     {
-      "at": 256,
+      "at": 1006,
       "name": "SessionStart",
       "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
         "transcript_path": "<transcript_path>",
         "cwd": "<cwd>",
         "scratchpad_dir": "<scratchpad_dir>",
@@ -30,10 +34,10 @@
       }
     },
     {
-      "at": 427,
+      "at": 1264,
       "name": "InstructionsLoaded",
       "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
         "transcript_path": "<transcript_path>",
         "cwd": "<cwd>",
         "scratchpad_dir": "<scratchpad_dir>",
@@ -44,123 +48,353 @@
       }
     },
     {
-      "at": 3920,
+      "at": 4702,
       "name": "UserPromptSubmit",
       "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
         "transcript_path": "<transcript_path>",
         "cwd": "<cwd>",
         "scratchpad_dir": "<scratchpad_dir>",
-        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
         "permission_mode": "auto",
         "hook_event_name": "UserPromptSubmit",
-        "prompt": "Run exactly this one Bash command and nothing else, with no explanation first: sleep 60"
+        "prompt": "Write the numbers from 1 to 300, one per line, and nothing else. Use no tool."
       }
     },
     {
-      "at": 6193,
-      "name": "PostToolBatch",
-      "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
-        "transcript_path": "<transcript_path>",
-        "cwd": "<cwd>",
-        "scratchpad_dir": "<scratchpad_dir>",
-        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
-        "permission_mode": "auto",
-        "effort": {
-          "level": "high"
-        },
-        "hook_event_name": "PostToolBatch",
-        "tool_calls": [
-          {
-            "tool_name": "Bash",
-            "tool_input": {
-              "command": "sleep 60",
-              "description": "Wait 60 seconds"
-            },
-            "tool_use_id": "toolu_01Ec2ZCRbVuGU9UqdtC8NU1v",
-            "tool_response": "<tool_use_error>Blocked: standalone sleep 60. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.</tool_use_error>"
-          }
-        ]
-      }
-    },
-    {
-      "at": 8681,
+      "at": 6164,
       "name": "MessageDisplay",
       "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
         "transcript_path": "<transcript_path>",
         "cwd": "<cwd>",
         "scratchpad_dir": "<scratchpad_dir>",
-        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
         "hook_event_name": "MessageDisplay",
-        "turn_id": "25578715-875a-4860-90fe-8ce8fd554f9f",
-        "message_id": "354ed406-2c2c-49a3-933b-523b4aeda790",
-        "index": 1,
-        "final": true,
-        "delta": "명령 하나만 실행하라고 하셨기 때문에 우회하지 않았습니다. 그냥 60초를 기다리려면 셸에서 직접 `! sleep 60`을 입력하시면 됩니다."
-      }
-    },
-    {
-      "at": 8682,
-      "name": "MessageDisplay",
-      "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
-        "transcript_path": "<transcript_path>",
-        "cwd": "<cwd>",
-        "scratchpad_dir": "<scratchpad_dir>",
-        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
-        "hook_event_name": "MessageDisplay",
-        "turn_id": "25578715-875a-4860-90fe-8ce8fd554f9f",
-        "message_id": "354ed406-2c2c-49a3-933b-523b4aeda790",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
         "index": 0,
         "final": false,
-        "delta": "하네스가 `sleep 60`을 막아서 명령이 실행되지 않았습니다. 이 환경은 foreground에서 단독으로 `sleep`을 실행하는 것을 막습니다.\n\n"
+        "delta": "1\n"
       }
     },
     {
-      "at": 8682,
-      "name": "Stop",
+      "at": 6258,
+      "name": "MessageDisplay",
       "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
         "transcript_path": "<transcript_path>",
         "cwd": "<cwd>",
         "scratchpad_dir": "<scratchpad_dir>",
-        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 1,
+        "final": false,
+        "delta": "2\n3\n4\n5\n"
+      }
+    },
+    {
+      "at": 6357,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 2,
+        "final": false,
+        "delta": "6\n7\n8\n9\n10\n11\n12\n13\n"
+      }
+    },
+    {
+      "at": 6463,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 3,
+        "final": false,
+        "delta": "14\n15\n16\n17\n18\n19\n20\n21\n"
+      }
+    },
+    {
+      "at": 6559,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 4,
+        "final": false,
+        "delta": "22\n23\n24\n25\n26\n27\n28\n29\n"
+      }
+    },
+    {
+      "at": 6660,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 5,
+        "final": false,
+        "delta": "30\n31\n32\n33\n34\n35\n36\n37\n38\n39\n40\n41\n"
+      }
+    },
+    {
+      "at": 6796,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 6,
+        "final": false,
+        "delta": "42\n43\n44\n45\n"
+      }
+    },
+    {
+      "at": 6863,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 7,
+        "final": false,
+        "delta": "46\n47\n48\n49\n50\n51\n52\n53\n"
+      }
+    },
+    {
+      "at": 6962,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 8,
+        "final": false,
+        "delta": "54\n55\n56\n57\n"
+      }
+    },
+    {
+      "at": 7068,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 9,
+        "final": false,
+        "delta": "58\n59\n60\n61\n62\n63\n64\n65\n66\n67\n68\n69\n70\n71\n72\n73\n"
+      }
+    },
+    {
+      "at": 7170,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 10,
+        "final": false,
+        "delta": "74\n75\n76\n77\n78\n79\n80\n81\n"
+      }
+    },
+    {
+      "at": 7269,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 11,
+        "final": false,
+        "delta": "82\n83\n84\n85\n86\n87\n88\n89\n"
+      }
+    },
+    {
+      "at": 7371,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 12,
+        "final": false,
+        "delta": "90\n91\n92\n93\n94\n95\n96\n97\n"
+      }
+    },
+    {
+      "at": 7492,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 13,
+        "final": false,
+        "delta": "98\n99\n100\n101\n"
+      }
+    },
+    {
+      "at": 7593,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 14,
+        "final": false,
+        "delta": "102\n103\n104\n105\n106\n107\n108\n109\n110\n111\n112\n113\n"
+      }
+    },
+    {
+      "at": 7698,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 15,
+        "final": false,
+        "delta": "114\n115\n116\n117\n118\n119\n120\n121\n"
+      }
+    },
+    {
+      "at": 7815,
+      "name": "MessageDisplay",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "62ed6d63-4160-46cf-aa72-ef8e26467d8a",
+        "hook_event_name": "MessageDisplay",
+        "turn_id": "cf3ba1db-bc79-4200-a300-7f6140fc24ef",
+        "message_id": "9874651a-44b7-4741-b568-9044d58a6d48",
+        "index": 16,
+        "final": false,
+        "delta": "122\n123\n124\n125\n126\n127\n128\n129\n"
+      }
+    },
+    {
+      "at": 10613,
+      "name": "UserPromptSubmit",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "dd941f04-86b1-4a82-8c9e-353bc90e8f5f",
+        "permission_mode": "auto",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "Run exactly this one command with the Bash tool, in the foreground, and do nothing else, with no explanation first: ping -c 60 127.0.0.1"
+      }
+    },
+    {
+      "at": 11861,
+      "name": "PreToolUse",
+      "payload": {
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
+        "transcript_path": "<transcript_path>",
+        "cwd": "<cwd>",
+        "scratchpad_dir": "<scratchpad_dir>",
+        "prompt_id": "dd941f04-86b1-4a82-8c9e-353bc90e8f5f",
         "permission_mode": "auto",
         "effort": {
           "level": "high"
         },
-        "hook_event_name": "Stop",
-        "stop_hook_active": false,
-        "last_assistant_message": "하네스가 `sleep 60`을 막아서 명령이 실행되지 않았습니다. 이 환경은 foreground에서 단독으로 `sleep`을 실행하는 것을 막습니다.\n\n명령 하나만 실행하라고 하셨기 때문에 우회하지 않았습니다. 그냥 60초를 기다리려면 셸에서 직접 `! sleep 60`을 입력하시면 됩니다.",
-        "background_tasks": [],
-        "session_crons": []
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ping -c 60 127.0.0.1",
+          "description": "Ping localhost 60 times"
+        },
+        "tool_use_id": "toolu_01B48bMnxt1rsGpVMNZ4srAR"
       }
     },
     {
-      "at": 68740,
-      "name": "Notification",
-      "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
-        "transcript_path": "<transcript_path>",
-        "cwd": "<cwd>",
-        "scratchpad_dir": "<scratchpad_dir>",
-        "prompt_id": "e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de",
-        "hook_event_name": "Notification",
-        "message": "Claude is waiting for your input",
-        "notification_type": "idle_prompt"
-      }
-    },
-    {
-      "at": 124906,
+      "at": 89877,
       "name": "SessionEnd",
       "payload": {
-        "session_id": "37159679-3b26-43ed-ab72-611af6aad599",
+        "session_id": "a99099b6-accd-47d0-853b-547820b31e6d",
         "transcript_path": "<transcript_path>",
         "cwd": "<cwd>",
         "scratchpad_dir": "<scratchpad_dir>",
-        "prompt_id": "b27058f6-8a14-4cc1-a8e9-c3bd76b9ea28",
+        "prompt_id": "30a2a912-3677-4d09-b54e-830e4ed3bb31",
         "hook_event_name": "SessionEnd",
         "reason": "prompt_input_exit"
       }
@@ -168,240 +402,244 @@
   ],
   "log": [
     {
-      "at": 3976,
-      "line": "{\"type\":\"last-prompt\",\"leafUuid\":\"29b03f0f-7144-443a-9b11-f4210f982523\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4761,
+      "line": "{\"type\":\"last-prompt\",\"leafUuid\":\"70c9f793-60db-4f4e-986b-9536884a0471\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 3976,
-      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4761,
+      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 3976,
-      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4761,
+      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 3976,
+      "at": 4761,
       "line": "{\"type\":\"session-owner\",\"redactedCharacters\":186}"
     },
     {
-      "at": 3976,
-      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4761,
+      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":3837}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":3839}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":18039}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":23365}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":23364}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":18040}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":2288}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":2290}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"6e8ffdb8-a199-48eb-9d96-5d14bac18b9c\",\"snapshot\":{\"messageId\":\"6e8ffdb8-a199-48eb-9d96-5d14bac18b9c\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T05:47:15.737Z\"},\"isSnapshotUpdate\":false}"
+      "at": 4872,
+      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"52c01932-24fe-41d7-aae7-8c71ab6f13e2\",\"snapshot\":{\"messageId\":\"52c01932-24fe-41d7-aae7-8c71ab6f13e2\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T06:03:51.783Z\"},\"isSnapshotUpdate\":false}"
     },
     {
-      "at": 4067,
-      "line": "{\"parentUuid\":\"29b03f0f-7144-443a-9b11-f4210f982523\",\"isSidechain\":false,\"promptId\":\"e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\"},\"uuid\":\"6e8ffdb8-a199-48eb-9d96-5d14bac18b9c\",\"timestamp\":\"2026-11-24T05:47:15.709Z\",\"permissionMode\":\"auto\",\"origin\":{\"kind\":\"human\"},\"promptSource\":\"typed\",\"turnOrigin\":\"human\",\"turnPromptId\":\"e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de\",\"turnPosition\":{\"promptIndex\":1,\"turnIndex\":1},\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+      "at": 4872,
+      "line": "{\"parentUuid\":\"70c9f793-60db-4f4e-986b-9536884a0471\",\"isSidechain\":false,\"promptId\":\"62ed6d63-4160-46cf-aa72-ef8e26467d8a\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Write the numbers from 1 to 300, one per line, and nothing else. Use no tool.\"},\"uuid\":\"52c01932-24fe-41d7-aae7-8c71ab6f13e2\",\"timestamp\":\"2026-11-24T06:03:51.739Z\",\"permissionMode\":\"auto\",\"origin\":{\"kind\":\"human\"},\"promptSource\":\"typed\",\"turnOrigin\":\"human\",\"turnPromptId\":\"62ed6d63-4160-46cf-aa72-ef8e26467d8a\",\"turnPosition\":{\"promptIndex\":1,\"turnIndex\":1},\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"environment\"},\"isSidechain\":false,\"redactedCharacters\":3229}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"environment\"},\"isSidechain\":false,\"redactedCharacters\":3239}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"model\"},\"isSidechain\":false,\"redactedCharacters\":983}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"model\"},\"isSidechain\":false,\"redactedCharacters\":985}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"deferred_tools_delta\"},\"isSidechain\":false,\"redactedCharacters\":67155}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"deferred_tools_delta\"},\"isSidechain\":false,\"redactedCharacters\":67157}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"agent_listing_delta\"},\"isSidechain\":false,\"redactedCharacters\":15724}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"agent_listing_delta\"},\"isSidechain\":false,\"redactedCharacters\":15726}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"mcp_instructions_delta\"},\"isSidechain\":false,\"redactedCharacters\":25476}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"mcp_instructions_delta\"},\"isSidechain\":false,\"redactedCharacters\":25478}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"skill_listing\"},\"isSidechain\":false,\"redactedCharacters\":65600}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"skill_listing\"},\"isSidechain\":false,\"redactedCharacters\":65602}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"auto_mode\"},\"isSidechain\":false,\"redactedCharacters\":1242}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"auto_mode\"},\"isSidechain\":false,\"redactedCharacters\":1244}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"instructions\"},\"isSidechain\":false,\"redactedCharacters\":2991}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"instructions\"},\"isSidechain\":false,\"redactedCharacters\":2993}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"session_context\"},\"isSidechain\":false,\"redactedCharacters\":1668}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"session_context\"},\"isSidechain\":false,\"redactedCharacters\":1670}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"date\"},\"isSidechain\":false,\"redactedCharacters\":725}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"date\"},\"isSidechain\":false,\"redactedCharacters\":727}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"credential_org\"},\"isSidechain\":false,\"redactedCharacters\":655}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"credential_org\"},\"isSidechain\":false,\"redactedCharacters\":657}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"remote_session_change\"},\"isSidechain\":false,\"redactedCharacters\":1484}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"remote_session_change\"},\"isSidechain\":false,\"redactedCharacters\":1486}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"prompt_snapshot\"},\"isSidechain\":false,\"redactedCharacters\":14344}"
+      "at": 4872,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"prompt_snapshot\"},\"isSidechain\":false,\"redactedCharacters\":14348}"
     },
     {
-      "at": 4067,
+      "at": 4872,
       "line": "{\"type\":\"data-flow-records\",\"redactedCharacters\":366}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"api-request-shape\",\"redactedCharacters\":91857}"
+      "at": 4872,
+      "line": "{\"type\":\"api-request-shape\",\"redactedCharacters\":91859}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"api-request-blob\",\"redactedCharacters\":2917}"
+      "at": 4872,
+      "line": "{\"type\":\"api-request-blob\",\"redactedCharacters\":2907}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"api-request-blob\",\"redactedCharacters\":90344}"
+      "at": 4872,
+      "line": "{\"type\":\"api-request-blob\",\"redactedCharacters\":90348}"
     },
     {
-      "at": 4067,
+      "at": 4872,
       "line": "{\"type\":\"api-request\",\"redactedCharacters\":1609}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\",\"leafUuid\":\"695483fc-54c8-4fa8-ad52-6c91bf455d7a\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4872,
+      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Write the numbers from 1 to 300, one per line, and nothing else. Use no tool.\",\"leafUuid\":\"a7749f01-a6d6-446f-b9de-1fd51dc24cf1\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4872,
+      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4872,
+      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 4067,
+      "at": 4872,
       "line": "{\"type\":\"session-owner\",\"redactedCharacters\":186}"
     },
     {
-      "at": 4067,
-      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 4872,
+      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 6063,
-      "line": "{\"type\":\"ai-title\",\"aiTitle\":\"Sleep 60 command\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 5914,
+      "line": "{\"type\":\"ai-title\",\"aiTitle\":\"Counting from 1 to 300\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 6281,
-      "line": "{\"type\":\"tools-used\",\"tools\":[\"Bash\"],\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
-    },
-    {
-      "at": 6281,
+      "at": 7905,
       "line": "{\"type\":\"data-flow-records\",\"redactedCharacters\":144}"
     },
     {
-      "at": 6281,
-      "line": "{\"parentUuid\":\"695483fc-54c8-4fa8-ad52-6c91bf455d7a\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3VXSjQXRnRanWhLiQ\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"<signature>\"}],\"container\":null,\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":38730,\"cache_read_input_tokens\":28971,\"output_tokens\":169,\"output_tokens_details\":{\"thinking_tokens\":88},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":38730,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":169,\"cache_read_input_tokens\":28971,\"cache_creation_input_tokens\":38730,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":38730},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"thinkingDurationMs\":810,\"thinkingDisplay\":\"updates\",\"serverClassifierRequest\":\"3585e1fb-6e89-4fa1-a6a2-a699bb639c97\",\"apiBlockIndex\":0,\"requestId\":\"req_011ChME3UThNPgesR5CnUz7p\",\"requestRef\":\"d7dd28cf-af6c-4f14-bba1-52b544032649\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"4dd1c499-0a14-48c3-8401-e5d8d16a17eb\",\"timestamp\":\"2026-11-24T05:47:17.459Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+      "at": 7905,
+      "line": "{\"parentUuid\":\"a7749f01-a6d6-446f-b9de-1fd51dc24cf1\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChMFJv4cXjyi3YxtyacS9\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"<signature>\"}],\"container\":null,\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":38738,\"cache_read_input_tokens\":28971,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":38738},\"output_tokens\":8,\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"thinkingDurationMs\":485,\"thinkingDisplay\":\"updates\",\"serverClassifierRequest\":\"cdc2f308-6def-41a0-8c4d-9ac263360111\",\"apiBlockIndex\":0,\"requestId\":\"req_011ChMFJugJ5RwVQpBQrwqKf\",\"requestRef\":\"eceec728-5a1d-4438-9edd-f69adc0014f9\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"160b48b7-bba5-4437-84f5-4637fca18a05\",\"timestamp\":\"2026-11-24T06:03:53.210Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 6281,
-      "line": "{\"parentUuid\":\"4dd1c499-0a14-48c3-8401-e5d8d16a17eb\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3VXSjQXRnRanWhLiQ\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01Ec2ZCRbVuGU9UqdtC8NU1v\",\"name\":\"Bash\",\"input\":{\"command\":\"sleep 60\",\"description\":\"Wait 60 seconds\"},\"caller\":{\"type\":\"direct\"}}],\"container\":null,\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":38730,\"cache_read_input_tokens\":28971,\"output_tokens\":169,\"output_tokens_details\":{\"thinking_tokens\":88},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":38730,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":169,\"cache_read_input_tokens\":28971,\"cache_creation_input_tokens\":38730,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":38730},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"toolInputStreamMs\":408,\"wireToolInputs\":{\"toolu_01Ec2ZCRbVuGU9UqdtC8NU1v\":{\"command\":\"sleep 60\",\"description\":\"Wait 60 seconds\"}},\"serverClassifierRequest\":\"3585e1fb-6e89-4fa1-a6a2-a699bb639c97\",\"apiBlockIndex\":1,\"requestId\":\"req_011ChME3UThNPgesR5CnUz7p\",\"requestRef\":\"d7dd28cf-af6c-4f14-bba1-52b544032649\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"0546b7cf-d6f1-4cb5-9486-07061cbf8c6b\",\"timestamp\":\"2026-11-24T05:47:17.868Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+      "at": 7905,
+      "line": "{\"parentUuid\":\"160b48b7-bba5-4437-84f5-4637fca18a05\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChMFJv4cXjyi3YxtyacS9\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n11\\n12\\n13\\n14\\n15\\n16\\n17\\n18\\n19\\n20\\n21\\n22\\n23\\n24\\n25\\n26\\n27\\n28\\n29\\n30\\n31\\n32\\n33\\n34\\n35\\n36\\n37\\n38\\n39\\n40\\n41\\n42\\n43\\n44\\n45\\n46\\n47\\n48\\n49\\n50\\n51\\n52\\n53\\n54\\n55\\n56\\n57\\n58\\n59\\n60\\n61\\n62\\n63\\n64\\n65\\n66\\n67\\n68\\n69\\n70\\n71\\n72\\n73\\n74\\n75\\n76\\n77\\n78\\n79\\n80\\n81\\n82\\n83\\n84\\n85\\n86\\n87\\n88\\n89\\n90\\n91\\n92\\n93\\n94\\n95\\n96\\n97\\n98\\n99\\n100\\n101\\n102\\n103\\n104\\n105\\n106\\n107\\n108\\n109\\n110\\n111\\n112\\n113\\n114\\n115\\n116\\n117\\n118\\n119\\n120\\n121\\n122\\n123\\n124\\n125\\n126\\n127\\n128\\n129\\n130\"}],\"container\":null,\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":38738,\"cache_read_input_tokens\":28971,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":38738},\"output_tokens\":8,\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"apiBlockIndex\":1,\"requestId\":\"req_011ChMFJugJ5RwVQpBQrwqKf\",\"requestRef\":\"eceec728-5a1d-4438-9edd-f69adc0014f9\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"fde9a3ec-4ab0-4a0c-9922-853231cd477d\",\"timestamp\":\"2026-11-24T06:03:54.850Z\",\"isAbortedMidStream\":true,\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 6281,
-      "line": "{\"parentUuid\":\"0546b7cf-d6f1-4cb5-9486-07061cbf8c6b\",\"isSidechain\":false,\"promptId\":\"e75acd2a-8c05-47f5-9dc8-4b7f4bcda9de\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"<tool_use_error>Blocked: standalone sleep 60. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.</tool_use_error>\",\"is_error\":true,\"tool_use_id\":\"toolu_01Ec2ZCRbVuGU9UqdtC8NU1v\"}]},\"uuid\":\"b45eeb84-facf-48d9-89b5-aaa0d3411c87\",\"timestamp\":\"2026-11-24T05:47:17.872Z\",\"toolUseResult\":\"Error: Blocked: standalone sleep 60. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.\",\"sourceToolAssistantUUID\":\"0546b7cf-d6f1-4cb5-9486-07061cbf8c6b\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+      "at": 7905,
+      "line": "{\"parentUuid\":\"fde9a3ec-4ab0-4a0c-9922-853231cd477d\",\"isSidechain\":false,\"promptId\":\"62ed6d63-4160-46cf-aa72-ef8e26467d8a\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Request interrupted by user]\"}]},\"rowSource\":\"harness\",\"uuid\":\"9d5fcb8f-3e6a-46f1-b939-0e4b3ecdfd34\",\"timestamp\":\"2026-11-24T06:03:54.855Z\",\"interruptedMessageId\":\"msg_011ChMFJv4cXjyi3YxtyacS9\",\"session_id\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 6281,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"prompt_snapshot\"},\"isSidechain\":false,\"redactedCharacters\":137657}"
+      "at": 10725,
+      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"856e0599-2fb0-4f5e-a1f7-6fed7f7cad58\",\"snapshot\":{\"messageId\":\"856e0599-2fb0-4f5e-a1f7-6fed7f7cad58\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T06:03:57.695Z\"},\"isSnapshotUpdate\":false}"
     },
     {
-      "at": 6281,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":3948}"
+      "at": 10725,
+      "line": "{\"parentUuid\":\"9d5fcb8f-3e6a-46f1-b939-0e4b3ecdfd34\",\"isSidechain\":false,\"promptId\":\"dd941f04-86b1-4a82-8c9e-353bc90e8f5f\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Run exactly this one command with the Bash tool, in the foreground, and do nothing else, with no explanation first: ping -c 60 127.0.0.1\"},\"uuid\":\"856e0599-2fb0-4f5e-a1f7-6fed7f7cad58\",\"timestamp\":\"2026-11-24T06:03:57.636Z\",\"permissionMode\":\"auto\",\"origin\":{\"kind\":\"human\"},\"promptSource\":\"typed\",\"turnOrigin\":\"human\",\"turnPromptId\":\"dd941f04-86b1-4a82-8c9e-353bc90e8f5f\",\"turnPosition\":{\"promptIndex\":2,\"turnIndex\":2},\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 6281,
+      "at": 10725,
+      "line": "{\"type\":\"api-request-blob\",\"redactedCharacters\":409}"
+    },
+    {
+      "at": 10725,
       "line": "{\"type\":\"api-request\",\"redactedCharacters\":1655}"
     },
     {
-      "at": 6281,
-      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\",\"leafUuid\":\"de1b9830-fed9-4ef3-90af-083f2ff104ee\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 14085,
+      "line": "{\"type\":\"tools-used\",\"tools\":[\"Bash\"],\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 6281,
-      "line": "{\"type\":\"ai-title\",\"aiTitle\":\"Sleep 60 command\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
-    },
-    {
-      "at": 6281,
-      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
-    },
-    {
-      "at": 6281,
-      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
-    },
-    {
-      "at": 6281,
-      "line": "{\"type\":\"session-owner\",\"redactedCharacters\":186}"
-    },
-    {
-      "at": 6281,
-      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
-    },
-    {
-      "at": 8776,
+      "at": 14085,
       "line": "{\"type\":\"data-flow-records\",\"redactedCharacters\":186}"
     },
     {
-      "at": 8776,
-      "line": "{\"parentUuid\":\"de1b9830-fed9-4ef3-90af-083f2ff104ee\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3eGog6M3YWqhCrg8s\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"<signature>\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":284,\"cache_read_input_tokens\":67701,\"output_tokens\":166,\"output_tokens_details\":{\"thinking_tokens\":15},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":284,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":166,\"cache_read_input_tokens\":67701,\"cache_creation_input_tokens\":284,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":284},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"thinkingDurationMs\":1567,\"thinkingDisplay\":\"updates\",\"serverClassifierRequest\":\"7effcd42-d020-472c-8b12-70d61090db1b\",\"apiBlockIndex\":0,\"requestId\":\"req_011ChME3e5uDqycmY4c2dE5k\",\"requestRef\":\"5901406d-8b3f-4c66-a1e9-579ab82f609a\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"78871ca9-1852-4bcf-8cfc-6f71f65115b4\",\"timestamp\":\"2026-11-24T05:47:20.464Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+      "at": 14085,
+      "line": "{\"parentUuid\":\"856e0599-2fb0-4f5e-a1f7-6fed7f7cad58\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChMFKLL7TLPNY9B8aJT5h\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01B48bMnxt1rsGpVMNZ4srAR\",\"name\":\"Bash\",\"input\":{\"command\":\"ping -c 60 127.0.0.1\",\"description\":\"Ping localhost 60 times\"},\"caller\":{\"type\":\"direct\"}}],\"container\":null,\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":4,\"cache_creation_input_tokens\":388,\"cache_read_input_tokens\":67709,\"output_tokens\":90,\"output_tokens_details\":{\"thinking_tokens\":0},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":388,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":4,\"output_tokens\":90,\"cache_read_input_tokens\":67709,\"cache_creation_input_tokens\":388,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":388},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"toolInputStreamMs\":485,\"wireToolInputs\":{\"toolu_01B48bMnxt1rsGpVMNZ4srAR\":{\"command\":\"ping -c 60 127.0.0.1\",\"description\":\"Ping localhost 60 times\"}},\"serverClassifierRequest\":\"29f4a100-dd27-4a49-890a-8ecf0bef45f9\",\"apiBlockIndex\":0,\"requestId\":\"req_011ChMFKL4jqE4kxUReFdENb\",\"requestRef\":\"75d99ec1-f8f9-4469-939d-21857a043951\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"d94ecaa5-032b-4991-8d38-6dc0eb6e5759\",\"timestamp\":\"2026-11-24T06:03:58.907Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 8776,
-      "line": "{\"parentUuid\":\"78871ca9-1852-4bcf-8cfc-6f71f65115b4\",\"isSidechain\":false,\"message\":{\"model\":\"claude-opus-5-5\",\"id\":\"msg_011ChME3eGog6M3YWqhCrg8s\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"하네스가 `sleep 60`을 막아서 명령이 실행되지 않았습니다. 이 환경은 foreground에서 단독으로 `sleep`을 실행하는 것을 막습니다.\\n\\n명령 하나만 실행하라고 하셨기 때문에 우회하지 않았습니다. 그냥 60초를 기다리려면 셸에서 직접 `! sleep 60`을 입력하시면 됩니다.\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":284,\"cache_read_input_tokens\":67701,\"output_tokens\":166,\"output_tokens_details\":{\"thinking_tokens\":15},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":284,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"global\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":166,\"cache_read_input_tokens\":67701,\"cache_creation_input_tokens\":284,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":284},\"type\":\"message\"}],\"speed\":\"standard\",\"fallback_credit\":null},\"input_transformations\":[],\"diagnostics\":null,\"context_management\":null},\"serverClassifierRequest\":\"7effcd42-d020-472c-8b12-70d61090db1b\",\"apiBlockIndex\":1,\"requestId\":\"req_011ChME3e5uDqycmY4c2dE5k\",\"requestRef\":\"5901406d-8b3f-4c66-a1e9-579ab82f609a\",\"requestedModel\":\"claude-opus-5-5\",\"promptCacheRequested\":\"1h\",\"type\":\"assistant\",\"uuid\":\"af304bf4-6861-49bc-bf2e-6d301dbcb710\",\"timestamp\":\"2026-11-24T05:47:20.466Z\",\"advisorModel\":\"claude-opus-5-5\",\"effort\":\"high\",\"perTurnEffort\":\"high\",\"madeBy\":\"model\",\"session_id\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+      "at": 14085,
+      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"856e0599-2fb0-4f5e-a1f7-6fed7f7cad58\",\"snapshot\":{\"messageId\":\"856e0599-2fb0-4f5e-a1f7-6fed7f7cad58\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T06:03:57.695Z\",\"hasUntrackedChanges\":true},\"isSnapshotUpdate\":false}"
     },
     {
-      "at": 8776,
-      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"hook_success\"},\"isSidechain\":false,\"redactedCharacters\":3898}"
+      "at": 14085,
+      "line": "{\"parentUuid\":\"d94ecaa5-032b-4991-8d38-6dc0eb6e5759\",\"isSidechain\":false,\"promptId\":\"dd941f04-86b1-4a82-8c9e-353bc90e8f5f\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":\"The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.\",\"is_error\":true,\"tool_use_id\":\"toolu_01B48bMnxt1rsGpVMNZ4srAR\"}]},\"uuid\":\"669ff95e-b163-401f-a469-6e73ce1c699e\",\"timestamp\":\"2026-11-24T06:04:01.047Z\",\"toolUseResult\":\"User rejected tool use\",\"serverClassifierContext\":{\"request\":\"29f4a100-dd27-4a49-890a-8ecf0bef45f9\",\"context\":{\"git_state\":{\"cwd\":\"<cwd>\",\"root\":null,\"branch\":null,\"default_branch\":null,\"status\":null,\"visibility\":{\"origin\":null,\"push_remote\":null,\"remotes\":[],\"visibility_cache\":[]},\"error\":\"not_a_repo\"},\"live_cwd\":\"<cwd>\",\"platform\":\"macos\"}},\"toolDenialKind\":\"user-rejected\",\"sourceToolAssistantUUID\":\"d94ecaa5-032b-4991-8d38-6dc0eb6e5759\",\"session_id\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 8776,
-      "line": "{\"type\":\"system\",\"subtype\":\"stop_hook_summary\",\"isSidechain\":false,\"redactedCharacters\":4606}"
+      "at": 14085,
+      "line": "{\"type\":\"attachment\",\"attachment\":{\"type\":\"prompt_snapshot\"},\"isSidechain\":false,\"redactedCharacters\":137661}"
     },
     {
-      "at": 8776,
-      "line": "{\"parentUuid\":\"c8288a65-bb91-4462-96bd-1ab2ca939c86\",\"isSidechain\":false,\"type\":\"system\",\"subtype\":\"turn_duration\",\"durationMs\":4831,\"messageCount\":27,\"timestamp\":\"2026-11-24T05:47:20.525Z\",\"uuid\":\"748f7bbb-688d-4992-83a9-6c9e33d892c8\",\"isMeta\":false,\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
+      "at": 14085,
+      "line": "{\"parentUuid\":\"9a1481e7-f9d5-4b4b-b82c-618f78ccfeed\",\"isSidechain\":false,\"promptId\":\"dd941f04-86b1-4a82-8c9e-353bc90e8f5f\",\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Request interrupted by user for tool use]\"}]},\"rowSource\":\"harness\",\"uuid\":\"82a9e833-ac05-4f72-a707-a3dd0b17b1fc\",\"timestamp\":\"2026-11-24T06:04:01.049Z\",\"interruptedMessageId\":\"msg_011ChMFKLL7TLPNY9B8aJT5h\",\"session_id\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"userType\":\"external\",\"entrypoint\":\"cli\",\"cwd\":\"<cwd>\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\",\"version\":\"2.1.331\",\"gitBranch\":\"HEAD\",\"dataFlowOn\":true}"
     },
     {
-      "at": 124847,
-      "line": "{\"type\":\"cost-state\",\"redactedCharacters\":832}"
+      "at": 14085,
+      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Run exactly this one command with the Bash tool, in the foreground, and do nothing else, with no explanation first: ping -c 60 127.0.0.1\",\"leafUuid\":\"82a9e833-ac05-4f72-a707-a3dd0b17b1fc\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 124847,
-      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"5d40014a-61bb-4d89-8d53-a34c3bdd2427\",\"snapshot\":{\"messageId\":\"5d40014a-61bb-4d89-8d53-a34c3bdd2427\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T05:49:16.637Z\"},\"isSnapshotUpdate\":false}"
+      "at": 14085,
+      "line": "{\"type\":\"ai-title\",\"aiTitle\":\"Counting from 1 to 300\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 124847,
-      "line": "{\"type\":\"last-prompt\",\"lastPrompt\":\"Run exactly this one Bash command and nothing else, with no explanation first: sleep 60\",\"leafUuid\":\"748f7bbb-688d-4992-83a9-6c9e33d892c8\",\"sessionId\":\"37159679-3b26-43ed-ab72-611af6aad599\"}"
+      "at": 14085,
+      "line": "{\"type\":\"mode\",\"mode\":\"normal\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
     },
     {
-      "at": 124847,
-      "line": "{\"type\":\"cost-state\",\"redactedCharacters\":832}"
+      "at": 14085,
+      "line": "{\"type\":\"permission-mode\",\"permissionMode\":\"auto\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
+    },
+    {
+      "at": 14085,
+      "line": "{\"type\":\"session-owner\",\"redactedCharacters\":186}"
+    },
+    {
+      "at": 14085,
+      "line": "{\"type\":\"atis-latch\",\"atis\":\"\",\"sessionId\":\"a99099b6-accd-47d0-853b-547820b31e6d\"}"
+    },
+    {
+      "at": 89808,
+      "line": "{\"type\":\"cost-state\",\"redactedCharacters\":844}"
+    },
+    {
+      "at": 89808,
+      "line": "{\"type\":\"file-history-snapshot\",\"messageId\":\"419ebfc6-d161-49f7-963b-8e65699a6819\",\"snapshot\":{\"messageId\":\"419ebfc6-d161-49f7-963b-8e65699a6819\",\"trackedFileBackups\":{},\"timestamp\":\"2026-11-24T06:05:16.863Z\"},\"isSnapshotUpdate\":false}"
+    },
+    {
+      "at": 89808,
+      "line": "{\"type\":\"data-flow-records\",\"redactedCharacters\":183}"
+    },
+    {
+      "at": 89808,
+      "line": "{\"type\":\"cost-state\",\"redactedCharacters\":844}"
     }
   ]
 }
