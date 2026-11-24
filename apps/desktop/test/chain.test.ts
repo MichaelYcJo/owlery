@@ -1406,11 +1406,11 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const paneIs = (state: string) => c.until(() => (c.messages.some((m) => m.type === "inbox" && m.sessions.some((each) => each.id === session.id && each.state === state)) ? true : undefined));
       d.agentEvent(session.id, "UserPromptSubmit", {});
       await paneIs("working");
-      await refusedWith(stood, a.id, `A session of work item ${String(a.id)} is working, and a round reads a tree nothing is changing. Get a seal once the session has finished.`, stands(a.worktree), 2);
+      await refusedWith(stood, a.id, `A session of work item ${String(a.id)} is working, and a round reads a tree nothing is changing. Its chain can start once the session has finished.`, stands(a.worktree));
       // The person presses Esc during the pane's Bash call, and the pane's process stays.
       await interruptToolCall(d, session.id, sessionLog(cleanups));
       await paneIs("waiting");
-      expect(await c.getSeal(a.id, 3)).toBe("done");
+      expect(await c.startChain(a.id)).toBe("done");
     });
 
     it("refuses a worktree that is not on the work item's branch, and one with a merge under way", async () => {
