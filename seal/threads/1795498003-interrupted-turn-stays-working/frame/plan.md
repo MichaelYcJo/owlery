@@ -54,7 +54,7 @@ The reply's interruption comes first because it needs no tool call, so the sessi
 
 ## Phases
 
-Each phase ends with its cases passing through the narrow run of the files it names. The broad gate is the orchestrator's.
+Each phase ends with its cases passing through the narrow run of the files it names, or of the cases it touches where the spawn narrows the run. The broad gate is the orchestrator's.
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|

@@ -55,7 +55,7 @@ In scope, each item numbered for `frame/plan.md`:
 
 Out of scope:
 
-- **A turn that ends in an API error.** The reference says such a turn fires `StopFailure` and no `Stop`, and `HOOK_EVENTS` does not list `StopFailure`, so that session also stays `working`. It is the same class of defect with another source: a hook to add, not a log to read, and a session of this run cannot provoke an API error to record. The orchestrator opens an issue for it.
+- **A turn that ends in an API error.** The reference says such a turn fires `StopFailure` and no `Stop`, and `HOOK_EVENTS` does not list `StopFailure`, so that session also stays `working`. It is the same class of defect with another source: a hook to add, not a log to read, and a session of this run cannot provoke an API error to record. Its issue is #188.
 - **A headless session's interruption.** A role session reports through its stream, and the daemon ends it itself (`daemon.ts#stopHeadless`).
 - **A CLI other than Claude Code.** `docs/architecture.md` *The phone: the terminal session as a chat* leaves Codex CLI's state to milestone 4.
 - **The window.** No word, mark or layout changes: an interrupted session is drawn as every waiting session is.
@@ -63,7 +63,7 @@ Out of scope:
 
 ## User scenarios & acceptance *(mandatory)*
 
-Every case below feeds the daemon the fixture's recorded events through `Daemon#agentEvent` and appends the fixture's recorded log lines to a temporary file that the events' `transcript_path` is rewritten to name. No case starts `claude`.
+Every daemon case below feeds the daemon events through `Daemon#agentEvent`, the fixture's recorded ones or events the case writes, and appends log lines to a temporary file that the events' `transcript_path` is rewritten to name; the cases of one log line's reading, of the state's rule and of the watch alone (`agent-events.test.ts`, `agent-state.test.ts`, `session-log.test.ts`) feed no daemon. No case starts `claude`.
 
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
@@ -81,7 +81,8 @@ Every case below feeds the daemon the fixture's recorded events through `Daemon#
 - `apps/desktop/src/shared/protocol.ts#AgentEvent` gains `"interrupted"`. `AgentState` and `SessionInfo` keep their fields. An `agent` message that carries `interrupted` has no tool.
 - `apps/desktop/src/daemon/agent-state.ts#agentStateAfter` gives `waiting` for `interrupted`, and is told whether the session's state began at an interruption, so that it can leave a `tool-end` and a `tool-failed` without effect there (*Scope* item 5). Its comment no longer says "from its last event alone".
 - `apps/desktop/src/daemon/agent-events.ts` gains the reading of one log line (*Scope* item 3), beside the other facts of Claude Code that file holds.
-- `apps/desktop/src/daemon/session-log.ts` (new): the watch of one session's log, which waits for the file where it does not stand yet, reads only appended bytes and passes each complete line to the reading of *Scope* item 3.
+- `apps/desktop/src/daemon/session-log.ts` (new): the watch of one session's log, which waits for the file where it does not stand yet, reads only appended bytes and passes each complete line up to `LINE_BYTES` (16 KB) to the reading of *Scope* item 3; a longer line is skipped.
+- `apps/desktop/test/interrupted-turn.ts` (new): the cases' play of the recording, shared by `daemon.test.ts` and `chain.test.ts`.
 - `apps/desktop/src/daemon/daemon.ts`: `Session` holds the watch of its log, and `agentEvent` reads `transcript_path` from the payload as a path to read and nothing else. The daemon sends no client the path and no line of the log.
 - `apps/desktop/src/daemon/hooks.ts#HOOK_EVENTS` is unchanged: the pane's `claude` is given the same hooks.
 - The fixture, `apps/desktop/test/fixtures/claude-interrupted-turn.json`: `claudeCode` (the version), `recordedAt`, `steps` (an array of sentences), `events` (each `at`, `name`, `payload`) and `log` (each `at`, `line`).
