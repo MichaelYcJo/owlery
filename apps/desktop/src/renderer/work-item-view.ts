@@ -214,12 +214,12 @@ function showAccountMenus(workItem: WorkItem): void {
 }
 
 /** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
-function look(property: string): string {
+export function look(property: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(property).trim();
 }
 
 /** The colours a terminal draws its own text and ground in, as the theme in use has them. */
-function terminalColours(): { background: string; foreground: string; cursor: string } {
+export function terminalColours(): { background: string; foreground: string; cursor: string } {
   return { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") };
 }
 

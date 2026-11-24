@@ -24,6 +24,7 @@ import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
+import { askedSignIn, closeSignIn, showSignIn, SIGN_IN_SIZE, signInRefused, takeSignInStarted, writeSignIn } from "./sign-in-pane";
 import { initTheme } from "./theme";
 import {
   agentKind,
@@ -76,6 +77,7 @@ import {
   settingsChain,
   settingsFields,
   accountChoices,
+  accountRemoval,
   accountRows,
   heldAccounts,
   offersAccounts,
@@ -801,24 +803,30 @@ const accountsAsked = new Set<number>();
 // The account whose row shows the field that renames it, while one does.
 let renamingAccount: number | undefined;
 
-/** Sends a request of the Accounts dialog. */
-function askAccounts(message: (requestId: number) => ClientMessage): void {
+// The account whose row asks whether to remove it, while one does.
+let removingAccount: number | undefined;
+
+/** Sends a request of the Accounts dialog, and answers with its id. */
+function askAccounts(message: (requestId: number) => ClientMessage): number {
   const requestId = request();
   accountsAsked.add(requestId);
   accountsError.textContent = "";
   send(message(requestId));
+  return requestId;
 }
 
-/** Takes the daemon's answer to a request of the Accounts dialog: `done` empties the name typed to add an account and closes a row's rename field, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
+/** Takes the daemon's answer to a request of the Accounts dialog: `done` empties the name typed to add an account and closes a row's rename field and its question of a removal, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
 function takeAccountsAnswer(requestId: number, refusal: string | null): boolean {
   if (!accountsAsked.delete(requestId)) return false;
   if (refusal !== null) {
+    signInRefused(requestId);
     accountsError.textContent = refusal;
     return true;
   }
   accountsError.textContent = "";
   accountsName.value = "";
   renamingAccount = undefined;
+  removingAccount = undefined;
   // The `accounts` that carries a change draws the list again, and a request that changed nothing sends none.
   if (accountsDialog.open) showAccounts();
   return true;
@@ -833,16 +841,26 @@ function showAccountsEntry(): void {
 function openAccounts(): void {
   if (held.accounts === null || dialogOpen()) return;
   renamingAccount = undefined;
+  removingAccount = undefined;
   accountsName.value = "";
   accountsError.textContent = "";
   showAccounts();
   accountsDialog.showModal();
 }
 
-/** Draws the Accounts dialog's rows: each account's name, with its folder under it, the default said in words or the button that makes it the default, and the button that renames it, or, while it is renamed, the field and its two buttons. */
+/**
+ * Draws the Accounts dialog's rows: each account's name, with its folder and
+ * its sign-in under it, the default said in words or the button that makes
+ * it the default, the buttons that sign it in and read its sign-in again,
+ * and the buttons that rename and remove it; while it is renamed, the field
+ * and its two buttons; and while its removal is asked, what the removal does
+ * and clears, and its two buttons. The sign-in pane the dialog draws is
+ * shown under the list.
+ */
 function showAccounts(): void {
+  showSignIn();
   byId("accounts-list").replaceChildren(
-    ...accountRows(held.accounts).map((row) => {
+    ...accountRows(held.accounts, Date.now()).map((row) => {
       const item = document.createElement("li");
       item.dataset.account = String(row.id);
       const button = (text: string, act: () => void): HTMLButtonElement => {
@@ -880,6 +898,30 @@ function showAccounts(): void {
         queueMicrotask(() => field.select());
         return item;
       }
+      const removal = removingAccount === row.id && held.accounts !== null ? accountRemoval(held.accounts, row.id, held.repositories, held.workItems, held.archived) : null;
+      if (removal !== null) {
+        const asks = document.createElement("span");
+        asks.className = "account-name";
+        const says = document.createElement("span");
+        says.textContent = removal.says;
+        asks.append(says);
+        for (const line of removal.cleared) {
+          const cleared = document.createElement("span");
+          cleared.className = "account-folder";
+          cleared.textContent = line;
+          asks.append(cleared);
+        }
+        const id = row.id;
+        acts.append(
+          button("Cancel", () => {
+            removingAccount = undefined;
+            showAccounts();
+          }),
+          button("Remove the account", () => askAccounts((requestId) => ({ type: "removeAccount", requestId, id }))),
+        );
+        item.append(asks, acts);
+        return item;
+      }
       const named = document.createElement("span");
       named.className = "account-name";
       const name = document.createElement("span");
@@ -888,6 +930,12 @@ function showAccounts(): void {
       folder.className = "account-folder";
       folder.textContent = row.folder;
       named.append(name, folder);
+      if (row.signIn !== null) {
+        const signIn = document.createElement("span");
+        signIn.className = "account-sign-in";
+        signIn.textContent = row.signIn;
+        named.append(signIn);
+      }
       if (row.isDefault) {
         const said = document.createElement("span");
         said.className = "is-default";
@@ -897,10 +945,23 @@ function showAccounts(): void {
         const id = row.id;
         acts.append(button("Make the default", () => askAccounts((requestId) => ({ type: "setDefaultAccount", requestId, id }))));
       }
+      if (row.offersSignIn) {
+        const id = row.id;
+        acts.append(
+          button("Sign in", () => askedSignIn(askAccounts((requestId) => ({ type: "signIn", requestId, id, ...SIGN_IN_SIZE })), id)),
+          button("Check sign-in", () => askAccounts((requestId) => ({ type: "readSignIn", requestId, id }))),
+        );
+      }
       if (!row.fixed)
         acts.append(
           button("Rename", () => {
             renamingAccount = row.id;
+            removingAccount = undefined;
+            showAccounts();
+          }),
+          button("Remove…", () => {
+            removingAccount = row.id;
+            renamingAccount = undefined;
             showAccounts();
           }),
         );
@@ -908,6 +969,12 @@ function showAccounts(): void {
       return item;
     }),
   );
+}
+
+/** Adds an account whose folder the daemon makes, under the name typed. The person signs it in from its row. */
+function addMadeAccount(): void {
+  const name = accountsName.value;
+  askAccounts((requestId) => ({ type: "addAccount", requestId, name }));
 }
 
 /** Adds the account a person hands over: the folder chosen in the system's dialog, under the name typed. A dialog that chose no folder adds nothing. */
@@ -1696,6 +1763,8 @@ function onMessage(message: ServerMessage): void {
     }
     case "inbox":
       takeLists(message);
+      // The sign-in pane ended or was closed elsewhere.
+      if (accountsDialog.open) showSignIn();
       return;
     case "accounts":
       // An account was added, renamed or made the default, here or in another client: every name drawn of one is drawn again.
@@ -1721,6 +1790,12 @@ function onMessage(message: ServerMessage): void {
       return;
     case "started":
       tell("");
+      // A sign-in pane is drawn in the Accounts dialog, which keeps receiving its output.
+      if (accountsAsked.delete(message.requestId)) {
+        takeStarted(message.session);
+        takeSignInStarted(message.requestId, message.session.id);
+        return;
+      }
       takeStarted(message.session);
       detachUnshown(message.session.id);
       return;
@@ -1853,6 +1928,7 @@ function onMessage(message: ServerMessage): void {
     case "replay":
     case "output":
       write(message.id, message.type, message.data);
+      if (message.type === "output") writeSignIn(message.id, message.data);
       return;
     case "exit":
       // The window draws nothing for it: the session's output ends with the exit line, and the `inbox` that follows lists the pane as ended.
@@ -2033,8 +2109,10 @@ accountsButton.addEventListener("click", openAccounts);
 byId("accounts-close").addEventListener("click", () => accountsDialog.close());
 byId<HTMLFormElement>("accounts-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  addAccount();
+  addMadeAccount();
 });
+byId("accounts-folder").addEventListener("click", addAccount);
+byId("accounts-sign-in-close").addEventListener("click", closeSignIn);
 window.owlery.onAccountsMenu(openAccounts);
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());
 byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {

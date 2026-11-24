@@ -312,11 +312,15 @@
       .line .account, #tabs .tab .account { flex: none; max-width: var(--tab-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
       #tabs .tab .account { align-self: center; padding-right: var(--space-2); }
       .line.selected .account { color: var(--ink-muted); }
-      /* A row of the Accounts dialog: the name with its folder under it, the default said in words, and the row's buttons. */
+      /* A row of the Accounts dialog: the name with its folder and its sign-in under it, the default said in words, and the row's buttons. */
       #accounts-list li .account-name { display: flex; flex-direction: column; min-width: 0; }
       #accounts-list li .account-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
       #accounts-list li .account-acts { flex: none; display: flex; align-items: center; gap: var(--space-2); }
       #accounts-list li .is-default { color: var(--ink-muted); }
+      #accounts-list li .account-sign-in { font-size: var(--size-caption); color: var(--ink-muted); }
+      /* The sign-in pane takes the width of eighty columns, so the dialog that holds it is wider than the others. */
+      #accounts-dialog { width: min(760px, 92vw); }
+      #accounts-terminal { padding: var(--space-3); border-radius: var(--radius-card); background: var(--terminal-ground); overflow: hidden; }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
@@ -934,16 +938,26 @@
       <h2 class="head">Accounts</h2>
       <p class="says">Each account is a Claude Code config folder with a login of its own. A session runs under the account its own setting names, else its work item's, else its repository's, else the default.</p>
       <ul id="accounts-list" class="named whole"></ul>
+      <!-- Hidden until this window starts a sign-in, and again once its pane is closed. -->
+      <section id="accounts-sign-in" hidden>
+        <h3 id="accounts-sign-in-head" class="caption"></h3>
+        <p class="says">Claude Code signs the account in through your browser. Owlery sees no password and keeps no key.</p>
+        <div id="accounts-terminal"></div>
+        <div class="row end">
+          <button type="button" id="accounts-sign-in-close" class="quiet">Close the sign-in</button>
+        </div>
+      </section>
       <form id="accounts-form">
         <h3 class="caption">Add an account</h3>
         <label>
           Name
           <span class="row"><input id="accounts-name" autocomplete="off" /></span>
         </label>
-        <p class="says">Choose a config folder that holds a login of yours. Owlery makes nothing in it and never removes it.</p>
+        <p class="says">Owlery makes a folder for the account that shares your skills, plugins, settings and conversations, and you sign it in. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
         <p id="accounts-error" class="refusal" role="alert"></p>
         <div class="row end">
-          <button type="submit" id="accounts-folder" class="quiet">Use an existing folder…</button>
+          <button type="button" id="accounts-folder" class="quiet">Use an existing folder…</button>
+          <button type="submit" id="accounts-add" class="quiet">Add an account</button>
           <button type="button" id="accounts-close" class="primary">Done</button>
         </div>
       </form>

@@ -2833,19 +2833,65 @@ export function tabAccount(session: SessionInfo, workItem: WorkItem, repository:
   return session.accountId === given ? "" : accountName(held, session.accountId);
 }
 
-/** One row of the Accounts dialog: the account's id and name, its folder in words, whether it is the default, and whether it keeps its name, as System default does. */
+/**
+ * One row of the Accounts dialog: the account's id and name, its folder in
+ * words, whether it is the default, whether it keeps its name and is never
+ * removed, as System default does, its sign-in in words, and whether it
+ * offers "Sign in", as an account with a folder does. System default's
+ * sign-in is the person's own terminal's, so its row says nothing of it.
+ */
 export interface AccountRow {
   id: number;
   name: string;
   folder: string;
   isDefault: boolean;
   fixed: boolean;
+  signIn: string | null;
+  offersSignIn: boolean;
 }
 
-/** The rows of the Accounts dialog, in the daemon's order, System default first. */
-export function accountRows(held: HeldAccounts | null): AccountRow[] {
+/** An account's sign-in in words, as the agent last gave it, `now` being the window's clock: whether a login stands, and the time until it ends where the agent named an end. Once that time is past the login may have ended, which the agent says when asked again. */
+function signInWords(account: Account, now: number): string | null {
+  if (account.folder === null) return null;
+  if (account.signedIn === null) return "Sign-in not read yet";
+  if (!account.signedIn) return "Not signed in";
+  if (account.loginEndsAt === null) return "Signed in";
+  return account.loginEndsAt > now ? `Signed in, the login ends in ${ageOf(now, account.loginEndsAt)}` : "Signed in, the login may have ended";
+}
+
+/** The rows of the Accounts dialog, in the daemon's order, System default first, `now` being the window's clock. */
+export function accountRows(held: HeldAccounts | null, now: number): AccountRow[] {
   if (held === null) return [];
-  return held.accounts.map((account) => ({ id: account.id, name: account.name, folder: account.folder ?? "The folder your login shell gives Claude Code", isDefault: account.id === held.defaultId, fixed: account.id === SYSTEM_DEFAULT_ID }));
+  return held.accounts.map((account) => ({
+    id: account.id,
+    name: account.name,
+    folder: account.folder ?? "The folder your login shell gives Claude Code",
+    isDefault: account.id === held.defaultId,
+    fixed: account.id === SYSTEM_DEFAULT_ID,
+    signIn: signInWords(account, now),
+    offersSignIn: account.folder !== null,
+  }));
+}
+
+/**
+ * What the Accounts dialog says before a removal of the account `id`: what
+ * becomes of its folder, and each setting the removal clears, so the nearest
+ * setting above takes over: a default that named it, each repository's, and
+ * each work item's, the archived among them. Null for System default, which
+ * is never removed, and for an id the window holds no account of.
+ */
+export function accountRemoval(held: HeldAccounts, id: number, repositories: readonly Repository[], workItems: readonly WorkItem[], archived: readonly WorkItem[]): { says: string; cleared: string[] } | null {
+  const account = held.accounts.find((kept) => kept.id === id);
+  if (account === undefined || account.folder === null) return null;
+  const says = account.made ? `Remove "${account.name}"? Owlery signs its folder out with Claude Code and removes the folder.` : `Remove "${account.name}"? Its folder stays as it is: ${account.folder}`;
+  return {
+    says,
+    cleared: [
+      ...(held.defaultId === id ? ["The default goes back to System default."] : []),
+      ...repositories.filter((repository) => repository.accountId === id).map((repository) => `The repository ${repository.name} goes back to the default.`),
+      ...[...workItems, ...archived].filter((workItem) => workItem.accountId === id).map((workItem) => `The work item "${workItem.title}" goes back to its repository's account.`),
+    ],
+  };
 }
 
 /** The choices of a menu of accounts: a first one, of the value "", that leaves the account to the setting above, named `first` with the account `gives` it gives, then each account by its id, in the daemon's order. */

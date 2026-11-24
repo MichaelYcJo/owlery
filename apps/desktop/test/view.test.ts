@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accountChoices,
   accountName,
+  accountRemoval,
   accountRows,
   heldAccounts,
   lineAccount,
@@ -4161,9 +4162,9 @@ describe("viewFacts", () => {
 });
 
 describe("accounts in the window", () => {
-  const SYSTEM = { id: 0, name: "System default", made: false, folder: null };
-  const WORK = { id: 1, name: "Work", made: false, folder: "/Users/person/.claude-work" };
-  const HOME = { id: 2, name: "Home", made: false, folder: "/Users/person/.claude-home" };
+  const SYSTEM = { id: 0, name: "System default", made: false, folder: null, signedIn: null, loginEndsAt: null };
+  const WORK = { id: 1, name: "Work", made: false, folder: "/Users/person/.claude-work", signedIn: null, loginEndsAt: null };
+  const HOME = { id: 2, name: "Home", made: false, folder: "/Users/person/.claude-home", signedIn: null, loginEndsAt: null };
   const HELD = { accounts: [SYSTEM, WORK, HOME], defaultId: 0 };
 
   it("holds the accounts and the default a daemon sends, and none against a daemon of an earlier build, which sends neither, so the window shows no account control and no account name (scenario 14)", () => {
@@ -4173,7 +4174,7 @@ describe("accounts in the window", () => {
     expect(lineAccount({ ...LOGIN, accountId: 1 }, PROJECT, [], [], null)).toBe("");
     expect(viewAccount(LOGIN, PROJECT, null)).toBe("");
     expect(tabAccount(session(3, { accountId: 1 }), LOGIN, PROJECT, null)).toBe("");
-    expect(accountRows(null)).toEqual([]);
+    expect(accountRows(null, NOW)).toEqual([]);
   });
 
   it("offers a choice of account only where the daemon keeps one beside System default", () => {
@@ -4217,12 +4218,49 @@ describe("accounts in the window", () => {
     expect(tabAccount(session(3), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("");
   });
 
-  it("lists the rows of the Accounts dialog in the daemon's order, each with its name, its folder, whether it is the default and whether it keeps its name", () => {
-    expect(accountRows({ ...HELD, defaultId: 1 })).toEqual([
-      { id: 0, name: "System default", folder: "The folder your login shell gives Claude Code", isDefault: false, fixed: true },
-      { id: 1, name: "Work", folder: "/Users/person/.claude-work", isDefault: true, fixed: false },
-      { id: 2, name: "Home", folder: "/Users/person/.claude-home", isDefault: false, fixed: false },
+  it("lists the rows of the Accounts dialog in the daemon's order, each with its name, its folder, whether it is the default, whether it keeps its name, its sign-in in words and whether it offers one", () => {
+    expect(accountRows({ ...HELD, defaultId: 1 }, NOW)).toEqual([
+      { id: 0, name: "System default", folder: "The folder your login shell gives Claude Code", isDefault: false, fixed: true, signIn: null, offersSignIn: false },
+      { id: 1, name: "Work", folder: "/Users/person/.claude-work", isDefault: true, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true },
+      { id: 2, name: "Home", folder: "/Users/person/.claude-home", isDefault: false, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true },
     ]);
+  });
+
+  it("says each account's sign-in as the agent last gave it: not signed in, signed in with no end named, the time until its login ends, and that it may have ended once that time is past (the sign-in of scenario 11)", () => {
+    const signIn = (signedIn: boolean | null, loginEndsAt: number | null): string | null => accountRows({ accounts: [SYSTEM, { ...WORK, made: true, signedIn, loginEndsAt }], defaultId: 0 }, NOW)[1]!.signIn;
+    expect(signIn(false, null)).toBe("Not signed in");
+    expect(signIn(true, null)).toBe("Signed in");
+    expect(signIn(true, NOW + 26 * 24 * 3_600_000)).toBe("Signed in, the login ends in 26 days");
+    expect(signIn(true, NOW + 90 * 60_000)).toBe("Signed in, the login ends in 1 h 30 min");
+    expect(signIn(true, NOW)).toBe("Signed in, the login may have ended");
+    expect(signIn(true, NOW - 60_000)).toBe("Signed in, the login may have ended");
+    expect(signIn(null, null)).toBe("Sign-in not read yet");
+  });
+
+  it("names before a removal each repository and work item, archived among them, whose setting is cleared, and a default that goes back to System default, and says what becomes of the account's folder (scenario 13's dialog)", () => {
+    const made = { ...WORK, made: true, folder: "/Users/person/Owlery/run/accounts/1" };
+    const held = { accounts: [SYSTEM, made, HOME], defaultId: 1 };
+    const other = { ...PROJECT, id: 2, name: "other", accountId: 2 };
+    const workItems = [{ ...LOGIN, accountId: 1 }, { ...SEARCH, accountId: 2 }];
+    const archived = [{ ...LOGIN, id: 3, title: "An old one", archivedAt: NOW, accountId: 1 }];
+    expect(accountRemoval(held, 1, [{ ...PROJECT, accountId: 1 }, other], workItems, archived)).toEqual({
+      says: 'Remove "Work"? Owlery signs its folder out with Claude Code and removes the folder.',
+      cleared: ["The default goes back to System default.", "The repository project goes back to the default.", 'The work item "Fix the login bug" goes back to its repository\'s account.', 'The work item "An old one" goes back to its repository\'s account.'],
+    });
+    expect(accountRemoval(held, 2, [PROJECT, other], workItems, [])).toEqual({
+      says: 'Remove "Home"? Its folder stays as it is: /Users/person/.claude-home',
+      cleared: ["The repository other goes back to the default.", 'The work item "Speed up search" goes back to its repository\'s account.'],
+    });
+    expect(accountRemoval(held, 9, [PROJECT], workItems, [])).toBeNull();
+    expect(accountRemoval(held, 0, [PROJECT], workItems, [])).toBeNull();
+  });
+
+  it("lists a sign-in pane, which runs in no work item, on no work item's line, tabs or view, and names it by its kind alone among what the app's end would end (scenario 6's window)", () => {
+    const signIn = session(9, { kind: "shell", workItemId: null, accountId: 1, signsIn: 1 });
+    expect(paneTabs(LOGIN, [signIn])).toEqual([]);
+    expect(inboxLine(LOGIN, [signIn], KINDS)).toEqual(inboxLine(LOGIN, [], KINDS));
+    expect(lineAccount(LOGIN, { ...PROJECT, accountId: 2 }, [signIn], [], HELD)).toBe("");
+    expect(runningSessions([LOGIN], [], [signIn], [], KINDS)).toEqual(["Shell"]);
   });
 
   it("gives an account's menu a first choice that leaves the account to the setting above, named with the account it gives, then each account in the daemon's order", () => {
