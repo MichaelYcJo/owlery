@@ -68,8 +68,11 @@ import {
   inboxKey,
   inboxLine,
   inboxSummary,
+  capChanges,
+  type CapRow,
   keepAwakeControl,
   keyHints,
+  machineDialog,
   lateSays,
   lastHere,
   lineBadge,
@@ -169,7 +172,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -3480,6 +3483,74 @@ describe("keepAwakeControl", () => {
 
   it("shows nothing against a daemon that sent no `keepAwake`: one of an earlier build, or one that can hold nothing", () => {
     expect(keepAwakeControl(null)).toBeNull();
+  });
+});
+
+describe("machineDialog", () => {
+  /** The owner's Mac as the framer's probe read it, with one work item standing and nothing measured. */
+  const MACHINE: Machine = {
+    reading: { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, load: 3.9, disk: { freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 } },
+    agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
+    worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
+    panes: { proposed: 8, set: null },
+  };
+
+  it("states the reading in one line, and gives each cap a row with its value, its default's sentence and whether it follows the default (scenario 1)", () => {
+    expect(machineDialog(MACHINE)).toEqual({
+      reading: "36 GB of memory, 12 cores of which 6 are performance cores, a load of 3.9, and 25.1 GB free of 494.4 GB on the worktrees' disk.",
+      rows: [
+        { cap: "agents", label: "Agents at once", value: 6, proposed: 6, most: null, isDefault: true, says: "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." },
+        { cap: "worktrees", label: "Worktrees", value: null, proposed: null, most: null, isDefault: true, says: "Nothing is proposed until a worktree is measured on this Mac." },
+        { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, most: 16, isDefault: true, says: "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB." },
+      ],
+    });
+  });
+
+  it("shows the value a person set in place of the proposal, and the row no longer follows the default (scenario 3)", () => {
+    const rows = machineDialog({ ...MACHINE, agents: { ...MACHINE.agents, set: 3 }, worktrees: { ...MACHINE.worktrees, set: 40 } })?.rows;
+    expect(rows?.map(({ cap, value, isDefault }) => ({ cap, value, isDefault }))).toEqual([
+      { cap: "agents", value: 3, isDefault: false },
+      { cap: "worktrees", value: 40, isDefault: false },
+      { cap: "panes", value: 8, isDefault: true },
+    ]);
+    // The sentence still states the default, which "Use the default" returns to.
+    expect(rows?.[0]?.says).toMatch(/^The default is 6: /);
+  });
+
+  it("shows nothing against a daemon that sent no `machine`: one of an earlier build, or one given no reader, and the Machine button is then hidden (scenario 10)", () => {
+    expect(machineDialog(null)).toBeNull();
+  });
+});
+
+describe("capChanges", () => {
+  const rows = (set: { agents?: number; worktrees?: number }): CapRow[] => [
+    { cap: "agents", label: "Agents at once", value: set.agents ?? 6, proposed: 6, most: null, isDefault: set.agents === undefined, says: "" },
+    { cap: "worktrees", label: "Worktrees", value: set.worktrees ?? null, proposed: null, most: null, isDefault: set.worktrees === undefined, says: "" },
+    { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, most: 16, isDefault: true, says: "" },
+  ];
+  const fields = (text: Partial<Record<Cap, string>>, toDefault: Cap[] = []) => ({
+    agents: { text: text.agents ?? "6", toDefault: toDefault.includes("agents") },
+    worktrees: { text: text.worktrees ?? "", toDefault: toDefault.includes("worktrees") },
+    panes: { text: text.panes ?? "8", toDefault: toDefault.includes("panes") },
+  });
+
+  it("sends the value a person typed, and nothing of a row that still shows its proposal untouched (scenario 3)", () => {
+    expect(capChanges(rows({}), fields({}))).toEqual({ caps: {} });
+    expect(capChanges(rows({}), fields({ agents: " 3 " }))).toEqual({ caps: { agents: 3 } });
+    expect(capChanges(rows({}), fields({ worktrees: "40", panes: "12" }))).toEqual({ caps: { worktrees: 40, panes: 12 } });
+  });
+
+  it("returns a row a person set to its proposal where they pressed \"Use the default\" or emptied its field, and sends nothing of a row that already follows it", () => {
+    const set = rows({ agents: 3, worktrees: 40 });
+    expect(capChanges(set, fields({ agents: "6", worktrees: "40" }, ["agents"]))).toEqual({ caps: { agents: null } });
+    expect(capChanges(set, fields({ agents: "3", worktrees: "" }))).toEqual({ caps: { worktrees: null } });
+    expect(capChanges(rows({}), fields({ agents: "" }, ["panes"]))).toEqual({ caps: {} });
+  });
+
+  it("refuses, with the daemon's sentence and before anything is sent, a value that is no whole number from 1, or over 16 for the panes", () => {
+    expect(capChanges(rows({}), fields({ agents: "2.5" }))).toEqual({ refusal: "The cap on agents at once is a whole number from 1." });
+    expect(capChanges(rows({}), fields({ worktrees: "many" }))).toEqual({ refusal: "The cap on worktrees is a whole number from 1." });
+    expect(capChanges(rows({}), fields({ panes: "17" }))).toEqual({ refusal: "The cap on panes side by side is a whole number from 1 to 16." });
   });
 });
 

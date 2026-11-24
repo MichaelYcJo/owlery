@@ -12,6 +12,7 @@ import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
+import type { MachineReader } from "../src/daemon/machine";
 import { hookSettings, paneCommands, writeHookSettings } from "../src/daemon/hooks";
 import { readPlugins } from "../src/daemon/claude-plugins";
 import { carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
@@ -22,7 +23,7 @@ import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type Machine, type MachineReading, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 import { client as chainClient, commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
 import { VIEW_FIELDS } from "../src/daemon/github";
@@ -6692,6 +6693,134 @@ describe("keeping the Mac awake", () => {
     expect(seen.held).toBe(1);
     expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
     expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the choice of when to keep the Mac awake was not written: /)]);
+  });
+});
+
+describe("the caps on the machine", () => {
+  const START = { type: "start", cols: 80, rows: 24 };
+  /** The owner's Mac as the framer's probe read it: 36 GB, 12 cores of which 6 are performance cores, and 25.1 GB free. */
+  const READING: MachineReading = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, load: 3.9, disk: { freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 } };
+  /** What the daemon proposes on that reading, with one work item standing and nothing measured. */
+  const PROPOSED: Machine = {
+    reading: READING,
+    agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
+    worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
+    panes: { proposed: 8, set: null },
+  };
+  const told = (c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
+
+  /** A reader that gives `READING` and notes the folder of each read. */
+  function reader() {
+    const reads: string[] = [];
+    const machine: MachineReader = {
+      read: (folder) => {
+        reads.push(folder);
+        return READING;
+      },
+    };
+    return { machine, reads };
+  }
+
+  /** A daemon given a reader, with a work item, a run folder of its own and two clients, and panes whose process ends when a line arrives. */
+  async function machined(options: Partial<DaemonOptions> = {}) {
+    const { machine, reads } = reader();
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, machine, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    return { daemon: d, url, runDir, root: made.root, reads, c, bystander, both: [c, bystander], ready };
+  }
+
+  it("sends in `ready` what it read of the machine, the worktrees' folder's disk among it, and each cap's proposal with the numbers it came from, each cap following its proposal (scenario 1)", async () => {
+    const { ready, reads, root } = await machined();
+    expect(ready.machine).toEqual(PROPOSED);
+    expect(reads.length).toBeGreaterThan(0);
+    expect(new Set(reads)).toEqual(new Set([root]));
+  });
+
+  it("takes a cap a person sets, tells every client after its `done`, keeps it in `limits.json` for the daemon started next on the run folder, and follows the proposal again once the cap is set to null (scenario 3)", async () => {
+    const { daemon: d, runDir, c, both } = await machined();
+    c.send({ type: "setCaps", requestId: 1, agents: 3 });
+    for (const each of both) expect((await each.message("machine")).machine.agents).toEqual({ ...PROPOSED.agents, set: 3 });
+    const done = c.messages.findIndex((m) => m.type === "done" && m.requestId === 1);
+    expect(done).toBeGreaterThan(-1);
+    expect(done).toBeLessThan(c.messages.findIndex((m) => m.type === "machine"));
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"agents":3}');
+    expect(statSync(join(runDir, "limits.json")).mode & 0o777).toBe(0o600);
+    // A field that is absent is left as it is.
+    c.send({ type: "setCaps", requestId: 2, panes: 12 });
+    expect((await c.message("machine", (m) => m.machine.panes.set === 12)).machine).toMatchObject({ agents: { set: 3 }, worktrees: { set: null }, panes: { proposed: 8, set: 12 } });
+    await d.close();
+
+    const { machine } = reader();
+    const { url: again } = await daemon({ runDir, machine });
+    expect((await (await client(again)).message("ready")).machine).toMatchObject({ agents: { proposed: 6, set: 3 }, panes: { proposed: 8, set: 12 } });
+  });
+
+  it("follows the proposal again where a person sets a cap to null, and writes the file without it", async () => {
+    const { runDir, c, bystander } = await machined();
+    c.send({ type: "setCaps", requestId: 1, agents: 3, worktrees: 40 });
+    await bystander.message("machine");
+    c.send({ type: "setCaps", requestId: 2, agents: null });
+    expect((await bystander.message("machine", (m) => m.machine.agents.set === null)).machine).toMatchObject({ agents: { proposed: 6, set: null }, worktrees: { set: 40 } });
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"worktrees":40}');
+  });
+
+  it.each([
+    ["no whole number", { agents: 2.5 }, "The cap on agents at once is a whole number from 1."],
+    ["a number under 1", { worktrees: 0 }, "The cap on worktrees is a whole number from 1."],
+    ["a number given as text", { agents: "3" }, "The cap on agents at once is a whole number from 1."],
+    ["a cap on panes over 16, beside a value it would take", { agents: 3, panes: 17 }, "The cap on panes side by side is a whole number from 1 to 16."],
+  ])("refuses %s with a sentence, and changes, writes and tells nothing", async (_, caps, sentence) => {
+    const { runDir, c, both } = await machined();
+    c.send({ type: "setCaps", requestId: 7, ...caps });
+    expect((await c.message("error", (m) => m.requestId === 7)).message).toBe(sentence);
+    c.send({ type: "readMachine" });
+    expect((await c.message("machine")).machine).toEqual(PROPOSED);
+    for (const each of both) expect(told(each)).toHaveLength(each === c ? 1 : 0);
+    expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+  });
+
+  it("reads the machine again at a `readMachine`, and sends what it read to the client that asked alone", async () => {
+    const { reads, c, bystander } = await machined();
+    const before = reads.length;
+    c.send({ type: "readMachine" });
+    expect((await c.message("machine")).machine).toEqual(PROPOSED);
+    expect(reads.length).toBe(before + 1);
+    bystander.send({ type: "setCaps", requestId: 3, panes: 2 });
+    await bystander.message("machine");
+    expect(told(bystander)).toHaveLength(1);
+    expect(told(c).map((m) => m.panes.set)).toEqual([null, 2]);
+  });
+
+  it("tells every client the count of the agents that run when a pane of a kind that reports its state opens and when its process ends, and nothing when a shell opens", async () => {
+    const { c, both } = await machined();
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 1);
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 2)).session;
+    for (const each of both) expect((await each.message("machine")).machine.agents.running).toBe(1);
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    for (const each of both) await each.message("machine", (m) => m.machine.agents.running === 0);
+    for (const each of both) expect(told(each).map((m) => m.agents.running)).toEqual([1, 0]);
+  });
+
+  it("sends no `machine` in `ready`, takes no cap, reads nothing and writes no file where it is given no reader (scenario 10)", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    const { url } = await daemon({ runDir, worktreesRoot: made.root });
+    const c = await client(url);
+    expect("machine" in (await c.message("ready"))).toBe(false);
+    c.send({ type: "readMachine" });
+    c.send({ type: "setCaps", requestId: 1, agents: 3 });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("This daemon keeps no cap on the machine.");
+    expect(told(c)).toEqual([]);
+    expect(existsSync(join(runDir, "limits.json"))).toBe(false);
   });
 });
 

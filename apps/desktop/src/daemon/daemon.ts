@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -73,6 +73,8 @@ import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecor
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
+import { LimitsStore, type MachineReader } from "./machine";
+import { agentsProposal, capRefusal, KEEP_FREE_BYTES, panesProposal, worktreesProposal } from "../shared/machine";
 import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
@@ -237,10 +239,12 @@ export interface DaemonOptions {
   pluginEnabled?: (folder: string, checkout: string, configDir: string | null) => boolean;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all seven are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the caps a person set on the machine, in `limits.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all eight are in memory alone. */
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
+  /** How the daemon reads the machine it runs on. A daemon given none keeps no cap, sends no `machine` and takes no `setCaps`. */
+  machine?: MachineReader;
   /** The version of Owlery this daemon is, which the workflow a setup of the records place writes fetches the check at, and which a verdict block names as the version of the rules. A daemon given none plans and sets up no records place, and writes no verdict. */
   version?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
@@ -395,6 +399,10 @@ export class Daemon {
   private readonly accounts: AccountStore;
   private readonly lastLook: LastLook;
   private readonly keepAwake: KeepAwakeStore;
+  // The caps a person set on the machine, what the daemon last read of the machine, where it was given a reader, and the count of the agents that run as every client was last told it.
+  private readonly limits: LimitsStore;
+  private reading: MachineReading | undefined;
+  private agentsTold = 0;
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
   private readonly times: RecordTimes;
   // The cost ledger: one entry for each headless session that ended and for each run of a broad gate that ended. Between two reads it holds in memory only the entries whose append failed.
@@ -465,6 +473,8 @@ export class Daemon {
     this.lastLook = new LastLook(options.runDir);
     this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
     this.keepAwake = new KeepAwakeStore(options.runDir);
+    this.limits = new LimitsStore(options.runDir);
+    this.readMachineNow();
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
@@ -786,7 +796,10 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage() });
+    // A client that connects reads the load and the free disk as they are now.
+    this.readMachineNow();
+    const machine = this.machineNow();
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage(), ...(machine ? { machine } : {}) });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -1549,6 +1562,42 @@ export class Daemon {
         if (!this.settleHold()) this.broadcastKeepAwake();
         return;
       }
+      case "setCaps": {
+        if (!this.options.machine) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: "This daemon keeps no cap on the machine." });
+          return;
+        }
+        // Every value is read before any is taken, so a refusal changes nothing.
+        const changes: Partial<Record<Cap, number | null>> = {};
+        const before = this.limits.get();
+        for (const cap of ["agents", "worktrees", "panes"] as const) {
+          const value: unknown = message[cap];
+          if (value === undefined) continue;
+          const refusal = value === null ? null : capRefusal(cap, value);
+          if (refusal !== null) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: refusal });
+            return;
+          }
+          if (value !== before[cap]) changes[cap] = value as number | null;
+        }
+        if (Object.keys(changes).length > 0) {
+          try {
+            this.limits.set(changes);
+          } catch (error) {
+            // The caps are held in memory whether or not they were written.
+            console.error(`the caps on the machine were not written: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        this.send(socket, { type: "done", requestId: message.requestId });
+        if (Object.keys(changes).length > 0) this.broadcastMachine();
+        return;
+      }
+      case "readMachine": {
+        this.readMachineNow();
+        const machine = this.machineNow();
+        if (machine) this.send(socket, { type: "machine", machine });
+        return;
+      }
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
@@ -2199,6 +2248,7 @@ export class Daemon {
       }
     }
     this.settleHold();
+    this.agentsCounted();
     this.checkIdle();
   }
 
@@ -3438,6 +3488,7 @@ export class Daemon {
     this.broadcast({ type: "inbox", ...this.lists() });
     // Every change of a pane's `alive` or `state` ends here.
     this.settleHold();
+    this.agentsCounted();
   }
 
   private keepAwakeNow(): KeepAwake {
@@ -3446,6 +3497,48 @@ export class Daemon {
 
   private broadcastKeepAwake(): void {
     this.broadcast({ type: "keepAwake", keepAwake: this.keepAwakeNow() });
+  }
+
+  /** Reads the machine, the disk of the worktrees' folder among it, where the daemon was given a reader. */
+  private readMachineNow(): void {
+    this.reading = this.options.machine?.read(this.options.worktreesRoot ?? worktreesRoot(process.env));
+  }
+
+  /** The agents that run: the live panes of a kind that reports its state, and the headless sessions that are working. */
+  private agentsRunning(): number {
+    const reports = (kind: string): boolean => this.options.paneKinds.some((offered) => offered.kind === kind && offered.reportsState);
+    return [...this.sessions.values()].filter(({ info }) => info.alive && reports(info.kind)).length + [...this.headless.values()].filter(({ info }) => info.state === "working").length;
+  }
+
+  /**
+   * The machine as the daemon last read it, with each cap's proposal and the
+   * value a person set, or nothing where the daemon was given no reader. A
+   * worktree stands for each work item the daemon keeps, the archived among
+   * them, whose folder an archive leaves in place.
+   */
+  private machineNow(): Machine | undefined {
+    const reading = this.reading;
+    if (reading === undefined) return undefined;
+    const set = this.limits.get();
+    const standing = this.store.workItems().length;
+    return {
+      reading,
+      agents: { ...agentsProposal(reading, []), set: set.agents, running: this.agentsRunning(), queue: [] },
+      worktrees: { proposed: worktreesProposal(reading, standing, null), set: set.worktrees, standing, perWorktreeBytes: null, keepFreeBytes: KEEP_FREE_BYTES },
+      panes: { proposed: panesProposal(reading), set: set.panes },
+    };
+  }
+
+  private broadcastMachine(): void {
+    const machine = this.machineNow();
+    if (!machine) return;
+    this.agentsTold = machine.agents.running;
+    this.broadcast({ type: "machine", machine });
+  }
+
+  /** Tells every client the machine where the count of the agents that run is not the one they were last told. */
+  private agentsCounted(): void {
+    if (this.reading !== undefined && this.agentsRunning() !== this.agentsTold) this.broadcastMachine();
   }
 
   /**

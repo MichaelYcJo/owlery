@@ -20,6 +20,7 @@ import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
+import { initMachine, openMachine, showMachine, showMachineEntry } from "./machine";
 import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
@@ -218,6 +219,7 @@ const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error")
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
 const ACCOUNT: Asking = { dialog: accountDialog, error: byId("account-error"), button: byId<HTMLButtonElement>("account-submit") };
 const RECORDS: Asking = { dialog: recordsPlaceDialog, error: byId("records-error"), button: byId<HTMLButtonElement>("records-submit") };
+const MACHINE: Asking = { dialog: byId<HTMLDialogElement>("machine-dialog"), error: byId("machine-error"), button: byId<HTMLButtonElement>("machine-submit") };
 // The dialog that asks before the daemon ends waits on the main process's answer, not on the daemon's: the main process is the one that stops the daemon.
 const DAEMON: Asking = { dialog: daemonDialog, error: byId("daemon-error"), button: byId<HTMLButtonElement>("daemon-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
@@ -1757,6 +1759,9 @@ function onMessage(message: ServerMessage): void {
       // A daemon of an earlier build, and one that can hold nothing, send no such choice, and the control is then hidden.
       held.keepAwake = message.keepAwake ?? null;
       showKeepAwake();
+      // A daemon of an earlier build, and one given no reader of the machine, send no machine, and the Machine button is then hidden.
+      held.machine = message.machine ?? null;
+      showMachineEntry();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
       // A daemon of an earlier build sends no accounts, and the window then shows no control of them.
@@ -1796,6 +1801,12 @@ function onMessage(message: ServerMessage): void {
       held.keepAwake = message.keepAwake;
       showKeepAwake();
       showStatus();
+      return;
+    case "machine":
+      // A cap changed, here or in another client, the count of agents changed, or the daemon read the machine again for this window.
+      held.machine = message.machine;
+      showMachineEntry();
+      if (MACHINE.dialog.open) showMachine();
       return;
     case "agentNotice":
       // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
@@ -2128,6 +2139,13 @@ byId<HTMLFormElement>("accounts-form").addEventListener("submit", (event) => {
 byId("accounts-folder").addEventListener("click", addAccount);
 byId("accounts-sign-in-close").addEventListener("click", closeSignIn);
 window.owlery.onAccountsMenu(openAccounts);
+byId("machine-button").addEventListener("click", () => {
+  // Against a daemon that keeps no cap the button is hidden, and nothing opens over another dialog.
+  if (held.machine === null || !opened(MACHINE)) return;
+  openMachine();
+});
+// The daemon's `done` closes the dialog, and the `machine` after it carries the caps as they now stand.
+initMachine((caps) => ask(MACHINE, (requestId) => ({ type: "setCaps", requestId, ...caps })));
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());
 byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {
   event.preventDefault();

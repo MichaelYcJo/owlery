@@ -763,6 +763,44 @@ export interface KeepAwake {
   held: boolean;
 }
 
+/**
+ * What the daemon reads of the machine it runs on. `memoryBytes`, `cores` and
+ * `performanceCores` are read once, at the daemon's start: `os.totalmem()`,
+ * `os.availableParallelism()`, and what macOS gives under
+ * `hw.perflevel0.physicalcpu`, which is `cores` where it gives no whole number
+ * above 0 or cannot be asked. `load` is the load average of the last minute,
+ * and `disk` the free and total bytes of the volume that holds the worktrees'
+ * folder, read from the folder or the nearest folder above it that stands, or
+ * null where none answers. Both are read again at each `readMachine`.
+ */
+export interface MachineReading {
+  memoryBytes: number;
+  cores: number;
+  performanceCores: number;
+  load: number;
+  disk: { freeBytes: number; totalBytes: number } | null;
+}
+
+/**
+ * The caps the daemon keeps on this machine, with what each proposal came
+ * from. A cap's `set` is the value a person set, or null where the cap
+ * follows its proposal. The agent cap's `proposed` is the smaller of
+ * `byCores` and `byMemory`, and never under 1. `perAgentBytes` is what one
+ * agent is taken to use, and `measured` how many agents the daemon measured
+ * on this machine. `running` counts the agents that run, and `queue` holds
+ * the ids of the headless sessions that wait, in the order they will start.
+ * The worktree cap's `proposed` is null until a worktree is measured.
+ */
+export interface Machine {
+  reading: MachineReading;
+  agents: { proposed: number; byCores: number; byMemory: number; set: number | null; running: number; perAgentBytes: number; measured: number; queue: number[] };
+  worktrees: { proposed: number | null; set: number | null; standing: number; perWorktreeBytes: number | null; keepFreeBytes: number };
+  panes: { proposed: number; set: number | null };
+}
+
+/** The caps a person sets on the machine. */
+export type Cap = "agents" | "worktrees" | "panes";
+
 export type ClientMessage =
   | { type: "hello"; token: string }
   // A pane opens in a work item's worktree, and the daemon answers a start whose `workItemId` is no number with an `error`. `continueLatest` starts the pane on the latest conversation of that folder. The daemon answers it with an `error` for a kind that does not declare `continues`. `accountId` is the pane's own account, the id of one the daemon keeps, and an id it keeps none under is refused, starting nothing. Without it the pane takes the account `accountFor` gives from the work item, its repository and the default. A pane of a kind that declares `accounts` is launched with that account's config folder where the account has one.
@@ -847,12 +885,16 @@ export type ClientMessage =
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
   | { type: "setKeepAwake"; choice: KeepAwakeChoice }
+  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1 and a cap on panes over 16, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
+  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null }
+  // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
+  | { type: "readMachine" }
   | { type: "input"; id: number; data: string }
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no.
-  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean }
+  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no. `machine` is what the daemon read of the machine and the caps it keeps there. A daemon given no reader of the machine, and a daemon of an earlier build, send none, and a client reads its absence as a daemon that keeps no cap.
+  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean; machine?: Machine }
   // The whole of the four lists, sent to every client whenever one of them changes.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
@@ -884,6 +926,8 @@ export type ServerMessage =
   | { type: "accounts"; accounts: Account[]; defaultAccountId: number; refreshesUsage?: boolean }
   // The choice and whether the hold stands, sent to every client whenever either changes.
   | { type: "keepAwake"; keepAwake: KeepAwake }
+  // The machine and its caps, as `ready` carries them, sent to every client whenever a cap or the count of agents changes, and to the client that sent a `readMachine`.
+  | { type: "machine"; machine: Machine }
   // The adapter's notice of its agent, sent to every client whenever it changes: the sentence, or null once there is nothing to say.
   | { type: "agentNotice"; notice: string | null }
   // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.

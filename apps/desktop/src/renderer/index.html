@@ -323,6 +323,13 @@
       /* The sign-in pane takes the width of eighty columns, so the dialog that holds it is wider than the others. */
       #accounts-dialog { width: min(760px, 92vw); }
       #accounts-terminal { padding: var(--space-3); border-radius: var(--radius-card); background: var(--terminal-ground); overflow: hidden; }
+      /* The Machine dialog: what the daemon read, as a fact, and for each cap its name, its field with "Use the default" beside it, and the default's sentence under them. */
+      #machine-dialog { width: min(560px, 92vw); }
+      #machine-reading { font-family: var(--font-fact); }
+      #machine-caps .cap { margin-bottom: var(--space-5); }
+      #machine-caps label { margin-bottom: 0; }
+      #machine-caps input { flex: none; width: 8ch; }
+      #machine-caps .cap-says { margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-muted); }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
@@ -651,6 +658,10 @@
         <button id="accounts-button" class="icon-button" type="button" aria-label="Accounts" title="Accounts…" hidden>
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8" /><path d="M2.8 13.5a5.2 5.2 0 0 1 10.4 0" /></svg>
         </button>
+        <!-- Hidden until the daemon's `ready` carries the machine, and against a daemon that sends none. -->
+        <button id="machine-button" class="icon-button" type="button" aria-label="Machine" title="Machine…" hidden>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" /><path d="M6.5 2v2.5M9.5 2v2.5M6.5 11.5V14M9.5 11.5V14M2 6.5h2.5M2 9.5h2.5M11.5 6.5H14M11.5 9.5H14" /></svg>
+        </button>
         <!-- Hidden until the daemon's `ready` carries its choice, and against a daemon that sends none. -->
         <label id="keep-awake-control" class="icon-button" hidden>
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6.5h8v3.2a3.3 3.3 0 0 1-3.3 3.3H6.3A3.3 3.3 0 0 1 3 9.7z" /><path d="M11 7.5h1a1.5 1.5 0 0 1 0 3h-1.1" /><path d="M5.5 2.5v1.8M8.5 2.5v1.8" /></svg>
@@ -959,6 +970,20 @@
           <button type="button" id="accounts-folder" class="quiet">Use an existing folder…</button>
           <button type="submit" id="accounts-add" class="quiet">Add an account</button>
           <button type="button" id="accounts-close" class="primary">Done</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="machine-dialog">
+      <!-- The daemon refuses a value it does not take, in its own words, so the page asks the browser to check nothing. -->
+      <form id="machine-form" novalidate>
+        <h2 class="head">Machine</h2>
+        <p id="machine-reading" class="says"></p>
+        <!-- A row for each cap, drawn from the daemon's `machine`. -->
+        <div id="machine-caps"></div>
+        <p id="machine-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="machine-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="machine-submit" class="primary">Save</button>
         </div>
       </form>
     </dialog>

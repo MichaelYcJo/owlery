@@ -3,7 +3,8 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { agentsSays, CAP_NAMES, capRefusal, PANES_MOST, panesSays, readingSays, worktreesSays } from "../shared/machine";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
@@ -1504,6 +1505,61 @@ export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readon
 export function keepAwakeControl(keepAwake: KeepAwake | null): { choice: KeepAwakeChoice; title: string } | null {
   if (!keepAwake) return null;
   return { choice: keepAwake.choice, title: `Keep awake: ${KEEP_AWAKE_CHOICES.find(({ value }) => value === keepAwake.choice)?.label ?? keepAwake.choice}` };
+}
+
+/** One cap's row of the Machine dialog: its name, the value its field shows, or null for an empty field, its proposal, or null where there is none, the most it takes where it has a most, whether it follows its proposal, and the sentence that states the proposal. */
+export interface CapRow {
+  cap: Cap;
+  label: string;
+  value: number | null;
+  proposed: number | null;
+  most: number | null;
+  isDefault: boolean;
+  says: string;
+}
+
+/**
+ * What the Machine dialog shows: what the daemon read of the machine, in one
+ * line, and a row for each cap, whose field holds the value a person set or
+ * else the proposal. Nothing against a daemon that sent no `machine`, one of
+ * an earlier build or one given no reader, and the Machine button is then
+ * hidden.
+ */
+export function machineDialog(machine: Machine | null): { reading: string; rows: CapRow[] } | null {
+  if (!machine) return null;
+  const { reading, agents, worktrees, panes } = machine;
+  const row = (cap: Cap, set: number | null, proposed: number | null, says: string, most: number | null = null): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, most, isDefault: set === null, says });
+  return {
+    reading: readingSays(reading),
+    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed), PANES_MOST)],
+  };
+}
+
+/**
+ * What a Save of the Machine dialog sends, from its rows as they were drawn
+ * and each field as the person left it: the text in the field, and whether
+ * "Use the default" was pressed since. A row that already follows its
+ * proposal sends nothing while its field still shows the proposal, so the
+ * cap keeps following it. A row a person set returns to its proposal, as
+ * null, where "Use the default" was pressed or its field emptied. A value
+ * that is no whole number from 1, or over the row's most, is refused here in
+ * the daemon's own sentence, and nothing is sent.
+ */
+export function capChanges(rows: readonly CapRow[], fields: Readonly<Record<Cap, { text: string; toDefault: boolean }>>): { caps: Partial<Record<Cap, number | null>> } | { refusal: string } {
+  const caps: Partial<Record<Cap, number | null>> = {};
+  for (const row of rows) {
+    const field = fields[row.cap];
+    const text = field.text.trim();
+    if (field.toDefault || text === "") {
+      if (!row.isDefault) caps[row.cap] = null;
+      continue;
+    }
+    const value = /^\d+$/.test(text) ? Number(text) : text;
+    const refusal = capRefusal(row.cap, value);
+    if (refusal !== null) return { refusal };
+    if (value !== row.value) caps[row.cap] = value as number;
+  }
+  return { caps };
 }
 
 /** What the status line tells once `taken` is taken back: nothing where it still told `taken`, and any other notice as it stands. */

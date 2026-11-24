@@ -1,0 +1,128 @@
+// The Machine dialog the sidebar's foot opens: what the daemon read of the
+// machine, and a row for each cap it keeps there. The caps are the daemon's
+// state and not the window's, so the dialog draws what the daemon last said,
+// a Save sends what the person changed, and the daemon's `machine` is what
+// the dialog then draws. Against a daemon that keeps no cap the button that
+// opens it is hidden.
+import type { Cap } from "../shared/protocol";
+import { byId, held, send } from "./shared";
+import { capChanges, type CapRow, machineDialog } from "./view";
+
+const button = byId<HTMLButtonElement>("machine-button");
+const dialog = byId<HTMLDialogElement>("machine-dialog");
+const readingPlace = byId("machine-reading");
+const capsPlace = byId("machine-caps");
+const refusal = byId("machine-error");
+
+// The rows as the dialog last drew them, and what the person did to each field since the dialog opened: typed in it, or pressed "Use the default" after it.
+let drawn: CapRow[] = [];
+const typed = new Set<Cap>();
+const toDefault = new Set<Cap>();
+
+/** The field of a cap's row. */
+function fieldOf(cap: Cap): HTMLInputElement | null {
+  return capsPlace.querySelector<HTMLInputElement>(`[data-cap="${cap}"] input`);
+}
+
+/** Shows the button that opens the dialog where the daemon keeps caps, and hides it against a daemon that sends none. */
+export function showMachineEntry(): void {
+  button.hidden = machineDialog(held.machine) === null;
+}
+
+/** The text a field shows of a value, empty for none. */
+function textOf(value: number | null): string {
+  return value === null ? "" : String(value);
+}
+
+/** Makes a cap's row, empty: its name, its field with "Use the default" beside it, and the place of its default's sentence. The row's values are `showMachine`'s to fill. */
+function capPart(cap: Cap): HTMLElement {
+  const part = document.createElement("div");
+  part.className = "cap";
+  part.dataset.cap = cap;
+  const label = document.createElement("label");
+  label.htmlFor = `machine-${cap}`;
+  const line = document.createElement("span");
+  line.className = "row";
+  const field = document.createElement("input");
+  field.id = `machine-${cap}`;
+  field.inputMode = "numeric";
+  field.autocomplete = "off";
+  const use = document.createElement("button");
+  use.type = "button";
+  use.className = "quiet";
+  use.textContent = "Use the default";
+  use.addEventListener("click", () => {
+    typed.delete(cap);
+    toDefault.add(cap);
+    field.value = textOf(drawn.find((row) => row.cap === cap)?.proposed ?? null);
+    use.disabled = true;
+  });
+  field.addEventListener("input", () => {
+    typed.add(cap);
+    toDefault.delete(cap);
+    use.disabled = false;
+  });
+  line.append(field, use);
+  const says = document.createElement("p");
+  says.className = "cap-says";
+  part.append(label, line, says);
+  return part;
+}
+
+/**
+ * Draws the dialog from what the daemon last said: the reading in its line,
+ * and for each cap its name, its field, "Use the default" and the sentence of
+ * its default. The rows are made once for each opening and filled in place
+ * afterwards, so a `machine` that arrives while a person types takes no
+ * field from under them. A field the person typed in keeps what they typed,
+ * and one they returned to the default shows the proposal. "Use the default"
+ * is offered where the field would not follow the default after a Save.
+ */
+export function showMachine(): void {
+  const shown = machineDialog(held.machine);
+  if (shown === null) {
+    if (dialog.open) dialog.close();
+    return;
+  }
+  readingPlace.textContent = shown.reading;
+  drawn = shown.rows;
+  for (const row of shown.rows) {
+    const part = capsPlace.querySelector<HTMLElement>(`[data-cap="${row.cap}"]`) ?? capsPlace.appendChild(capPart(row.cap));
+    const label = part.querySelector("label");
+    if (label) label.textContent = row.label;
+    const field = fieldOf(row.cap);
+    if (field && !typed.has(row.cap)) field.value = textOf(toDefault.has(row.cap) ? row.proposed : row.value);
+    const use = part.querySelector("button");
+    if (use) use.disabled = toDefault.has(row.cap) || (row.isDefault && !typed.has(row.cap));
+    const says = part.querySelector(".cap-says");
+    if (says) says.textContent = row.says;
+  }
+}
+
+/** Draws the dialog the caller just opened on what the daemon last said, with no field touched, and has the daemon read the load and the free disk again. */
+export function openMachine(): void {
+  typed.clear();
+  toDefault.clear();
+  capsPlace.replaceChildren();
+  showMachine();
+  send({ type: "readMachine" });
+}
+
+/** Wires the dialog's two buttons. A Save sends the caps the person changed through `save`, says a value the daemon would refuse in the dialog, and closes the dialog where nothing changed. */
+export function initMachine(save: (caps: Partial<Record<Cap, number | null>>) => void): void {
+  byId("machine-cancel").addEventListener("click", () => dialog.close());
+  byId<HTMLFormElement>("machine-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const fields = Object.fromEntries(drawn.map(({ cap }) => [cap, { text: fieldOf(cap)?.value ?? "", toDefault: toDefault.has(cap) }])) as Record<Cap, { text: string; toDefault: boolean }>;
+    const changes = capChanges(drawn, fields);
+    if ("refusal" in changes) {
+      refusal.textContent = changes.refusal;
+      return;
+    }
+    if (Object.keys(changes.caps).length === 0) {
+      dialog.close();
+      return;
+    }
+    save(changes.caps);
+  });
+}

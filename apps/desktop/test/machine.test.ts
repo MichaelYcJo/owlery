@@ -1,0 +1,209 @@
+import { mkdtempSync, readFileSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { LimitsStore, type MachineProbes, readMachine } from "../src/daemon/machine";
+import { agentsProposal, agentsSays, capRefusal, GIB, MIB, panesProposal, panesSays, readingSays, worktreesProposal, worktreesSays } from "../src/shared/machine";
+import type { MachineReading } from "../src/shared/protocol";
+
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+});
+
+/** A folder of the case's own, removed after it. */
+function folder(): string {
+  const dir = mkdtempSync(join(tmpdir(), "owlery-machine-"));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+/** The owner's Mac as the framer's probe read it on 2026-11-25: 36 GB, 12 cores of which 6 are performance cores, and 25.1 GB free of 494.4 GB. */
+const OWNERS_MAC: MachineReading = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, load: 3.9, disk: { freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 } };
+
+/** Probes that answer as a machine of 8 GB and 8 cores does, each counting its calls, with `sysctl` given by the case. */
+function probes(sysctl: (key: string) => string, more: Partial<MachineProbes> = {}) {
+  const calls = { memoryBytes: 0, cores: 0, load: 0, sysctl: [] as string[], statfs: [] as string[] };
+  const given: MachineProbes = {
+    memoryBytes: () => (calls.memoryBytes++, 8 * GIB),
+    cores: () => (calls.cores++, 8),
+    load: () => (calls.load++, 1.5),
+    sysctl: (key) => (calls.sysctl.push(key), sysctl(key)),
+    statfs: (at) => (calls.statfs.push(at), { freeBytes: 1, totalBytes: 2 }),
+    ...more,
+  };
+  return { given, calls };
+}
+
+describe("the proposal of the cap on agents", () => {
+  it("is the smaller of the performance cores and half of the memory at 679 MB an agent before any agent is measured, and its sentence names both numbers and which is the cap (scenario 1)", () => {
+    const agents = agentsProposal(OWNERS_MAC, []);
+    expect(agents).toEqual({ proposed: 6, byCores: 6, byMemory: 27, perAgentBytes: 679 * MIB, measured: 0 });
+    expect(agentsSays(OWNERS_MAC, agents)).toBe("The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet).");
+
+    const wide = { ...OWNERS_MAC, performanceCores: 32, cores: 40 };
+    const byMemory = agentsProposal(wide, []);
+    expect(byMemory).toEqual({ proposed: 27, byCores: 32, byMemory: 27, perAgentBytes: 679 * MIB, measured: 0 });
+    expect(agentsSays(wide, byMemory)).toBe("The default is 27: the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet), fewer than the 32 performance cores.");
+  });
+
+  it("takes the highest of what was measured once five agents are, and 679 MB before (scenario 2, the formula)", () => {
+    const small: MachineReading = { ...OWNERS_MAC, memoryBytes: 8 * GIB, cores: 8, performanceCores: 8 };
+    const five = [700, 766, 650, 720, 600].map((mb) => mb * MIB);
+    const measured = agentsProposal(small, five);
+    expect(measured).toEqual({ proposed: 5, byCores: 8, byMemory: 5, perAgentBytes: 766 * MIB, measured: 5 });
+    expect(agentsSays(small, measured)).toBe("The default is 5: the 5 that half of 8 GB holds at 766 MB an agent (the highest of the last 5 agents measured here), fewer than the 8 cores.");
+
+    const four = agentsProposal(small, five.slice(0, 4));
+    expect(four).toEqual({ proposed: 6, byCores: 8, byMemory: 6, perAgentBytes: 679 * MIB, measured: 4 });
+    expect(agentsSays(small, four)).toBe("The default is 6: the 6 that half of 8 GB holds at 679 MB an agent (not measured on this Mac yet: 4 agents of the 5 it takes), fewer than the 8 cores.");
+  });
+
+  it("says the cores where they are as many as the memory gives, and is never under 1", () => {
+    const even: MachineReading = { ...OWNERS_MAC, memoryBytes: 8 * GIB, cores: 6, performanceCores: 6 };
+    expect(agentsSays(even, agentsProposal(even, []))).toBe("The default is 6: the 6 cores, as many as the 6 that half of 8 GB holds at 679 MB an agent (not measured on this Mac yet).");
+    const tiny: MachineReading = { ...OWNERS_MAC, memoryBytes: GIB, cores: 4, performanceCores: 2 };
+    const least = agentsProposal(tiny, []);
+    expect(least).toEqual({ proposed: 1, byCores: 2, byMemory: 0, perAgentBytes: 679 * MIB, measured: 0 });
+    expect(agentsSays(tiny, least)).toBe("The default is 1, the least it can be: half of 1 GB holds no agent at 679 MB an agent (not measured on this Mac yet).");
+  });
+});
+
+describe("the proposal of the cap on panes side by side", () => {
+  it("is 4 under 16 GB of memory, 6 from 16 GB and 8 from 32 GB, and its sentence says so", () => {
+    expect(panesProposal({ ...OWNERS_MAC, memoryBytes: 16 * GIB - 1 })).toBe(4);
+    expect(panesProposal({ ...OWNERS_MAC, memoryBytes: 16 * GIB })).toBe(6);
+    expect(panesProposal({ ...OWNERS_MAC, memoryBytes: 32 * GIB - 1 })).toBe(6);
+    expect(panesProposal({ ...OWNERS_MAC, memoryBytes: 32 * GIB })).toBe(8);
+    expect(panesProposal(OWNERS_MAC)).toBe(8);
+    expect(panesSays(OWNERS_MAC, 8)).toBe("The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB.");
+  });
+});
+
+describe("the proposal of the cap on worktrees", () => {
+  it("is nothing until a worktree is measured, and then the worktrees that stand and as many more as the free disk less 10 GB holds", () => {
+    expect(worktreesProposal(OWNERS_MAC, 3, null)).toBeNull();
+    expect(worktreesSays(OWNERS_MAC, { proposed: null, standing: 3, perWorktreeBytes: null })).toBe("Nothing is proposed until a worktree is measured on this Mac.");
+    // (25.1 GB - 10 GB) / 440 MB is 34.
+    expect(worktreesProposal(OWNERS_MAC, 3, 440_000_000)).toBe(37);
+    expect(worktreesSays(OWNERS_MAC, { proposed: 37, standing: 3, perWorktreeBytes: 440_000_000 })).toBe("The default is 37: the 3 that stand, and 34 more that 25.1 GB free holds at 440 MB a worktree, with 10 GB kept free.");
+    // A disk with less free than is kept free holds no more.
+    expect(worktreesProposal({ ...OWNERS_MAC, disk: { freeBytes: 9_000_000_000, totalBytes: 1 } }, 3, 440_000_000)).toBe(3);
+    expect(worktreesProposal({ ...OWNERS_MAC, disk: null }, 3, 440_000_000)).toBeNull();
+    expect(worktreesSays({ ...OWNERS_MAC, disk: null }, { proposed: null, standing: 3, perWorktreeBytes: 440_000_000 })).toBe("Nothing is proposed: the disk of the worktrees' folder could not be read.");
+  });
+});
+
+describe("what the window says of the reading, and of a value a person gives a cap", () => {
+  it("states the reading in one sentence, the performance cores only where they are fewer than the cores", () => {
+    expect(readingSays(OWNERS_MAC)).toBe("36 GB of memory, 12 cores of which 6 are performance cores, a load of 3.9, and 25.1 GB free of 494.4 GB on the worktrees' disk.");
+    expect(readingSays({ ...OWNERS_MAC, performanceCores: 12, load: 0, disk: null })).toBe("36 GB of memory, 12 cores, a load of 0, and the worktrees' disk not read.");
+  });
+
+  it("refuses a value that is no whole number, one under 1, and a cap on panes over 16, with a sentence", () => {
+    for (const cap of ["agents", "worktrees", "panes"] as const) {
+      expect(capRefusal(cap, 1)).toBeNull();
+      expect(capRefusal(cap, 16)).toBeNull();
+    }
+    expect(capRefusal("agents", 40)).toBeNull();
+    expect(capRefusal("agents", 0)).toBe("The cap on agents at once is a whole number from 1.");
+    expect(capRefusal("worktrees", 2.5)).toBe("The cap on worktrees is a whole number from 1.");
+    expect(capRefusal("agents", "3")).toBe("The cap on agents at once is a whole number from 1.");
+    expect(capRefusal("panes", 17)).toBe("The cap on panes side by side is a whole number from 1 to 16.");
+    expect(capRefusal("panes", 0)).toBe("The cap on panes side by side is a whole number from 1 to 16.");
+  });
+});
+
+describe("the reading of the machine", () => {
+  it("reads the performance cores from `sysctl -n hw.perflevel0.physicalcpu`, and all the cores where it prints no whole number above 0, fails, or cannot start (scenario 17)", () => {
+    const at = folder();
+    expect(readMachine({}, probes(() => "6\n").given).read(at).performanceCores).toBe(6);
+    const asked = probes(() => "6\n");
+    readMachine({}, asked.given);
+    expect(asked.calls.sysctl).toEqual(["hw.perflevel0.physicalcpu"]);
+    for (const printed of ["", "0\n", "-2\n", "6.5\n", "none\n"]) expect(readMachine({}, probes(() => printed).given).read(at).performanceCores).toBe(8);
+    const failing = (): string => {
+      throw Object.assign(new Error("Command failed: /usr/sbin/sysctl -n hw.perflevel0.physicalcpu"), { status: 1 });
+    };
+    expect(readMachine({}, probes(failing).given).read(at).performanceCores).toBe(8);
+    const absent = (): string => {
+      throw Object.assign(new Error("spawnSync /usr/sbin/sysctl ENOENT"), { code: "ENOENT" });
+    };
+    expect(readMachine({}, probes(absent).given).read(at).performanceCores).toBe(8);
+  });
+
+  it("reads the memory, the cores and the performance cores once, and the load and the disk at each read", () => {
+    const at = folder();
+    const { given, calls } = probes(() => "4\n");
+    const reader = readMachine({}, given);
+    expect(reader.read(at)).toEqual({ memoryBytes: 8 * GIB, cores: 8, performanceCores: 4, load: 1.5, disk: { freeBytes: 1, totalBytes: 2 } });
+    reader.read(at);
+    expect(calls).toEqual({ memoryBytes: 1, cores: 1, load: 2, sysctl: ["hw.perflevel0.physicalcpu"], statfs: [at, at] });
+  });
+
+  it("reads the disk of the nearest folder above the worktrees' folder that stands, and none where no folder answers", () => {
+    const at = folder();
+    const reading = readMachine({}, probes(() => "4", { statfs: undefined }).given);
+    const disk = reading.read(join(at, "worktrees", "not-yet"))?.disk;
+    const real = statfsSync(at);
+    expect(disk?.totalBytes).toBe(real.blocks * real.bsize);
+    expect(disk?.freeBytes).toBeGreaterThan(0);
+    const none = probes(() => "4", {
+      statfs: () => {
+        throw Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+      },
+    });
+    expect(readMachine({}, none.given).read(join(at, "a")).disk).toBeNull();
+  });
+
+  it("takes the reading `OWLERY_MACHINE` holds in place of the machine's, and asks the machine nothing (scenario 16)", () => {
+    const { given, calls } = probes(() => "4");
+    const reader = readMachine({ OWLERY_MACHINE: JSON.stringify({ memoryBytes: OWNERS_MAC.memoryBytes, cores: 12, performanceCores: 6, freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 }) }, given);
+    expect(reader.read(folder())).toEqual({ ...OWNERS_MAC, load: 0 });
+    expect(readMachine({ OWLERY_MACHINE: JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, freeBytes: 0, totalBytes: 0, load: 2.5 }) }, given).read("/").load).toBe(2.5);
+    expect(calls).toEqual({ memoryBytes: 0, cores: 0, load: 0, sysctl: [], statfs: [] });
+  });
+
+  it.each([
+    ["text that is no JSON", "36 GB"],
+    ["JSON that is no object", "[1,2]"],
+    ["an object without the free disk", JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, totalBytes: 0 })],
+    ["a count of cores that is no whole number above 0", JSON.stringify({ memoryBytes: 1, cores: 0, performanceCores: 1, freeBytes: 0, totalBytes: 0 })],
+    ["a number given as text", JSON.stringify({ memoryBytes: "1", cores: 1, performanceCores: 1, freeBytes: 0, totalBytes: 0 })],
+  ])("refuses `OWLERY_MACHINE` that holds %s, with a sentence", (_, text) => {
+    expect(() => readMachine({ OWLERY_MACHINE: text }, probes(() => "4").given)).toThrow("OWLERY_MACHINE is not a JSON object with memoryBytes, cores, performanceCores, freeBytes and totalBytes, each a number of 0 or more and the cores whole numbers from 1");
+  });
+});
+
+describe("the caps a person set", () => {
+  it("keeps them in `limits.json` of the run folder, readable by the user alone, where a store started later reads them, and drops a cap returned to its proposal", () => {
+    const runDir = folder();
+    const store = new LimitsStore(runDir);
+    expect(store.get()).toEqual({ agents: null, worktrees: null, panes: null });
+    store.set({ agents: 3 });
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"agents":3}');
+    expect(statSync(join(runDir, "limits.json")).mode & 0o777).toBe(0o600);
+    store.set({ panes: 12 });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: 12 });
+    store.set({ agents: null });
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"panes":12}');
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: 12 });
+  });
+
+  it.each([
+    ["values the daemon would refuse", '{"agents":0,"worktrees":2.5,"panes":17}'],
+    ["text that is no JSON", "agents=3"],
+    ["JSON that is no object", "null"],
+    ["numbers given as text", '{"agents":"3"}'],
+  ])("reads a file that holds %s as no cap set", (_, text) => {
+    const runDir = folder();
+    writeFileSync(join(runDir, "limits.json"), text);
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: null });
+  });
+
+  it("keeps the caps in memory alone where it is given no run folder", () => {
+    const store = new LimitsStore(undefined);
+    store.set({ worktrees: 4 });
+    expect(store.get()).toEqual({ agents: null, worktrees: 4, panes: null });
+  });
+});

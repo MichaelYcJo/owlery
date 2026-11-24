@@ -13,6 +13,15 @@ const APP_DIR = join(__dirname, "..");
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * The machine every start of the app reads in place of the one the suite runs
+ * on, as `OWLERY_MACHINE` holds it: the owner's Mac as the framer's probe read
+ * it on 2026-11-25, 36 GB of memory, 12 cores of which 6 are performance
+ * cores, and 25.1 GB free of 494.4 GB. So a case reads the same proposals on
+ * the owner's Mac and on the hosted runner.
+ */
+export const SUITE_MACHINE = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 };
+
 /** Builds `dist/` from the tree as it stands, so a case never reads a stale build. */
 export function buildApp(): void {
   // The suite's binary is Electron, which runs the build script as Node while the variable is set.
@@ -167,7 +176,8 @@ export class BuiltApp {
    * with on its third line, which a case's stand-in prints from its own
    * environment, and so this one; it reads this one too where the lookup has
    * given no answer. A case that starts the app with the person's real login
-   * shell reads the folder that shell names. The app starts in the background, with
+   * shell reads the folder that shell names. The daemon reads `SUITE_MACHINE`
+   * as the machine, through `OWLERY_MACHINE`, unless `env` names another. The app starts in the background, with
    * `OWLERY_BACKGROUND` set to `1`, so its window takes neither the system's
    * focus nor the person's keyboard, lets the person's pointer through and
    * draws nothing on the screen: the cases' pointer is the debugging port's
@@ -201,7 +211,8 @@ export class BuiltApp {
     const port = await freePort();
     const mainPort = inspectMain ? await freePort() : undefined;
     // The Claude Code config folder of the app's own, which holds nothing unless the caller names another. The stand-in for the login shell prints it as the folder the shell names, and the daemon reads it for the plugins a pane's Claude Code enables under System default (src/daemon/claude-plugins.ts), so no case reads the person's settings.
-    const appEnv: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: join(userData, "claude"), ...env };
+    // The daemon reads `SUITE_MACHINE` in place of the machine, unless the caller names another.
+    const appEnv: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: join(userData, "claude"), OWLERY_MACHINE: JSON.stringify(SUITE_MACHINE), ...env };
     // Without the variable the suite's binary starts as the app.
     delete appEnv.ELECTRON_RUN_AS_NODE;
     if (!keepBackground) appEnv.OWLERY_BACKGROUND = "1";
