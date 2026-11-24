@@ -185,6 +185,25 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     expect([await open("chain-dialog"), commands().length]).toEqual([false, 3]);
   });
 
+  it("hides the settings' field and asks nothing once the plugin is turned off for the repository with no answer kept, and launches the next Claude Code pane on the owl chain with the shared settings", async () => {
+    // The person turns the plugin off in the local settings file of the main checkout. The daemon reads it at its next read of the repositories.
+    mkdirSync(join(made.repo, ".claude"));
+    writeFileSync(join(made.repo, ".claude", "settings.local.json"), `${JSON.stringify({ enabledPlugins: { [KEY]: false } })}\n`);
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      await openSettings();
+      const hidden = await value<boolean>(`document.getElementById("settings-chain-field").hidden`);
+      await app.click("#settings-cancel");
+      await dialogClosed("settings-dialog");
+      if (hidden) break;
+      if (Date.now() >= deadline) throw new Error("the settings still show the chain's field");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    await pressPaneButton("+ Claude Code");
+    expect(await commandAfter(3)).toBe(carrying(join(runDir(), "claude-hooks.json")));
+    expect(await open("chain-dialog")).toBe(false);
+  });
+
   it("left every file of the person's Claude Code config folder with the bytes it held, and added none", () => {
     expect(held()).toEqual(before);
   });
