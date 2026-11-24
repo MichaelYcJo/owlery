@@ -3,7 +3,7 @@
 // work items, the button that says how many repositories are hidden, and
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
-import { byId, changedSince, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
+import { byId, changedSince, changes, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
 import { ageOf, bellSays, daemonStatus, filterChoices, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
@@ -137,7 +137,8 @@ export function showSidebar(inFront: Front = front): void {
   const all = entries();
   const left = narrowed();
   inboxCount.textContent = held.ready ? String(all.length) : "";
-  summaryNew.textContent = summaryCount(held.changes.length);
+  // The lines the summary draws now, so a work item of the changed set that the lists no longer hold is not counted.
+  summaryNew.textContent = summaryCount(changes().length);
   const waiting = all.filter(({ line }) => line.state === "waiting").length;
   bellCount.textContent = waiting > 0 ? String(waiting) : "";
   bell.classList.toggle("ringing", waiting > 0);

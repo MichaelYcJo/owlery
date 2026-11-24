@@ -4,10 +4,10 @@
 // whose chain runs a review round, one parked with questions, a finished
 // one whose seal holds and whose pull request's checks passed, and one whose
 // seal a later commit broke, and writes one PNG file for each view (the
-// inbox, a work item's view, the view of the parked work item, the view of
-// the finished work item, the view of the broken one, a work item's menu and
-// the "New work item" form) in each appearance of the theme a first run
-// opens in. No agent runs: a pane's process is a fixture, a state is what
+// summary, the inbox, a work item's view, the view of the parked work item,
+// the view of the finished work item, the view of the broken one, a work
+// item's menu and the "New work item" form) in each appearance of the theme
+// a first run opens in. No agent runs: a pane's process is a fixture, a state is what
 // the daemon's hook socket is fed, the agent of the work item that needs the
 // person waits on a question with two choices, fed as its question tool's
 // call, and the view's work item is asked two prompts, which a stand-in for
@@ -41,7 +41,14 @@
 // work item runs no chain: the run commits the records of a seal in its
 // worktree with git, as the daemon writes them, and one commit after them,
 // so its line waits and says "Seal broken", and its view's foot shows the
-// broken seal, the seal's sentence and "Get a new seal".
+// broken seal, the seal's sentence and "Get a new seal". Once the seven
+// work items stand, and before any chain runs or any seal is given, a
+// second client of the daemon sends `looked`, so the daemon's look holds
+// each work item with no seal. From then on the page's own `looked` is held
+// back, since a page that leaves sends a look, and once the scene stands the
+// page loads again. Its `ready` carries the look taken before the seals, so
+// the window opens on the summary, which leads with the finished work
+// item's seal, given since the look, and the broken one's, broken since.
 // The second question is a block the run writes into the parked work
 // item's record, which the daemon reads in its worktree. The repository
 // names a setup once four work items
@@ -61,7 +68,7 @@
 // carries the files.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORD_FILE, withQuestion } from "../src/daemon/decision-record";
@@ -185,6 +192,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
 
   it("names one file for each view in each appearance of each theme", () => {
     expect(shots(["night-watch"]).map((shot) => shot.file)).toEqual([
+      "night-watch-dark-summary.png",
       "night-watch-dark-inbox.png",
       "night-watch-dark-view.png",
       "night-watch-dark-parked.png",
@@ -192,6 +200,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-broken.png",
       "night-watch-dark-menu.png",
       "night-watch-dark-dialog.png",
+      "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
       "night-watch-light-parked.png",
@@ -201,9 +210,9 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-dialog.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(42);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(42);
-    expect(all[41]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
+    expect(all).toHaveLength(48);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(48);
+    expect(all[47]).toEqual({ theme: "desk", appearance: "light", view: "dialog", file: "desk-light-dialog.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -257,6 +266,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
   /** The commit the broken work item's seal names, once the run has committed it. */
   let brokenAt = "";
+  /** The summary's lines, in the order it draws them. */
+  const SUMMARY_LINES = `[...document.querySelectorAll("#summary-lines button[data-work-item]")]`;
   /** A role's place of the approval line in the view's right column. */
   const place = (role: string): string => `#view-detail section.approval .place[data-role="${role}"]`;
   const MENU = `[role="menu"]`;
@@ -347,6 +358,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
 
   /** Brings a view to the front, as a person does, and waits until it is drawn. */
   const show: Record<View, () => Promise<void>> = {
+    summary: async () => {
+      await app.click("#nav-summary");
+      await app.until(`!document.getElementById("summary-screen").hidden && document.getElementById("summary-sentence").textContent.startsWith("1 sealed, 1 seal broken") && ${SUMMARY_LINES}.slice(0, 2).map((line) => line.dataset.workItem + " " + line.querySelector(".seal").dataset.seal).join() === "${FINISHED_ID} sealed,${BROKEN_ID} broken"`, `the summary, leading with the seal given on ${FINISHED} and the seal broken on ${BROKEN}`);
+    },
     inbox: async () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
@@ -460,6 +475,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
 
+    // The look the summary is read against, taken before any chain runs and before any seal: a second client of the daemon sends `looked`, and the daemon writes the look into its run folder. The page's own `looked` is held back from here on, whichever event sends it, the page that leaves among them, so no look of the page holds the seals the run gives below.
+    await app.evaluate(`(() => { const send = WebSocket.prototype.send; WebSocket.prototype.send = function (data) { if (data !== '{"type":"looked"}') send.call(this, data); }; })()`);
+    const lookFile = join(app.userData, "run", "last-look.json");
+    const lookAsked = Date.now();
+    await listed({ type: "looked" });
+    const lookTaken = (): boolean => existsSync(lookFile) && (JSON.parse(readFileSync(lookFile, "utf8")) as { at: number }).at >= lookAsked;
+    for (const deadline = Date.now() + 10_000; !lookTaken(); await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error("the daemon wrote no look taken at the second client's `looked`");
+    }
+
     // The parked work item's chain: one commit on its branch, and a seal asked for it. The stand-in for the CLI answers its round with no finding, the daemon runs the repository's broad gate, which passes, and the stand-in's sealer asks a question in place of a verdict, which the ruling parks the work item with. The run then writes a second question into the record the chain committed, and the daemon reads it at its next pass.
     const parked = (await listed()).workItems.find((workItem) => workItem.title === PARKED);
     if (!parked) throw new Error(`the daemon lists no work item ${PARKED}`);
@@ -527,6 +552,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     await app.cdp("Input.insertText", { text: ASKED_TO_ALLOW });
     await app.click("#ask-submit");
     await app.until(`document.querySelector("#headless li .permission .call")?.textContent === "pnpm test -- redirect.test.ts"`, "the second prompt's request in the view", 15_000);
+
+    // The page loads again, and opens on the summary of the look taken before the seals. The new page is a new document: its `Notification` is replaced before its first script runs, and its focus is emulated again.
+    await app.cdp("Page.addScriptToEvaluateOnNewDocument", { source: `window.Notification = class { static permission = "granted"; }` });
+    await app.cdp("Page.reload");
+    await app.until(`document.getElementById("summary-screen")?.hidden === false`, "the summary in front of the page loaded again", 20_000);
+    await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
   }, 120_000);
 
   afterAll(async () => {
