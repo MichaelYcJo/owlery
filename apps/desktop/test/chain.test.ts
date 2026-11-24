@@ -54,6 +54,7 @@ import type { Chain, ChainStage, Usage } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 import { untilGone } from "./built-app";
 import { type Cleanups, NOW, PULL_REQUEST_URL, TODAY, askBlock, bareRemote, clean, client, gateRecord, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, givenSeal, guaranteeRecord, head, noted, proofs, roles, roundRecord, rulingBlock, sealSection, sealedBy, standing, status, write } from "./chain-run";
+import { interruptToolCall, sessionLog } from "./interrupted-turn";
 import { git } from "./repositories";
 
 const cleanups: Cleanups = [];
@@ -1349,6 +1350,22 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       // Only the ask's session and the first chain's stages ever started.
       expect(new Set(c.messages.flatMap((m) => (m.type === "headless" && m.headless.workItemId === b.id ? [m.headless.id] : []))).size).toBe(1);
       expect(c.workItem(b.id)?.chain).toBeNull();
+    });
+
+    it("starts the chain of a work item whose one working pane's turn the person interrupted, read from its session log, where the start was refused while the pane worked", async () => {
+      const stood = await standing(cleanups, ["Interrupted"], { roleAdapter: roles() });
+      const a = stood.workItems[0]!;
+      const { c, d } = stood;
+      c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: a.id });
+      const { session } = await c.message("started");
+      const paneIs = (state: string) => c.until(() => (c.messages.some((m) => m.type === "inbox" && m.sessions.some((each) => each.id === session.id && each.state === state)) ? true : undefined));
+      d.agentEvent(session.id, "UserPromptSubmit", {});
+      await paneIs("working");
+      await refusedWith(stood, a.id, `A session of work item ${String(a.id)} is working, and a round reads a tree nothing is changing. Get a seal once the session has finished.`, stands(a.worktree), 2);
+      // The person presses Esc during the pane's Bash call, and the pane's process stays.
+      await interruptToolCall(d, session.id, sessionLog(cleanups));
+      await paneIs("waiting");
+      expect(await c.getSeal(a.id, 3)).toBe("done");
     });
 
     it("refuses a worktree that is not on the work item's branch, and one with a merge under way", async () => {
