@@ -42,6 +42,12 @@ This defect needs the frame's choice, not only CSS. Two fixes exist:
 if (named.length > ACCOUNT_NAME_MAX) throw new Error(`An account's name is ${String(ACCOUNT_NAME_MAX)} characters at most, so the menus show it whole.`);
 ```
 
+```seal
+verdict: fixed c941013
+location: `seal/threads/1795400734-accounts-per-repository/frame/design.md`
+answer: The orchestrator took the record's second fix at `c941013`: `frame/design.md:163` and `:270` now say that the Ask row's closed menu shows the work item's prefix and about 18 characters of a name, and that its open list shows every name whole. The rule `#ask-account { flex: none; max-width: var(--tab-width); … }` at `index.html:512` already draws exactly that, as the round's crops show, so the code locations take no change, and no name limit is added to the store. `47c04cb` rewrites the rule's comment at `index.html:511`, which said the menu keeps its whole name, to say it keeps the prefix and about 18 characters of a name. Neither `changelog.md` nor `gaps.md` says the closed menu shows a whole name.
+```
+
 ## Confirmations
 
 ```seal
