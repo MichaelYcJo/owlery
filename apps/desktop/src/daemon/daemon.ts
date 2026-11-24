@@ -201,12 +201,19 @@ export interface PaneCommand {
   env: Record<string, string>;
 }
 
+/** What a pane's command is made from, beside its kind and its id: whether the pane starts on the latest conversation of its folder, the folder it opens in, which is its work item's worktree, and the base the work item's chain reads the branch against, as round 1's target would name it (`chain.ts#roundBase`), or null where the work item records none. */
+export interface PaneStart {
+  continueLatest: boolean;
+  folder: string;
+  base: string | null;
+}
+
 export interface DaemonOptions {
   token: string;
   /** The kinds of pane a client may open, as `ready` offers them. */
   paneKinds: readonly PaneKindInfo[];
-  /** The command of a new pane of that kind, given the pane's id and whether the pane starts on the latest conversation of its folder. */
-  commandFor: (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand;
+  /** The command of a new pane of that kind, given the pane's id and what its start holds. */
+  commandFor: (kind: PaneKind, id: number, start: PaneStart) => PaneCommand;
   /** The command of a setup pane, given the command a repository's `.worktreesetup` holds and the pane's id; `setupPaneCommand` of the daemon's environment when absent. */
   setupCommandFor?: (command: string, id: number) => PaneCommand;
   /** The adapter every headless session is started through. */
@@ -1717,10 +1724,22 @@ export class Daemon {
     this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, chain: session.chain, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage });
   }
 
+  /**
+   * The base a pane's environment names for the chain command: what round
+   * 1's target would name for the work item (`chain.ts#roundBase`), which is
+   * its base branch where the target line takes the name, and otherwise the
+   * commit it was cut at. Null where the work item records neither: a launch
+   * reads no head, and the chain command then asks for `--base`.
+   */
+  private paneBase(workItemId: number): string | null {
+    const item = this.store.workItem(workItemId)?.item;
+    return item === undefined ? null : roundBase(item.baseBranch, item.baseCommit, "") || null;
+  }
+
   /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. `commandOf` gives the command of a pane that runs another than its kind's, as a setup pane does. */
   private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false, commandOf?: (id: number) => PaneCommand): SessionInfo {
     const id = this.nextId++;
-    const { command, args, env } = commandOf ? commandOf(id) : this.options.commandFor(pane.kind, id, { continueLatest });
+    const { command, args, env } = commandOf ? commandOf(id) : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId) });
     const terminal = TerminalSession.spawn({
       command,
       args,

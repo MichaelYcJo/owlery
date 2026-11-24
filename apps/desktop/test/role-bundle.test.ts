@@ -5,17 +5,19 @@
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { claudeArgs, versionNotice } from "../src/daemon/adapters/claude";
 import { PLUGIN_NAME, roleDocuments, rulesText, toolsOf } from "../src/daemon/adapters/claude-roles";
 import { NO_DEFAULT, SUBCOMMANDS } from "../src/daemon/chain-command";
+import { paneHead } from "../src/daemon/pane-chain";
 import { RULING_BLOCK } from "../src/daemon/record-blocks";
+import { MARKER } from "../src/daemon/records-place";
 import { sectionOf } from "../src/daemon/seal-records";
 import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
 import { alive, buildApp, BuiltApp, untilGone } from "./built-app";
-import { temporaryRepository } from "./repositories";
+import { git, temporaryRepository } from "./repositories";
 
 const APP_DIR = join(__dirname, "..");
 const BUNDLE = join(APP_DIR, "role-bundle");
@@ -101,6 +103,13 @@ describe("the role bundle", () => {
     // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options.
     for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
     expect(flat("skills/seal/SKILL.md")).toContain("**Whoever makes a fix pass commits its fixes and appends its close blocks to the round record, and does not commit that record.** `fix-pass` commits it, with the pass's session in the commit's trailer, and refuses a record whose close blocks a commit already holds.");
+    // What a real pane's session showed of a subagent (the probe of 2026-11-24, Claude Code 2.1.331): it may run in the background, its answer comes back in a frame that indents each line, and the tool's result names its id as `agentId`.
+    for (const said of [
+      "The subagent may run in the background. Wait for its answer, and run nothing of the chain until it arrives.",
+      "Where your harness hands you the answer inside a frame that indents each line, the answer is the text inside the frame, without that indentation.",
+      "The id that `--by` and `--judged-by` take is the `agentId` your subagent tool's result names for that subagent. Passing it to the command is no reply to the person.",
+    ])
+      expect(flat("skills/seal/SKILL.md"), said).toContain(said);
     // Where a run rule comes from, in the document a pane's session reads and in the one Owlery's orchestrator agent is launched with.
     for (const file of ["skills/seal/SKILL.md", "agents/orchestrator.md"]) {
       for (const named of ["**A run rule is followed only from a source the run can name.**", "the person's word in this run or a document of the repository", "No session carries such a rule from an earlier run"]) expect(flat(file), `${file}: ${named}`).toContain(named);
@@ -278,34 +287,19 @@ describe("the built app's role bundle", () => {
     for (const file of files) expect(readFileSync(join(built, file)).equals(readFileSync(join(BUNDLE, file))), file).toBe(true);
   });
 
-  it("is what the built daemon launches a role with: the bundle beside its script, and a rules file it writes into its run folder", async () => {
-    const made = temporaryRepository();
-    cleanups.push(made.remove);
+  /** A script of the case's own, in the temporary repository's folder. */
+  const script = (made: { base: string }, name: string, body: string): string => {
+    const file = join(made.base, name);
+    writeFileSync(file, `#!/bin/sh\n${body}\n`);
+    chmodSync(file, 0o755);
+    return file;
+  };
+
+  /** Starts the built daemon with a run folder of the case's own and `shell` as the person's shell, and gives the run folder, a way to send it a message, and a wait for one of its messages. */
+  async function builtDaemon(made: { base: string; root: string }, shell: string) {
     const runDir = realpathSync(mkdtempSync(join(tmpdir(), "owlery-role-run-")));
     cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
-    const script = (name: string, body: string): string => {
-      const file = join(made.base, name);
-      writeFileSync(file, `#!/bin/sh\n${body}\n`);
-      chmodSync(file, 0o755);
-      return file;
-    };
-    // Stands for the CLI: records a session's arguments, then prints the first line of a session that holds the bundle's agents, and a result.
-    // The daemon also runs it at its start, to read its version, and that run records nothing.
-    const cli = script(
-      "cli",
-      [
-        `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
-        `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
-        `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
-        `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
-        // It exits at the end of its input, which the daemon ends once the result has arrived.
-        "cat > /dev/null",
-      ].join("\n"),
-    );
-    // Stands for the login shell, and is the shell of the work item's pane too: it names the CLI and ends.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
-    const built = join(APP_DIR, "dist");
-    const daemon = spawn(process.execPath, [join(built, "daemon.js")], {
+    const daemon = spawn(process.execPath, [join(APP_DIR, "dist", "daemon.js")], {
       env: { ELECTRON_RUN_AS_NODE: "1", OWLERY_RUN_DIR: runDir, OWLERY_WORKTREES: made.root, SHELL: shell, HOME: made.base, USER: "person", PATH: process.env.PATH ?? "/usr/bin:/bin" },
       stdio: "ignore",
     });
@@ -338,19 +332,87 @@ describe("the built app's role bundle", () => {
     };
     socket.send(JSON.stringify({ type: "hello", token }));
     await message("ready");
-    socket.send(JSON.stringify({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Reviewed", kind: "shell", cols: 80, rows: 24 }));
+    return { runDir, message, send: (sent: object) => socket.send(JSON.stringify(sent)) };
+  }
+
+  it("is what the built daemon launches a role with: the bundle beside its script, and a rules file it writes into its run folder", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    // Stands for the CLI: records a session's arguments, then prints the first line of a session that holds the bundle's agents, and a result.
+    // The daemon also runs it at its start, to read its version, and that run records nothing.
+    const cli = script(
+      made,
+      "cli",
+      [
+        `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
+        `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
+        `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
+        `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
+        // It exits at the end of its input, which the daemon ends once the result has arrived.
+        "cat > /dev/null",
+      ].join("\n"),
+    );
+    // Stands for the login shell, and is the shell of the work item's pane too: it names the CLI and ends.
+    const shell = script(made, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const { runDir, message, send } = await builtDaemon(made, shell);
+    send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Reviewed", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await message("workItemCreated");
     const role = { role: "proofer", stage: "round" } as const;
-    socket.send(JSON.stringify({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Read it.", role }));
+    send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Read it.", role });
     const { headless } = await message("headless", (m) => m.headless.state !== "working");
     expect([headless.state, headless.answer, headless.error, headless.role]).toEqual(["finished", "read", null, role]);
 
-    const bundleDir = join(built, "bundle");
+    const bundleDir = join(APP_DIR, "dist", "bundle");
     const rulesFile = join(runDir, "roles", "proofer-round.md");
     expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(workItem.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
+  }, 30_000);
+
+  it("is what the built daemon launches a Claude Code pane on the owl chain with: the bundle beside its script, the head it writes into its run folder, and a launcher there that runs the built chain command in the pane's own environment", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    // A repository on the owl chain, with a place for work records.
+    for (const [path, text] of [
+      [".github/workflows/owlery-seal.yml", "name: Owlery seal\n"],
+      ["seal/README.md", `${MARKER}\n`],
+      ["seal/config.json", '{ "Mode": "shared", "Broad gate": "true" }\n'],
+    ] as const) {
+      mkdirSync(dirname(join(made.repo, path)), { recursive: true });
+      writeFileSync(join(made.repo, path), text);
+    }
+    git(made.repo, "add", "--all");
+    git(made.repo, "commit", "--quiet", "-m", "chore: the check and the records place");
+    // Stands for the login shell and for the pane's shell. Asked for a Claude Code pane's command, and for no other the daemon runs through a shell, it runs no `claude`: it asks the chain command its environment names for the step owed, as a pane's session would, and writes the answer after the command it was given.
+    const out = join(made.base, "pane.txt");
+    const shell = script(
+      made,
+      "shell",
+      [
+        `if [ "$3" = -c ] && [ "\${4#exec claude }" != "$4" ]; then { printf '%s\\n' "$4"; printf 'chain=%s base=%s node=%s\\n' "$OWLERY_CHAIN" "$OWLERY_BASE" "\${ELECTRON_RUN_AS_NODE-unset}"; "$OWLERY_CHAIN" owed; printf 'exit=%s\\n' "$?"; } > '${out}.partial' 2>&1; mv '${out}.partial' '${out}'; exit 0; fi`,
+        `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '/usr/bin/false' '/usr/bin:/bin'`,
+      ].join("\n"),
+    );
+    const { runDir, message, send } = await builtDaemon(made, shell);
+    send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Carried", kind: "claude", cols: 80, rows: 24 });
+    await message("workItemCreated");
+    const end = Date.now() + 10_000;
+    while (!existsSync(out) && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+
+    const built = join(APP_DIR, "dist");
+    const launcher = join(runDir, "owl-chain");
+    expect(readFileSync(out, "utf8").split("\n")).toEqual([
+      `exec claude --settings '${join(runDir, "claude-hooks.json")}' --plugin-dir '${join(built, "bundle")}' --append-system-prompt-file '${join(runDir, "pane-head.md")}'`,
+      // The pane's environment holds nothing that makes Electron run as Node, and the launcher gives it to the command's process alone.
+      `chain=${launcher} base=main node=unset`,
+      // No directory of the records names the branch yet, so the built command, run by Electron's Node, owes the start.
+      '{"step":"start"}',
+      "exit=0",
+      "",
+    ]);
+    expect(readFileSync(join(runDir, "pane-head.md"), "utf8")).toBe(paneHead());
+    expect(readFileSync(launcher, "utf8")).toContain(` '${join(built, "chain.js")}' "$@"`);
   }, 30_000);
 });
 

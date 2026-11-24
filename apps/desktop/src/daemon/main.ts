@@ -7,6 +7,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { claudeAdapter } from "./adapters/claude";
 import { HookServer, paneCommands, writeHookSettings } from "./hooks";
+import { carriedIn, writePaneChain } from "./pane-chain";
 import { Daemon } from "./daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
 import { holdAwakeFor } from "./keep-awake";
@@ -22,13 +23,16 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, the cost ledger, and the rules files of role sessions.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, and under `chain/` what the chain command hands a pane's session.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
   // The build of the script this process runs, taken once, before the daemon listens. The app compares it with the script it would start.
   const build = process.argv[1] === undefined ? undefined : buildOf(process.argv[1]);
   const hookSettingsFile = writeHookSettings(runDir);
+  // The build put the role bundle and the chain command beside this script. The launcher runs the command with the Node this process runs on, which is Electron's.
+  const beside = process.argv[1] === undefined ? undefined : dirname(process.argv[1]);
+  const paneChain = beside === undefined ? undefined : writePaneChain(runDir, { node: process.execPath, script: join(beside, "chain.js"), bundleDir: join(beside, "bundle") });
   const hooks = await HookServer.listen(join(runDir, "hooks.sock"));
 
   let stopping = false;
@@ -52,10 +56,11 @@ async function main(): Promise<void> {
     holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
-    commandFor: paneCommands(process.env, hookSettingsFile, hooks.socketPath),
+    // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch.
+    commandFor: paneCommands(process.env, hookSettingsFile, hooks.socketPath, carriedIn(paneChain)),
     // Every headless session is the user's own CLI, found once through their login shell. A role session loads the
     // role bundle the build put beside this script, and its rules file is written into the run folder.
-    roleAdapter: claudeAdapter(process.env, { bundleDir: process.argv[1] === undefined ? undefined : join(dirname(process.argv[1]), "bundle"), rulesDir: join(runDir, "roles") }),
+    roleAdapter: claudeAdapter(process.env, { bundleDir: beside === undefined ? undefined : join(beside, "bundle"), rulesDir: join(runDir, "roles") }),
     onIdle: () => void stop(0),
   });
   hooks.onEvent(({ paneId, name, payload }) => {

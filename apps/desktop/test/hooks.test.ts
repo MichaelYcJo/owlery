@@ -199,15 +199,43 @@ describe("claudePaneCommand", () => {
     expect(command).toBe("/bin/zsh");
     expect(args).toEqual(["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"]);
   });
+
+  it("loads the role bundle as a plugin of the session and appends the pane's head to its system prompt where the pane carries the owl chain, before --continue, each path quoted", () => {
+    const chain = { bundleDir: "/app/dist/bundle", headFile: "/Users/a b/pane-head.md", launcher: "/x/owl-chain" };
+    expect(claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", false, chain).args).toEqual(["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --plugin-dir '/app/dist/bundle' --append-system-prompt-file '/Users/a b/pane-head.md'"]);
+    expect(claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", true, chain).args[3]).toBe("exec claude --settings '/x/hooks.json' --plugin-dir '/app/dist/bundle' --append-system-prompt-file '/Users/a b/pane-head.md' --continue");
+    // A pane that carries nothing is launched with the settings alone.
+    expect(claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", false, null).args[3]).toBe("exec claude --settings '/x/hooks.json'");
+  });
 });
 
 describe("paneCommands", () => {
   it("asks a Claude Code pane's command to continue only where the start asks it, gives a shell its login shell whatever the start asks, and puts the pane's id and the hook socket in the environment of both", () => {
     const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/x/hooks.json", "/x/hooks.sock");
     const env = (id: number) => ({ OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: "/x/hooks.sock" });
-    expect(commandFor("claude", 3, { continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"], env: env(3) });
-    expect(commandFor("claude", 4, { continueLatest: false })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json'"], env: env(4) });
-    expect(commandFor("shell", 5, { continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(5) });
+    const start = { folder: "/w/item", base: "main" };
+    expect(commandFor("claude", 3, { ...start, continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"], env: env(3) });
+    expect(commandFor("claude", 4, { ...start, continueLatest: false })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json'"], env: env(4) });
+    expect(commandFor("shell", 5, { ...start, continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(5) });
+  });
+
+  it("gives a Claude Code pane of a folder that carries the owl chain the bundle, the head, the chain command's launcher and the work item's base, and every other pane what it had: a Claude Code pane of another folder, and a shell in the carrying folder", () => {
+    const chain = { bundleDir: "/app/dist/bundle", headFile: "/x/pane-head.md", launcher: "/x/owl-chain" };
+    const asked: string[] = [];
+    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/x/hooks.json", "/x/hooks.sock", (folder) => {
+      asked.push(folder);
+      return folder === "/w/owl" ? chain : null;
+    });
+    const env = (id: number) => ({ OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: "/x/hooks.sock" });
+    const carrying = "exec claude --settings '/x/hooks.json' --plugin-dir '/app/dist/bundle' --append-system-prompt-file '/x/pane-head.md'";
+    expect(commandFor("claude", 1, { continueLatest: false, folder: "/w/owl", base: "release/x" })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", carrying], env: { ...env(1), OWLERY_CHAIN: "/x/owl-chain", OWLERY_BASE: "release/x" } });
+    expect(commandFor("claude", 2, { continueLatest: true, folder: "/w/owl", base: "release/x" }).args[3]).toBe(`${carrying} --continue`);
+    // A work item that records no base names none, and the chain command then asks for `--base`.
+    expect(commandFor("claude", 3, { continueLatest: false, folder: "/w/owl", base: null }).env).toEqual({ ...env(3), OWLERY_CHAIN: "/x/owl-chain" });
+    expect(commandFor("claude", 4, { continueLatest: false, folder: "/w/other", base: "main" })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json'"], env: env(4) });
+    expect(commandFor("shell", 5, { continueLatest: false, folder: "/w/owl", base: "main" })).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(5) });
+    // The folder is read for a Claude Code pane alone.
+    expect(asked).toEqual(["/w/owl", "/w/owl", "/w/owl", "/w/other"]);
   });
 });
 

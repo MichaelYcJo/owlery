@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs
 import { createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, join } from "node:path";
 import type { PaneKind } from "../shared/protocol";
-import type { PaneCommand } from "./daemon";
+import type { PaneCommand, PaneStart } from "./daemon";
 import { loginShell } from "./pty";
 
 /**
@@ -74,33 +74,58 @@ function inside(dir: string, act: () => void): void {
   }
 }
 
-function shellQuote(value: string): string {
+/** A value as one word of a shell's command line, whatever it holds. */
+export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * What a Claude Code pane that carries the owl chain is launched with: the
+ * role bundle's folder, the file of the pane's head, and the launcher of the
+ * chain command. `pane-chain.ts` writes the two files and says which folder
+ * carries the chain.
+ */
+export interface PaneChain {
+  bundleDir: string;
+  headFile: string;
+  launcher: string;
 }
 
 /**
  * The command of a Claude Code pane: the user's interactive login shell, so
  * `claude` is found on the PATH their profile sets, replaced by `claude` with
- * Owlery's hook settings. The pane ends when `claude` does. With
- * `continueLatest`, `claude` starts on the latest conversation of the folder
- * the pane runs in, which Claude Code chooses, and ends at once where the
- * folder holds none.
+ * Owlery's hook settings. The pane ends when `claude` does. Where the pane
+ * carries the owl chain, `claude` loads the role bundle as a plugin of this
+ * session alone and ends its system prompt with the pane's head. Both reach
+ * it on its command line, so no settings file of the person's is written.
+ * With `continueLatest`, `claude` starts on the latest conversation of the
+ * folder the pane runs in, which Claude Code chooses, and ends at once where
+ * the folder holds none.
  */
-export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false): { command: string; args: string[] } {
+export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false, chain: PaneChain | null = null): { command: string; args: string[] } {
   const shell = env.SHELL || "/bin/zsh";
-  return { command: shell, args: ["-l", "-i", "-c", `exec claude --settings ${shellQuote(settingsFile)}${continueLatest ? " --continue" : ""}`] };
+  const carried = chain === null ? "" : ` --plugin-dir ${shellQuote(chain.bundleDir)} --append-system-prompt-file ${shellQuote(chain.headFile)}`;
+  return { command: shell, args: ["-l", "-i", "-c", `exec claude --settings ${shellQuote(settingsFile)}${carried}${continueLatest ? " --continue" : ""}`] };
 }
 
 /**
  * The daemon's `commandFor`: a pane's command by its kind, with the pane's id
  * and the hook socket in its environment, where the hook command reads both.
  * A Claude Code pane continues where the start asks it, and a shell never does.
+ * `carries` says what a Claude Code pane of a folder carries of the owl
+ * chain, so this module reads no repository itself. A pane that carries the
+ * chain also holds the launcher of the chain command in `OWLERY_CHAIN`, and
+ * the work item's base in `OWLERY_BASE` where the start names one. A shell
+ * is asked nothing and carries nothing, in whatever folder it opens.
  */
-export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socketPath: string): (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand {
-  return (kind, id, start) => ({
-    ...(kind === "claude" ? claudePaneCommand(env, settingsFile, start.continueLatest) : loginShell(env)),
-    env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath },
-  });
+export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socketPath: string, carries: (folder: string) => PaneChain | null = () => null): (kind: PaneKind, id: number, start: PaneStart) => PaneCommand {
+  return (kind, id, start) => {
+    const chain = kind === "claude" ? carries(start.folder) : null;
+    return {
+      ...(kind === "claude" ? claudePaneCommand(env, settingsFile, start.continueLatest, chain) : loginShell(env)),
+      env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath, ...(chain === null ? {} : { OWLERY_CHAIN: chain.launcher, ...(start.base === null ? {} : { OWLERY_BASE: start.base }) }) },
+    };
+  };
 }
 
 /**

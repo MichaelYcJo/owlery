@@ -590,7 +590,7 @@ describe("a role's rules file", () => {
     }
   });
 
-  it("opens the rules of a pane's subagent with a head that differs from a role session's in two sentences: the documents are not said to be in its context, and it holds the tools its definition names under the person's own permission settings, with no word of the daemon", () => {
+  it("opens the rules of a pane's subagent with a head that differs from a role session's in two sentences: the documents are not said to be in its context, and it holds those of the tools its definition names that the session offers, under the person's own permission settings, with no word of the daemon", () => {
     for (const pair of ROLE_STAGES) {
       const session = rulesHead("/app/dist/bundle", pair).split("\n");
       const pane = rulesHead("/app/dist/bundle", pair, "pane").split("\n");
@@ -598,7 +598,7 @@ describe("a role's rules file", () => {
       expect(pane.length, pair.role).toBe(session.length);
       expect(pane.flatMap((line, index) => (line === session[index] ? [] : [line])), pair.role).toEqual([
         "The documents below follow this head whole, in this order, so do not open them again in the bundle:",
-        "You hold the tools your definition names, and the tools of the session that started you where it names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call.",
+        "You hold, of the tools your definition names, those the session that started you offers, and that session's tools where your definition names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call.",
       ]);
       expect(pane.join("\n"), pair.role).not.toContain("daemon");
     }

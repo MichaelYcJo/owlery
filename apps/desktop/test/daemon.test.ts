@@ -11,6 +11,8 @@ import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
+import { paneCommands, setupPaneCommand, writeHookSettings } from "../src/daemon/hooks";
+import { carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { type DecisionRecord, RECORD_FILE, readDecisionRecord, withApplied, withCarried, withDecision, withReversal } from "../src/daemon/decision-record";
 import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
@@ -824,8 +826,8 @@ describe("work items", () => {
     const { session } = await c.message("started", (m) => m.requestId === 2);
     // The pane a work item is created with is asked nothing, and the continuing pane is the one asked.
     expect(asked).toEqual([
-      ["shell", first.id, { continueLatest: false }],
-      ["claude", session.id, { continueLatest: true }],
+      ["shell", first.id, { continueLatest: false, folder: workItem.worktree, base: "main" }],
+      ["claude", session.id, { continueLatest: true, folder: workItem.worktree, base: "main" }],
     ]);
     expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, ...NO_STATE });
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
@@ -834,9 +836,9 @@ describe("work items", () => {
     await c.message("inbox", (m) => m.sessions.find((s) => s.id === session.id)?.state === "working");
   });
 
-  it("asks the command of a pane to continue nothing where the start does not ask it", async () => {
+  it("asks the command of a pane to continue nothing where the start does not ask it, and names the pane's folder and the work item's base", async () => {
     const asked: unknown[][] = [];
-    const { url } = await daemonWithWorkItem({
+    const { url, workItem } = await daemonWithWorkItem({
       commandFor: (...given) => {
         asked.push(given);
         return printsItsFolder();
@@ -846,7 +848,7 @@ describe("work items", () => {
     await c.message("ready");
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(asked).toEqual([["claude", session.id, { continueLatest: false }]]);
+    expect(asked).toEqual([["claude", session.id, { continueLatest: false, folder: workItem.worktree, base: workItem.baseBranch }]]);
   });
 
   it("answers a start that asks a kind that does not continue to continue with an error, and starts nothing", async () => {
@@ -6625,5 +6627,130 @@ describe("the watch of an open pull request", () => {
     const other = await client(archived.url);
     await other.until(() => (archived.gh.calls().length >= 2 ? true : undefined));
     expect(new Set(archived.gh.calls().map((call) => call[2]))).toEqual(new Set([SECOND_URL]));
+  });
+});
+
+describe("a Claude Code pane and the owl chain", () => {
+  /** A stand-in for the person's shell: it writes the arguments it was given, one a line, and then its environment, into a file named for the pane, and ends. No `claude` runs. */
+  function standInShell(base: string): { shell: string; given: (pane: number) => Promise<{ args: string[]; env: Record<string, string> }> } {
+    const shell = join(base, "shell-stand-in");
+    writeFileSync(shell, `#!/bin/sh\n{ printf '%s\\n' "$@"; printf -- '--env--\\n'; env; } > '${base}'/pane-$OWLERY_PANE_ID.partial\nmv '${base}'/pane-$OWLERY_PANE_ID.partial '${base}'/pane-$OWLERY_PANE_ID.txt\n`, { mode: 0o755 });
+    const given = async (pane: number) => {
+      const file = join(base, `pane-${String(pane)}.txt`);
+      const end = Date.now() + 5000;
+      while (!existsSync(file)) {
+        if (Date.now() > end) throw new Error(`pane ${String(pane)} wrote nothing`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      const [args = "", env = ""] = readFileSync(file, "utf8").split("--env--\n");
+      return { args: args.split("\n").slice(0, -1), env: Object.fromEntries(env.split("\n").filter((line) => line.includes("=")).map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)])) };
+    };
+    return { shell, given };
+  }
+
+  /** A daemon whose panes are launched as the app's daemon launches them (`main.ts`), with the stand-in for the shell, a run folder of the case's own and a stand-in for the chain command's script, and a client of it. */
+  async function launching(made: { base: string; root: string }) {
+    const runDir = join(made.base, "run");
+    const script = join(made.base, "chain-stand-in.js");
+    writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+    const bundleDir = join(made.base, "bundle");
+    const stand = standInShell(made.base);
+    const settings = writeHookSettings(runDir);
+    const chain = writePaneChain(runDir, { node: process.execPath, script, bundleDir });
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commandFor: paneCommands({ SHELL: stand.shell }, settings, join(runDir, "hooks.sock"), carriedIn(chain)), setupCommandFor: (command, id) => setupPaneCommand({ SHELL: stand.shell }, command, id) });
+    const c = await client(url);
+    await c.message("ready");
+    return { c, runDir, settings, chain, bundleDir, given: stand.given };
+  }
+
+  /** A temporary repository whose main checkout holds the workflow at `path`, committed, so a work item's worktree holds it. */
+  function repositoryWith(path: string | null, text = "name: a check\n") {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    if (path !== null) {
+      mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+      writeFileSync(join(made.repo, path), text);
+      git(made.repo, "add", "--all");
+      git(made.repo, "commit", "--quiet", "-m", "ci: a check");
+    }
+    return made;
+  }
+  const PLUGIN_CHECK = 'jobs:\n  seal:\n    steps:\n      - run: python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n';
+
+  it("launches a Claude Code pane of a work item whose worktree holds Owlery's workflow with the role bundle, the head of the run folder and a launcher of the chain command that runs, and a shell of the same work item with none of them", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const { c, runDir, settings, chain, bundleDir, given } = await launching(made);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "On the owl chain", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    const pane = await given(session.id);
+    expect(pane.args).toEqual(["-l", "-i", "-c", `exec claude --settings '${settings}' --plugin-dir '${bundleDir}' --append-system-prompt-file '${join(runDir, "pane-head.md")}'`]);
+    expect(readFileSync(join(runDir, "pane-head.md"), "utf8")).toBe(paneHead());
+    expect([pane.env.OWLERY_CHAIN, pane.env.OWLERY_BASE, pane.env.OWLERY_PANE_ID]).toEqual([chain.launcher, "main", String(session.id)]);
+    // The launcher the pane's environment names runs the command's script and hands it its arguments.
+    expect(JSON.parse(spawnSync(pane.env.OWLERY_CHAIN!, ["owed", "--base", "main"], { encoding: "utf8", cwd: workItem.worktree }).stdout)).toEqual(["owed", "--base", "main"]);
+    // A pane that continues carries the same, before the option that continues.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id, continueLatest: true });
+    const continued = await given((await c.message("started", (m) => m.requestId === 2)).session.id);
+    expect(continued.args[3]).toBe(`${pane.args[3]!} --continue`);
+    // A shell of the work item is the person's login shell, with no word of the chain.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
+    const shell = await given((await c.message("started", (m) => m.requestId === 3)).session.id);
+    expect(shell.args).toEqual(["-l"]);
+    expect([shell.env.OWLERY_CHAIN, shell.env.OWLERY_BASE]).toEqual([undefined, undefined]);
+  });
+
+  it.each([
+    ["AgenticSeal's check", ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`],
+    ["no check", null, ""],
+  ])("launches a Claude Code pane of a work item whose worktree holds %s with the settings alone, and its setup pane with the command alone", async (_what, path, text) => {
+    const made = repositoryWith(path, text);
+    writeFileSync(join(made.repo, ".worktreesetup"), "echo set-up");
+    const { c, settings, given } = await launching(made);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "On no chain of Owlery's", kind: "claude", cols: 80, rows: 24, setupCommand: "echo set-up" });
+    const { workItem, session } = await c.message("workItemCreated");
+    const pane = await given(session.id);
+    expect(pane.args).toEqual(["-l", "-i", "-c", `exec claude --settings '${settings}'`]);
+    expect([pane.env.OWLERY_CHAIN, pane.env.OWLERY_BASE]).toEqual([undefined, undefined]);
+    const setup = await given(workItem.setup!.paneId!);
+    expect(setup.args).toEqual(["-l", "-i", "-c", "echo set-up"]);
+    expect([setup.env.OWLERY_CHAIN, setup.env.OWLERY_BASE]).toEqual([undefined, undefined]);
+  });
+
+  it("launches the setup pane of a work item on the owl chain with the command alone", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    writeFileSync(join(made.repo, ".worktreesetup"), "echo set-up");
+    const { c, given } = await launching(made);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up on the owl chain", kind: "shell", cols: 80, rows: 24, setupCommand: "echo set-up" });
+    const { workItem } = await c.message("workItemCreated");
+    const setup = await given(workItem.setup!.paneId!);
+    expect(setup.args).toEqual(["-l", "-i", "-c", "echo set-up"]);
+    expect([setup.env.OWLERY_CHAIN, setup.env.OWLERY_BASE]).toEqual([undefined, undefined]);
+  });
+
+  it("leaves every file under the person's Claude Code folder with the bytes it held, and adds none, when a pane on the owl chain opens and ends", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const home = join(made.base, "home");
+    mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), '{ "enabledPlugins": { "agentic@agenticseal": true } }\n');
+    writeFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), '{ "version": 2, "plugins": {} }\n');
+    const held = (): unknown[] =>
+      (readdirSync(join(home, ".claude"), { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
+        .map((entry) => [join(entry.parentPath, entry.name), entry.isFile() ? readFileSync(join(entry.parentPath, entry.name), "base64") : null])
+        .sort();
+    const before = held();
+    // The daemon and the pane it launches both read this home, until the case ends.
+    const own = process.env.HOME;
+    process.env.HOME = home;
+    cleanups.push(() => {
+      process.env.HOME = own;
+    });
+    const { c, given } = await launching(made);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Settings stay", kind: "claude", cols: 80, rows: 24 });
+    const { session } = await c.message("workItemCreated");
+    const pane = await given(session.id);
+    expect(pane.env.HOME).toBe(home);
+    expect(pane.env.OWLERY_CHAIN).toBeDefined();
+    await c.message("exit", (m) => m.id === session.id);
+    expect(held()).toEqual(before);
   });
 });

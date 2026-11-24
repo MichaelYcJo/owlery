@@ -9,7 +9,7 @@ This folder is a Claude Code plugin named `owlery`. It holds the roles of the ow
 **A Claude Code pane of a repository on the owl chain.** A Claude Code pane of a repository on the owl chain loads the same folder, and the person's own plugins and skills stay beside it. The pane's session gets three things from it:
 
 - `skills/seal/SKILL.md`, which says how the session runs the chain through the chain command its environment names in `OWLERY_CHAIN`. The command says which stage the records owe, and writes and commits each record.
-- The four definitions under `agents/`, as subagents named `owlery:<role>`. The session starts the proofer, the crafter and the sealer with the prompt and the rules file the command hands it. That file holds the documents a role session is launched with, under a head that says what holds in a pane: the person's own permission settings answer a call, and the role holds the tools its definition names. The session makes the orchestrator's two judgments itself.
+- The four definitions under `agents/`, as subagents named `owlery:<role>`. The session starts the proofer, the crafter and the sealer with the prompt and the rules file the command hands it. That file holds the documents a role session is launched with, under a head that says what holds in a pane: the person's own permission settings answer a call, and the role holds those of the tools its definition names that the session offers. The session makes the orchestrator's two judgments itself.
 - The hook of `hooks/hooks.json`, which *The hook* below describes.
 
 In both launches a judging role writes no record, and the gate is a run of Owlery's code that reads an exit code.

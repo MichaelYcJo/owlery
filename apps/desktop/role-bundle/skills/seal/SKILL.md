@@ -61,6 +61,15 @@ then to do what the file at `prompt` says. Give it nothing else: no summary
 of the work, and no finding you expect. What it answers is the role's
 answer, and you hand that answer to the command as it stands.
 
+The subagent may run in the background. Wait for its answer, and run
+nothing of the chain until it arrives. Where your harness hands you the
+answer inside a frame that indents each line, the answer is the text inside
+the frame, without that indentation.
+
+The id that `--by` and `--judged-by` take is the `agentId` your subagent
+tool's result names for that subagent. Passing it to the command is no
+reply to the person.
+
 ## The fix pass
 
 **Whoever makes a fix pass commits its fixes and appends its close blocks

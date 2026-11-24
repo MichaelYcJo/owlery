@@ -67,8 +67,8 @@ export type Launch = "session" | "pane";
  * hold. Two sentences say what holds in the launch. A role session of the
  * daemon has the documents in its system prompt, holds the tools its launch
  * names and is answered by the daemon. A subagent of a pane's session reads
- * the file, holds the tools its definition names and is answered by the
- * person's own permission settings.
+ * the file, holds those of the tools its definition names that the session
+ * offers, and is answered by the person's own permission settings.
  */
 export function rulesHead(bundleDir: string, role: RoleStage, launch: Launch = "session"): string {
   return [
@@ -83,7 +83,7 @@ export function rulesHead(bundleDir: string, role: RoleStage, launch: Launch = "
     ...roleDocuments(role).map((document) => `- \`${document}\``),
     "",
     launch === "pane"
-      ? "You hold the tools your definition names, and the tools of the session that started you where it names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call."
+      ? "You hold, of the tools your definition names, those the session that started you offers, and that session's tools where your definition names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call."
       : `You hold these tools and no other: ${toolsOf(role).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.`,
     "",
     "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",

@@ -154,6 +154,18 @@ function checkOf(folder: string): string | null {
 }
 
 /**
+ * Whether a folder is on the owl chain: Owlery's workflow stands in it,
+ * committed or not. A Claude Code pane that opens in such a folder carries
+ * the chain (`pane-chain.ts#carriedIn`). A folder with AgenticSeal's
+ * `hygiene.yml` alone, with no check, or that does not stand is on none of
+ * Owlery's. The folder is read as it stands at the call, and nothing of it
+ * is kept.
+ */
+export function onOwlChain(folder: string): boolean {
+  return stands(folder, WORKFLOW);
+}
+
+/**
  * What the repository's main checkout holds of the records place, read from
  * its working tree, committed or not. Git is not asked, and a folder that
  * holds none of it, or does not stand, gives null three times.
