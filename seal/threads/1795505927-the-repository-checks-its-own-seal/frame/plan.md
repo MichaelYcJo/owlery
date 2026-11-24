@@ -37,7 +37,7 @@ Each phase ends with its cases passing through the narrow run of the files it na
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | The switch: `frame/design.md` *Scope* items 8, 9 and 10, and *Removes* row 1. The workflow's text is `workflowText`'s as this phase finds it. This phase touches no file #181 changed at `fec88dc` but `apps/desktop/test/pr-check.test.ts`, where it adds a case, so it can be built before #181 lands | Scenarios 4, 5 and 6 | |
+| 1 | The switch: `frame/design.md` *Scope* items 8, 9 and 10, and *Removes* row 1. The workflow's text is `workflowText`'s as this phase finds it. This phase touches no file #181 changed at `fec88dc` but `apps/desktop/test/pr-check.test.ts`, where it adds a case, so it can be built before #181 lands | Scenarios 4, 5 and 6 | `7a6a8d4` |
 | 2 | The names, in the code and the cases: *Scope* items 1 to 7, the lines of *Removes* rows 2 and 3 outside the documents, and this repository's workflow written again from the changed `workflowText`. The phase is built on a branch that holds #181: the party that builds it merges `release/v0.0.3` first, as *Overlap with the release* states | Scenarios 1, 2, 3, 7 and 8, and scenario 4 again. At the phase's commit `git grep -n -w -e 'Owlery seal' -- . ':!seal/threads' ':!docs' ':!README.md' ':!README.ko.md' ':!pr-check/README.md'` prints nothing: at `87201ce` it prints lines of the files *Removes* row 2 names under `apps/desktop/` and of `chain_check.py` alone, and phase 3 rewrites the documents left out | |
 | 3 | The documents: *Scope* items 11 to 15, the documents' lines of *Removes* rows 2 and 3, and rows 4 and 5 | Scenario 10, and scenario 9's search whole | |
 
