@@ -66,6 +66,11 @@ describe("SessionLogWatch", () => {
     appendFileSync(ending.log, '{"one":1}\n{"two":2}\n');
     await pause(60);
     expect([ending.lines, ending.failures]).toEqual([['{"one":1}'], []]);
+    const unborn = watched(null);
+    unborn.watch().end();
+    writeFileSync(unborn.log, '{"one":1}\n');
+    await pause(250);
+    expect([unborn.lines, unborn.failures]).toEqual([[], []]);
   });
 
   it("fails once and stops where the log does not stand within its wait", async () => {
