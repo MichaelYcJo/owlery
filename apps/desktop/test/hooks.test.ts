@@ -215,6 +215,13 @@ describe("claudePaneCommand", () => {
     expect(claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", true, chain, "/accounts/1").args[3]).toBe("exec env CLAUDE_CONFIG_DIR='/accounts/1' claude --settings '/x/hooks.json' --plugin-dir '/app/dist/bundle' --append-system-prompt-file '/x/pane-head.md' --continue");
     expect(claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", true, chain, null).args[3]).toBe("exec claude --settings '/x/hooks.json' --plugin-dir '/app/dist/bundle' --append-system-prompt-file '/x/pane-head.md' --continue");
   });
+
+  it("ends with --resume and the conversation's id, quoted, after the options the owl chain gives, and never holds --continue beside it (scenario 8)", () => {
+    const chain = { bundleDir: "/app/dist/bundle", headFile: "/x/pane-head.md", launcher: "/x/owl-chain" };
+    const id = "a99099b6-accd-47d0-853b-547820b31e6d";
+    expect(claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", true, chain, "/accounts/2", id).args).toEqual(["-l", "-i", "-c", `exec env CLAUDE_CONFIG_DIR='/accounts/2' claude --settings '/x/hooks.json' --plugin-dir '/app/dist/bundle' --append-system-prompt-file '/x/pane-head.md' --resume '${id}'`]);
+    expect(claudePaneCommand({ SHELL: "/bin/zsh" }, "/x/hooks.json", false, null, null, id).args[3]).toBe(`exec claude --settings '/x/hooks.json' --resume '${id}'`);
+  });
 });
 
 describe("paneCommands", () => {
@@ -225,6 +232,10 @@ describe("paneCommands", () => {
     expect(commandFor("claude", 3, { ...start, continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json' --continue"], env: env(3) });
     expect(commandFor("claude", 4, { ...start, continueLatest: false })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", "exec claude --settings '/x/hooks.json'"], env: env(4) });
     expect(commandFor("shell", 5, { ...start, continueLatest: true })).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(5) });
+    // A start that names a conversation resumes it in a Claude Code pane, and a shell is given its login shell still.
+    const resume = "a99099b6-accd-47d0-853b-547820b31e6d";
+    expect(commandFor("claude", 6, { ...start, continueLatest: false, resume })).toEqual({ command: "/bin/zsh", args: ["-l", "-i", "-c", `exec claude --settings '/x/hooks.json' --resume '${resume}'`], env: env(6) });
+    expect(commandFor("shell", 7, { ...start, continueLatest: false, resume })).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(7) });
   });
 
   it("gives a Claude Code pane of a folder that carries the owl chain the bundle, the head, the chain command's launcher and the work item's base, and every other pane what it had: a Claude Code pane of another folder, and a shell in the carrying folder", () => {

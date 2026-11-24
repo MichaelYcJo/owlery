@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
@@ -215,6 +215,8 @@ export interface PaneStart {
   chosen: ChainChoice | null;
   accountDir: string | null;
   configDir: string | null;
+  /** The id of the conversation a pane resumes, given only where a pane's account is changed and its hook events carried one. */
+  resume?: string;
 }
 
 export interface DaemonOptions {
@@ -298,11 +300,21 @@ interface Session {
   logUnread: boolean;
   /** Whether the session's state began where the person interrupted its turn. */
   interrupted: boolean;
-  /** Settled once the pane's process has exited. */
+  /** Settled once the pane's latest process has exited. */
   exited: Promise<void>;
   /** Whether the daemon ended the pane's process, at a close, an archive, a removal or a delete. */
   ended: boolean;
+  /** The folder the pane's process runs in, and the size a client last gave it, with which a process that takes its place starts. */
+  cwd: string;
+  size: { cols: number; rows: number };
+  /** The id of the latest conversation the pane's hook events carried, where it is a UUID, which a change of the pane's account resumes. */
+  conversation: string | undefined;
+  /** Whether the daemon is ending the pane's process for a change of its account, so its end is no end of the pane. */
+  replacing: boolean;
 }
+
+/** The form of a conversation's id, which alone is put on a command line. */
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface HeadlessSession {
   info: HeadlessInfo;
@@ -484,6 +496,8 @@ export class Daemon {
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const session = this.sessions.get(paneId);
     clearTimeout(session?.silentStart);
+    // The conversation a change of the pane's account resumes, from any event that names one.
+    if (session && typeof payload.session_id === "string" && CONVERSATION_ID.test(payload.session_id)) session.conversation = payload.session_id;
     const event = agentEventFor(hookName);
     if (!event) return;
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
@@ -958,6 +972,10 @@ export class Daemon {
       }
       case "signIn": {
         void this.signIn(socket, message);
+        return;
+      }
+      case "changeAccount": {
+        void this.changeAccount(socket, message);
         return;
       }
       case "readSignIn": {
@@ -1521,6 +1539,7 @@ export class Daemon {
         const session = this.sessions.get(message.id);
         // A window fits the screen it shows an exited pane on. The pseudo-terminal of a process that exited is closed, and a size set on it throws.
         if (session?.info.alive) session.terminal.resize(message.cols, message.rows);
+        if (session && typeof message.cols === "number" && typeof message.rows === "number") session.size = { cols: message.cols, rows: message.rows };
         return;
       }
       default:
@@ -1641,6 +1660,85 @@ export class Daemon {
       const info = this.startSession(socket, { kind: "shell", cols, rows }, account.folder, null, false, null, () => command, id);
       // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
       this.send(socket, { type: "started", requestId: message.requestId, session: info });
+      this.broadcastInbox();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** An account's name, System default's among them, or its id where the daemon keeps none under it. */
+  private accountNamed(id: number): string {
+    return id === SYSTEM_DEFAULT_ID ? SYSTEM_DEFAULT_NAME : (this.accounts.account(id)?.name ?? String(id));
+  }
+
+  /**
+   * Changes the account of a pane whose process runs, at a request: the
+   * daemon gives the new account's folder the names it lacks, ends the
+   * pane's process and waits for its exit, and starts the agent in the same
+   * pane under the new account, on the conversation the pane's hook events
+   * last named, as a new pane of the work item would be launched now. The
+   * pane keeps its id, its tab and what it printed, and nothing the old
+   * process's events left. It is refused, with its reason and nothing
+   * ended, for a headless session, a sign-in pane, a pane whose kind
+   * resumes no conversation, as a shell's, a pane that runs under no account
+   * or whose process ended, an account the daemon does not keep or the one
+   * the pane runs under, and where the two accounts' folders do not keep
+   * the same conversations, in which the new one would not find the pane's.
+   */
+  private async changeAccount(socket: WebSocket, message: Extract<ClientMessage, { type: "changeAccount" }>): Promise<void> {
+    try {
+      const { id, accountId, headless } = message as { id: unknown; accountId: unknown; headless?: unknown };
+      if (typeof id !== "number" || typeof accountId !== "number") throw new Error("A change of account names the pane and the account.");
+      if (headless === true) throw new Error("A session asked in a work item keeps the account it started under. Ask again under the other account.");
+      const session = this.sessions.get(id);
+      if (!session) throw new Error(`No pane ${String(id)} is open.`);
+      const { info } = session;
+      if ((info.signsIn ?? null) !== null) throw new Error("A sign-in pane runs under the account it signs in.");
+      if (this.options.paneKinds.find((offered) => offered.kind === info.kind)?.continues !== true) throw new Error("A shell keeps the environment it started with, so its account is not changed. Open a new pane under the other account.");
+      const from = info.accountId ?? null;
+      const held = info.workItemId === null ? undefined : this.store.workItem(info.workItemId);
+      if (from === null || held === undefined) throw new Error("The pane runs under no account.");
+      if (!info.alive) throw new Error("The pane's process has ended, so it has nothing to move to another account.");
+      const to = this.accountSetting(accountId) as number;
+      if (to === from) throw new Error(`The pane runs under "${this.accountNamed(to)}" already.`);
+      // The new folder is given the person's names first, its link to the conversations among them.
+      this.furnish(to);
+      const conversations = (accountId: number): string | null => {
+        const { configDir } = this.foldersOf(accountId);
+        try {
+          return configDir === null ? null : realpathSync(join(configDir, "projects"));
+        } catch {
+          return null;
+        }
+      };
+      const kept = conversations(from);
+      if (kept === null || kept !== conversations(to)) throw new Error(`"${this.accountNamed(from)}" and "${this.accountNamed(to)}" do not keep the same conversations, so the pane's conversation would not be found under "${this.accountNamed(to)}".`);
+      session.replacing = true;
+      session.terminal.kill();
+      await session.exited;
+      session.replacing = false;
+      if (this.sessions.get(id) !== session) throw new Error("The pane was closed before its account changed.");
+      // Nothing of the old process stays on the pane: its state, its interruption and a log it could not read.
+      Object.assign(info, { accountId: to, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null });
+      session.interrupted = false;
+      session.logUnread = false;
+      const { repository } = held;
+      try {
+        const launch = this.options.commandFor(info.kind, id, { continueLatest: false, folder: session.cwd, base: this.paneBase(held.item.id), checkout: repository.folder, chosen: repository.paneChain ?? null, ...this.foldersOf(to), ...(session.conversation === undefined ? {} : { resume: session.conversation }) });
+        session.terminal = this.spawnPane(launch, session.cwd, session.size);
+      } catch (error) {
+        // The pane stays, ended, and says why in what it printed.
+        const said = `\r\n[the pane could not start under "${this.accountNamed(to)}": ${error instanceof Error ? error.message : String(error)}]\r\n`;
+        session.output.append(said);
+        this.sendOutput(id, said);
+        this.broadcastInbox();
+        this.checkIdle();
+        throw error;
+      }
+      info.alive = true;
+      this.watchProcess(session);
+      // The answer first, so the client that asked knows the change was carried out when the inbox names the new account.
+      this.send(socket, { type: "done", requestId: message.requestId });
       this.broadcastInbox();
     } catch (error) {
       this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
@@ -2019,32 +2117,50 @@ export class Daemon {
     const launch = commandOf ? commandOf(id) : workItemId === null ? undefined : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), checkout: repository?.folder ?? cwd, chosen: repository?.paneChain ?? null, ...this.foldersOf(accountId) });
     // Only a pane that runs a command of its own opens in no work item.
     if (launch === undefined) throw new Error("a pane opens in a work item");
-    const { command, args, env } = launch;
-    const terminal = TerminalSession.spawn({
-      command,
-      args,
-      cwd,
-      cols: pane.cols,
-      rows: pane.rows,
-      env: { ...process.env, ...env },
-    });
-    let exited = (): void => {};
+    const size = { cols: pane.cols, rows: pane.rows };
     const session: Session = {
       info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
-      terminal,
+      terminal: this.spawnPane(launch, cwd, size),
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,
       log: undefined,
       logUnread: false,
       interrupted: false,
-      exited: new Promise<void>((resolve) => {
-        exited = resolve;
-      }),
+      exited: Promise.resolve(),
       ended: false,
+      cwd,
+      size,
+      conversation: undefined,
+      replacing: false,
     };
     this.sessions.set(id, session);
-    if (this.reportsState(pane.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
-    // What the session prints is kept for a replay and sent to the clients that receive the session.
+    this.watchProcess(session);
+    this.clients.get(socket)?.add(id);
+    this.checkIdle();
+    return session.info;
+  }
+
+  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment with the command's own over it. */
+  private spawnPane({ command, args, env }: PaneCommand, cwd: string, size: { cols: number; rows: number }): TerminalSession {
+    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: { ...process.env, ...env } });
+  }
+
+  /**
+   * Follows the pane's latest process: what it prints is kept for a replay
+   * and sent to the clients that receive the pane, and its end is the pane's
+   * end, which every client is told of. A process the daemon ended for a
+   * change of the pane's account ends nothing of the pane: the next process
+   * takes its place.
+   */
+  private watchProcess(session: Session): void {
+    const { terminal } = session;
+    const { id, workItemId } = session.info;
+    const signsIn = session.info.signsIn ?? null;
+    let exited = (): void => {};
+    session.exited = new Promise<void>((resolve) => {
+      exited = resolve;
+    });
+    if (this.reportsState(session.info.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
     const print = (data: string): void => {
       session.output.append(data);
       this.sendOutput(id, data);
@@ -2052,6 +2168,12 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
+      if (session.replacing) {
+        clearTimeout(session.silentStart);
+        this.endLog(session);
+        exited();
+        return;
+      }
       // A setup ends with its pane's process, whether or not the pane is still listed.
       const setupEnded = workItemId !== null && this.setupExited(workItemId, id, exitCode, signal, session.ended);
       // A sign-in ended, however it went, so the account's login is read again. A daemon that is closing reads nothing.
@@ -2077,9 +2199,6 @@ export class Daemon {
       } else if (setupEnded) this.broadcastInbox();
       this.checkIdle();
     });
-    this.clients.get(socket)?.add(id);
-    this.checkIdle();
-    return session.info;
   }
 
   /**

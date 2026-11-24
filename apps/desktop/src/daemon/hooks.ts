@@ -141,19 +141,23 @@ export interface Carried {
  * folder: the variable is set in the command, after the login profile ran,
  * because a profile that exports its own replaces a value of the pane's
  * environment. Without it nothing is set, and `claude` reads the folder the
- * shell gives it.
+ * shell gives it. With `resume`, the id of a conversation, `claude` starts
+ * on that conversation, and the command ends with it in place of
+ * `--continue`, since the two choose a conversation each.
  */
-export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false, chain: PaneChain | null = null, accountDir: string | null = null): { command: string; args: string[] } {
+export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false, chain: PaneChain | null = null, accountDir: string | null = null, resume: string | null = null): { command: string; args: string[] } {
   const shell = env.SHELL || "/bin/zsh";
   const under = accountDir === null ? "" : `env ${CONFIG_DIR_VARIABLE}=${shellQuote(accountDir)} `;
   const carried = chain === null ? "" : ` --plugin-dir ${shellQuote(chain.bundleDir)} --append-system-prompt-file ${shellQuote(chain.headFile)}`;
-  return { command: shell, args: ["-l", "-i", "-c", `exec ${under}claude --settings ${shellQuote(settingsFile)}${carried}${continueLatest ? " --continue" : ""}`] };
+  const conversation = resume !== null ? ` --resume ${shellQuote(resume)}` : continueLatest ? " --continue" : "";
+  return { command: shell, args: ["-l", "-i", "-c", `exec ${under}claude --settings ${shellQuote(settingsFile)}${carried}${conversation}`] };
 }
 
 /**
  * The daemon's `commandFor`: a pane's command by its kind, with the pane's id
  * and the hook socket in its environment, where the hook command reads both.
- * A Claude Code pane continues where the start asks it, and a shell never does.
+ * A Claude Code pane continues where the start asks it, and resumes the
+ * conversation the start names, and a shell does neither.
  * `carries` says what a Claude Code pane of a start carries of the owl
  * chain, so this module reads no repository and no settings of the person's
  * itself. A pane that carries the chain also holds the launcher of the chain
@@ -174,7 +178,7 @@ export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socke
     const settings = carried == null || carried.enabledPlugins === null ? settingsFile : writePaneSettings(dirname(settingsFile), id, carried.enabledPlugins);
     const account: Record<string, string> = kind === "claude" || start.accountDir === null ? {} : { [CONFIG_DIR_VARIABLE]: start.accountDir };
     return {
-      ...(kind === "claude" ? claudePaneCommand(env, settings, start.continueLatest, chain, start.accountDir) : loginShell(env)),
+      ...(kind === "claude" ? claudePaneCommand(env, settings, start.continueLatest, chain, start.accountDir, start.resume ?? null) : loginShell(env)),
       env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath, ...account, ...(chain === null ? {} : { OWLERY_CHAIN: chain.launcher, ...(start.base === null ? {} : { OWLERY_BASE: start.base }) }) },
     };
   };

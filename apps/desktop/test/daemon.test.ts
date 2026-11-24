@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import type { RoleAdapter } from "../src/daemon/adapters/adapter";
+import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
+import { claudeLogins } from "../src/daemon/adapters/claude-accounts";
 import { type FakeAsk, fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
@@ -7212,5 +7213,254 @@ describe("a Claude Code pane and the owl chain", () => {
     expect([pane.env.OWLERY_CHAIN !== undefined, existsSync(join(runDir, `claude-pane-${String(session.id)}.json`))]).toEqual(paneChain === "owlery" ? [true, true] : [false, false]);
     await c.message("exit", (m) => m.id === session.id);
     expect(held()).toEqual(before);
+  });
+
+  /** The id of the conversation the recorded session's hook events carry (`fixtures/claude-interrupted-turn.json`). */
+  const CONVERSATION = "a99099b6-accd-47d0-853b-547820b31e6d";
+
+  /** A stand-in for the person's shell that stays: once it listens for its end and has written its size, it writes `start` and the command it was given into a file named for the pane, and its process id into another, runs until it is ended, and then writes `end`. No `claude` runs. Its files stand in a folder of their own, removed after the daemon closed, since a process ended at the close still writes. */
+  function holdingShell(at: string): { shell: string; launches: (pane: number, count: number) => Promise<string[]>; pid: (pane: number) => number; size: (pane: number) => string } {
+    const base = mkdtempSync(join(tmpdir(), "owlery-holding-shell-"));
+    cleanups.push(() => rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+    const shell = join(at, "holding-shell");
+    writeFileSync(shell, `#!/bin/sh\nlog='${base}'/launches-$OWLERY_PANE_ID.txt\nprintf '%s\\n' $$ > '${base}'/pid-$OWLERY_PANE_ID.txt\ntrap 'sleep 0.2; printf "end\\n" >> "$log"; exit 0' HUP TERM\nstty size > '${base}'/size-$OWLERY_PANE_ID.txt\nprintf 'start %s\\n' "$4" >> "$log"\nwhile :; do sleep 0.05; done\n`, { mode: 0o755 });
+    const read = (pane: number): string[] => {
+      const file = join(base, `launches-${String(pane)}.txt`);
+      return existsSync(file) ? readFileSync(file, "utf8").split("\n").slice(0, -1) : [];
+    };
+    const launches = async (pane: number, count: number) => {
+      const end = Date.now() + 5000;
+      while (read(pane).length < count) {
+        if (Date.now() > end) throw new Error(`pane ${String(pane)} wrote ${String(read(pane).length)} of ${String(count)} lines: ${read(pane).join(" | ")}`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return read(pane);
+    };
+    return { shell, launches, pid: (pane) => Number(readFileSync(join(base, `pid-${String(pane)}.txt`), "utf8")), size: (pane) => readFileSync(join(base, `size-${String(pane)}.txt`), "utf8").trim() };
+  }
+
+  /** A daemon whose panes are launched as `launching` launches them, with the stand-in for the shell that stays, and a client of it. The command of a pane launched under the folder `unstartable` cannot be written, as where its settings file cannot be. */
+  async function changing(made: { base: string; root: string }, options: Partial<DaemonOptions> = {}, unstartable?: string) {
+    const runDir = join(made.base, "run");
+    const script = join(made.base, "chain-stand-in.js");
+    writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+    const bundleDir = join(made.base, "bundle");
+    const hold = holdingShell(made.base);
+    const settings = writeHookSettings(runDir);
+    const chain = writePaneChain(runDir, { node: process.execPath, script, bundleDir });
+    const launch = paneCommands({ SHELL: hold.shell }, settings, join(runDir, "hooks.sock"), carriedIn(chain));
+    const { daemon: d, url } = await daemon({
+      runDir,
+      worktreesRoot: made.root,
+      roleAdapter: fakeAdapter({ defaultLoginFolder: configOf(made) }),
+      commandFor: (kind, id, start) => {
+        if (unstartable !== undefined && start.accountDir === unstartable) throw new Error("the pane's settings file could not be written");
+        return launch(kind, id, start);
+      },
+      pluginEnabled: (folder, checkout, configDir) => readPlugins(folder, checkout, configDir).agenticSeal.length > 0,
+      ...options,
+    });
+    const c = await client(url);
+    await c.message("ready");
+    const answer = (requestId: number) => c.until(() => c.messages.find((m): m is Extract<ServerMessage, { type: "done" | "error" }> => (m.type === "done" || m.type === "error") && m.requestId === requestId));
+    return { d, c, url, runDir, settings, answer, carried: `--plugin-dir '${bundleDir}' --append-system-prompt-file '${join(runDir, "pane-head.md")}'`, launches: hold.launches, pid: hold.pid, size: hold.size };
+  }
+
+  /** A config folder at `folder` whose `projects` is a link to `projects`, the conversations it then keeps. */
+  function sharing(folder: string, projects: string): string {
+    mkdirSync(folder, { recursive: true });
+    symlinkSync(projects, join(folder, "projects"));
+    return folder;
+  }
+
+  it("changes a running Claude Code pane's account: ends its process and waits for its exit, makes the new account's missing links, and starts the CLI on the pane's conversation under the new folder, with the owl chain's options and no --continue, in the same pane, which names the new account, shows nothing of the old process and reads its session log no more; a pane whose events carried no conversation's id starts anew (scenario 8)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    writeFileSync(join(own, "CLAUDE.md"), "# mine\n");
+    const handed = sharing(join(made.base, "handed"), join(own, "projects"));
+    const logins = claudeLogins({ locate: () => Promise.reject(new Error("no CLI runs in a case")), envOf: () => ({}), ownFolder: () => own });
+    const { d, c, url, runDir, settings, carried, launches, answer, size } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own, logins }) });
+    c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
+    c.send({ type: "addAccount", requestId: 2, name: "Made" });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    const madeFolder = join(runDir, "accounts", "2");
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Moved", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "setRepository", requestId: 4, id: workItem.repoId, paneChain: "owlery" });
+    await c.message("done", (m) => m.requestId === 4);
+    const opened = async (requestId: number) => {
+      c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId, workItemId: workItem.id, accountId: 1 });
+      return (await c.message("started", (m) => m.requestId === requestId)).session;
+    };
+    const pane = await opened(5);
+    const first = `start exec env CLAUDE_CONFIG_DIR='${handed}' claude --settings '${settings}' ${carried}`;
+    expect(await launches(pane.id, 1)).toEqual([first]);
+    // The pane works on a turn of a conversation, and its session log is read.
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(pane.id, "UserPromptSubmit", { session_id: CONVERSATION, transcript_path: log });
+    await c.message("inbox", (m) => m.sessions.some((listed) => listed.id === pane.id && listed.state === "working"));
+    rmSync(join(madeFolder, "CLAUDE.md"));
+    expect(size(pane.id)).toBe("24 80");
+    c.send({ type: "resize", id: pane.id, cols: 100, rows: 30 });
+    const from = c.messages.length;
+    c.send({ type: "changeAccount", requestId: 6, id: pane.id, accountId: 2 });
+    expect(await answer(6)).toEqual({ type: "done", requestId: 6 });
+    expect(await launches(pane.id, 3)).toEqual([first, "end", `start exec env CLAUDE_CONFIG_DIR='${madeFolder}' claude --settings '${settings}' ${carried} --resume '${CONVERSATION}'`]);
+    expect(readlinkSync(join(madeFolder, "CLAUDE.md"))).toBe(join(own, "CLAUDE.md"));
+    // The new process starts at the size the window last gave the pane.
+    expect(size(pane.id)).toBe("30 100");
+    const inbox = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((listed) => listed.id === pane.id && listed.accountId === 2)));
+    expect(inbox.sessions.find((listed) => listed.id === pane.id)).toEqual({ ...pane, accountId: 2, alive: true, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null });
+    // The old process's session log is read no more: the interruption it gains now tells nobody, and the pane never ended for any client.
+    appendFileSync(log, lines(SECOND_PROMPT, Infinity));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(c.messages.slice(from).filter((m) => (m.type === "agent" || m.type === "exit") && m.id === pane.id)).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions.find((listed) => listed.id === pane.id)?.state ?? null).toBeNull();
+    // An id that is no conversation's is never put on the command line: that pane starts anew under the new account.
+    const fresh = await opened(7);
+    await launches(fresh.id, 1);
+    d.agentEvent(fresh.id, "UserPromptSubmit", { session_id: "x'; rm -rf ~; '" });
+    c.send({ type: "changeAccount", requestId: 8, id: fresh.id, accountId: 2 });
+    expect(await answer(8)).toEqual({ type: "done", requestId: 8 });
+    expect((await launches(fresh.id, 3))[2]).toBe(`start exec env CLAUDE_CONFIG_DIR='${madeFolder}' claude --settings '${settings}' ${carried}`);
+  });
+
+  it("starts a changed pane with the settings file a launch under the new account gives: the shared one where the new folder enables no AgenticSeal plugin, and the pane's own, holding the new folder's keys with the plugin's key false, where it does (scenario 8)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const projects = join(made.base, "projects");
+    mkdirSync(projects);
+    const withIt = handedWithPlugin(sharing(join(made.base, "with"), projects));
+    const without = sharing(join(made.base, "without"), projects);
+    const { c, runDir, settings, carried, launches, answer } = await changing(made);
+    c.send({ type: "addAccount", requestId: 1, name: "With", folder: withIt });
+    c.send({ type: "addAccount", requestId: 2, name: "Without", folder: without });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Plugins follow", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "setRepository", requestId: 4, id: workItem.repoId, paneChain: "owlery" });
+    await c.message("done", (m) => m.requestId === 4);
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 5, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 5)).session;
+    const ownFile = join(runDir, `claude-pane-${String(pane.id)}.json`);
+    expect((await launches(pane.id, 1))[0]).toBe(`start exec env CLAUDE_CONFIG_DIR='${withIt}' claude --settings '${ownFile}' ${carried}`);
+    c.send({ type: "changeAccount", requestId: 6, id: pane.id, accountId: 2 });
+    expect(await answer(6)).toEqual({ type: "done", requestId: 6 });
+    expect((await launches(pane.id, 3))[2]).toBe(`start exec env CLAUDE_CONFIG_DIR='${without}' claude --settings '${settings}' ${carried}`);
+    // The way back writes the pane's own file again, from the folder it then reads.
+    rmSync(ownFile);
+    c.send({ type: "changeAccount", requestId: 7, id: pane.id, accountId: 1 });
+    expect(await answer(7)).toEqual({ type: "done", requestId: 7 });
+    expect((await launches(pane.id, 5))[4]).toBe(`start exec env CLAUDE_CONFIG_DIR='${withIt}' claude --settings '${ownFile}' ${carried}`);
+    expect(JSON.parse(readFileSync(ownFile, "utf8"))).toEqual({ ...hookSettings(), enabledPlugins: { [KEY]: false, "notes@handed": true } });
+  });
+
+  it("refuses with its reason, and ends nothing, a change of a shell, of a sign-in pane, of a working headless session, to an account whose folder keeps other conversations, to the account the pane runs under, to an account it does not keep, and of a pane whose process ended (scenario 9)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const other = join(made.base, "other");
+    mkdirSync(join(other, "projects"), { recursive: true });
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    cleanups.push(() => release());
+    const logins: AccountLogins = { furnish: () => {}, signIn: () => Promise.resolve({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), status: () => Promise.resolve({ signedIn: false, loginEndsAt: null }), signOut: () => Promise.resolve() };
+    const { c, launches, answer, pid } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own, logins, work: () => held }) });
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    c.send({ type: "addAccount", requestId: 2, name: "Other", folder: other });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Refused", kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session: shell } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 4)).session;
+    await launches(pane.id, 1);
+    c.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Hold" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 5);
+    c.send({ type: "signIn", requestId: 6, id: 1, cols: 80, rows: 12 });
+    const signIn = (await c.message("started", (m) => m.requestId === 6)).session;
+    const refused = async (requestId: number, change: { id: number; accountId: number; headless?: true }) => {
+      c.send({ type: "changeAccount", requestId, ...change });
+      return ((await answer(requestId)) as { message?: string }).message;
+    };
+    expect(await refused(10, { id: shell.id, accountId: 1 })).toBe("A shell keeps the environment it started with, so its account is not changed. Open a new pane under the other account.");
+    expect(await refused(11, { id: signIn.id, accountId: 2 })).toBe("A sign-in pane runs under the account it signs in.");
+    expect(await refused(12, { id: headless.id, headless: true, accountId: 2 })).toBe("A session asked in a work item keeps the account it started under. Ask again under the other account.");
+    expect(await refused(13, { id: pane.id, accountId: 2 })).toBe(`"Same" and "Other" do not keep the same conversations, so the pane's conversation would not be found under "Other".`);
+    expect(await refused(14, { id: pane.id, accountId: 1 })).toBe(`The pane runs under "Same" already.`);
+    expect(await refused(15, { id: pane.id, accountId: 9 })).toBe("No account 9 is kept.");
+    expect(await refused(16, { id: 99, accountId: 0 })).toBe("No pane 99 is open.");
+    // Two folders that keep no conversations at all keep none in common either.
+    for (const [requestId, name] of [[20, "Bare"], [21, "Bare too"]] as const) {
+      mkdirSync(join(made.base, name));
+      c.send({ type: "addAccount", requestId, name, folder: join(made.base, name) });
+      await answer(requestId);
+    }
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 22, workItemId: workItem.id, accountId: 3 });
+    const bare = (await c.message("started", (m) => m.requestId === 22)).session;
+    await launches(bare.id, 1);
+    expect(await refused(23, { id: bare.id, accountId: 4 })).toBe(`"Bare" and "Bare too" do not keep the same conversations, so the pane's conversation would not be found under "Bare too".`);
+    // Nothing was ended: the pane's process runs, the session works, and the shell and the sign-in pane stand.
+    expect(await launches(pane.id, 1)).toHaveLength(1);
+    const listed = await c.until(() => c.messages.findLast((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox"));
+    expect([shell.id, signIn.id, pane.id].map((id) => listed.sessions.find((each) => each.id === id)?.alive)).toEqual([true, true, true]);
+    expect(c.messages.findLast((m): m is Extract<ServerMessage, { type: "headless" }> => m.type === "headless" && m.headless.id === headless.id)?.headless.state ?? headless.state).toBe("working");
+    // A pane closed while its process ends is not started again.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 24, workItemId: workItem.id, accountId: 1 });
+    const closed = (await c.message("started", (m) => m.requestId === 24)).session;
+    await launches(closed.id, 1);
+    c.send({ type: "changeAccount", requestId: 25, id: closed.id, accountId: 0 });
+    c.send({ type: "close", id: closed.id });
+    expect(await answer(25)).toEqual({ type: "error", requestId: 25, message: "The pane was closed before its account changed." });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await launches(closed.id, 2)).toEqual([expect.stringMatching(/^start /), "end"]);
+    // A pane whose process ended has nothing to move.
+    process.kill(pid(pane.id), "SIGTERM");
+    await c.message("exit", (m) => m.id === pane.id);
+    expect(await refused(17, { id: pane.id, accountId: 0 })).toBe("The pane's process has ended, so it has nothing to move to another account.");
+    release();
+  });
+
+  it("drops on a changed pane what the old process's events left, an interruption and a log that went unread, so the new process's events alone set its state and its log is said again where it is not read; and leaves a pane whose new process cannot start ended, saying why (scenario 8)", async () => {
+    const said = logged();
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const broken = sharing(join(made.base, "broken"), join(own, "projects"));
+    const { d, c, launches, answer } = await changing(made, { sessionLogWaitMs: 100 }, broken);
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    c.send({ type: "addAccount", requestId: 2, name: "Broken", folder: broken });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Left behind", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 4)).session;
+    await launches(pane.id, 1);
+    const unread = (path: string) => said.filter((line) => line.startsWith(`the session log of pane ${String(pane.id)} is not read`) && line.includes(path));
+    // A log the old process named is never read, and its turn ends interrupted.
+    const missing = sessionLog(cleanups);
+    d.agentEvent(pane.id, "UserPromptSubmit", { transcript_path: missing });
+    await c.until(() => (unread(missing).length === 1 ? true : undefined));
+    await interruptToolCall(d, pane.id, sessionLog(cleanups));
+    await c.message("inbox", (m) => m.sessions.some((listed) => listed.id === pane.id && listed.state === "waiting"));
+    c.send({ type: "changeAccount", requestId: 5, id: pane.id, accountId: 0 });
+    expect(await answer(5)).toEqual({ type: "done", requestId: 5 });
+    // The new process's tool end leaves it working, as no interruption of its own began its state.
+    d.agentEvent(pane.id, "PostToolUse", { tool_name: "Bash" });
+    await c.message("inbox", (m) => m.sessions.some((listed) => listed.id === pane.id && listed.state === "working"));
+    const again = sessionLog(cleanups);
+    d.agentEvent(pane.id, "UserPromptSubmit", { transcript_path: again });
+    await c.until(() => (unread(again).length === 1 ? true : undefined));
+    // Under a folder whose launch cannot start, the pane stays, ended, and says why.
+    const from = c.messages.length;
+    c.send({ type: "changeAccount", requestId: 6, id: pane.id, accountId: 2 });
+    expect(await answer(6)).toEqual({ type: "error", requestId: 6, message: "the pane's settings file could not be written" });
+    const ended = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((listed) => listed.id === pane.id && !listed.alive)));
+    expect(ended.sessions.find((listed) => listed.id === pane.id)?.accountId).toBe(2);
+    expect(c.messages.slice(from).some((m) => m.type === "output" && m.id === pane.id && m.data.includes(`[the pane could not start under "Broken": the pane's settings file could not be written]`))).toBe(true);
   });
 });
