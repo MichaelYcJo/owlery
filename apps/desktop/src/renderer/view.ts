@@ -1894,7 +1894,7 @@ export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: 
 }
 
 /** What an item of a pane's menu does. */
-export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "close";
+export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "account" | "close";
 
 /** An item of a pane's menu: its words, the keys that do the same, empty where no key of the window does, what it does, and whether it can be pressed. */
 export interface PaneMenuItem {
@@ -1910,10 +1910,12 @@ export interface PaneMenuItem {
  * show the keys that do the same, and no other item shows one, since no key
  * of the window does what it does. On another keyboard no item shows a key.
  * "Copy" can be pressed only where the terminal holds a `selection`.
+ * "Change Account…" stands before "Close Pane" only where the pane's account
+ * can be changed (`paneAccountChange`), and shows no key.
  */
-export function paneMenu(mac: boolean, selection: boolean): (PaneMenuItem | null)[] {
+export function paneMenu(mac: boolean, selection: boolean, changesAccount = false): (PaneMenuItem | null)[] {
   const item = (text: string, act: PaneMenuAct, keys = "", enabled = true): PaneMenuItem => ({ text, keys: mac ? keys : "", act, enabled });
-  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, item("Close Pane", "close", "\u2318W")];
+  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
 }
 
 /** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */
@@ -2897,6 +2899,27 @@ export function accountRemoval(held: HeldAccounts, id: number, repositories: rea
 /** The choices of a menu of accounts: a first one, of the value "", that leaves the account to the setting above, named `first` with the account `gives` it gives, then each account by its id, in the daemon's order. */
 export function accountChoices(held: HeldAccounts, first: string, gives: number): { value: string; label: string }[] {
   return [{ value: "", label: `${first} (${accountName(held, gives)})` }, ...held.accounts.map((account) => ({ value: String(account.id), label: account.name }))];
+}
+
+/**
+ * What the window offers before the account of a running pane changes, the
+ * pane's `label` naming it: the heading, the sentence that says what the
+ * change does, a turn under way cut among it, and each account the pane can
+ * change to, which is each but its own, in the daemon's order. Nothing for a
+ * pane whose kind resumes no conversation, as a shell's, or is launched under
+ * no account, for a sign-in pane, a pane whose process ended, a pane of a
+ * daemon of an earlier build, which names no account, and where no account
+ * stands beside System default.
+ */
+export function paneAccountChange(session: SessionInfo, label: string, paneKinds: readonly PaneKindInfo[], held: HeldAccounts | null): { heading: string; says: string; choices: { value: string; label: string }[] } | null {
+  const kind = paneKinds.find((offered) => offered.kind === session.kind);
+  if (held === null || !offersAccounts(held) || kind?.continues !== true || kind.accounts !== true) return null;
+  if (!session.alive || (session.signsIn ?? null) !== null || session.accountId === null || session.accountId === undefined) return null;
+  return {
+    heading: `Change the account of ${label}`,
+    says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",
+    choices: held.accounts.filter((account) => account.id !== session.accountId).map((account) => ({ value: String(account.id), label: account.name })),
+  };
 }
 
 /** Which chain a repository's Claude Code panes run, or null for a repository of a daemon of an earlier build, which sends none: the window then asks no choice for it. */

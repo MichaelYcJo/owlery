@@ -100,6 +100,7 @@ import {
   paneInFront,
   paneKey,
   paneMenu,
+  paneAccountChange,
   paneTabs,
   parkNotifications,
   permissionNotifications,
@@ -4270,6 +4271,29 @@ describe("accounts in the window", () => {
       { value: "1", label: "Work" },
       { value: "2", label: "Home" },
     ]);
+  });
+
+  it("offers to change the account of a running Claude Code pane, to each account but its own, and says before the change that a turn under way is cut; offers nothing for a shell, a sign-in pane, an ended pane, a pane of a daemon of an earlier build, and where no account stands beside System default (scenario 8's window)", () => {
+    const kinds: PaneKindInfo[] = KINDS.map((kind) => ({ ...kind, accounts: true }));
+    const running = session(3, { accountId: 1 });
+    expect(paneAccountChange(running, "Claude Code", kinds, HELD)).toEqual({
+      heading: "Change the account of Claude Code",
+      says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",
+      choices: [
+        { value: "0", label: "System default" },
+        { value: "2", label: "Home" },
+      ],
+    });
+    expect(paneAccountChange(session(4, { kind: "shell", accountId: 1 }), "Shell", kinds, HELD)).toBeNull();
+    expect(paneAccountChange(session(9, { kind: "shell", workItemId: null, accountId: 1, signsIn: 1 }), "Shell", kinds, HELD)).toBeNull();
+    expect(paneAccountChange({ ...running, alive: false }, "Claude Code", kinds, HELD)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", KINDS, HELD)).toBeNull();
+    expect(paneAccountChange(session(5), "Claude Code", kinds, HELD)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", kinds, { accounts: [SYSTEM], defaultId: 0 })).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", kinds, null)).toBeNull();
+    // The pane's menu offers it before "Close Pane", only for such a pane.
+    expect(paneMenu(true, false, true).flatMap((item) => (item === null ? ["-"] : [`${item.text}${item.keys === "" ? "" : ` ${item.keys}`}`])).slice(-3)).toEqual(["-", "Change Account\u2026", "Close Pane \u2318W"]);
+    expect(paneMenu(true, false).some((item) => item?.act === "account")).toBe(false);
   });
 });
 

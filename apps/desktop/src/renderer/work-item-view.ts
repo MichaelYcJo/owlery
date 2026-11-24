@@ -45,6 +45,7 @@ import {
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
+  paneAccountChange,
   paneMenu,
   type PaneMenuAct,
   paneTabs,
@@ -176,6 +177,12 @@ const sealSays = byId("seal-says");
 const pullRequestSection = byId("view-pull-request");
 const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
+const paneAccountDialog = byId<HTMLDialogElement>("pane-account-dialog");
+const paneAccountMenu = byId<HTMLSelectElement>("pane-account-menu");
+const paneAccountError = byId("pane-account-error");
+const paneAccountSubmit = byId<HTMLButtonElement>("pane-account-submit");
+/** The pane whose account the dialog changes, while it is open, and the request it sent, until the daemon answers it. */
+let accountChange: { pane: number; requestId: number | undefined } | undefined;
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
 
@@ -427,7 +434,10 @@ function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
       if (text !== "" && turns.pane === pane) term.paste(text);
     });
   else if (chosen === "selectAll") term.selectAll();
-  else if (chosen === "close") {
+  else if (chosen === "account") {
+    const session = held.sessions.find((listed) => listed.id === pane);
+    if (session) openAccountChange(session);
+  } else if (chosen === "close") {
     const session = held.sessions.find((listed) => listed.id === pane);
     if (session) closePane(session);
   } else if (chosen === "clear") {
@@ -455,7 +465,8 @@ function openMenu(screen: Screen, at: { x: number; y: number }): void {
   menu.setAttribute("role", "menu");
   menu.tabIndex = -1;
   const buttons: HTMLButtonElement[] = [];
-  for (const item of paneMenu(mac, screen.term.hasSelection())) {
+  const shown = held.sessions.find((listed) => listed.id === screen.turns.pane);
+  for (const item of paneMenu(mac, screen.term.hasSelection(), shown !== undefined && accountOffer(shown) !== null)) {
     if (item === null) {
       const rule = document.createElement("div");
       rule.setAttribute("role", "separator");
@@ -670,6 +681,7 @@ export function dropClosed(listed: ReadonlySet<number>): void {
   }
   // The pane the dialog asks about was closed some other way, so nothing is left to ask. Closing a dialog that is not open does nothing.
   if (asking !== undefined && !listed.has(asking)) closeDialog.close();
+  if (accountChange !== undefined && !listed.has(accountChange.pane)) paneAccountDialog.close();
   // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first four panes of the stage order, which hold tabs never in front where fewer than four of the tabs were in front, or the one of the four with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
@@ -1036,6 +1048,49 @@ function closePane(session: SessionInfo): void {
   closeDialog.showModal();
 }
 
+/** What the window offers before a pane's account changes (./view, `paneAccountChange`), the pane named as its tab names it. */
+function accountOffer(session: SessionInfo): ReturnType<typeof paneAccountChange> {
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  const label = tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null);
+  return paneAccountChange(session, label, held.paneKinds, held.accounts);
+}
+
+/** Opens the dialog that changes a running pane's account, which says before the change that a turn under way is cut, with the first account the pane can change to chosen. */
+function openAccountChange(session: SessionInfo): void {
+  const offer = accountOffer(session);
+  if (!offer || paneAccountDialog.open) return;
+  accountChange = { pane: session.id, requestId: undefined };
+  byId("pane-account-head").textContent = offer.heading;
+  byId("pane-account-says").textContent = offer.says;
+  paneAccountMenu.replaceChildren(...offer.choices.map(({ value, label }) => new Option(label, value)));
+  paneAccountError.textContent = "";
+  paneAccountSubmit.disabled = false;
+  paneAccountDialog.showModal();
+  paneAccountMenu.focus();
+}
+
+/** Sends the change the dialog chose. One request per answer: the dialog's button stays off until the daemon answers. */
+function sendAccountChange(): void {
+  if (!accountChange || paneAccountMenu.value === "") return;
+  const requestId = request();
+  accountChange.requestId = requestId;
+  paneAccountError.textContent = "";
+  paneAccountSubmit.disabled = true;
+  send({ type: "changeAccount", requestId, id: accountChange.pane, accountId: Number(paneAccountMenu.value) });
+}
+
+/** Takes the daemon's answer to the dialog's change, `refusal` being its refusal or null for `done`, and answers whether the request was the dialog's: `done` closes it, and a refusal is shown in it with its button on again. */
+export function takeAccountChange(requestId: number, refusal: string | null): boolean {
+  if (accountChange === undefined || accountChange.requestId !== requestId) return false;
+  accountChange.requestId = undefined;
+  if (refusal === null) paneAccountDialog.close();
+  else {
+    paneAccountError.textContent = refusal;
+    paneAccountSubmit.disabled = false;
+  }
+  return true;
+}
+
 /** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
@@ -1369,6 +1424,15 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   });
   // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front.
   closeDialog.addEventListener("close", () => screenOf(front)?.term.focus());
+  byId("pane-account-cancel").addEventListener("click", () => paneAccountDialog.close());
+  byId<HTMLFormElement>("pane-account-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendAccountChange();
+  });
+  paneAccountDialog.addEventListener("close", () => {
+    accountChange = undefined;
+    screenOf(front)?.term.focus();
+  });
   sideBySideButton.addEventListener("click", () => {
     sideBySide = !sideBySide;
     // The panes come in front, side by side or not, in place of the back.
