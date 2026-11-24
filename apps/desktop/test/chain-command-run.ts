@@ -3,7 +3,8 @@
 // commit, as a pane's session built it, and the command run in it in the
 // case's own process, with a run folder of the case's own and the role bundle
 // of the tree. No case starts an agent: a role's answer is a file the case
-// writes, as a pane's session writes what its subagent answered.
+// writes, as a pane's session writes what its subagent answered, and a hook's
+// event is a text the case hands the command as its input.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type CommandEnd, chainCommand } from "../src/daemon/chain-command";
@@ -15,7 +16,7 @@ import { git, temporaryRepository } from "./repositories";
 export const BRANCH = "feat/greet";
 
 /** The role bundle of the tree, which the build copies beside the command's script. */
-const BUNDLE = join(__dirname, "..", "role-bundle");
+export const BUNDLE = join(__dirname, "..", "role-bundle");
 
 /** What `owed` prints, as the cases read it. */
 export interface Owed {
@@ -49,8 +50,9 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
   const built = commitAll(repo, "feat: greet");
   const runDir = join(folder, "run");
   mkdirSync(runDir);
-  const run = (args: string[], env: Record<string, string | undefined> = {}): Promise<CommandEnd> =>
-    chainCommand(args, { cwd: repo, env: { PATH: process.env.PATH, HOME: folder, OWLERY_RUN_DIR: runDir, OWLERY_BASE: "main", ...options.env, ...env }, bundleDir: BUNDLE, version: VERSION, now: () => NOW });
+  /** Runs the command in the repository. `input` is what its input holds, which `ask` alone reads, and `cwd` another folder to run it in. */
+  const run = (args: string[], env: Record<string, string | undefined> = {}, input = "", cwd = repo): Promise<CommandEnd> =>
+    chainCommand(args, { cwd, env: { PATH: process.env.PATH, HOME: folder, OWLERY_RUN_DIR: runDir, OWLERY_BASE: "main", ...options.env, ...env }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, input: () => Promise.resolve(input) });
   /** What a subcommand printed as its JSON object. It throws the command's sentence where it was refused. */
   const said = async <T = Owed>(args: string[], env?: Record<string, string | undefined>): Promise<T> => {
     const end = await run(args, env);

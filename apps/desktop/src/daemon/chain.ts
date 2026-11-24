@@ -519,11 +519,13 @@ export async function standingOf(worktree: string, directory: string, head: stri
  * The `routing.md` of a directory the daemon makes at the first start of a
  * work item's chain: the branch was built in the person's own session, so the
  * planner and the implementer are `the session`, and the work goes through
- * the review chain to a pull request. It holds no `Automation` row: nothing
- * the daemon reads says whether the branch's tests are automated, and the
- * pull request check reads the file as a declaration without the row.
+ * the review chain to a pull request. It holds the `Automation` row with
+ * the answer given, which the chain command's `start` takes from a pane's
+ * session, and no such row where none is given: nothing the daemon reads
+ * says whether a run stops for a question, and the pull request check reads
+ * the file as a declaration without the row.
  */
-export function routingText(workItem: string, branch: string, date: string): string {
+export function routingText(workItem: string, branch: string, date: string, automation: "yes" | "no" | null = null): string {
   return [
     `# Routing: ${workItem}`,
     "",
@@ -533,13 +535,14 @@ export function routingText(workItem: string, branch: string, date: string): str
     `| Destination | ${OPEN_PULL_REQUEST} |`,
     "| Planning | the session |",
     "| Implementation | the session |",
+    ...(automation === null ? [] : [`| Automation | ${automation} |`]),
     `| Branch | ${branch} |`,
     "",
     `Answered ${date} by Owlery, at the first start of the work item's chain.`,
     "",
     "## Why this way",
     "",
-    "The branch was built in the person's own session, and its chain was started for a seal on it.",
+    `The branch was built in the person's own session, and its chain was started for a seal on it.${automation === null ? "" : " The session that started the chain gave the answer on \`Automation\`."}`,
     "",
   ].join("\n");
 }

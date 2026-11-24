@@ -734,7 +734,7 @@ describe("the record of the calls a role's rule refused", () => {
 });
 
 describe("the routing a first start writes", () => {
-  it("declares the branch through the review chain, names the session as planner and implementer, and holds no Automation row", () => {
+  it("declares the branch through the review chain, names the session as planner and implementer, and holds no Automation row but where an answer is given, which it holds before the branch's row with a sentence on who gave it", () => {
     const text = routingText(NAME, "owlery/sealed-work", "2026-11-23");
     expect(declaredBranch(text)).toBe("owlery/sealed-work");
     expect(text.split("\n")).toEqual([
@@ -755,6 +755,13 @@ describe("the routing a first start writes", () => {
       "The branch was built in the person's own session, and its chain was started for a seal on it.",
       "",
     ]);
+    for (const answer of ["yes", "no"] as const) {
+      const answered = routingText(NAME, "owlery/sealed-work", "2026-11-23", answer);
+      expect(answered.split("\n")).toEqual(text.replace("| Branch |", `| Automation | ${answer} |\n| Branch |`).replace("a seal on it.", "a seal on it. The session that started the chain gave the answer on `Automation`.").split("\n"));
+      expect([declaredBranch(answered), routingAnswer(answered, "Automation")]).toEqual(["owlery/sealed-work", answer]);
+    }
+    expect(routingText(NAME, "owlery/sealed-work", "2026-11-23", null)).toBe(text);
+    expect(routingAnswer(text, "Automation")).toBeNull();
   });
 
   it("answers who implemented as the routing's row says it, which a verdict names as a builder: the session of a routing the daemon wrote, another answer as it stands, and none where no such row stands, where the row is written twice, and where a renderer hides it", () => {
@@ -2608,7 +2615,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(guaranteeAt(a.worktree)).toContain("\nVerdict: sealed\nbuilt-by: the session, s-1\njudged-by: s-2\nmodel: owl-large\nrules: owlery 0.0.2\n```\n");
   });
 
-  it("writes no verdict of an answer it cannot take, and says which: a target other than the prompt's, two verdict blocks, a line the daemon writes, a line the reader refuses, no section, and a section of another run", async () => {
+  it("writes no verdict of an answer it cannot take, and says which: a target other than the prompt's, two verdict blocks, a line Owlery writes, a line the reader refuses, no section, and a section of another run", async () => {
     let answer: (given: Given) => string = (given) => sealSection(given);
     const { adapter, started } = noted(roles({ proofer: clean, sealer: (given) => answer(given) }));
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
@@ -2617,7 +2624,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const refused: [(given: Given) => string, string][] = [
       [(given) => sealSection({ ...given, target: `${A} against main` }), `its verdict's target line reads \`${A} against main\`, and the run was given \``],
       [(given) => `${sealSection(given)}\n${block(given.target)}`, "its section holds 2 verdict blocks, and a run's section holds one"],
-      [(given) => `${given.heading}\n\n${block(given.target, "judged-by: s-9")}`, "its verdict block holds a `judged-by:` line, which the daemon writes and a sealer does not"],
+      [(given) => `${given.heading}\n\n${block(given.target, "judged-by: s-9")}`, "its verdict block holds a `judged-by:` line, which Owlery writes and a sealer does not"],
       [(given) => `${given.heading}\n\n${block(given.target, "gate: passed")}`, "its section holds a line Owlery cannot read, line 6: "],
       [() => "I read the branch, and it holds.", "its answer holds no section of the guarantee: no line of it reads `## Run 1`"],
       [(given) => sealSection({ ...given, heading: "## Run 2" }), "its section is headed `## Run 2`, and the run was given `## Run 1`"],

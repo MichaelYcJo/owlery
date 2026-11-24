@@ -28,7 +28,7 @@ export const GATE_FILE = join("trail", "gate.md");
 /** The file of a work item's directory that holds the sealer's verdicts. */
 export const GUARANTEE_FILE = "guarantee.md";
 
-/** The keys of a verdict block that the daemon writes, in the order it writes them. A sealer's block holds none. */
+/** The keys of a verdict block that Owlery writes, the daemon in its own chain and the chain command in a pane, in the order they are written. A sealer's block holds none. */
 const DAEMONS_KEYS = ["built-by:", "judged-by:", "model:", "rules:"] as const;
 
 /** A line the reader refuses, at its 1-based line. */
@@ -163,7 +163,7 @@ export function runHeading(run: number): string {
   return `## Run ${String(run)}`;
 }
 
-/** The one verdict block of a run's section, which holds none of the daemon's lines. It throws, saying which, where the reader refuses a line, and where the section holds no such block, two, or one with a line the daemon writes. */
+/** The one verdict block of a run's section, which holds none of the four lines Owlery writes: the daemon in its own chain, and the chain command in a pane. It throws, saying which, where the reader refuses a line, and where the section holds no such block, two, or one with a line Owlery writes. */
 function sealersBlock(section: string): Block {
   const got = read(section, [VERDICT_BLOCK]);
   const refused = refusedAt(got.refusals, "its section holds a line Owlery cannot read");
@@ -171,7 +171,7 @@ function sealersBlock(section: string): Block {
   const [block] = got.blocks;
   if (block === undefined || got.blocks.length > 1) throw new Error(`its section holds ${block === undefined ? "no verdict block" : `${String(got.blocks.length)} verdict blocks`}, and a run's section holds one`);
   const written = DAEMONS_KEYS.find((key) => field(block, key) !== undefined);
-  if (written !== undefined) throw new Error(`its verdict block holds a \`${written}\` line, which the daemon writes and a sealer does not`);
+  if (written !== undefined) throw new Error(`its verdict block holds a \`${written}\` line, which Owlery writes and a sealer does not`);
   return block;
 }
 

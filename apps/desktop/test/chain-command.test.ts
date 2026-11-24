@@ -5,11 +5,13 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BASE_OPTION, USAGE } from "../src/daemon/chain-command";
+import { BASE_OPTION, NO_DEFAULT, USAGE } from "../src/daemon/chain-command";
+import { routingAnswer } from "../src/daemon/decision-record";
+import { rulesText } from "../src/daemon/adapters/claude-roles";
 import { BACK_OPEN, SECTION_OPEN } from "../src/daemon/github";
 import { workItemSeal } from "../src/daemon/seal-state";
 import { type Cleanups, VERSION, clean, closeFinding, commitAll, commitFix, commitsAfterMain, givenFix, givenRound, givenSeal, head, proofs, roundRecord, sealSection, status, write } from "./chain-run";
-import { BRANCH, type Owed, commandOn, sealThrough } from "./chain-command-run";
+import { BRANCH, BUNDLE, type Owed, commandOn, sealThrough } from "./chain-command-run";
 import { git } from "./repositories";
 
 const cleanups: Cleanups = [];
@@ -21,6 +23,13 @@ afterEach(async () => {
 const DIRECTORY = "seal/threads/1795388700-greet";
 
 const read = (file: string | undefined): string => readFileSync(file ?? "", "utf8");
+
+/** The JSON a `PreToolUse` hook's command is handed on its input for an `AskUserQuestion` call that asks these questions. */
+const asked = (...questions: string[]): string =>
+  JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_input: { questions: questions.map((question) => ({ question, header: "Choice", options: [{ label: "One", description: "The first." }, { label: "Other", description: "The second." }], multiSelect: false })) } });
+
+/** How `ask` ends where it lets the call through. */
+const LET_THROUGH = { code: 0, out: "", err: "" };
 
 describe("the chain command", { timeout: 60_000 }, () => {
   it("runs a chain to a seal in the order `owed` names: it declares the routing, hands each role its prompt and rules, commits the round's record, the gate's run and the verdict, and the daemon's reader then reads the head as sealed", async () => {
@@ -36,6 +45,9 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(givenRound(read(round.prompt))).toEqual({ round: 1, heading: "# Review round 1: 1795388700-greet", target: `${routed} against main` });
     expect(read(round.prompt)).toContain("- `feature.txt`");
     expect(read(round.rules)).toContain("# Owlery role session: proofer, round");
+    // The rules are a pane's subagent's: its head names the person's permission settings, and no answer of the daemon.
+    expect(read(round.rules)).toBe(rulesText(BUNDLE, { role: "proofer", stage: "round" }, "pane"));
+    expect(read(round.rules)).toContain("The person's own permission settings answer every call that asks for permission.");
     expect(await on.said(["round", on.answer("round-1.md", clean(givenRound(read(round.prompt))))])).toMatchObject({ recorded: "round", round: 1, asks: [] });
 
     const gate = await on.said(["owed"]);
@@ -207,6 +219,79 @@ describe("the chain command", { timeout: 60_000 }, () => {
     const seal = await on.said<Owed>(["owed"]);
     expect(seal.target).toBe(`${seal.commit ?? ""} against release/x`);
     expect(read(seal.prompt)).toContain("The branch changed these paths since it left its base:\n- `feature.txt`");
+  });
+
+  it("writes the routing's `Automation` row with the answer `start` is given and none where it is given none, and refuses an answer other than `yes` and `no` and an answer a standing routing does not hold", async () => {
+    const on = commandOn(cleanups);
+    expect(await on.run(["start", "--automation", "maybe"])).toEqual({ code: 1, out: "", err: "`start` takes `--automation` with `yes` or `no`: whether the run goes on without stopping for a question.\n" });
+    expect(existsSync(join(on.repo, "seal/threads"))).toBe(false);
+    expect(await on.said(["start", "--automation", "yes"])).toMatchObject({ step: "start", directory: DIRECTORY, declared: true });
+    const routing = read(join(on.repo, DIRECTORY, "routing.md"));
+    expect(routing).toContain("| Implementation | the session |\n| Automation | yes |\n| Branch | feat/greet |\n");
+    expect(routing).toContain("The session that started the chain gave the answer on `Automation`.");
+    expect(commitsAfterMain(on.repo).map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the work item's routing"]);
+    // A routing that stands is written by no start: the answer it holds passes, and another is refused.
+    const before = head(on.repo);
+    expect(await on.said(["start", "--automation", "yes"])).toMatchObject({ declared: false });
+    expect(await on.run(["start", "--automation", "no"])).toEqual({ code: 1, out: "", err: `${DIRECTORY}/routing.md stands and answers \`Automation\` \`yes\`, and \`start\` writes a routing only where none names the branch. Change the row in that file and commit it.\n` });
+
+    const plain = commandOn(cleanups);
+    await plain.said(["start"]);
+    expect(routingAnswer(read(join(plain.repo, DIRECTORY, "routing.md")), "Automation")).toBeNull();
+    expect(read(join(plain.repo, DIRECTORY, "routing.md"))).not.toContain("Automation");
+    expect(await plain.run(["start", "--automation", "yes"])).toEqual({ code: 1, out: "", err: `${DIRECTORY}/routing.md stands and holds no \`Automation\` row, and \`start\` writes a routing only where none names the branch. Change the row in that file and commit it.\n` });
+    const no = commandOn(cleanups);
+    await no.said(["start", "--automation", "no"]);
+    expect(routingAnswer(read(join(no.repo, DIRECTORY, "routing.md")), "Automation")).toBe("no");
+    expect(head(on.repo)).toBe(before);
+    for (const { repo } of [on, plain, no]) expect(status(repo)).toEqual([]);
+  });
+
+  it("refuses an `AskUserQuestion` call where the work item's routing answers `Automation` `yes`, with exit code 2 and the reason on its error output, lets a call through where one of its questions opens with `No default can be taken: ` and a reason, and decides nothing on an input it cannot read", async () => {
+    const on = commandOn(cleanups);
+    await on.said(["start", "--automation", "yes"]);
+    const before = head(on.repo);
+    const refused = {
+      code: 2,
+      out: "",
+      err: `${DIRECTORY}/routing.md answers \`Automation\` \`yes\`, so this run does not stop for a question. Go on with the question's default, and write the question with that default as a row of ${DIRECTORY}/frame/questions.md. Where no default can be taken, ask again with the question opening \`${NO_DEFAULT}\` and the reason after those words.\n`,
+    };
+    expect(await on.run(["ask"], {}, asked("Which base does the round read the branch against?"))).toEqual(refused);
+    expect(await on.run(["ask"], {}, asked("Which base?", "Which model judges?"))).toEqual(refused);
+    // The form: one question of the call that opens with the words and gives a reason.
+    expect(NO_DEFAULT).toBe("No default can be taken: ");
+    expect(await on.run(["ask"], {}, asked("Which base?", `${NO_DEFAULT}a push needs the person's approval, and no document gives it. May the branch be pushed?`))).toEqual(LET_THROUGH);
+    // The words with no reason after them, and the words after the question's opening, are not the form.
+    expect(await on.run(["ask"], {}, asked(`${NO_DEFAULT} `))).toEqual(refused);
+    expect(await on.run(["ask"], {}, asked(`May the branch be pushed? ${NO_DEFAULT}a push needs the person's approval.`))).toEqual(refused);
+    // An input that is no event of the call is named as not read, with a code that refuses nothing.
+    for (const input of ["", "not JSON", JSON.stringify({ tool_name: "AskUserQuestion", tool_input: { questions: "Which base?" } }), JSON.stringify({ tool_input: { questions: [{ header: "Choice" }] } })]) {
+      expect(await on.run(["ask"], {}, input), input).toEqual({ code: 1, out: "", err: "The input of `ask` is not the event of an `AskUserQuestion` call, a JSON object whose `tool_input.questions` holds each question's text, so `ask` decides nothing on it.\n" });
+    }
+    expect(head(on.repo)).toBe(before);
+    expect(status(on.repo)).toEqual([]);
+  });
+
+  it("lets an `AskUserQuestion` call through where no directory names the branch, where the routing holds no `Automation` row, where the row reads `no`, where two directories name the branch, where the worktree's HEAD names no branch, and outside every worktree", async () => {
+    const question = asked("Which base does the round read the branch against?");
+    const on = commandOn(cleanups);
+    expect(await on.run(["ask"], {}, question)).toEqual(LET_THROUGH);
+    await on.said(["start"]);
+    expect(await on.run(["ask"], {}, question)).toEqual(LET_THROUGH);
+
+    const no = commandOn(cleanups);
+    await no.said(["start", "--automation", "no"]);
+    expect(await no.run(["ask"], {}, question)).toEqual(LET_THROUGH);
+
+    const yes = commandOn(cleanups);
+    await yes.said(["start", "--automation", "yes"]);
+    expect((await yes.run(["ask"], {}, question)).code).toBe(2);
+    expect(await yes.run(["ask"], {}, question, yes.folder)).toEqual(LET_THROUGH);
+    git(yes.repo, "checkout", "--quiet", "--detach");
+    expect(await yes.run(["ask"], {}, question)).toEqual(LET_THROUGH);
+    git(yes.repo, "checkout", "--quiet", BRANCH);
+    write(yes.repo, "seal/threads/2-twin/routing.md", read(join(yes.repo, DIRECTORY, "routing.md")));
+    expect(await yes.run(["ask"], {}, question)).toEqual(LET_THROUGH);
   });
 
   it("refuses a run with no subcommand, an unknown one and an option the subcommand does not take, each with the usage", async () => {

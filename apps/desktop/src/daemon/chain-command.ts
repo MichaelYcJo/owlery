@@ -9,11 +9,13 @@
 // the daemon's chain (docs/architecture.md, "Code runs the order, the
 // orchestrator judges").
 //
-// Each subcommand prints one JSON object on its first line and exits with 0,
-// or writes a sentence to its error output and exits with 1, with nothing
-// committed. The session runs each role as a subagent of the bundle and
-// judges what the daemon asks its orchestrator agent: this command starts no
-// session and judges nothing.
+// Each subcommand but `ask` prints one JSON object on its first line and
+// exits with 0, or writes a sentence to its error output and exits with 1,
+// with nothing committed. The session runs each role as a subagent of the
+// bundle and judges what the daemon asks its orchestrator agent: this command
+// starts no session and judges nothing. `ask` is the subcommand the bundle's
+// hook on `AskUserQuestion` runs (role-bundle/hooks/hooks.json): it prints no
+// JSON, and its exit code tells Claude Code whether the call goes through.
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -21,11 +23,12 @@ import type { RoleStage } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import { agentOf, rulesFileName, rulesText } from "./adapters/claude-roles";
 import { BASE_RECORDED, type ChainBase, ChainStop, type StagePrompt, type Standing, type Step, baseOf, chainStoppedSays, gateNotRunSays, inFolder, promptText, recordedBase, stageName, standingOf, stepOwed, stoppedSays, whyNoBase } from "./chain";
-import { workItemDirectories } from "./decision-record";
+import { ROUTING_FILE, routingAnswer, workItemDirectories } from "./decision-record";
 import { GATE_LIMIT_MS, gateEnvironment, startGate } from "./gate";
 import { backSection, bodyRecords, sealSection } from "./github";
 import { ROUND_BASE, THE_SESSION, isSessionId } from "./record-blocks";
 import { readRecordsPlace, rootOf } from "./records-place";
+import { repositoryFileText } from "./repository-file";
 import { sealRecords } from "./seal-back-records";
 import { type Place, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
 import { writeWholeFile } from "./whole-file";
@@ -42,6 +45,8 @@ export interface CommandContext {
   now: () => number;
   /** How long the broad gate's command may run; `GATE_LIMIT_MS` of `gate.ts` when absent. */
   gateLimitMs?: number;
+  /** What the command's input holds, to its end. `ask` alone reads it, and a run given none reads an empty input. */
+  input?: () => Promise<string>;
 }
 
 /** How a run of the command ended: its exit code, and what it prints on each stream. */
@@ -52,23 +57,30 @@ export interface CommandEnd {
 }
 
 /** The subcommands, in the order the usage names them. */
-export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "seal", "body"] as const;
+export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "seal", "body", "ask"] as const;
 
 /** The usage, which a run with no subcommand or an unknown one is refused with. */
 export const USAGE = [
   "Usage, in a work item's worktree:",
   "  owed [--base <base>]                                  the step the records owe, with the stage's prompt",
-  "  start [--base <base>]                                 declare the work item's routing",
+  "  start [--base <base>] [--automation <yes or no>]      declare the work item's routing",
   "  round <answer-file> [--base <base>]                   record a proofer's answer",
   "  fix-pass --by <session>                               record a fix pass's close blocks",
   "  gate                                                  run the broad gate and record a pass",
   "  seal <answer-file> --judged-by <id> --model <name>    record a sealer's answer",
   "  body                                                  write the pull request body's sections",
+  "  ask                                                   answer the bundle's hook on an AskUserQuestion call",
   "",
 ].join("\n");
 
 /** How another base is named for the chain command, before round 1's record stands: the sentence that ends `chain.ts#whyNoBase`'s reason there. */
 export const BASE_OPTION = "Name another with `--base <branch or commit>`.";
+
+/** The answers `start` takes on `--automation`, which are the ones the pull request check reads in a routing's `Automation` row (`pr-check/lib/routing.py`). */
+const AUTOMATION_ANSWERS = ["yes", "no"] as const;
+
+/** The words a question opens with to pass `ask` under `Automation` `yes`, with the reason after them. It is the one form `ask` reads. */
+export const NO_DEFAULT = "No default can be taken: ";
 
 /** A refusal of the command: its message is the whole sentence the command prints. */
 class Refusal extends Error {}
@@ -180,7 +192,7 @@ function stageFolder(context: CommandContext, workItem: string): string {
   return folder;
 }
 
-/** Writes a stage's prompt and its role's rules file into the run folder, and gives what the session starts the role with: the bundle agent's name and the two paths. */
+/** Writes a stage's prompt and its role's rules file, with the head of a pane's subagent (`claude-roles.ts#rulesHead`), into the run folder, and gives what the session starts the role with: the bundle agent's name and the two paths. */
 function handed(context: CommandContext, workItem: string, step: "round" | "fix-pass" | "seal", name: string, prompt: StagePrompt): { agent: string; prompt: string; rules: string } {
   if (context.bundleDir === undefined) throw new Refusal("The chain command stands beside no role bundle, so it has no rules to hand the role.");
   const role = ROLE_OF[step];
@@ -188,7 +200,7 @@ function handed(context: CommandContext, workItem: string, step: "round" | "fix-
   const promptFile = join(folder, `${name}.prompt.md`);
   const rulesFile = join(folder, rulesFileName(role));
   writeWholeFile(promptFile, promptText(prompt));
-  writeWholeFile(rulesFile, rulesText(context.bundleDir, role));
+  writeWholeFile(rulesFile, rulesText(context.bundleDir, role, "pane"));
   return { agent: agentOf(role), prompt: promptFile, rules: rulesFile };
 }
 
@@ -242,23 +254,35 @@ async function owed(context: CommandContext, args: readonly string[]): Promise<o
 
 /**
  * Declares the work item's routing where no directory names the branch, as
- * the daemon's chain does at its first start. It refuses, with nothing
+ * the daemon's chain does at its first start. With `--automation` the
+ * routing holds the `Automation` row with that answer, which `ask` reads,
+ * and with no such option it holds no such row. It refuses, with nothing
  * written, what the daemon refuses a start for: a records root whose
  * `config.json` names no broad gate, a change no commit holds, a branch
- * that left its base, and a branch that holds no commit after its base.
+ * that left its base, and a branch that holds no commit after its base. It
+ * also refuses an answer other than `yes` and `no`, and an answer that a
+ * routing which stands does not hold, since it writes no routing that
+ * stands.
  */
 async function start(context: CommandContext, args: readonly string[]): Promise<object> {
-  const { options } = parsed(args, ["--base"]);
+  const { options } = parsed(args, ["--base", "--automation"]);
+  const given = options.get("--automation");
+  const automation = AUTOMATION_ANSWERS.find((answer) => answer === given) ?? null;
+  if (given !== undefined && automation === null) throw new Refusal("`start` takes `--automation` with `yes` or `no`: whether the run goes on without stopping for a question.");
   const at = await here(context);
   const { worktree, branch, head } = at;
   const root = rootOf(worktree) ?? "";
   if ((readRecordsPlace(worktree).broadGate ?? "").trim() === "") throw new Refusal(`${root}/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository's check there, and commit it.`);
   const inside = at.directory === null ? null : relative(worktree, at.directory);
+  if (at.directory !== null && inside !== null && automation !== null) {
+    const stands = routingAnswer(repositoryFileText(join(at.directory, ROUTING_FILE)) ?? "", "Automation");
+    if (stands !== automation) throw new Refusal(`${inside}/${ROUTING_FILE} stands and ${stands === null ? "holds no \`Automation\` row" : `answers \`Automation\` \`${stands}\``}, and \`start\` writes a routing only where none names the branch. Change the row in that file and commit it.`);
+  }
   const loose = (await uncommittedPaths(worktree)).filter((path) => inside === null || !inFolder(path, inside));
   if (loose.length > 0) throw new Refusal(`The worktree holds a change no commit holds, at ${loose[0] ?? ""}${loose.length > 1 ? ` and ${String(loose.length - 1)} more` : ""}. A round reads a committed tree: commit the change or remove it first.`);
   const base = await baseHere(context, at, options.get("--base"));
   if (base.commit !== null && (await newCommits(worktree, branch, base.commit)) === 0) throw new Refusal("The branch holds no commit after its base, so a round has nothing to read.");
-  const directory = await declaredDirectory(worktree, branch, context.now());
+  const directory = await declaredDirectory(worktree, branch, context.now(), undefined, automation);
   return { step: "start", directory: relative(worktree, directory), declared: at.directory === null, head: at.directory === null ? await worktreeHead(worktree) : head };
 }
 
@@ -381,19 +405,70 @@ async function body(context: CommandContext, args: readonly string[]): Promise<o
   return { body: file, head: at.head };
 }
 
-const RUNS: Record<(typeof SUBCOMMANDS)[number], (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, seal, body };
+/** The text of each question an `AskUserQuestion` call asks, from the JSON a `PreToolUse` hook's command is handed on its input, or null where the input is no such event: no JSON object, one whose `tool_input.questions` is no list, an empty list, or a list with an entry that holds no text under `question`. */
+function questionsAsked(input: string): string[] | null {
+  let event: unknown;
+  try {
+    event = JSON.parse(input);
+  } catch {
+    return null;
+  }
+  const questions = (event as { tool_input?: { questions?: unknown } } | null)?.tool_input?.questions;
+  if (!Array.isArray(questions) || questions.length === 0) return null;
+  const texts = questions.map((entry) => (entry as { question?: unknown } | null)?.question);
+  return texts.every((text): text is string => typeof text === "string") ? texts : null;
+}
 
 /**
- * Runs one subcommand. It answers with exit code 0 and one JSON object on
- * the first line of its output, or with exit code 1 and a sentence on its
- * error output: a refusal's, or, for what a reader or git threw, the
- * chain's sentence of a stop.
+ * Answers the bundle's hook on an `AskUserQuestion` call, by its exit code
+ * as Claude Code reads a hook's command: 0 lets the call through, and 2
+ * refuses it and hands the session what the command wrote to its error
+ * output. It refuses where the `routing.md` of the one directory that names
+ * the worktree's branch answers `Automation` `yes`, unless a question of the
+ * call opens with `NO_DEFAULT` and a reason. It lets every other call
+ * through: outside a worktree, where HEAD names no branch, where no
+ * directory or more than one names the branch, and where the routing holds
+ * no such row or another answer. An input it cannot read as the call's event
+ * is named as not read, with exit code 1, which refuses nothing. It does not
+ * judge whether a question is the person's to answer: the form makes the
+ * session write why no default can be taken.
+ */
+async function ask(context: CommandContext, args: readonly string[]): Promise<CommandEnd> {
+  parsed(args, []);
+  const through: CommandEnd = { code: 0, out: "", err: "" };
+  const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
+  if (worktree === null || worktree === "") return through;
+  const branch = await gitSays(worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (branch === null || branch === "") return through;
+  const directories = workItemDirectories(worktree, branch);
+  const [directory] = directories;
+  if (directory === undefined || directories.length > 1) return through;
+  if (routingAnswer(repositoryFileText(join(directory, ROUTING_FILE)) ?? "", "Automation") !== "yes") return through;
+  const questions = questionsAsked(context.input === undefined ? "" : await context.input());
+  if (questions === null) return { code: 1, out: "", err: "The input of `ask` is not the event of an `AskUserQuestion` call, a JSON object whose `tool_input.questions` holds each question's text, so `ask` decides nothing on it.\n" };
+  if (questions.some((question) => question.startsWith(NO_DEFAULT) && question.slice(NO_DEFAULT.length).trim() !== "")) return through;
+  const inside = relative(worktree, directory);
+  return {
+    code: 2,
+    out: "",
+    err: `${inside}/${ROUTING_FILE} answers \`Automation\` \`yes\`, so this run does not stop for a question. Go on with the question's default, and write the question with that default as a row of ${inside}/frame/questions.md. Where no default can be taken, ask again with the question opening \`${NO_DEFAULT}\` and the reason after those words.\n`,
+  };
+}
+
+const RUNS: Record<Exclude<(typeof SUBCOMMANDS)[number], "ask">, (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, seal, body };
+
+/**
+ * Runs one subcommand. Each but `ask` answers with exit code 0 and one JSON
+ * object on the first line of its output, or with exit code 1 and a sentence
+ * on its error output: a refusal's, or, for what a reader or git threw, the
+ * chain's sentence of a stop. `ask` answers as its own comment says.
  */
 export async function chainCommand(args: readonly string[], context: CommandContext): Promise<CommandEnd> {
   const [name = "", ...rest] = args;
-  const run = (SUBCOMMANDS as readonly string[]).includes(name) ? RUNS[name as (typeof SUBCOMMANDS)[number]] : undefined;
-  if (run === undefined) return { code: 1, out: "", err: `${name === "" ? "The chain command takes a subcommand." : `The chain command has no subcommand ${name}.`}\n${USAGE}` };
+  const run = name !== "ask" && (SUBCOMMANDS as readonly string[]).includes(name) ? RUNS[name as keyof typeof RUNS] : undefined;
+  if (run === undefined && name !== "ask") return { code: 1, out: "", err: `${name === "" ? "The chain command takes a subcommand." : `The chain command has no subcommand ${name}.`}\n${USAGE}` };
   try {
+    if (run === undefined) return await ask(context, rest);
     return { code: 0, out: `${JSON.stringify(await run(context, rest))}\n`, err: "" };
   } catch (error) {
     if (error instanceof Refusal) return { code: 1, out: "", err: `${error.message.replace(/\n+$/u, "")}\n` };

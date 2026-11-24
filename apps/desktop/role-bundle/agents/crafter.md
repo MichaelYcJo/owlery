@@ -59,13 +59,14 @@ is a write you do not make.
    and in the first phase `gaps.md` from `templates/records/sdd-gaps.md`.
 9. In a fix pass, open `skills/implement/fix-pass.md` and follow it in place
    of step 7's run and of the phase record steps 5 and 8 write; steps 5 and
-   6 otherwise hold for each fix. The daemon launches the pass in the work
-   item's worktree, and its prompt names the round record, the numbers of
-   its open findings, each decision the person reversed with the person's
-   message, and `decisions.md`: take each reversal in, and hold to each
-   decision and each answer that file records. Commit each fix yourself,
-   and commit no change to the round record: the daemon commits it after
-   the pass.
+   6 otherwise hold for each fix. The pass runs in the work item's
+   worktree, and its prompt names the round record, the numbers of its
+   open findings, each decision the person reversed with the person's
+   message, and `decisions.md` where one stands: take each reversal in, and
+   hold to each decision and each answer that file records. Commit each fix
+   yourself, and commit no change to the round record: Owlery commits it
+   after the pass, the daemon in a chain it runs and the chain command in a
+   pane.
 10. Hand back, after the same `writing-style` section: what was done, each
     claim labelled as rule 4 asks and the suite as rule 2 asks, each
     instruction you declined as rule 3 asks, the account the rule *Before
@@ -77,13 +78,13 @@ is a write you do not make.
     answer goes into your answer as one `seal` block: `asks:` the question,
     `grounds:` why you cannot answer it, an `option:` line for each answer
     you can name, each a label between backticks and what it implies, and
-    at most one `default:` line that names an option's label. The daemon
-    has each question decided from the code and the policy, or parks the
-    work item for the person. A pass that leaves a finding open and asks
-    nothing stops the work item's chain. The pass that follows a decided
-    or an answered question on the same round record closes each finding
-    still open: where it leaves one open, the chain stops, whatever that
-    pass asks.
+    at most one `default:` line that names an option's label. Each
+    question is then decided from the code and the policy, and one that
+    only the person can answer goes to the person. A pass that leaves a
+    finding open and asks nothing stops the work item's chain. The pass
+    that follows a decided or an answered question on the same round record
+    closes each finding still open: where it leaves one open, the chain
+    stops, whatever that pass asks.
 
 ## Never
 

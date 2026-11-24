@@ -1,9 +1,10 @@
 // What a role is to the Claude adapter: an agent of the role bundle, the
 // plugin folder the app ships (role-bundle/, built to dist/bundle/), and one
 // file of rules the adapter appends to the session's system prompt
-// (docs/architecture.md, "What each session loads"). The protocol's pairs of
-// a role and a stage are neutral, and this module is where a pair turns into
-// Claude Code's names.
+// (docs/architecture.md, "What each session loads"). The chain command hands
+// a pane's session the same file with another head, for the subagent the
+// session runs the role as. The protocol's pairs of a role and a stage are
+// neutral, and this module is where a pair turns into Claude Code's names.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RoleStage } from "../../shared/protocol";
@@ -54,15 +55,22 @@ export function rulesFileName(role: RoleStage): string {
   return `${role.role}-${role.stage}.md`;
 }
 
+/** How a role is launched: as a role session of the daemon, or as a subagent of a pane's session, which the chain command hands its rules. */
+export type Launch = "session" | "pane";
+
 /**
  * The head of a rules file: who the session is, where the bundle stands, the
  * documents that follow, the tools the session holds with what to do where a
  * call is refused, and what to do at a step that names something the bundle
  * does not hold. The taken documents still name AgenticSeal's commands and
  * scripts, which the bundle does not ship, and tools the session does not
- * hold.
+ * hold. Two sentences say what holds in the launch. A role session of the
+ * daemon has the documents in its system prompt, holds the tools its launch
+ * names and is answered by the daemon. A subagent of a pane's session reads
+ * the file, holds the tools its definition names and is answered by the
+ * person's own permission settings.
  */
-export function rulesHead(bundleDir: string, role: RoleStage): string {
+export function rulesHead(bundleDir: string, role: RoleStage, launch: Launch = "session"): string {
   return [
     `# Owlery role session: ${role.role}, ${role.stage}`,
     "",
@@ -70,13 +78,15 @@ export function rulesHead(bundleDir: string, role: RoleStage): string {
     "",
     `The bundle's root is \`${bundleDir}\`. Every \`agents/\`, \`skills/\`, \`docs/\` and \`templates/\` path that your definition and the rules below cite is a path under that root, and you read it there.`,
     "",
-    "The documents below follow this head whole, in this order. Each is in your context already, so do not open it again:",
+    launch === "pane" ? "The documents below follow this head whole, in this order, so do not open them again in the bundle:" : "The documents below follow this head whole, in this order. Each is in your context already, so do not open it again:",
     "",
     ...roleDocuments(role).map((document) => `- \`${document}\``),
     "",
-    `You hold these tools and no other: ${toolsOf(role).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.`,
+    launch === "pane"
+      ? "You hold the tools your definition names, and the tools of the session that started you where it names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call."
+      : `You hold these tools and no other: ${toolsOf(role).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.`,
     "",
-    "The bundle holds documents only. A path under those four directories that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+    "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
     "",
   ].join("\n");
 }
@@ -87,11 +97,11 @@ function withoutFrontmatter(text: string): string {
 }
 
 /**
- * The text of a pair's rules file: the head, then each of the pair's
- * documents whole, without its frontmatter, after a line that names it. It
- * throws, naming the document, where the bundle lacks one.
+ * The text of a pair's rules file: the head of the launch, then each of the
+ * pair's documents whole, without its frontmatter, after a line that names
+ * it. It throws, naming the document, where the bundle lacks one.
  */
-export function rulesText(bundleDir: string, role: RoleStage): string {
+export function rulesText(bundleDir: string, role: RoleStage, launch: Launch = "session"): string {
   const documents = roleDocuments(role).map((document) => {
     let text: string;
     try {
@@ -101,5 +111,5 @@ export function rulesText(bundleDir: string, role: RoleStage): string {
     }
     return `===== ${document} =====\n\n${withoutFrontmatter(text)}`;
   });
-  return [rulesHead(bundleDir, role), ...documents].join("\n");
+  return [rulesHead(bundleDir, role, launch), ...documents].join("\n");
 }

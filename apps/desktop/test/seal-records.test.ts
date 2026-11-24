@@ -122,9 +122,9 @@ describe("a sealer's section of the guarantee", () => {
     expect(() => sectionOf(answered(1, `target: ${HEAD} against release`, "Verdict: sealed"), { run: 1, target: TARGET })).toThrow("its verdict's target line reads");
   });
 
-  it.each(["built-by: the session", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"])("refuses a verdict block that holds a line the daemon writes: %s", (line) => {
+  it.each(["built-by: the session", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"])("refuses a verdict block that holds a line Owlery writes: %s", (line) => {
     const key = line.slice(0, line.indexOf(":") + 1);
-    expect(() => sectionOf(answered(1, `target: ${TARGET}`, "Verdict: sealed", line), { run: 1, target: TARGET })).toThrow(`its verdict block holds a \`${key}\` line, which the daemon writes and a sealer does not`);
+    expect(() => sectionOf(answered(1, `target: ${TARGET}`, "Verdict: sealed", line), { run: 1, target: TARGET })).toThrow(`its verdict block holds a \`${key}\` line, which Owlery writes and a sealer does not`);
   });
 
   it("takes a withheld verdict and an undecided one as it takes a seal, and a block that names an original", () => {

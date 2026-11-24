@@ -120,15 +120,16 @@ export async function looseOutside(worktree: string, directory: string): Promise
  * `routing.md` names the branch. Where none does, it makes one,
  * `<root>/threads/<seconds>-<slug>/`, from the clock given in whole seconds
  * and the slug of the branch's last part, writes its `routing.md`
- * (`chain.ts#routingText`) through the writer of a work item's records and
- * commits that file alone, so the first round's target holds it. It throws
+ * (`chain.ts#routingText`), with the `Automation` row where an answer is
+ * given, through the writer of a work item's records and commits that file
+ * alone, so the first round's target holds it. It throws
  * a `ChainStop` where two directories name the branch, where the worktree
  * holds no records root, where the new directory's name is taken, and what
  * the writer and the commit throw. A directory whose routing does not read
  * as naming the branch, as for a branch's name with a `|` in it, is found by
  * no later step, and the chain then stops on the taken name.
  */
-export async function declaredDirectory(worktree: string, branch: string, now: number, inTurn: InTurn = AT_ONCE): Promise<string> {
+export async function declaredDirectory(worktree: string, branch: string, now: number, inTurn: InTurn = AT_ONCE, automation: "yes" | "no" | null = null): Promise<string> {
   const directories = workItemDirectories(worktree, branch);
   const [found] = directories;
   if (directories.length > 1) throw new ChainStop(`two directories of the worktree's records name the branch ${branch}`);
@@ -141,7 +142,7 @@ export async function declaredDirectory(worktree: string, branch: string, now: n
   if (existsSync(directory)) throw new ChainStop(`${relative(worktree, directory)} stands already, and its routing names another branch`);
   const at = new Date(now);
   // The day as the person's own clock has it, which is the day the chain first started.
-  const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`);
+  const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`, automation);
   await commitRecords({ worktree, branch, directory }, [file], "chore: declare the work item's routing", { write: () => writeRecordFile(worktree, file, text) }, inTurn);
   return directory;
 }

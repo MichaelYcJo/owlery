@@ -2,7 +2,9 @@
 // the folder it is started in, with the arguments after the script's name.
 // A pane's session starts it through the launcher `OWLERY_CHAIN` names, with
 // Electron's Node. The role bundle is the folder the build put beside this
-// script, as the daemon finds it beside its own.
+// script, as the daemon finds it beside its own. The command's input is read
+// where a subcommand asks for it, which `ask` alone does, so no other
+// subcommand waits on a terminal.
 import { dirname, join } from "node:path";
 import { chainCommand } from "./chain-command";
 
@@ -15,6 +17,11 @@ chainCommand(process.argv.slice(2), {
   bundleDir: process.argv[1] === undefined ? undefined : join(dirname(process.argv[1]), "bundle"),
   version: OWLERY_VERSION,
   now: Date.now,
+  input: async () => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks).toString("utf8");
+  },
 }).then(
   (end) => {
     process.stdout.write(end.out);
