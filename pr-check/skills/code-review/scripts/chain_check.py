@@ -1886,8 +1886,10 @@ def guarantee(reader, root, item, base, notices=None, behind=None):
 
 # The pull request's body, read from the event payload: its seal section
 # alone, the lines between two marker lines, which Owlery's daemon writes as
-# a copy of the newest verdict block of the work item's `guarantee.md`. Every
-# other line of the body is the person's, and no arm reads it.
+# a copy of the newest verdict block of the work item's `guarantee.md`. No
+# arm reads another line of the body: neither the back of the seal, which the
+# daemon writes between markers of its own below the seal section, nor the
+# lines the person writes.
 SECTION_OPEN = "<" + "!-- owlery:seal -->"
 SECTION_CLOSE = "<" + "!-- /owlery:seal -->"
 
