@@ -235,6 +235,13 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
     expect((await missing.read(broken("f".repeat(40)))).brokenBy).toBeNull();
   });
 
+  it("gives the rounds in the order of their numbers, round 10 after round 2, which the back and a pull request's body list them in", async () => {
+    const { repo, gate, read } = sealedBranch();
+    for (const round of [10, 2]) write(repo, `${DIRECTORY}/trail/rounds/round-${String(round)}.md`, roundRecord(HEADING(round), `${gate} against main`));
+    commitAll(repo, "chore: record review rounds 2 and 10");
+    expect((await read(null)).rounds.map((round) => round.round)).toEqual([1, 2, 10]);
+  });
+
   it("reads the refused calls of `trail/refusals.md` as the head holds it, each row's stage and rule, and counts a row whose stage or rule its writer does not write as not read", async () => {
     const { repo, read } = sealedBranch();
     let text = refusalsText(null, NAME, { kind: "round", round: 1, role: "proofer", calls: [{ tool: "Write", action: "write", rule: "no-write" }, { tool: "Bash", action: "run", rule: "no-command" }] });
