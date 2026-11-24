@@ -5,7 +5,7 @@
 ## 결론
 
 - **바탕은 작업함, AgenticSeal 프로세스, 인장의 뒷면이고, 터미널은 그 위에서 불러 씁니다.** 데몬은 사용자의 Claude Code를 헤드리스 모드(`claude -p`, 입출력 `stream-json`)로 띄워 AgenticSeal 프로세스의 역할 세션을 뒤에서 돌리고, 그 결과를 작업함과 인장의 뒷면에 보여 줍니다. 첫 버전에서 사람이 일을 시키는 세션은 터미널에 띄운 에이전트의 CLI라, 어느 CLI든 붙습니다. owl 체인은 Owlery 자신의 체인이고, owl 체인을 쓰는 저장소의 Claude Code 칸은 그 세션에 Owlery의 역할 묶음도 싣습니다. 그 세션은 자기가 만든 브랜치를 리뷰 회차, 전체 검사, sealer까지 가져갑니다([세션마다 싣는 것](#세션마다-싣는-것)). 그 밖의 칸은 모두 CLI 그대로입니다. 칸의 상태는 훅과 git으로 읽습니다. 데스크톱에는 채팅 화면이 없습니다. 같은 터미널 세션을 채팅 모양으로 보여 주는 것은 휴대폰이고, CLI의 훅과 세션 기록을 읽습니다([휴대폰: 터미널 세션을 채팅 모양으로](#휴대폰-터미널-세션을-채팅-모양으로)).
-- **Owlery는 로그인을 제공하지 않습니다.** 인증은 사용자의 CLI가 갖습니다. Claude Code에서는 사용자가 `/login`으로 구독 로그인이나 API 키를 고르고, Owlery는 그 CLI를 띄울 뿐입니다([Claude 어댑터의 인증](#claude-어댑터의-인증)).
+- **Owlery는 로그인을 제공하지 않고, 사람은 로그인을 여러 개 둘 수 있습니다.** 인증은 사용자의 CLI가 갖습니다. Claude Code에서는 사용자가 `/login`으로 구독 로그인이나 API 키를 고르고, Owlery는 그 CLI를 띄울 뿐입니다. 로그인이 둘 이상인 사람은 로그인마다 계정을 하나씩 두고, 계정마다 CLI의 로그인 명령으로 로그인하며, 저장소나 작업이나 세션 하나에 계정을 묶습니다([Claude 어댑터의 인증](#claude-어댑터의-인증)).
 - **Owlery는 자체 데스크톱 앱입니다.** 다른 앱 위의 플러그인으로 두지 않습니다. 사용자의 Claude Code를 데몬이 직접 띄우고 역할 세션은 사용자 환경에서 떼어 띄우므로, 세션과 터미널을 다른 앱에 맡길 까닭이 없습니다. 작업함, AgenticSeal 프로세스, 장부가 한 제품 안에서 같은 기록을 읽습니다.
 - **화면은 Electron으로 만들고, 일은 데몬이 합니다.** 화면은 데몬에 WebSocket으로만 붙는 얇은 껍데기입니다. 나중에 다른 화면 프레임워크로 바꿀 길을 남겨 두려는 것입니다.
 - **AgenticSeal 프로세스의 순서는 데몬의 체인에서도 칸의 체인에서도 Owlery의 코드가 실행하고, 판단만 에이전트에게 남깁니다.**
@@ -31,7 +31,7 @@
 ```
 
 - **데몬은 앱이 재시작하거나 업데이트되는 동안에도 살아 있습니다.** 리뷰 회차가 길어져도 작업이 끊기지 않게 하려는 것입니다. 세션을 끝내는 것과 세션을 되살리는 것은 [세션이 견디는 것](#세션이-견디는-것)에 적습니다.
-- **에이전트 상태는 이벤트로 판정하고, 터미널 화면 출력에서 추측하지 않습니다.** 역할 세션은 구조화된 출력의 이벤트로 알려 줍니다. 터미널로 연 사용자 세션은 Claude Code처럼 그 CLI의 훅으로 알려 줍니다. 훅을 확인하지 않은 CLI라면 작업함에는 브랜치가 바뀌었는지만 보여 줍니다. 사람에게 결정을 띄울 때 잘못 띄우는 일이 없어야 하기 때문입니다.
+- **에이전트 상태는 이벤트로 판정하고, 터미널 화면 출력에서 추측하지 않습니다.** 역할 세션은 구조화된 출력의 이벤트로 알려 줍니다. 터미널로 연 사용자 세션은 Claude Code처럼 그 CLI의 훅으로 알려 주고, 사람이 중단한 턴처럼 훅이 아무것도 알리지 않는 곳에서는 CLI가 쓰는 세션 로그로 알려 줍니다. 훅을 확인하지 않은 CLI라면 작업함에는 브랜치가 바뀌었는지만 보여 줍니다. 사람에게 결정을 띄울 때 잘못 띄우는 일이 없어야 하기 때문입니다.
 - **권한 요청은 정식 이벤트로 다룹니다.** framer, crafter, proofer, sealer는 데몬이 직접 띄우므로, 그중 하나가 끝나거나 권한을 요청하면 데몬이 먼저 알고 orchestrator 에이전트나 사람에게 넘깁니다. 에이전트가 자기 아래에 자식 에이전트를 띄우면 그 부모와 자식 관계도 함께 다룹니다. 사용자 세션의 권한 요청은 그 터미널에서 답하거나, CLI의 권한 요청 훅을 거쳐 휴대폰에서 답합니다([휴대폰: 터미널 세션을 채팅 모양으로](#휴대폰-터미널-세션을-채팅-모양으로)).
 - **훅으로 상태를 알리는 CLI가 창을 연 지 10초가 지나도록 이벤트를 하나도 보내지 않으면, 사람을 기다리는 것으로 보여 줍니다.** CLI는 세션을 시작하기 전에 먼저 물어볼 것을 묻고, 묻는 동안에는 이벤트를 보내지 않습니다. 2026-11-19에 Claude Code 2.1.327을 띄워 보니, 폴더를 신뢰하는지 묻는 동안에는 훅 이벤트를 하나도 보내지 않았습니다. 이 질문은 사람이 Claude Code에서 신뢰한 적 없는 저장소의 첫 워크트리에서 나옵니다. 묻지 않는 곳에서는 2초 안에 세션 시작을 알렸습니다. 데몬은 이벤트가 오지 않았다는 사실로 판정하고 창에 찍히는 글자로는 판정하지 않으며, 세션의 첫 이벤트가 오면 그 상태로 바꿉니다.
 check: apps/desktop/test/daemon.test.ts
@@ -41,6 +41,9 @@ check: apps/desktop/test/keep-awake.test.ts apps/desktop/test/daemon.test.ts
 check: apps/desktop/test/daemon-client.test.ts apps/desktop/test/daemon-restart.test.ts
 - **에이전트가 사람에게 질문하는 세션은 사람을 기다리는 것으로 보여 주고, 질문과 에이전트가 내놓은 선택지를 그 질문을 알리는 이벤트에서 읽어 함께 보여 줍니다.** 에이전트는 자기 이벤트로 질문합니다. Claude Code는 질문 도구를 호출하는 이벤트로 묻고, 그 이벤트에 질문과 선택지가 하나씩 들어 있습니다. 데몬은 거기서 읽어 중립적인 값으로 보내고, 칸에 찍힌 글자에서는 하나도 읽지 않습니다. 질문을 알리는 이벤트는 사람이 답하기 전에 오므로, CLI가 그 뒤에 어떤 이벤트를 보내든 세션은 그 이벤트부터 사람을 기다립니다.
 check: apps/desktop/test/agent-events.test.ts apps/desktop/test/daemon.test.ts
+
+**사람이 중단한 턴은 그 세션을 사람을 기다리는 상태로 두고, 데몬은 이를 세션 로그에서 읽습니다.** Claude Code는 사람이 턴을 중단할 때 훅 이벤트를 보내지 않습니다. `Stop` 훅은 실행되지 않고, 창은 대신 무엇을 할지 묻습니다. Claude Code는 중단을 세션 로그에 사람의 항목으로 쓰고, 그 글은 `[Request interrupted by user]`이거나 `[Request interrupted by user for tool use]`입니다. 기록 `apps/desktop/test/fixtures/claude-interrupted-turn.json`에 두 중단이 모두 들어 있고, 기록한 Claude Code의 버전과 날짜도 그 파일에 적혀 있습니다. 훅 이벤트마다 로그 파일의 경로가 들어 있고, 데몬은 창이 일하는 동안에만 그 파일을 지켜보며, 덧붙은 줄을 읽고 하나도 간직하지 않습니다. 그 뒤 세션은 사람을 기다리고, 중단된 도구 호출의 끝이 나중에 도착해도 일하는 상태로 돌아가지 않습니다. 하위 에이전트의 항목과, 사람이 보낸 메시지가 턴을 끊어서 쓰인 항목은 이런 중단이 아닙니다. 로그의 형식은 공개된 것이 아니므로, 데몬이 읽지 못하는 줄은 아무것도 바꾸지 않고 훅 이벤트만으로 판정합니다.
+check: apps/desktop/test/daemon.test.ts apps/desktop/test/agent-events.test.ts apps/desktop/test/agent-state.test.ts apps/desktop/test/session-log.test.ts
 
 ## 세션이 견디는 것
 
@@ -98,23 +101,32 @@ Claude 어댑터는 사용자가 설치하고 로그인한 `claude` CLI를 데�
 
 | 무엇 | 어떻게 |
 |---|---|
-| 인증 | 사용자가 Claude Code에서 `/login`으로 고릅니다. 구독 로그인이면 사용자의 구독 한도를, API 키면 사용자의 API 과금을 씁니다. Owlery는 로그인 화면도, 키 저장도 갖지 않습니다 |
+| 인증 | 사용자가 Claude Code에서 `/login`으로 고릅니다. 구독 로그인이면 사용자의 구독 한도를, API 키면 사용자의 API 과금을 씁니다. Owlery는 로그인 화면도, 키 저장도 갖지 않습니다. 사람이 더한 계정은 Owlery가 그 계정의 설정 폴더를 지정해 터미널 칸에서 CLI의 `claude auth login`을 실행하고, 로그인은 브라우저에서 Anthropic의 절차로 끝납니다 |
 | 역할 세션 | 헤드리스 모드(`claude -p --input-format stream-json --output-format stream-json`)로 역할 세션을 띄워, 메시지, 도구 호출, 권한 요청, 결과를 이벤트로 받습니다 |
 | 원래 화면 | 사용자가 들여다보고 싶으면 역할 세션을 터미널로 엽니다(`claude --resume <세션 ID>`). 이때 상태는 훅으로 판정합니다 |
 | 역할 묶음 | 앱에 든 Owlery의 에이전트 정의와 스킬을 데몬이 역할 세션에만 싣습니다(`--plugin-dir`). 사용자의 Claude Code에 설치하지 않으므로, 앱의 버전과 묶음의 버전이 언제나 같습니다. 아래 「세션마다 싣는 것」 |
 
 Anthropic이 공개한 문서 가운데 이 일과 관계있는 것은 둘이고, 어느 쪽도 다른 제품이 사용자가 로그인해 둔 CLI를 헤드리스 모드로 띄우는 일을 다루지 않습니다. 지원 문서 "Use the Claude Agent SDK with your Claude plan"은 `claude -p`와 제3자 앱의 사용량이 여전히 사용자의 구독 한도에서 나간다고 적습니다. Agent SDK overview에는 이 절 첫머리에 적은 claude.ai 로그인에 관한 규칙이 있습니다. 둘 다 2026-11-18에 읽었습니다. Owlery는 Anthropic에 문의를 보내지 않습니다. 헤드리스 역할 세션은 이 두 문서를 놓고 판단하고, 둘 가운데 하나가 바뀌면 다시 판단합니다. 역할 세션은 어댑터로만 띄우므로, 훅으로 읽는 대화형 터미널로 옮기는 비용은 작게 유지됩니다.
 
+**사람은 로그인 여러 개를 계정으로 두고, 계정 하나는 CLI의 설정 폴더 하나이며, 세션은 가장 가까운 설정이 가리키는 계정으로 뜹니다.** 계정 하나가 기본입니다. 저장소와 작업과 세션 하나에는 각각 다른 계정을 정할 수 있고, 세션은 자기 설정, 작업의 설정, 저장소의 설정, 기본의 순서로 먼저 있는 것을 씁니다. 데몬은 계정의 폴더를 `CLAUDE_CONFIG_DIR`로 CLI에 넘깁니다. Claude Code의 문서가 회사 계정과 개인 계정을 나눠 두는 방식과 같습니다(Authentication, "Log in with multiple accounts", 2026-11-23에 읽음). 역할 세션은 비운 환경에 이름을 정해 넘기는 변수의 하나로 이 값을 받으므로, 계정의 플러그인과 훅과 설정은 전과 같이 판정에 들어오지 않습니다. Claude Code 칸은 로그인 프로필이 실행된 뒤인 명령 안에서 이 값을 받습니다. 프로필이 같은 변수를 내보내면 칸의 환경에 넣은 값이 바뀌기 때문입니다(2026-11-23에 대역으로 확인). "System default"는 아무것도 넘기지 않았을 때 사람의 셸이 주는 로그인이고, 언제나 있습니다. 계정을 더하는 길은 둘입니다. Owlery가 데몬의 실행 폴더에 폴더를 만들고 그 폴더로 터미널 칸에서 `claude auth login`을 실행하거나, 사람이 이미 있는 폴더를 넘깁니다. 넘겨받은 폴더에는 Owlery가 링크를 만들지 않고, 그 폴더를 지우지도 않습니다. Owlery는 자격 증명 파일도 키체인 항목도 읽지 않고, 토큰을 변수로 넘기지 않으며, 로그인이 있는지는 `claude auth status`로 압니다. Claude Code의 Legal and compliance 문서는 Claude 계정의 로그인이 Anthropic의 절차로 끝나야 하고 개발자가 자격 증명을 모으거나 저장하거나 중개해서는 안 된다고 적으며, 사람이 고치지 않은 CLI에 자기 구독으로 로그인하는 것은 막지 않습니다(2026-11-23에 읽음). 데몬은 사용 한도에서든 어디에서든 계정을 고르지 않고, 사람의 설정만이 계정을 정합니다. 폴더를 나눠도 API 키 없이 한 Claude Console 로그인 둘은 나뉘지 않습니다. CLI가 그 로그인을 폴더 밖에 두기 때문입니다. Owlery가 칸을 띄우려고 사람의 Claude Code 폴더를 읽을 때는, 칸의 세션에 어느 플러그인이 켜져 있는지 알려고 읽을 때처럼, 그 칸의 계정 폴더를 읽습니다. 에이전트에 계정이 있는지는 그 어댑터가 밝히는 기능입니다.
+check: apps/desktop/test/accounts.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/claude-adapter.test.ts apps/desktop/test/fake-adapter.test.ts apps/desktop/test/hooks.test.ts
+
+**Owlery가 만든 계정 폴더에서 사람의 것은 사람의 설정 폴더를 가리키는 링크이고, 계정의 것은 그 폴더의 파일입니다.** 사람의 것은 사람이 쓰는 파일(`CLAUDE.md`, `settings.json`, `keybindings.json`, 그리고 rules, skills, commands, agents, output styles, workflows, themes, agent memory의 폴더), 사람이 설치한 플러그인, 대화와 그 대화를 잇는 데 쓰이는 것(`projects`, `history.jsonl`, `file-history`, `plans`, `tasks`, `paste-cache`, `session-env`, `shell-snapshots`)입니다. 그래서 한 사람의 도구와 기록을 모든 계정이 쓰고, 한 계정에서 시작한 대화를 다른 계정에서 찾습니다. 계정의 것은 로그인, CLI의 상태 파일 `.claude.json`, 그리고 CLI가 계정의 조직에서 받아 둔 정책과 원격 설정입니다. `.claude.json`에는 사람의 MCP 서버와 사람이 신뢰한 폴더도 들어 있어서, Owlery가 만든 계정으로는 둘 다 따라오지 않습니다. 목록에는 Claude Code의 문서가 적은 이름만 있고(Explore the .claude directory, 2026-11-23에 읽음), 목록에 없는 이름은 링크하지 않습니다. 그래서 CLI의 다음 버전이 더하는 파일은 목록에 넣기 전까지 계정에 남습니다. 이름은 사람의 폴더에 있을 때만 링크하고, 데몬은 빠진 링크를 그 계정으로 띄우기 전마다 다시 만들며, Owlery는 사람의 폴더에 아무것도 쓰지 않습니다. Orca 1.4.271도 폴더를 같은 식으로 나누고, 사람의 설정은 링크하지 않고 계정마다 복사합니다(2026-11-23에 읽음). CLI가 이 링크를 따르는지, 그리고 다른 계정으로 이은 대화가 에이전트가 들은 것을 그대로 갖는지는 로그인 둘로 돌려 보지 않았습니다.
+check: apps/desktop/test/accounts.test.ts
+
+**사람은 실행 중인 Claude Code 칸의 계정을 바꿀 수 있고, 칸은 새 계정으로 대화를 잇습니다.** 실행 중인 CLI는 설정 폴더를 바꾸지 못합니다. 그래서 데몬은 칸의 프로세스를 끝내고, 끝난 것을 확인한 뒤, 새 계정으로 같은 대화에서 CLI를 띄웁니다. Claude Code에서는 `claude --resume <세션 ID>`입니다. ID는 그 칸의 훅 이벤트가 마지막으로 실어 온 것이고, 데몬 안에만 둡니다. 진행 중이던 턴은 끊기고, 창은 바꾸기 전에 그렇게 알립니다. 두 계정의 폴더가 같은 대화를 갖지 않으면 대화를 찾지 못하므로 바꾸기를 거절하고, 시작할 때 환경이 정해지는 셸도 거절합니다. 역할 세션의 단계는 시작한 계정으로 끝나고, 다음 단계는 그때의 가장 가까운 설정을 따릅니다. 칸과 헤드리스 세션은 각각 어느 계정으로 도는지 밝히고, 작업함은 계정이 저장소가 주는 계정과 다른 줄에 그 계정의 이름을 적으며, 비용 장부의 항목마다 그 단계가 쓴 계정을 적습니다.
+check: apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
+
 ### 사용량 읽기
 
 앱은 사용자의 구독 한도를 얼마나 썼는지와 언제 다시 채워지는지를 보여 주고, 데몬은 AgenticSeal 프로세스를 시작하기 전에 같은 값을 봅니다. 한 번의 실행이 작업 하나에 단계를 네다섯 번 띄울 수 있으므로, 5시간 한도가 거의 찬 상태에서 시작하면 중간에 멈춥니다. 그럴 때 데몬은 실행을 미루거나 사람에게 알립니다.
 
-Claude Code가 이 값을 직접 넘겨주는 길은 둘입니다. 둘 다 Claude Code 2.1.327 실행 파일에서 찾았고(2026-11-18), 아직 실제로 돌려 보지는 않았습니다.
+Claude Code가 이 값을 직접 넘겨주는 길은 둘입니다. 둘 다 Claude Code 2.1.327 실행 파일에서 찾았습니다(2026-11-18). 상태 줄의 값은 아직 실제로 돌려 보지 않았습니다. 출력 스트림의 이벤트는 역할 세션의 실행 기록 둘에 있습니다.
 
 | 세션 | 값이 오는 곳 | 들어오는 것 |
 |---|---|---|
 | 터미널로 연 사용자 세션 | Claude Code가 상태줄 명령에 넘기는 JSON의 `rate_limits` | `five_hour`, `seven_day` 각각의 `used_percentage`. 구독자에게만, 첫 API 응답 뒤에 들어옵니다 |
-| 역할 세션 | 헤드리스 출력 스트림의 `rate_limit_event` | 이벤트마다의 한도 정보. 필드는 아직 확인하지 않았습니다 |
+| 역할 세션 | 헤드리스 출력 스트림의 `rate_limit_event` | 이벤트마다의 한도 정보. 상태, 어느 한도인지, 그리고 나열한 구간마다 쓴 비율과 초기화 시각과 상태입니다. 값을 바꿔 보관한 실행 기록 둘에서 읽었으므로, 쓴 비율의 범위와 초기화 시각의 단위는 확인하지 않았습니다 |
 
 - **사용자의 상태줄은 그대로 둡니다.** 데몬은 작은 상태줄 명령을 끼워 넣습니다. 그 명령은 받은 JSON을 데몬에 넘기고, 사용자가 원래 쓰던 상태줄 명령을 불러 그 출력을 그대로 보여 줍니다.
 - **값은 마지막 호출 기준입니다.** 아무것도 돌지 않을 때는 마지막으로 받은 값과 다시 채워지는 시각을 보여 줍니다.
@@ -125,7 +137,10 @@ Claude Code가 이 값을 직접 넘겨주는 길은 둘입니다. 둘 다 Claud
 - 요청이 Claude Code인 것처럼 보여야 합니다. 막히면 피해는 사용자의 계정이 받습니다.
 - 인증은 사용자의 CLI가 갖는다는 이 문서의 규칙과 어긋납니다.
 
-나중에 더할지는 「결정을 남겨 둔 것」에 있습니다. Codex가 비슷한 값을 넘겨주는지는 확인하지 않았습니다.
+이 길은 나중에도 쓰지 않고, 세션이 돌지 않는 계정에도 다른 계정과 같이 쓰지 않습니다. Claude Code의 Legal and compliance 문서는 개발자가 Claude.ai 자격 증명이나 세션 토큰을 모으거나 저장하거나 중개해서는 안 된다고 적고(2026-11-23에 읽음), 토큰을 읽는 것은 모으는 일입니다. 세션이 돌지 않는 계정은 그 계정의 세션이 마지막으로 넘겨준 값을 받은 시각과 함께 보여 주고, 세션이 돈 적이 없는 계정은 숫자를 보여 주지 않습니다. Codex가 비슷한 값을 넘겨주는지는 확인하지 않았습니다.
+
+**사람은 세션이 돌지 않는 계정의 사용량을 단추를 눌러 새로 받고, 그 밖의 어떤 것도 새로 받기를 시작하지 않습니다.** 그러면 데몬이 그 계정으로 CLI의 짧은 헤드리스 세션 하나를 도구도 대화 기록도 없이 띄우고, CLI가 출력으로 넘겨주는 한도 값을 받아 둔 뒤 세션을 끝냅니다. 값은 Claude Code가 준 것이고 Owlery가 다른 세션을 띄우듯 띄운 세션에서 읽으므로, Owlery는 여전히 토큰을 읽지 않고 Anthropic의 주소를 직접 부르지 않습니다. 새로 받기는 그 계정의 한도를 조금 쓰므로 타이머도 대화 상자를 여는 일도 새로 받기를 시작하지 않으며, 단추는 누르기 전에 그렇게 알립니다. CLI가 값을 넘겨주지 않으면 계정은 그렇게 알리고 숫자를 보여 주지 않습니다. 한도가 가깝지 않은 턴이 `rate_limit_event`를 넘겨준 실행 기록이 케이스에 둘 있고, 하나는 2026-11-22의 Claude Code 2.1.330입니다. 그 줄은 어느 한도의 것인지 밝히고, 나열한 구간마다 쓴 비율과 초기화 시각과 상태를 담으며, 두 기록 모두 7일 구간만 나열했습니다. 기록의 값은 보관하기 전에 다른 값으로 바꿨습니다. 그래서 한 턴이 어느 구간을 나열하는지, 쓴 비율이 1을 기준으로 한 값인지, 초기화 시각의 단위가 무엇인지, 새로 받기에 얼마가 드는지는 실제 실행에서 읽지 않았고, Owlery는 공개된 타입대로 읽히는 값만 보여 줍니다.
+check: apps/desktop/test/accounts.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/claude-adapter.test.ts
 
 ### 세션마다 싣는 것
 
@@ -146,7 +161,7 @@ check: apps/desktop/test/claude-adapter.test.ts
 **Claude Code 칸은 자기가 열리는 폴더에 Owlery의 검사가 있으면 owl 체인을 싣습니다.** 폴더에 `.github/workflows/owlery-seal.yml`이 있으면 그 폴더는 owl 체인을 씁니다. 데몬은 칸을 띄울 때마다 이것을 읽고, 읽은 것을 저장하지 않습니다. 그런 칸의 명령에는 `--plugin-dir`와 `--append-system-prompt-file`이 더해집니다. 앞의 것은 빌드가 데몬의 스크립트 곁에 둔 묶음을 가리키고, 뒤의 것은 데몬의 실행 폴더에 있는 머리말 `pane-head.md`를 가리킵니다. 칸의 환경에는 `OWLERY_CHAIN`과 `OWLERY_BASE`가 더해집니다. 앞의 것은 실행 폴더에 있는 실행 파일 `owl-chain`의 경로이고, 뒤의 것은 작업의 기준입니다. AgenticSeal의 `hygiene.yml`이 있는 폴더, 검사가 없는 폴더, 데몬이 간직한 어느 저장소에도 들지 않는 폴더는 Owlery의 어떤 체인도 쓰지 않습니다. 거기서 여는 Claude Code 칸은 묶음의 어떤 것도 없이 뜨고, 셸 칸과 설정 칸은 어느 폴더에서든 그렇게 뜹니다. 머리말은 세 가지를 말하고 규칙은 담지 않습니다. 이 세션이 owl 체인을 싣고 있다는 것, 브랜치는 PR을 열거나 일이 끝났다고 말하기 전에 그 체인에서 인장을 받는다는 것, 그리고 그 방법은 묶음의 문서 `skills/seal/SKILL.md`에 있고 체인 명령은 `OWLERY_CHAIN`이 가리킨다는 것입니다. 묶음과 칸의 설정은 모두 실행 폴더의 파일에서 명령줄로 `claude`에 들어갑니다. 그래서 Owlery는 아무것도 설치하지 않고, 사람의 설정 파일과 플러그인 목록을 쓰지 않습니다. Claude Code는 다른 세션에서와 마찬가지로 세션의 대화와 자기 상태를 자기 파일에 둡니다. 체인 명령을 허용하는 규칙은 더하지 않으므로, 세션에서 체인 명령을 처음 부를 때는 다른 명령과 마찬가지로 사람에게 묻습니다. 이렇게 띄운 대화형 세션은 묶음의 에이전트를 `owlery:<role>`로 내놓았고, 스킬 `owlery:seal`을 나열했고, 시스템 프롬프트에 머리말을 갖고 있었습니다(2026-11-24, Claude Code 2.1.331에서 실험).
 check: apps/desktop/test/hooks.test.ts apps/desktop/test/pane-chain.test.ts apps/desktop/test/records-place.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/role-bundle.test.ts
 
-**owl 체인을 쓰는 저장소에서 사람의 Claude Code가 AgenticSeal 플러그인을 켜 두었으면, 그 저장소의 Claude Code 칸이 어느 체인을 돌릴지를 사람이 한 번 고릅니다.** 저장소 하나에 인장을 찍는 체인은 하나인데, 고르지 않으면 두 체인이 한 세션에 함께 실립니다. 데몬은 세 파일의 `enabledPlugins`를 읽고, 같은 키는 뒤의 파일이 이깁니다. Claude Code 설정 폴더의 `settings.json`, 칸이 열리는 폴더의 `.claude/settings.json`, 메인 체크아웃 뿌리의 `.claude/settings.local.json`입니다(`claude-plugins.ts#readPlugins`). 설정 폴더는 데몬의 환경에서 `CLAUDE_CONFIG_DIR`이 가리키는 폴더이고, 그 값이 없으면 사람의 홈에 있는 `.claude`입니다. 키는 값이 `false`가 아니면 켜진 것입니다. 켜진 키 가운데, 설정 폴더의 `plugins/installed_plugins.json`이 준 설치 폴더에 `skills/code-review/scripts/chain_check.py`가 있는 것이 AgenticSeal의 키입니다. 데몬은 AgenticSeal의 워크플로도 이 스크립트로 가려냅니다. 데몬은 이 파일들 가운데 어느 것도 쓰지 않습니다. 데몬은 저장소마다 `chain`을 창에 보내고, 이것은 저장소의 메인 체크아웃에서 읽은 것입니다. 그 폴더가 owl 체인을 쓰는지(`owl`), 거기서 플러그인이 켜져 있는지(`plugin`), 간직한 답(`chosen`)이 들어 있습니다. 앞의 둘이 모두 참이고 간직한 답이 없으면, 창은 Claude Code 칸을 열기 전에 묻습니다. 데몬은 답을 저장소에 간직하고(`repositories.json`의 `paneChain`), 저장소 설정이 그 답을 보이고 바꿉니다. 답이 "the owl chain"이면 칸은 자기만의 설정 파일로 뜹니다. 실행 폴더의 `claude-pane-<pane id>.json`이고, Owlery의 훅과 함께 `enabledPlugins`를 담습니다. 이 `enabledPlugins`는 사람의 파일에 적힌 그대로이되 AgenticSeal 플러그인의 키만 모두 `false`입니다. 그래서 두 체인이 한 세션에서 함께 도는 일이 없습니다. 답이 "the AgenticSeal plugin"이거나 간직한 답이 없으면, 칸은 묶음의 어떤 것도 싣지 않습니다. 답은 거기서 플러그인이 켜져 있는 동안에만 읽습니다. 사람이 플러그인을 끄면 간직한 답이 무엇이든 칸은 owl 체인을 싣습니다. 창은 메인 체크아웃을 보고 묻고 데몬은 칸의 폴더를 보고 띄우므로, 브랜치가 Owlery의 워크플로를 더한 워크트리에서는 그 브랜치가 머지될 때까지 창이 묻지 않습니다. 플러그인이 사용자 범위에서 켜져 있는 세션에서, `--settings`가 가리키는 파일의 `enabledPlugins`에 그 플러그인의 키를 `false`로 두자 플러그인의 에이전트, 스킬, 세션 시작 훅이 들어오지 않았습니다(2026-11-24, 2.1.331에서 실험).
+**owl 체인을 쓰는 저장소에서 사람의 Claude Code가 AgenticSeal 플러그인을 켜 두었으면, 그 저장소의 Claude Code 칸이 어느 체인을 돌릴지를 사람이 한 번 고릅니다.** 저장소 하나에 인장을 찍는 체인은 하나인데, 고르지 않으면 두 체인이 한 세션에 함께 실립니다. 데몬은 세 파일의 `enabledPlugins`를 읽고, 같은 키는 뒤의 파일이 이깁니다. Claude Code 설정 폴더의 `settings.json`, 칸이 열리는 폴더의 `.claude/settings.json`, 메인 체크아웃 뿌리의 `.claude/settings.local.json`입니다(`claude-plugins.ts#readPlugins`). 설정 폴더는 그 칸의 계정 폴더입니다. System default에서는 사람의 로그인 셸에서 `CLAUDE_CONFIG_DIR`이 가리키는 폴더이고, 데몬은 CLI를 찾을 때 그 셸에서 이 값을 함께 읽습니다. 그 값이 없으면 사람의 홈에 있는 `.claude`입니다. 그래서 데몬의 환경이 어느 폴더를 가리키든, 데몬은 칸의 Claude Code가 읽는 폴더를 읽습니다. 로그인 셸에서 아무 답도 받지 못한 동안에만 데몬은 자기 환경이 가리키는 폴더를 읽습니다. 키는 값이 `false`가 아니면 켜진 것입니다. 켜진 키 가운데, 설정 폴더의 `plugins/installed_plugins.json`이 준 설치 폴더에 `skills/code-review/scripts/chain_check.py`가 있는 것이 AgenticSeal의 키입니다. 데몬은 AgenticSeal의 워크플로도 이 스크립트로 가려냅니다. 데몬은 이 파일들 가운데 어느 것도 쓰지 않습니다. 데몬은 저장소마다 `chain`을 창에 보내고, 이것은 저장소의 메인 체크아웃에서 읽은 것입니다. 칸에도 작업에도 계정을 정하지 않았을 때 그 저장소의 새 칸이 쓰는 계정의 폴더로 읽습니다. 그 폴더가 owl 체인을 쓰는지(`owl`), 거기서 플러그인이 켜져 있는지(`plugin`), 간직한 답(`chosen`)이 들어 있습니다. 앞의 둘이 모두 참이고 간직한 답이 없으면, 창은 Claude Code 칸을 열기 전에 묻습니다. 데몬은 답을 저장소에 간직하고(`repositories.json`의 `paneChain`), 저장소 설정이 그 답을 보이고 바꿉니다. 답이 "the owl chain"이면 칸은 자기만의 설정 파일로 뜹니다. 실행 폴더의 `claude-pane-<pane id>.json`이고, Owlery의 훅과 함께 `enabledPlugins`를 담습니다. 이 `enabledPlugins`는 사람의 파일에 적힌 그대로이되 AgenticSeal 플러그인의 키만 모두 `false`입니다. 그래서 두 체인이 한 세션에서 함께 도는 일이 없습니다. 답이 "the AgenticSeal plugin"이거나 간직한 답이 없으면, 칸은 묶음의 어떤 것도 싣지 않습니다. 답은 거기서 플러그인이 켜져 있는 동안에만 읽습니다. 사람이 플러그인을 끄면 간직한 답이 무엇이든 칸은 owl 체인을 싣습니다. 창은 메인 체크아웃을 보고 묻고 데몬은 칸의 폴더를 보고 띄우므로, 브랜치가 Owlery의 워크플로를 더한 워크트리에서는 그 브랜치가 머지될 때까지 창이 묻지 않습니다. 계정도 마찬가지입니다. 창은 저장소의 계정을 보고 묻고 데몬은 칸의 계정을 보고 띄우므로, 저장소와 다른 계정으로 뜨는 칸에는 창이 묻지 않습니다. 그런 칸은 자기 계정의 폴더가 켜 둔 것과 저장소에 간직한 답에 따라 owl 체인을 싣습니다. 플러그인이 사용자 범위에서 켜져 있는 세션에서, `--settings`가 가리키는 파일의 `enabledPlugins`에 그 플러그인의 키를 `false`로 두자 플러그인의 에이전트, 스킬, 세션 시작 훅이 들어오지 않았습니다(2026-11-24, 2.1.331에서 실험).
 check: apps/desktop/test/claude-plugins.test.ts apps/desktop/test/pane-chain.test.ts apps/desktop/test/hooks.test.ts apps/desktop/test/repositories.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts apps/desktop/test/chain-choice.test.ts
 
 #### 역할 세션은 사용자 환경에서 떼어 띄웁니다
@@ -159,7 +174,7 @@ check: apps/desktop/test/claude-plugins.test.ts apps/desktop/test/pane-chain.tes
 | 그 밖의 훅 | `--settings '{"disableAllHooks": true}'` | 훅 0건 |
 | 그 밖의 MCP 설정 | `--strict-mcp-config` | MCP 서버 0개 |
 | 자동 메모리 | `--settings '{"autoMemoryEnabled": false}'` | 끄지 않으면 저장소에 맞는 메모리 색인이 들어옴. 끄면 메모리 경로가 없음 |
-| 환경 변수로 들어오는 플러그인과 설정(예: `CLAUDE_CODE_PLUGIN_DIRS`) | 데몬이 환경 변수를 비우고 필요한 것만 넘김(`HOME`, `USER`, `PATH`, `LANG`, `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`) | 환경 변수로 들어오던 플러그인이 빠지고, 구독 로그인은 그대로 됨 |
+| 환경 변수로 들어오는 플러그인과 설정(예: `CLAUDE_CODE_PLUGIN_DIRS`) | 데몬이 환경 변수를 비우고 필요한 것만 넘김(`HOME`, `USER`, `PATH`, `LANG`, `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`, 그리고 세션의 계정에 설정 폴더가 있거나 사람의 로그인 셸에 값이 있을 때의 `CLAUDE_CONFIG_DIR`) | 환경 변수로 들어오던 플러그인이 빠지고, 구독 로그인은 그대로 됨 |
 | 권한 모드 | `--permission-mode`를 데몬이 정함 | 사용자 설정을 떼면 `default`가 됨. 데몬은 역할이 있든 없든 모든 headless 세션에 `default`를 넘기고, 그래서 Claude Code가 사람에게 물었을 호출이 모두 데몬으로 옴. 2.1.330의 `claude --help`는 이 모드를 `manual`로 적지만 CLI는 `default`도 그대로 읽음(2026-11-22 실험) |
 
 - **`--bare`는 쓰지 않습니다.** `--bare`에서는 Claude Code가 OAuth와 키체인을 읽지 않아 구독 로그인으로 돌 수 없습니다(`claude --help`).
@@ -235,6 +250,9 @@ check: apps/desktop/test/ledger.test.ts apps/desktop/test/daemon.test.ts
 
 **인장의 뒷면은 열 때마다 커밋된 기록과 장부로 짜고, 뒷면의 어떤 것도 저장하지 않습니다.** 장부의 항목은 자신이 체인의 어느 단계인지를 단계의 종류와 회차로 적습니다. 그래서 단계의 비용은 항목의 순서나 시각이 아니라 그 회차로 회차의 지적 옆에 놓이고, 질문에 대한 결정과 수렴 판단은 종류로 구별됩니다. 체인이 띄우지 않은 세션은 단계를 적지 않고, 어느 회차의 비용에도 들어가지 않습니다. 데몬은 회차 기록, `guarantee.md`, 전체 검사 기록, 거절된 호출을 브랜치의 head 커밋에 담긴 대로 읽고, 커밋되지 않은 워크트리의 파일은 아무것도 말하지 않습니다. 함수 하나가 그렇게 읽은 것과 장부의 항목으로 뒷면을 짜고, 창과 PR 본문이 같은 함수를 쓰므로 둘은 같은 합계를 보입니다. 창은 뒷면이 앞에 올 때 두 가지를 묻고 뒷면이 물러나면 버리며, 데몬이 보내는 목록의 어떤 작업도 그것을 싣지 않습니다. 비용은 저장소의 어떤 기록에도 적지 않습니다.
 check: apps/desktop/test/seal-back.test.ts apps/desktop/test/seal-back-records.test.ts apps/desktop/test/ledger.test.ts apps/desktop/test/chain.test.ts apps/desktop/test/daemon.test.ts
+
+**계정, 그리고 저장소와 작업마다 정한 계정은 데몬이 갖고, 사람의 저장소에는 아무것도 적지 않습니다.** 데몬의 실행 폴더에 있는 `accounts.json`이 계정마다의 이름, 설정 폴더, Owlery가 그 폴더를 만들었는지, 어느 계정이 기본인지, CLI가 로그인마다 마지막으로 알린 것, 그리고 System default를 포함해 계정마다 그 세션이 마지막으로 넘겨준 사용 한도 값을 갖습니다. 저장소와 작업의 설정은 `repositories.json`에 그 저장소, 그 작업과 함께 있고, 세션의 설정은 세션이 사는 동안만 있습니다. 데몬이 갖고 있지 않은 계정을 가리키는 설정은 데몬이 시작할 때 지웁니다. Owlery가 만드는 폴더는 실행 폴더의 `accounts/`에 있고 그 사람만 읽을 수 있습니다. CLI는 그 폴더에 자기 상태를 두고, macOS에서는 로그인을 그 폴더에 맞춘 키체인 항목에 두므로, Owlery가 쓰는 어느 파일에도 토큰이 없습니다. Owlery가 만든 계정을 지울 때는 CLI의 명령으로 로그아웃한 다음 폴더를 지우고, 사람이 넘긴 폴더는 지우지 않습니다.
+check: apps/desktop/test/accounts.test.ts apps/desktop/test/repositories.test.ts
 
 ### 기록은 저장소에 커밋합니다
 
@@ -483,7 +501,6 @@ check: apps/desktop/test/background.test.ts
 | 터미널과 휴대폰에서 동시에 입력할 때 | 먼저 친 쪽이 들어가고 다른 쪽은 기다림 / 언제나 터미널이 이김 | CLI가 입력을 기다리는지를 데몬이 확실히 알 수 있는가, 그리고 휴대폰에서 친 입력이 들어가지 않았다는 것을 사람이 어떻게 아는가 |
 | CLI의 자체 원격 기능을 켠 세션 | 그 세션의 권한 요청은 그 기능에 맡김 / 두 곳 모두 띄우고 먼저 온 답을 씀 | Claude Code에는 Remote Control이 켜졌다는 것을 알려 주는 훅이 없어서, 사람이 직접 켜면 데몬이 알 수 없습니다 |
 | 다른 에이전트가 만든 브랜치에 인장을 받는 시점 | 지금처럼 v0.1 다음 / v0.1로 당김 | 첫 사용자가 Claude Code와 Codex를 함께 돌리는 사람들인가. Codex 세션은 마일스톤 4부터 터미널 칸에서 돌므로([마일스톤](roadmap.ko.md#마일스톤)), 남은 것은 그 브랜치를 기록에 어떻게 적을지입니다. 그들을 끌어오는 것은 Codex로 만든 브랜치에 Claude의 인장을 받는 경험입니다 |
-| 사용량을 읽는 길 | Claude Code가 넘겨주는 값만 / 사용자의 토큰을 읽어 공개되지 않은 주소도 부름 | 마지막 호출 기준의 값으로 작업함과 AgenticSeal 프로세스 시작 판단에 충분한가. 그리고 다른 제품이 사용자의 로그인 토큰을 읽는 일에 대해 Anthropic이 공개한 문서가 무엇이라고 적는가. 헤드리스 문제와 마찬가지로 그 문서가 바뀌면 다시 판단합니다([사용량 읽기](#사용량-읽기)) |
 | 연결 라이브러리 | iroh / WebRTC 데이터 채널 | React Native 휴대폰 앱에서 iroh를 쓸 수 있는가, 사람들이 실제로 쓰는 네트워크에서 어느 쪽이 데몬에 더 자주 직접 닿는가([밖에서 붙기](#밖에서-붙기-휴대폰과-다른-컴퓨터)) |
 | 기여자 동의 | CLA를 요구함 / 개발자 원산지 증명(DCO)만 받음 | CLA는 라이선스를 바꿀 수 있게 남기지만, 한 단계가 더해져 일부 기여자가 떠납니다. DCO는 기여자가 그 코드를 낼 권리가 있다는 것만 확인하므로, 이후 라이선스를 바꾸려면 모두의 동의가 필요합니다([라이선스와 다른 프로젝트의 코드](#라이선스와-다른-프로젝트의-코드)) |
 | 리눅스 | macOS와 함께 커뮤니티 빌드로 냄 / 윈도우 다음까지 기다림 | Electron이라 빌드 비용이 작고 오픈소스 메인테이너 중에 리눅스 사용자가 많습니다. 하지만 지원하는 플랫폼마다 따로 시험해야 하고, 리눅스에는 Wayland, Nvidia, WebGL 관련 터미널 이슈가 더 많이 열려 있습니다([플랫폼과 그 순서](#플랫폼과-그-순서)) |
