@@ -65,4 +65,4 @@ No migration, no new dependency and no compatibility break. `apps/desktop/packag
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | The pull request's title takes `test:`, and the kind that came closest is `docs:`. | The diff adds a measurement command, its cases and two scripts of the test runner, and changes nothing a person's start of the app runs. The published measurement and the rule for an agent's run are documents, but they stand on the command, which is test code. | the plugin's `skills/commit-pr-convention/SKILL.md` *Pull request titles*, and the prefix of issue #149's title |
