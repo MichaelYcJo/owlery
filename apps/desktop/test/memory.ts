@@ -263,11 +263,13 @@ export function tables(runs: readonly Run[]): string {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-function listed(): ProcessRow[] {
+/** Every process the system lists, as `ps` printed it. */
+export function listed(): ProcessRow[] {
   return processRows(execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8", maxBuffer: 64 * MB }));
 }
 
-function footprintsOf(pids: readonly number[]): Map<number, number> {
+/** Each process's footprint in bytes, by its process id, as `footprint` read it. */
+export function footprintsOf(pids: readonly number[]): Map<number, number> {
   try {
     return footprints(execFileSync("footprint", ["--noCategories", "-f", "bytes", ...pids.map(String)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
   } catch (error) {
