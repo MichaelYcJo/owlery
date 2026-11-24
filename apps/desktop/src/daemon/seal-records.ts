@@ -7,8 +7,10 @@
 // `#guarantee`), and `record-blocks.ts` holds the grammar the two share.
 //
 // A sealer writes the two lines of a verdict block it can judge, `target:`
-// and `Verdict:`. The daemon writes the four it holds exactly: who built the
-// work, who judged it, the judging model and the version of the rules. No
+// and `Verdict:`. Owlery's code writes the four it holds exactly, in the
+// daemon's chain and in the chain command a pane's session runs
+// (`stage-records.ts#recordVerdict`): who built the work, who judged it, the
+// judging model and the version of the rules. No
 // earlier run's section is edited, so the grounds of an earlier verdict stay
 // beside its block (docs/architecture.md, "Records are committed to the
 // repository").

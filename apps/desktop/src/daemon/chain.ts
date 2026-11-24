@@ -1,8 +1,10 @@
 // A work item's chain: what the daemon runs from `Daemon#startChain`. This module
 // holds what the run decides and says and none of its sessions: the step the
 // records owe, each stage's prompt, the reading of each stage's answer, and
-// the chain as the store keeps it. `Daemon#runChain` starts the sessions and
-// makes the commits.
+// the chain as the store keeps it. `Daemon#runChain` starts the sessions, and
+// `stage-records.ts` turns each stage's answer into a committed record, for
+// the daemon's chain and for the chain command a pane's session runs
+// (`chain-command.ts`), which reads the same order here.
 //
 // The daemon keeps no position of a chain. Before each stage it reads the
 // work item's round records as the branch's head holds them, its record of
