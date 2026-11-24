@@ -151,7 +151,7 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
 
   it("notifies of each call a session asks the person to allow and opens the view at a click, shows the calls there with Allow and Refuse on the keyboard, keeps the keyboard where an inbox changes nothing the section shows and on the same button where a change draws the section again, and sends the answer a press gives", async () => {
     writeFileSync(join(made.base, "asks"), "");
-    // Only the notifications of this case's requests are read: the page's list already holds those of the cases before, and this case reads the entries after them.
+    // Only the notifications of this case's requests are read: the page's list keeps whatever a case before this one raised, and this case reads the entries after it.
     const before = await app.evaluate<number>(`window.__notifications.length`);
     // The app starts in the background, and the page of a window without the system's focus moves no keyboard.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
