@@ -53,7 +53,7 @@ The phases start from `90184d5`, where this branch holds every work item of the 
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1. The ledger names the chain's stage | `frame/design.md` *Scope* items 1 and 2 | Scenarios 1 and 2 | |
+| 1. The ledger names the chain's stage | `frame/design.md` *Scope* items 1 and 2 | Scenarios 1 and 2 | `abb63f4` |
 | 2. The records and the composition | *Scope* items 3 to 15 | Scenarios 3 to 13 and 21 | |
 | 3. The back in the window | *Scope* items 16 to 21 | Scenarios 14, 15 and 20, and the review's reading of the screenshots against `docs/design.md` | |
 | 4. The back in the pull request's body | *Scope* items 22 to 27 | Scenarios 16 to 19 and 22 | |
