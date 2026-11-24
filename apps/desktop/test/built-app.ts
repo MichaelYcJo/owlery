@@ -20,7 +20,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * cores, and 25.1 GB free of 494.4 GB. So a case reads the same proposals on
  * the owner's Mac and on the hosted runner.
  */
-export const SUITE_MACHINE = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 };
+const SUITE_MACHINE = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 };
 
 /** Builds `dist/` from the tree as it stands, so a case never reads a stale build. */
 export function buildApp(): void {

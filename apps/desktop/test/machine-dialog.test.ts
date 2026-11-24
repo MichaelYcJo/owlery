@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import { readDiscovery } from "../src/daemon/discovery";
 import { BuiltApp, buildApp } from "./built-app";
 
 /** What the Machine dialog shows of each cap: its name, its field, its default's sentence, and whether "Use the default" is offered. */
@@ -79,6 +81,36 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
     expect((await shown())[0]?.value).toBe("6");
     await app.click("#machine-cancel");
     await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
+  });
+
+  it("keeps what a person typed where another window changes a cap while the dialog is open, and shows that change in the other rows", async () => {
+    await open();
+    await type("agents", "4");
+    // Another window of the same daemon sets the cap on panes.
+    const discovery = readDiscovery(join(app.userData, "run"));
+    if (!discovery) throw new Error("the daemon wrote no discovery file");
+    const other = new WebSocket(`ws://127.0.0.1:${String(discovery.port)}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        other.once("open", () => resolve());
+        other.once("error", reject);
+      });
+      other.send(JSON.stringify({ type: "hello", token: discovery.token }));
+      other.send(JSON.stringify({ type: "setCaps", requestId: 1, panes: 12 }));
+      await app.until(`document.getElementById("machine-panes").value === "12"`, "the other window's cap in the dialog");
+      expect((await shown()).map(({ value, offersDefault }) => ({ value, offersDefault }))).toEqual([
+        { value: "4", offersDefault: true },
+        { value: "", offersDefault: false },
+        { value: "12", offersDefault: true },
+      ]);
+      other.send(JSON.stringify({ type: "setCaps", requestId: 2, panes: null }));
+      await app.until(`document.getElementById("machine-panes").value === "8"`, "the panes back on their default");
+    } finally {
+      other.close();
+    }
+    await app.click("#machine-cancel");
+    await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
+    expect(limits()).toBe("{}");
   });
 
   it("says why a value is refused, in the daemon's sentence, keeps what was typed and the dialog open, and sends nothing", async () => {

@@ -771,7 +771,8 @@ export interface KeepAwake {
  * above 0 or cannot be asked. `load` is the load average of the last minute,
  * and `disk` the free and total bytes of the volume that holds the worktrees'
  * folder, read from the folder or the nearest folder above it that stands, or
- * null where none answers. Both are read again at each `readMachine`.
+ * null where none answers. Both are read again at each hello and each
+ * `readMachine`.
  */
 export interface MachineReading {
   memoryBytes: number;

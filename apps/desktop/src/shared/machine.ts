@@ -1,8 +1,7 @@
 // The caps the daemon keeps on the machine it runs on: how each proposal is
 // worked out from what the daemon read of the machine and what it measured
 // there, the sentence that states each proposal with its numbers, and which
-// value a person may set. The daemon and the window read the same functions
-// (docs/architecture.md, Memory design).
+// value a person may set. The daemon and the window read the same functions.
 import type { Cap, Machine, MachineReading } from "./protocol";
 
 export const MIB = 1024 ** 2;
@@ -19,9 +18,6 @@ export const KEEP_FREE_BYTES = 10_000_000_000;
 
 /** The most panes a view shows side by side: Chromium's default limit of GPU terminals. */
 export const PANES_MOST = 16;
-
-/** How many panes side by side a window shows against a daemon that keeps no cap. */
-export const PANES_WITHOUT_MACHINE = 4;
 
 /** Each cap's name in a sentence, and on its row of the Machine dialog. */
 export const CAP_NAMES: Record<Cap, { label: string; inSentence: string }> = {
