@@ -1,5 +1,6 @@
 // A work item's view: its header, its tabs with the terminals of the panes
-// on the stage and the strip under them, and its right column, which says what the
+// on the stage, or the back of its seal in the stage's place behind a tab of
+// its own, and the strip under them, and its right column, which says what the
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
 // above the "Ask" section, where the calls its headless sessions ask the
@@ -16,11 +17,11 @@ import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, r
 import {
   answersFor,
   askButton,
+  askedSection,
   BACK_READING,
   BACK_TAB,
   backKey,
   backShown,
-  askedSection,
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
@@ -115,9 +116,9 @@ let gateRequest: { requestId: number; workItemId: number; startedAt: number } | 
 let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
 // Whether the back of the seal is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
 let backFront = false;
-// What the back asked the daemon while it is in front, and the answers: the work item, the key it was asked at (./view, `backKey`), each request, each answer, and the daemon's refusal of either. The answers are let go when a pane comes in front or the view is left.
 // What the back's place last drew, so a list that changes nothing of it draws nothing again and a selection in it stays.
 let backDrawn: string | undefined;
+// What the back asked the daemon while it is in front, and the answers: the work item, the key it was asked at (./view, `backKey`), each request, each answer, and the daemon's refusal of either. The answers are let go when a pane comes in front or the view is left.
 let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
@@ -1037,7 +1038,7 @@ function closePane(session: SessionInfo): void {
   closeDialog.showModal();
 }
 
-/** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view, it does nothing. */
+/** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
   if (session) closePane(session);
@@ -1150,7 +1151,8 @@ export function takeBackRefusal(requestId: number, refusal: string): boolean {
  * panes on the stage, each on a screen of the pool, with the strip under
  * them, its right column, the questions it is parked with among it, and its
  * "Ask" section. The stage holds the pane in
- * front, or up to four panes as tiles where "Side by side" is pressed. It
+ * front, or up to four panes as tiles where "Side by side" is pressed, and
+ * gives way to the back of the seal while the back's tab is in front. It
  * starts no process.
  */
 export function showView(): void {
