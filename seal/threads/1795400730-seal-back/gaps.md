@@ -15,6 +15,7 @@
 | Phase 4: `test/role-session.test.ts`, which imports `src/daemon/daemon.ts`, was not run. It starts role sessions and no pull request stage (read: its imports) | the orchestrator's broad gate |
 | Phase 4: how GitHub draws the back's section: its table, its lists, its code in backticks and the given-way line. Every case read the body as text and handed it to a stand-in for `gh` | the walk of issue #48, on the first pull request of Owlery's own that Owlery seals |
 | Phase 4: `frame/questions.md` Q1, whether a pull request's body carries each stage's cost. Its default, "carry them", is what phase 4 built, so every reader of a pull request sees the costs | the owner, at the pull request |
+| Fix pass 1 on round 1: the test files that draw the window and were not in the fix pass's narrow run, which held `test/seal-back-view.test.ts`, `test/pr-check.test.ts` and `test/round-record.test.ts`. The fix pass changes two calls of `shared.ts` that draw the back, and only `test/screenshots.test.ts` draws a back among the other files, in the built-app part a plain run skips. The screenshots were not taken again: the scene's finding heading, "The greeting of line 1 misses its full stop" (`test/chain-run.ts#findingSection`), and the subject of the commit that breaks the other seal, "add avatars.ts" (`test/repositories.ts#commitFile`), hold no backtick, so no drawn pixel changes (read) | the orchestrator's broad gate |
 
 ## Not done
 
@@ -25,3 +26,5 @@ Phase 2: nothing.
 Phase 3: nothing.
 
 Phase 4: the right column's foot and the approval line show a broken seal's sentence with its backticks as written, where the back draws the words between them as code. Phase 3 found it. Issue #44, which merged, left that sentence as written on purpose, and its records leave how a broken seal's sentence is drawn to the owner (#44's `frame/questions.md` Q1). The orchestrator carries the question to the owner, so this work leaves both places as they are.
+
+Fix pass 1 on round 1: nothing.
