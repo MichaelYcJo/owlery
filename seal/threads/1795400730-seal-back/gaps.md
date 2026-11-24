@@ -8,9 +8,14 @@
 | The other test files that import `src/shared/protocol.ts`, whose `LedgerEntry` gained a field. The change is to a type alone, so it moves no value at run time, and `pnpm run typecheck` passed over `src` and `test` after it (executed, at `5c1c88e` and `abb63f4`). Their cases were not run in phase 1 | the orchestrator's broad gate |
 | Phase 2: the test files that start the built app, whose daemon runs the `daemon.ts` phase 2 changed, the same files as the first row (executed: `git grep -l "BuiltApp" -- test`). None was run in phase 2, for the same reason. Phase 2 adds one case to the daemon's messages, `readSealRecords`, which no file of `src/renderer` sends yet, and changes what `round-record.ts` gives the chain by two fields and one field of a close, which none of those files imports (executed: `git grep -l -E "readRoundRecord|round-record|sealRecords"` over them names `test/role-bundle.test.ts` alone, for a path of the plugin's docs) | the orchestrator's broad gate |
 | Phase 2: the wording of the back's sentences, which `src/shared/seal-back.ts` composes and no window draws yet. `frame/questions.md` Q5 leaves it to phase 3, and `trail/phases/phase-2.md` lists each wording the frame did not fix | phase 3's crafter, which draws the back |
+| Phase 3: the test files that start the built app and were not in phase 3's narrow run: `test/ask-section.test.ts`, `test/chain.test.ts`, `test/daemon-client.test.ts`, `test/keep-awake.test.ts`, `test/records-dialog.test.ts`, `test/role-bundle.test.ts`, `test/role-session.test.ts` and the measurement of `test/memory.ts`. Each draws the window phase 3 changed, and none puts a seal, a round or a chain on a work item whose view it opens or reads the strip's tabs (executed: the two `grep -l` of `trail/phases/phase-3.md`, *The phase's narrow run*). The 11 files of that run other than `test/seal-back-view.test.ts`, `test/view.test.ts` and `test/themes.test.ts` were run at `ecb17c7` and not after `8e4f75b`, which changes `work-item-view.ts#showBack` alone | the orchestrator's broad gate |
+| Phase 3: the forms of the back that no screenshot shows: a stage that failed or was stopped, a finding that is open, rejected or deferred, a finding that names an earlier one, the refused calls, the lines not read, the sessions outside the chain, "Reading the records." and a refusal in the back's place. Their inks were read in `index.html` against `docs/design.md` *Components and their states*, the row "The back of the seal", and not seen drawn | the review round's reading of `index.html` against `docs/design.md` |
+| Phase 3: `frame/questions.md` Q5, the back keeping its own drawing of the seal while the right column's foot draws the same seal. Phase 3 kept it, with the grounds `trail/phases/phase-3.md` gives, and the screenshots `finished` and `broken` show both | the owner, reading the screenshots at the pull request |
 
 ## Not done
 
 Phase 1: nothing.
 
 Phase 2: nothing.
+
+Phase 3: nothing.

@@ -55,7 +55,7 @@ The phases start from `90184d5`, where this branch holds every work item of the 
 |---|---|---|---|
 | 1. The ledger names the chain's stage | `frame/design.md` *Scope* items 1 and 2 | Scenarios 1 and 2 | `abb63f4` |
 | 2. The records and the composition | *Scope* items 3 to 15 | Scenarios 3 to 13 and 21 | `77f2751` |
-| 3. The back in the window | *Scope* items 16 to 21 | Scenarios 14, 15 and 20, and the review's reading of the screenshots against `docs/design.md` | |
+| 3. The back in the window | *Scope* items 16 to 21 | Scenarios 14, 15 and 20, and the review's reading of the screenshots against `docs/design.md` | `8e4f75b` |
 | 4. The back in the pull request's body | *Scope* items 22 to 27 | Scenarios 16 to 19 and 22 | |
 
 The new test files that `frame/design.md` *Rule changes* names in its `check:` lines are made under those names: `test/seal-back.test.ts` and `test/seal-back-records.test.ts` in phase 2, and `test/seal-back-view.test.ts` in phase 3. The check at the pull request refuses a `check:` line that names no file. The other files those lines name stand in the merged tree at `90184d5` (executed: `ls`): `test/ledger.test.ts`, `test/chain.test.ts`, `test/daemon.test.ts`, `test/pull-request.test.ts` and `test/screenshots.test.ts`.
