@@ -1186,6 +1186,23 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(status(a.worktree)).toEqual([]);
   });
 
+  it("sends every client the lists that carry the chain as running once it has started, before the chain's own first read of the worktree has ended", async () => {
+    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+    const { c, d } = stood;
+    const a = stood.workItems[0]!;
+    // The start reads whether the worktree can take a commit, and the chain reads it again before its first stage. That second read is held, so the chain itself has told no client anything yet.
+    const seen = join(stood.made.base, "seen-one-read");
+    const held = heldGit(cleanups, stood.made.base, `[ "$1" = rev-parse ] && [ "$2" = --git-path ] && if [ -e '${seen}' ]; then true; else touch '${seen}'; false; fi`);
+    c.messages.length = 0;
+    await d.startChain(a.id, true);
+    await c.until(() => (held.waiting() ? true : undefined));
+    await new Promise((r) => setTimeout(r, 200));
+    const chain = c.workItem(a.id)?.chain;
+    expect([chain?.state, chain?.says, chain?.stages]).toEqual(["running", "Owlery is reading the work item's records.", []]);
+    held.release();
+    await c.chain(a.id, "rested");
+  });
+
   it("starts only once a rename of the branch that is under way has ended, so the chain runs on the branch's new name", async () => {
     const stood = await standing(cleanups, ["First name"], { roleAdapter: roles({ proofer: clean }) });
     const { c } = stood;
