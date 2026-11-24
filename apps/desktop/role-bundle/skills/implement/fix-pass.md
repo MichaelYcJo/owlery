@@ -4,16 +4,16 @@ A fix pass opens this file before it judges the first finding of a round
 record, and nothing else opens it. The crafter opens it at step 9 of
 `agents/crafter.md`, and a session that fixes review feedback opens it from
 `skills/implement/SKILL.md` *5. Incorporate review — read the round records
-first*. The daemon runs the pass: it launches the crafter in the work
-item's worktree with the round record's path, the numbers of its open
-findings and each decision the person reversed, and it commits the round
-record after the pass.
+first*. The pass runs in the work item's worktree, and its prompt holds
+the round record's path, the numbers of its open findings and each decision
+the person reversed. Owlery commits the round record after the pass: the
+daemon in a chain it runs, and the chain command in a pane.
 
 ## Read the round records first
 
 A fix pass starts at `seal/threads/<work-item-id>/trail/rounds/`,
 **not** at the inline comments: the proofer's answer is `round-N.md`, which
-the daemon wrote and committed, and the next review round reads it
+Owlery wrote and committed, and the next review round reads it
 (`docs/forms/the-round-record.md` *The round record*).
 
 A finding is a claim too, and it arrives from someone who did not write the
@@ -67,7 +67,7 @@ proofer's (`docs/forms/the-round-record.md` *The round record*). The
 build's phases keep their records.
 Last, after its last fix commit and its corrections, the fix pass appends
 the close block of every finding it answered, and commits none of them:
-the daemon commits the round record as the pass left it. It commits the
+Owlery commits the round record as the pass left it. It commits the
 record only where it differs from the committed one by close blocks alone,
 each `fixed <commit>` names a commit the branch holds and the round's
 target does not, and the worktree holds no change outside the work item's

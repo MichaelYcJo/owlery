@@ -4,9 +4,9 @@
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
 // above the "Ask" section, where the calls its headless sessions ask the
-// person to allow are answered, and the seal's place with "Get a seal",
-// which starts the work item's chain, with the work item's pull request
-// under it. The pool of terminal screens the window holds lives here, and so
+// person to allow are answered, and the seal's place with the sentence of
+// the work item's chain, with the work item's pull request under it. The
+// pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -25,6 +25,7 @@ import {
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
+  chainSays,
   closeAsks,
   droppedText,
   GATE_HEAD,
@@ -51,12 +52,9 @@ import {
   pullRequestFacts,
   pathTarget,
   recentKept,
-  refusedSeal,
   replayStep,
   repoNameOf,
   screenMoves,
-  sealButton,
-  type SealRefusal,
   sealShown,
   type ScreenTurns,
   screenTurns,
@@ -106,14 +104,10 @@ let askDrawn: string | undefined;
 let answersRequest: number | undefined;
 // The address of the pull request the view shows, which a press of its row opens.
 let pullRequestUrl: string | undefined;
-// The request a press of "Get a seal" is waiting on, with its work item: the button stays off until the daemon answers.
-let sealRequest: { requestId: number; workItemId: number } | undefined;
 // What the window last read of a broad gate's output (./view, `GateOutput`), which stands under the line of the run it was read of.
 let gateRead: GateOutput | null = null;
 // The request a press of "Show output" is waiting on, with the work item and the run whose line was pressed.
 let gateRequest: { requestId: number; workItemId: number; startedAt: number } | undefined;
-// The daemon's refusal of the last "Get a seal", and the work item it refused it for.
-let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
 // Whether the back of the seal is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
 let backFront = false;
 // What the back's place last drew, so a list that changes nothing of it draws nothing again and a selection in it stays.
@@ -130,6 +124,8 @@ let mac = false;
 let openWorkItem: (workItemId: number) => void = () => {};
 // What a press of "Reverse" on a decision of the view's work item does: it opens the dialog that takes the message.
 let reverseDecision: (workItemId: number, decisionId: number) => void = () => {};
+// What stands before a pane of a work item opens: it calls `open` at once, or after the person answered what the window asks first, which is the chain of the repository's Claude Code panes.
+let beforePane: (workItemId: number, kind: PaneKind, open: () => void) => void = (_workItemId, _kind, open) => open();
 // The target of the link the pointer is on, for the card that shows once the pointer has rested there.
 let cardFor: LinkTarget | undefined;
 // Where the pointer is in the window, as its last move said. The card shows at it.
@@ -166,13 +162,11 @@ const questionsAge = byId("questions-age");
 const questionsList = byId("questions-list");
 const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
-const getSeal = byId<HTMLButtonElement>("get-seal");
 const sealHead = byId("view-seal-head");
 const sealWhy = byId("view-seal-why");
 // The seal's place at the view's foot is made once, and drawn again for each work item the view shows.
 const viewSeal = sealPlace("view", null);
 const sealSays = byId("seal-says");
-const sealRefusal = byId("seal-refusal");
 const pullRequestSection = byId("view-pull-request");
 const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
@@ -659,10 +653,11 @@ function showSize(): void {
   stripSize.textContent = screen ? `${screen.term.cols} \u00d7 ${screen.term.rows}` : "";
 }
 
-/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`. */
+/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, once `beforePane` lets it open. */
 function start(kind: PaneKind, continueLatest: boolean): void {
-  if (held.viewing === undefined) return;
-  send({ type: "start", kind, ...startSize(), requestId: request(), workItemId: held.viewing, ...(continueLatest ? { continueLatest: true } : {}) });
+  const workItemId = held.viewing;
+  if (workItemId === undefined) return;
+  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}) }));
 }
 
 /** Builds, once per connection, the view's button for each choice the kinds of pane the daemon offers give. */
@@ -915,11 +910,9 @@ function sendAnswers(): void {
 /**
  * Draws the view's foot for the view's work item: the seal's place and its
  * words for the seal its branch's head holds (./view, `sealShown`), with
- * the seal's sentence under its head where the seal is broken, and
- * "Get a seal" (./view, `sealButton`): the button where the daemon sent the
- * work item's chain, in its words for that seal, the chain's sentence above
- * it and the daemon's refusal of the last press under it, while the chain
- * stands as it stood at that refusal.
+ * the seal's sentence under its head where the seal is broken, and the
+ * sentence of the work item's chain (./view, `chainSays`) under them. The
+ * foot holds nothing to press.
  */
 function showSeal(workItem: WorkItem): void {
   drawSeal(viewSeal, workItem.seal);
@@ -927,13 +920,7 @@ function showSeal(workItem: WorkItem): void {
   sealHead.textContent = shown.words;
   // The daemon's sentence is plain text, never markup.
   sealWhy.textContent = shown.why;
-  const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
-  getSeal.textContent = button.words;
-  getSeal.hidden = !button.offered;
-  getSeal.disabled = !button.enabled;
-  getSeal.title = button.title;
-  sealSays.textContent = button.says;
-  sealRefusal.textContent = button.refusal;
+  sealSays.textContent = chainSays(workItem);
 }
 
 /**
@@ -975,32 +962,6 @@ function showPullRequest(workItem: WorkItem): void {
   );
   byId("pull-request-more").textContent = facts.foot;
   byId("pull-request-failure").textContent = facts.failure;
-}
-
-/** Asks the daemon to start the chain of the work item whose view is on screen, as a press of "Get a seal" does. The daemon answers `done` once the chain has started, and the `inbox` that follows carries it. */
-function askSeal(): void {
-  const workItem = viewed();
-  // One request per answer: a second press before the daemon has answered would ask for a second start.
-  if (!workItem || sealRequest !== undefined || !sealButton(workItem, false, null).enabled) return;
-  sealRequest = { requestId: request(), workItemId: workItem.id };
-  send({ type: "getSeal", requestId: sealRequest.requestId, workItemId: workItem.id });
-  showSeal(workItem);
-}
-
-/**
- * Takes the daemon's answer to a press of "Get a seal", `refusal` being its
- * refusal or null for `done`, and answers whether the request was that
- * press's. A refusal is shown under the button, with the button on again,
- * and is kept with the chain as the window holds it at the answer.
- */
-export function takeSeal(requestId: number, refusal: string | null): boolean {
-  if (requestId !== sealRequest?.requestId) return false;
-  const { workItemId } = sealRequest;
-  sealRefused = refusal === null ? undefined : { workItemId, refusal: refusedSeal(held.workItems.find((item) => item.id === workItemId), refusal) };
-  sealRequest = undefined;
-  const workItem = viewed();
-  if (workItem) showSeal(workItem);
-  return true;
 }
 
 /**
@@ -1214,8 +1175,6 @@ export function enterView(workItemId: number, pane?: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
-  // A press whose answer never came, as where the daemon ended first, holds the button off no longer.
-  sealRequest = undefined;
   held.viewing = workItemId;
   front = undefined;
   // A view entered with no pane opens to the back where the work item holds a seal (./view, `opensToBack`).
@@ -1312,8 +1271,9 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void): void {
+export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void, before: (workItemId: number, kind: PaneKind, open: () => void) => void): void {
   leave = onLeave;
+  beforePane = before;
   mac = isMac;
   openWorkItem = openView;
   reverseDecision = reverse;
@@ -1347,7 +1307,6 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     { capture: true },
   );
   byId("view-seal-place").replaceWith(viewSeal);
-  getSeal.addEventListener("click", askSeal);
   byId("pull-request-open").addEventListener("click", () => {
     if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
   });

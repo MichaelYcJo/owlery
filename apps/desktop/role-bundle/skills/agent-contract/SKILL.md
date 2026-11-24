@@ -2,7 +2,7 @@
 name: agent-contract
 description: |
   The rules every AgenticSeal agent works under — crafter, proofer, tracer, and any
-  agent added after them. Not a command to run: the daemon appends it to the system prompt of every role session.
+  agent added after them. Not a command to run: it follows the core in the rules file Owlery hands every role.
   Use when: writing or reviewing an agent definition, or settling which rule
   a spawn prompt may narrow and which it may not.
   NOT for: a rule that is one agent's own — those live in `agents/<name>.md`;

@@ -4,9 +4,10 @@
 // as rows, the sentences at its head, one part for each round with its
 // findings and the stages that ran for it, the stages after the rounds, the
 // sums, the sessions outside the chain, the refused calls and the lines not
-// read. The window draws what this gives and the body writes it as
-// Markdown, so both show one sum (docs/architecture.md, "State lives in
-// three places").
+// read. Where the ledger holds no stage of the chain, the sums are the
+// sentence that says the stages ran outside the daemon. The window draws
+// what this gives and the body writes it as Markdown, so both show one sum
+// (docs/architecture.md, "State lives in three places").
 //
 // A stage's cost is set beside its round by the entry's `chain`, the kind
 // and the round of the chain's stage it is for, and never by the order or
@@ -65,6 +66,7 @@ export interface Back {
   rounds: RoundPart[];
   /** The broad gate's and the sealer's lines, and a ruling on the sealer's question after the sealer's line, in the ledger's order. */
   after: StageLine[];
+  /** The sentences on what the chain's stages cost, or the one that says the stages ran outside the daemon, where the records hold a round or a verdict and the ledger holds no stage of the chain. */
   sums: string[];
   outside: string | null;
   /** The sentence that says what a converted cost is, where a converted cost is shown. */
@@ -94,6 +96,9 @@ const STAGE_NAMES: Record<ChainStageKind, (round: number) => string> = {
 const STOPPED_WORDS: Record<NonNullable<LedgerEntry["stopped"]>, string> = { limit: "Stopped at its limit", request: "Stopped", daemon: "Stopped with the daemon" };
 
 const CONVERTED_SAYS = "A converted cost is the usage priced at API prices, and it is not a charge.";
+
+/** What the back says of the costs where the records hold a round or a verdict and the ledger holds no stage of the work item's chain: the daemon ran none of the stages, so it holds no cost of them. */
+const OUTSIDE_DAEMON_SAYS = "The stages of this chain ran outside Owlery's daemon, in a pane's session or in another tool, and Owlery read no cost of them.";
 
 /** A count of a noun, the noun in the plural where the count is not 1. */
 function counted(count: number, noun: string, plural = `${noun}s`): string {
@@ -291,7 +296,7 @@ export function composeBack(records: SealRecords, entries: readonly LedgerEntry[
           ...(record.rules === null ? [] : [{ label: "Rules", value: record.rules }]),
         ];
 
-  const sums: string[] = [];
+  const sums: string[] = chained.length === 0 && (records.rounds.length > 0 || record !== null) ? [OUTSIDE_DAEMON_SAYS] : [];
   const chainCost = costsOf(chained);
   if (chainCost !== null) sums.push(`The chain's stages cost ${chainCost}.`);
   const unreported = chained.filter(({ chain, usage }) => !NO_TURN.includes(chain.kind) && (usage === null || usage.costUsd === null)).length;

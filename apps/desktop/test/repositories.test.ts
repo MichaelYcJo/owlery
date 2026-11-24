@@ -23,7 +23,7 @@ const { repo: _repo, ...OWN } = PLACE;
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null, accountId: null };
 /** What a repository holds of the fields a person sets, before any is set. */
-const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, groups: [], accountId: null };
+const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, groups: [], accountId: null };
 /** The setup of a work item's worktree, as the daemon records one that ended. */
 const SETUP: WorktreeSetup = { copied: [".env"], copiedCount: 1, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 /** An entry of `work-items.json`, as a build before the repositories wrote it. */
@@ -245,7 +245,7 @@ describe("RepositoryStore", () => {
     expect(store.setRepository(1, { name: "The project" })).toBe(true);
     expect(store.setRepository(1, { name: "The project" })).toBe(false);
     expect(store.setRepository(1, { icon: "P", defaultBase: "develop", hidden: true })).toBe(true);
-    expect(store.repositories()).toEqual([{ id: 1, folder: "/r/project", name: "The project", icon: "P", defaultBase: "develop", hidden: true, addedAt: 1, groups: [], workItems: [], accountId: null }]);
+    expect(store.repositories()).toEqual([{ id: 1, folder: "/r/project", name: "The project", icon: "P", defaultBase: "develop", hidden: true, paneChain: null, addedAt: 1, groups: [], workItems: [], accountId: null }]);
     // A field that is not given is left, and null takes a name, an icon and a base away.
     expect(store.setRepository(1, { name: null, icon: null, defaultBase: null })).toBe(true);
     expect(store.setRepository(1, {})).toBe(false);
@@ -284,6 +284,29 @@ describe("RepositoryStore", () => {
     writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...repositoryBefore, accountId: "2", workItems: [] }] }));
     expect(new RepositoryStore(dir).repositories()).toEqual([]);
     writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...repositoryBefore, workItems: [{ ...itemBefore, accountId: "0" }] }] }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([]);
+  });
+
+  it("keeps the chain a person chose for a repository's Claude Code panes, which outlives the daemon, takes it away at null, and reads a file an earlier build wrote, which holds none, as no answer", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    store.addRepository("/r/project");
+    expect(store.repository(1)?.paneChain).toBeNull();
+    expect(store.setRepository(1, { paneChain: "owlery" })).toBe(true);
+    expect(store.setRepository(1, { paneChain: "owlery" })).toBe(false);
+    // Another field set leaves the answer as it is.
+    expect(store.setRepository(1, { name: "The project" })).toBe(true);
+    expect(new RepositoryStore(dir).repository(1)?.paneChain).toBe("owlery");
+    expect(store.setRepository(1, { paneChain: "plugin" })).toBe(true);
+    expect(new RepositoryStore(dir).repository(1)?.paneChain).toBe("plugin");
+    expect(store.setRepository(1, { paneChain: null })).toBe(true);
+    expect(new RepositoryStore(dir).repository(1)?.paneChain).toBeNull();
+    // A file of an earlier build holds no such field, and its repository is read with the rest it holds.
+    const { paneChain: _, ...earlier } = { id: 1, folder: "/r/project", ...PLAIN, name: "Earlier", addedAt: 1, workItems: [] };
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [earlier] }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([{ id: 1, folder: "/r/project", ...PLAIN, name: "Earlier", addedAt: 1, workItems: [] }]);
+    // A file whose field names neither chain is read as no repository, as any file of another shape is.
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...earlier, paneChain: "both" }] }));
     expect(new RepositoryStore(dir).repositories()).toEqual([]);
   });
 
@@ -386,8 +409,8 @@ describe("RepositoryStore", () => {
     const repository = { id: 3, folder: "/r/project", name: "The project", icon: "P", defaultBase: "origin/main", hidden: true, addedAt: 5, groups: [{ id: 2, name: "Later" }], workItems: [item], accountId: null };
     const carried = { ...SETUP, extra: 1, failedCopies: [{ ...SETUP.failedCopies[0], code: "EACCES" }] };
     writeFileSync(join(dir, "repositories.json"), JSON.stringify([{ ...repository, note: "x", groups: [{ id: 2, name: "Later", colour: "red" }], workItems: [{ ...item, repo: "/r/project", setup: carried }] }]));
-    // A setup is read naming no pane, as every setup at a daemon's start is.
-    expect(new RepositoryStore(dir).repositories()).toEqual([{ ...repository, workItems: [{ ...item, setup: { ...SETUP, paneId: null } }] }]);
+    // A setup is read naming no pane, as every setup at a daemon's start is, and the file names no chain of the repository's panes, which is read as no answer.
+    expect(new RepositoryStore(dir).repositories()).toEqual([{ ...repository, paneChain: null, workItems: [{ ...item, setup: { ...SETUP, paneId: null } }] }]);
   });
 
   it("starts empty where the file is not a list of repositories, and does not read work-items.json in its place", () => {

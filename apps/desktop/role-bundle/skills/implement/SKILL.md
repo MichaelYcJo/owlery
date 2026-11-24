@@ -289,7 +289,7 @@ without a registry — take it from `date +%s` when creating the directory.
 | `frame/questions.md` | `templates/records/sdd-questions.md` | the framer opens the rows; each row's `Who can answer` cell names who closes it | decisions only a human can make — extracted so nothing ships on a silent assumption | one batch before the first edit, then as they arise |
 | `gaps.md` | `templates/records/sdd-gaps.md` | the builder | the closing memo — what went out unproved and who answers it, and what was within reach and not taken (below) | written from its template when the first phase closes; every later phase and fix pass adds to it |
 | `trail/phases/phase-N.md` | `templates/records/sdd-phase.md` | the builder | what building this phase found, each departure from the frame among it — never what the work removes, which the frame's `## Removes` names once, and never the commit or what the phase was asked, which `plan.md`'s Status and Delivers cells own | written when the phase closes |
-| `pr.md` | no template | nobody: Owlery's daemon writes no `pr.md`, and composes the pull request's body from the records the head commit holds, its seal section first | nothing a work item owes; a `pr.md` a person commits is a record the daemon copies into no body | never, by the daemon |
+| `pr.md` | no template | nobody: Owlery writes no `pr.md`, and composes the pull request's body from the records the head commit holds, its seal section first | nothing a work item owes; a `pr.md` a person commits is a record Owlery copies into no body | never, by Owlery |
 
 The `Starts from` column is not decoration. A template that no shipped
 document names is a template a session cannot find: it reads *bootstrapped

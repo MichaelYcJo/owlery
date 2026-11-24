@@ -1,10 +1,11 @@
 // The broad gate's run: one command of a repository's, started as a check on
 // another machine starts it, with what it printed kept and its process group
-// ended at a stop. This module starts the process and reads no record: the
-// daemon reads the command from the work item's worktree, holds the tree to
-// the head around the run, and writes the run's record
-// (`Daemon#runGate`, docs/architecture.md, "Code runs the order, the
-// orchestrator judges").
+// ended at a stop. This module starts the process and reads no record: its
+// caller reads the command from the work item's worktree, holds the tree to
+// the head around the run, and writes the run's record, through
+// `stage-records.ts`. The callers are the daemon's chain (`Daemon#runGate`)
+// and the chain command a pane's session runs (`chain-command.ts`)
+// (docs/architecture.md, "Code runs the order, the orchestrator judges").
 import { execFile, spawn } from "node:child_process";
 import { terminalEnv } from "./pty";
 

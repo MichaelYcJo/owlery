@@ -1,8 +1,10 @@
-// A work item's chain: what the daemon runs after "Get a seal". This module
+// A work item's chain: what the daemon runs from `Daemon#startChain`. This module
 // holds what the run decides and says and none of its sessions: the step the
 // records owe, each stage's prompt, the reading of each stage's answer, and
-// the chain as the store keeps it. `Daemon#runChain` starts the sessions and
-// makes the commits.
+// the chain as the store keeps it. `Daemon#runChain` starts the sessions, and
+// `stage-records.ts` turns each stage's answer into a committed record, for
+// the daemon's chain and for the chain command a pane's session runs
+// (`chain-command.ts`), which reads the same order here.
 //
 // The daemon keeps no position of a chain. Before each stage it reads the
 // work item's round records as the branch's head holds them, its record of
@@ -38,7 +40,7 @@ import { repositoryFileText } from "./repository-file";
 import { REFUSAL_RULES, type RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
 import { GATE_FILE, GUARANTEE_FILE, type Verdict, readGate, readGuarantee, runHeading } from "./seal-records";
-import { commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits } from "./worktrees";
+import { baseRef, commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits, sharedCommit } from "./worktrees";
 
 /** How many of a chain's stages the daemon keeps with its work item, the newest. A chain of two rounds and one fix pass is three, and each round after them adds two or three. */
 export const CHAIN_STAGES_KEPT = 50;
@@ -167,12 +169,12 @@ export function gateNotRunSays(why: string): string {
 
 /** The sentence of a chain the orchestrator's judgment stopped. */
 export function notConvergingSays(round: number): string {
-  return `The orchestrator judged after round ${String(round)} that the review rounds are not converging. "Get a seal" runs the fix pass of round ${String(round)} all the same.`;
+  return `The orchestrator judged after round ${String(round)} that the review rounds are not converging. The next start runs the fix pass of round ${String(round)} all the same.`;
 }
 
 /** The sentence of a chain that stopped at the ceiling of its rounds. */
 export function ceilingSays(round: number, ceiling: number): string {
-  return `Review round ${String(round)} left a finding open, and a chain stops for the person from round ${String(ceiling)} on. "Get a seal" runs the fix pass of round ${String(round)} and one more round.`;
+  return `Review round ${String(round)} left a finding open, and a chain stops for the person from round ${String(ceiling)} on. The next start runs the fix pass of round ${String(round)} and one more round.`;
 }
 
 /** The sentence of a parked chain that did not go on once its questions were answered: what refused the start, as a sentence of its own. */
@@ -212,7 +214,7 @@ export interface Standing {
   reversals: Reversal[];
   /** The branch's head, whole. */
   head: string;
-  /** What round 1's target names the branch against (`roundBase`). */
+  /** What round 1's target names the branch against: the base round 1's record names where the head holds that record, and otherwise the base the reader was given (`roundBase`). */
   base: string;
   /** The paths the commits after the last record's target changed, from the worktree's top. */
   changed: string[];
@@ -240,6 +242,71 @@ export interface Standing {
 export function roundBase(baseBranch: string | null, baseCommit: string | null, head: string): string {
   return baseBranch !== null && ROUND_BASE.test(baseBranch) ? baseBranch : (baseCommit ?? head);
 }
+
+/**
+ * The base a chain reads a branch against, in the three forms its stages
+ * take it in, and as a branch where it is one.
+ */
+export interface ChainBase {
+  /** What round 1's target and a verdict's name the branch against: a base's name the `target:` line takes, or a commit. */
+  named: string;
+  /** The base's commit, whole, which a run of the broad gate names and the commits of the base stand at or before. Null where the chain has none. */
+  commit: string | null;
+  /** What git reads the branch against for round 1's diff and the sealer's: a name that names a commit in the worktree. */
+  reads: string;
+  /** The base as a branch's name, which a pull request is opened against, or null where the base is no branch. */
+  branch: string | null;
+}
+
+/**
+ * The base round 1's record names, as the commit `head` holds the record in
+ * the work item's directory, a folder of the worktree: what follows
+ * `against` on its `target:` line. Null where the head holds no such record
+ * or the record's round block does not read.
+ */
+export async function recordedBase(worktree: string, directory: string, head: string): Promise<string | null> {
+  const text = await fileAt(worktree, head, join(relative(worktree, directory), ROUNDS_FOLDER, roundFile(1)));
+  return text === null ? null : (readRoundRecord(text).target?.base ?? null);
+}
+
+/**
+ * The base a chain reads the branch against at the commit `head`: the base
+ * round 1's record names (`recorded`), where the head holds that record and
+ * the name still names a commit, and otherwise `stated`, the base the
+ * caller holds, from the work item the daemon stores or from the chain
+ * command's option. So a branch that was moved onto another base is read
+ * against the base its first round read it against, whatever the work item
+ * stores. A base recorded as a branch's name is read from the commit it and
+ * the head last shared, and a base recorded as a commit is that commit, so
+ * `whyNoBase` refuses a branch that no longer holds it. It is a branch where
+ * a base of that name stands (`worktrees.ts#baseRef`).
+ */
+export async function baseOf(worktree: string, head: string, recorded: string | null, stated: ChainBase): Promise<ChainBase> {
+  const commit = recorded === null ? null : await commitNamed(worktree, recorded);
+  if (recorded === null || commit === null) return stated;
+  const branch = (await baseRef(worktree, recorded)) === null ? null : recorded;
+  return { named: recorded, commit: branch === null ? commit : await sharedCommit(worktree, recorded, head), reads: recorded, branch: branch ?? stated.branch };
+}
+
+/**
+ * Why a chain has no base to read the branch against at the commit `head`,
+ * as a sentence, or null where it has one: the base's commit is no ancestor
+ * of the head, as after the branch was reset onto another line, or the base
+ * and the head share no commit. `how` is the sentence that says how another
+ * base is named, which ends the reason. A base with no commit is refused by
+ * the stage that needs one.
+ */
+export async function whyNoBase(worktree: string, head: string, base: ChainBase, how: string): Promise<string | null> {
+  if (base.commit !== null && !(await holdsCommit(worktree, head, base.commit))) return `The branch no longer holds ${base.commit.slice(0, 7)}, the commit its chain reads it against, so a round has no base to read the branch against. ${how}`;
+  if ((await commitNamed(worktree, base.reads)) !== null && (await sharedCommit(worktree, base.reads, head)) === null) return `The branch and its base ${base.named} share no commit, so a round has no base to read the branch against. ${how}`;
+  return null;
+}
+
+/** How another base is named for a chain of the daemon whose branch left its stored base, before round 1's record stands: the sentence that ends `whyNoBase`'s reason there. */
+export const BASE_NAMED_IN_A_PANE = "Name the base in a Claude Code pane of the work item, with `--base <branch or commit>` on the chain command's `owed` and `round`: round 1's record then names it, and every later start follows that record.";
+
+/** What ends `whyNoBase`'s reason where round 1's record names the base the branch left. */
+export const BASE_RECORDED = "Round 1's record names that base, and a chain follows the record: bring the branch back onto it.";
 
 /** The stage a chain runs next, or the state it rests in. */
 export type Step =
@@ -339,12 +406,12 @@ export function passedBefore(stages: readonly ChainStage[], round: number): bool
  * - A fix pass on that record already finished: nothing. The gate was passed
  *   before that pass.
  * - The round is the ceiling or a later one: the chain stops and asks no
- *   judgment, but at the first step of a start a person's `getSeal` made,
+ *   judgment, but at the first step of a start a person's word made,
  *   whose start is the answer.
  * - The round is round 1: nothing. No record yet shows whether a fix held.
  * - This run asked the orchestrator after that round and was answered yes:
  *   nothing.
- * - The step is the first of a start a person's `getSeal` made, and the
+ * - The step is the first of a start a person's word made, and the
  *   chain's last stored stage is a judgment after that round that finished:
  *   nothing. The person read its answer and started the chain again.
  * - Otherwise the orchestrator's judgment.
@@ -378,7 +445,9 @@ function firstRefusal(record: Pick<RoundRecord, "refusals">, what: string): stri
 /**
  * What the order reads of a work item, in its worktree: each round record of
  * the directory as the commit `head` holds it, the record of decisions and
- * questions where `decisionsAt` says, the paths the commits after the last
+ * questions where `decisionsAt` says, the base, which is the one round 1's
+ * record names where the head holds that record and `base` otherwise, the
+ * paths the commits after the last
  * record's target changed, the gate's commit with the paths that differ
  * between it and the head, from the gate's record as the commit `head`
  * holds it, and the verdicts of the guarantee as that commit holds it. A
@@ -435,7 +504,8 @@ export async function standingOf(worktree: string, directory: string, head: stri
     openQuestion: decisions?.questions.some((question) => question.state.is === "open") ?? false,
     reversals: (decisions?.decisions ?? []).flatMap(({ id, decided, state }) => (state.is === "reversed" ? [{ id, decided, message: state.message }] : [])),
     head,
-    base,
+    // The base follows the records: once round 1's record stands, the base it names is the chain's, whatever the caller holds.
+    base: rounds.find(({ round }) => round === 1)?.target.base ?? base,
     changed,
     directory: from(directory),
     gateCommit,
@@ -449,14 +519,16 @@ export async function standingOf(worktree: string, directory: string, head: stri
 // The routing a first start writes.
 
 /**
- * The `routing.md` of a directory the daemon makes at a work item's first
- * "Get a seal": the branch was built in the person's own session, so the
+ * The `routing.md` of a directory the daemon makes at the first start of a
+ * work item's chain: the branch was built in the person's own session, so the
  * planner and the implementer are `the session`, and the work goes through
- * the review chain to a pull request. It holds no `Automation` row: nothing
- * the daemon reads says whether the branch's tests are automated, and the
- * pull request check reads the file as a declaration without the row.
+ * the review chain to a pull request. It holds the `Automation` row with
+ * the answer given, which the chain command's `start` takes from a pane's
+ * session, and no such row where none is given: nothing the daemon reads
+ * says whether a run stops for a question, and the pull request check reads
+ * the file as a declaration without the row.
  */
-export function routingText(workItem: string, branch: string, date: string): string {
+export function routingText(workItem: string, branch: string, date: string, automation: "yes" | "no" | null = null): string {
   return [
     `# Routing: ${workItem}`,
     "",
@@ -466,13 +538,14 @@ export function routingText(workItem: string, branch: string, date: string): str
     `| Destination | ${OPEN_PULL_REQUEST} |`,
     "| Planning | the session |",
     "| Implementation | the session |",
+    ...(automation === null ? [] : [`| Automation | ${automation} |`]),
     `| Branch | ${branch} |`,
     "",
-    `Answered ${date} by Owlery, when the person pressed "Get a seal".`,
+    `Answered ${date} by Owlery, at the first start of the work item's chain.`,
     "",
     "## Why this way",
     "",
-    "The branch was built in the person's own session, and the person asked for a seal on it.",
+    `The branch was built in the person's own session, and its chain was started for a seal on it.${automation === null ? "" : " The session that started the chain gave the answer on \`Automation\`."}`,
     "",
   ].join("\n");
 }
@@ -1074,7 +1147,7 @@ export function isChain(value: unknown): value is WrittenChain {
  * `reviewed` said that nothing was owed, and a seal now is. `sealed` said
  * that the branch was sealed, and stayed so after a later commit broke the
  * seal, which `WorkItem.seal` now says from the branch's head. The next
- * `getSeal` reads the step owed from the records.
+ * start reads the step owed from the records.
  */
 export function chainOf(chain: WrittenChain): Chain | null {
   if (chain.state === "reviewed" || chain.state === "sealed") return null;
@@ -1096,7 +1169,7 @@ export const DAEMON_ENDED = "the daemon ended while the stage ran";
  * that session's id to another. A chain an earlier build stored `reviewed`
  * or `sealed` is read as none (`chainOf`). A chain stored `running` is read as
  * `stopped`: its stage's session ended with the daemon that started it, and
- * nothing starts a stage but a `getSeal`. Its sentence says that the daemon
+ * nothing starts a stage but a start of the chain. Its sentence says that the daemon
  * ended while the stage ran, the stage that was working is `failed`, and
  * the chain is stopped since `now`, the clock of the daemon that reads it:
  * nothing holds when the daemon before it ended.
