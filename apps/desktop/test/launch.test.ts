@@ -75,23 +75,23 @@ describe.skipIf(MEASURE)("the launch measurement, without the app", () => {
     );
   });
 
-  // Three launches and three resets whose sums' medians are not the sums of their parts' medians.
+  // Three launches and three resets whose sums' medians are not the sums of their parts' medians. Two values hold a fraction of a millisecond, as a timed part does, and print whole.
   const launches: Launch[] = [
-    { build: 100, start: 300, ready: 200, stop: 100 },
+    { build: 100.4, start: 300, ready: 200, stop: 100 },
     { build: 200, start: 250, ready: 250, stop: 150 },
     { build: 120, start: 400, ready: 180, stop: 160 },
   ];
   const resetRuns: Reset[] = [
     { away: 10, daemonEnded: 50, emptied: 1, environment: 2, back: 30, ready: 180 },
     { away: 40, daemonEnded: 60, emptied: 1, environment: 1, back: 28, ready: 250 },
-    { away: 5, daemonEnded: 52, emptied: 2, environment: 1, back: 31, ready: 210 },
+    { away: 5, daemonEnded: 52, emptied: 2, environment: 1, back: 31, ready: 210.4 },
   ];
   const mb = (megabytes: number): number => megabytes * 1_048_576;
   const memory: Memory = { launched: mb(457.04), open: mb(462.26), reset: mb(461) };
 
   it("saves the median of a launch's sum without its build, less the median of a reset's sum", () => {
-    // 600, 650 and 740 without the build; 273, 380 and 301 for the resets.
-    expect(saving(launches, resetRuns)).toBe(349);
+    // 600, 650 and 740 without the build; 273, 380 and 301.4 for the resets.
+    expect(saving(launches, resetRuns)).toBeCloseTo(348.6, 9);
   });
 
   it("prints each part of a launch and the launch's sum, with the median, the lowest and the highest of the runs", () => {
