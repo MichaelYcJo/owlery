@@ -59,7 +59,7 @@ Each phase ends with its cases passing through the narrow run of the files it na
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `frame/design.md` *Scope* item 1, and the answer to `frame/questions.md` Q1 written into the phase record. No source file changes | Scenario 8. The phase record says, for each interruption, which hook events arrived after the Esc, in what order beside the log's new lines, and how long after the Esc the entry appeared | 1165224 |
-| 2 | *Scope* items 2, 3, 4, 5 and 6 | Scenarios 1 to 6, in `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/agent-events.test.ts` and `apps/desktop/test/agent-state.test.ts`, each new case seen red as contract rule 15 asks | |
+| 2 | *Scope* items 2, 3, 4, 5 and 6 | Scenarios 1 to 6, in `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/agent-events.test.ts` and `apps/desktop/test/agent-state.test.ts`, each new case seen red as contract rule 15 asks | 0e6ff37 |
 | 3 | *Scope* item 7 | Scenario 7, in `apps/desktop/test/chain.test.ts` and `apps/desktop/test/daemon.test.ts`, each case seen red with the log's reading removed | |
 
 Phase 1's Status cell names `1165224`, the commit of the second recording; the first session's commit `e6dfe29` recorded no interruption. The second recording is the same phase: its crafter adds what it found to `trail/phases/phase-1.md`. Where phase 1's recording differs from what `frame/design.md` states, in an entry's shape or in Q1's answer, the crafter says so in the phase record and builds no phase 2 on it. The orchestrator routes the difference to the framer as a fold, which rewrites *Scope*, the scenarios and the `to` values of *Rule changes* in place.
