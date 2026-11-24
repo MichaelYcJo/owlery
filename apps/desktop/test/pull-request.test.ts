@@ -410,6 +410,13 @@ describe("the back of the seal in a pull request's body", () => {
     );
   });
 
+  it("writes where the costs are, and no table of the stages, where the records hold rounds and a verdict and the ledger holds no stage of the chain", () => {
+    const section = backSection(composeBack(RECORDS, [], 0), DIRECTORY);
+    expect(section).toContain("\n\nThe stages of this chain ran outside Owlery's daemon, in a pane's session or in another tool, and Owlery read no cost of them.\n");
+    expect(section).not.toContain("| Stage |");
+    expect(BACK_PART).not.toContain("ran outside Owlery's daemon");
+  });
+
   it("says that no review round is recorded and holds no table where the records hold no round and the ledger no entry", () => {
     expect(backSection(composeBack({ ...RECORDS, record: null, rounds: [] }, [], 0), DIRECTORY)).toBe([BACK_OPEN, "## The back of the seal", "", "No review round is recorded.", BACK_CLOSE].join("\n"));
   });

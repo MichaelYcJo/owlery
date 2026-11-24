@@ -1024,7 +1024,7 @@ export class Daemon {
             // The answer first, so the client that asked knows its request was carried out when the inbox carries the answers.
             this.send(socket, { type: "done", requestId: message.requestId });
             this.broadcastInbox();
-            // The answers left the record with no open question, so a chain they parked runs the step it owes. Its start waits where a `getSeal`'s does.
+            // The answers left the record with no open question, so a chain they parked runs the step it owes. Its start waits where `startChain`'s does.
             if (this.store.workItem(workItemId)?.item.chain?.state === "parked") this.changing = this.changing.then(() => this.resumeChain(workItemId));
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
@@ -1271,26 +1271,6 @@ export class Daemon {
         if (worktree === undefined || held === undefined) return;
         // The answer first, so the client that asked knows the session as its own when every client is told of it.
         this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
-        return;
-      }
-      case "getSeal": {
-        const start = async (): Promise<void> => {
-          try {
-            const { workItemId } = message as { workItemId: unknown };
-            if (typeof workItemId !== "number") throw new Error("a seal is asked for a work item");
-            // Nothing runs in a work item the daemon does not list, nor in an archived one, nor in one being deleted.
-            const worktree = this.worktreeFor(socket, message.requestId, workItemId);
-            if (worktree === undefined) return;
-            await this.beginChain(workItemId, worktree, true);
-            // The answer first, so the client that asked knows its request was carried out when the inbox carries the chain.
-            this.send(socket, { type: "done", requestId: message.requestId });
-            this.broadcastInbox();
-          } catch (error) {
-            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
-          }
-        };
-        // A chain commits in the worktree and finds its records by the branch's name, so its start waits behind the creations, the renames of a branch and the deletes. The chain itself does not hold them back.
-        this.changing = this.changing.then(start);
         return;
       }
       case "stopHeadless": {
@@ -2062,13 +2042,39 @@ export class Daemon {
   }
 
   /**
+   * Starts a work item's chain, and resolves once it has started and every
+   * client was sent the lists that carry it. No client message starts a
+   * chain: the daemon's own code calls this. It rejects with a sentence that
+   * says why, with nothing started and nothing written, for a work item
+   * nothing runs in (`whyNoRun`) and where `whyNoChain` gives a reason. A
+   * chain commits in the worktree and finds its records by the branch's
+   * name, so its start waits behind the creations, the renames of a branch
+   * and the deletes, and the chain itself does not hold them back.
+   * `byPerson` says that a person's word made the start (`beginChain`).
+   */
+  startChain(workItemId: number, byPerson: boolean): Promise<void> {
+    const started = this.changing.then(async () => {
+      // Nothing runs in a work item the daemon does not list, nor in an archived one, nor in one being deleted.
+      const gone = this.whyNoRun(workItemId);
+      if (gone !== null) throw new Error(gone);
+      const held = this.store.workItem(workItemId);
+      if (!held) throw new Error(`no work item ${String(workItemId)}`);
+      await this.beginChain(workItemId, held.item.worktree, byPerson);
+      this.broadcastInbox();
+    });
+    // A start that was refused holds back nothing that waits behind it.
+    this.changing = started.catch(() => undefined);
+    return started;
+  }
+
+  /**
    * Starts a work item's chain in its worktree, where `whyNoChain` gives no
    * reason against it, and throws that reason, with nothing started, where
    * it gives one. A person's word that is being written or committed in the
    * worktree lands first, so the first round's target holds it. The chain is
    * stored `running` with the stages of the starts before this one, which
    * say what ran, and its run begins in a later turn of the daemon's thread,
-   * after the caller has answered. `byPerson` says that a person's `getSeal`
+   * after the caller has answered. `byPerson` says that a person's word
    * made the start, which a chain stopped by the orchestrator's judgment or
    * at the ceiling of its rounds takes as the answer (`chain.ts#gateBefore`).
    */
@@ -2087,8 +2093,8 @@ export class Daemon {
    * Starts a parked chain again once the person's answers left the work
    * item's record with no open question: the chain runs the step its records
    * owe. Where nothing can start in the work item, or the start is refused
-   * as a `getSeal`'s would be, the chain is `stopped` with a sentence that
-   * says why, and a later `getSeal` starts it. A chain that is no longer
+   * as any start is (`whyNoChain`), the chain is `stopped` with a sentence
+   * that says why, and a later start runs it. A chain that is no longer
    * parked is left as it is.
    */
   private async resumeChain(workItemId: number): Promise<void> {
@@ -2106,8 +2112,8 @@ export class Daemon {
   }
 
   /**
-   * Why a chain cannot start for a work item `worktreeFor` gave a worktree
-   * of, as a sentence a window shows as it is, or null where it can. The
+   * Why a chain cannot start for a work item something can run in
+   * (`whyNoRun`), as a sentence a window shows as it is, or null where it can. The
    * first of these that holds is the reason: a chain of the work item is
    * running; a session of it is working; the worktree cannot take a commit
    * (`worktrees.ts#whyNoCommit`); it holds no records root; the `Broad gate`
@@ -2126,7 +2132,7 @@ export class Daemon {
     if (!held) return `no work item ${String(workItemId)}`;
     const { worktree, branch, baseCommit } = held.item;
     if (this.chains.has(workItemId)) return `The chain of work item ${String(workItemId)} is already running.`;
-    if (this.works(workItemId)) return `A session of work item ${String(workItemId)} is working, and a round reads a tree nothing is changing. Get a seal once the session has finished.`;
+    if (this.works(workItemId)) return `A session of work item ${String(workItemId)} is working, and a round reads a tree nothing is changing. Its chain can start once the session has finished.`;
     const why = await whyNoCommit(worktree, branch);
     if (why !== null) return `Owlery cannot commit a record in the worktree now: ${why}.`;
     const root = rootOf(worktree);
@@ -2183,7 +2189,7 @@ export class Daemon {
    * A chain that rests or stops asks for the read of its branch
    * (`readBranchNow`), so the seal its stages committed reaches the window
    * without a wait of one interval.
-   * `byPerson` says that a person's `getSeal` started the run.
+   * `byPerson` says that a person's word started the run.
    */
   private async runChain(workItemId: number, byPerson: boolean): Promise<void> {
     const rest = (state: Chain["state"], says: string): void => {
@@ -2279,7 +2285,7 @@ export class Daemon {
     const file = join(directory, ROUTING_FILE);
     if (existsSync(directory)) throw new ChainStop(`${relative(worktree, directory)} stands already, and its routing names another branch`);
     const at = new Date(now);
-    // The day as the person's own clock has it, which is the day they pressed the button.
+    // The day as the person's own clock has it, which is the day the chain first started.
     const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`);
     await this.chainCommit(item, directory, [file], "chore: declare the work item's routing", { write: () => writeRecordFile(worktree, file, text) });
     return directory;

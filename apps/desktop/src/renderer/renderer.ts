@@ -86,7 +86,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSeal, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -1538,8 +1538,6 @@ function onMessage(message: ServerMessage): void {
       if (answered(message.requestId, null)) return;
       // The answers a person sent to a parked work item's questions were taken.
       if (takeAnswers(message.requestId, null)) return;
-      // The chain a press of "Get a seal" asked for has started.
-      if (takeSeal(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -1582,8 +1580,6 @@ function onMessage(message: ServerMessage): void {
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
       // The refusal of the answers to a parked work item's questions is its view's section's to show.
       if (takeAnswers(message.requestId, message.message)) return;
-      // The refusal of a chain's start is its view's to show, under "Get a seal".
-      if (takeSeal(message.requestId, message.message)) return;
       // The refusal of a read of the records or of the ledger is the back's to show, in its place.
       if (takeBackRefusal(message.requestId, message.message)) return;
       // A refused plan of the records place is its dialog's to show.

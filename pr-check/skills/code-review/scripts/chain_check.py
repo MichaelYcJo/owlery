@@ -1868,12 +1868,12 @@ def guarantee(reader, root, item, base, notices=None, behind=None):
                 said.line,
                 f"the sealer's verdict reads `{line}`: a ready pull request needs "
                 f"`{FIELDS.SEALED}`. Where the reason of a `withheld` verdict "
-                'names something to fix, fix it and start "Get a seal" again '
-                "in Owlery. The question of an `undecided` verdict is decided "
-                "by Owlery's orchestrator agent, or answered in Owlery where "
-                "it parked the work item. Owlery's daemon then runs the broad "
-                "gate and the sealer's stage on the new head, and each appends "
-                "its block",
+                "names something to fix, fix it and start the chain again, in "
+                "the pane's session or by Owlery's daemon. The question of an "
+                "`undecided` verdict is decided by Owlery's orchestrator agent, "
+                "or answered in Owlery where it parked the work item. The chain "
+                "then runs the broad gate and the sealer's stage on the new "
+                "head, and each appends its block",
             )
         )
     judge = newest.fields.get(FIELDS.JUDGED_BY)

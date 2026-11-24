@@ -455,7 +455,7 @@ check: apps/desktop/test/themes.test.ts
 | 승인 줄 | 미리보기와 작업 화면의 오른쪽 단에서 에이전트가 한 말 다음, 결정 앞에 오는 "Approval line"이라는 머리의 구역입니다. 네 역할을 framer, crafter, proofer, sealer 순서로 같은 너비의 네 자리에 두고, 형태는 「테마」가 그 테마에 정한 것입니다. 자리마다 그 역할이 어디까지 왔는지의 표시, 첫 글자만 대문자인 역할 이름(`--ink`), 이름 아래의 두 낱말 이하의 메모(`--ink-muted`)가 있습니다. 메모는 시작하지 않은 자리에 "Not started", 사람의 답을 기다리는 자리에 "Needs you"이고, 일하는 중인 자리에는 작업의 체인이 그 역할로 돌리는 단계인 "Round 2", "Fix pass", "Judging", 체인이 저장소의 전체 검사를 돌리는 동안의 sealer 자리에는 "Broad gate", 단계가 실패한 자리에는 "Failed", 그 전체 검사가 실패한 sealer의 자리에는 "Gate failed"이며, 그 밖의 끝난 자리에는 "Framed", "1 commit", "3 rounds", "Sealed", "Withheld", "Undecided"처럼 어떻게 끝났는지입니다. 전체 검사의 실행이 기록됐고 판정이 없는 sealer의 자리는 시작하지 않은 자리이고, 메모는 "Gate passed"입니다. 시작하지 않은 자리는 잠든 작업의 표시를, 일하는 중인 자리는 일하는 중의 표시를, 역할이 실패한 자리는 실패의 표시를 씁니다. 전체 검사가 실패한 sealer의 자리는 기다림의 표시를 씁니다. 그 실패는 sealer의 실패가 아니기 때문입니다. 표시는 포인터와 화면 읽기 프로그램에 역할 이름과 자리의 말 전부를 말하고, 판정이 가리키는 커밋, 단계가 속한 회차, 기다린 시간이나 단계가 돈 시간도 함께 말합니다. sealer의 자리에는 줄에서처럼 그린 인장의 자리가 들어갑니다. sealer의 자리는 인장이 브랜치의 head 커밋에서 유효할 때만 "Sealed"라고 말합니다. 뒤에 들어온 커밋이 인장을 깼으면 그 자리는 기다림의 표시와 "Seal broken"이라는 메모를 쓰고, 인장이 깨진 까닭을 말하는 인장의 문장이 자리들 아래에 옵니다. 자리들 아래에는 말할 것이 있는 자리마다 한 줄씩, 역할 이름과 쌍점과 그 글이 옵니다. 그 글은 기다리는 질문, 단계가 실패한 까닭, 또는 판정의 이유나 질문입니다. 이 줄은 `--ink-muted`이고, 실패한 자리의 줄은 `--state-failed`입니다. | — | — | — | — | — |
 
 앱은 데몬이 기록에 적힌 것을 보내 주는 작업마다 승인 줄을 그립니다. 인장이 브랜치의 head 커밋에서 유효하면 빛이 든 인장을 그리고, 인장 뒤에 들어온 커밋이 인장을 깼으면 깨진 인장을 그리며, 둘 다 위의 형태를 따릅니다.
-check: apps/desktop/test/view.test.ts apps/desktop/test/approval-line.test.ts apps/desktop/test/get-a-seal.test.ts
+check: apps/desktop/test/view.test.ts apps/desktop/test/approval-line.test.ts
 
 ## 창의 문구가 가진 말투
 

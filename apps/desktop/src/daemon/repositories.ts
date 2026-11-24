@@ -28,7 +28,7 @@ export interface StoredWorkItem {
   archivedAt: number | null;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
-  /** Its chain: where the run a `getSeal` started stands, with the stages of every start, or null where none ran for it. */
+  /** Its chain: where the run `Daemon#startChain` started stands, with the stages of every start, or null where none ran for it. */
   chain: Chain | null;
   /** Its pull request, as GitHub last answered, or null where the daemon opened none for it. */
   pullRequest: PullRequest | null;

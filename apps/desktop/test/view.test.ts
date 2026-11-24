@@ -20,6 +20,7 @@ import {
   bellSays,
   cardStaysAt,
   chainNotifications,
+  chainSays,
   changedSet,
   changedSetAfter,
   changesOf,
@@ -108,7 +109,6 @@ import {
   lacksRecords,
   recordsDialog,
   recordsOf,
-  refusedSeal,
   registered,
   repositoryMenu,
   rowButtons,
@@ -116,7 +116,6 @@ import {
   runningSessions,
   screenMoves,
   screenTurns,
-  sealButton,
   sealNotifications,
   sealShown,
   sealSinceLook,
@@ -1635,59 +1634,21 @@ describe("a work item's chain", () => {
     }
   });
 
-  it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal the daemon gave for the chain as it stands, and none while the chain runs', () => {
-    const start = "Start the review rounds on Fix the login bug";
-    expect(sealButton(LOGIN, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "", refusal: "" });
-    expect(sealButton(STOPPED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
-    expect(sealButton(RESTED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
-    expect(sealButton(PARKED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
-    expect(sealButton(RUNNING, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
-    expect(sealButton(STOPPED, true, null)).toEqual({ words: "Get a seal", offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
-    const refused = "The branch holds no commit after its base, so a round has nothing to read.";
-    expect(sealButton(LOGIN, false, refusedSeal(LOGIN, refused))).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "", refusal: refused });
-    expect(sealButton(STOPPED, false, refusedSeal(STOPPED, refused))).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
-    // A chain that runs was started since the refusal, and one that is running says no refusal of a press on it.
-    expect(sealButton(RUNNING, false, refusedSeal(STOPPED, refused)).refusal).toBe("");
-    expect(sealButton(RUNNING, false, refusedSeal(RUNNING, "The chain of work item 1 is already running.")).refusal).toBe("");
+  it("says at the view's foot the sentence of the chain the daemon sent, in whichever state it stands, and nothing where no chain ran for the work item", () => {
+    expect(chainSays(LOGIN)).toBe("");
+    expect(chainSays(STOPPED)).toBe(STOPPED_SAYS);
+    expect(chainSays(RESTED)).toBe("The sealer sealed 1a2b3c4, after round 1.");
+    expect(chainSays(PARKED)).toBe("The work item waits for the answers to its questions.");
+    expect(chainSays(RUNNING)).toBe("Review round 1 is running.");
   });
 
-  it('turns the words of the button to "Get a new seal" where the seal the branch\'s head holds is broken, and leaves every other part of the button as the chain gives it', () => {
-    const commit = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b";
-    const broke: Seal = { state: "broken", commit, why: "`src/app.ts` changed after the sealed commit `1a2b3c4`." };
-    for (const workItem of [LOGIN, STOPPED, RESTED, RUNNING]) expect(sealButton({ ...workItem, seal: broke }, false, null)).toEqual({ ...sealButton(workItem, false, null), words: "Get a new seal" });
-    // A seal that holds, none, and a daemon of an earlier build, which sends no seal.
-    for (const seal of [{ state: "sealed", commit, why: null } as const, null]) expect(sealButton({ ...STOPPED, seal }, false, null).words).toBe("Get a seal");
-    expect(sealButton(STOPPED, false, null).words).toBe("Get a seal");
-  });
-
-  it("says a refusal only while the chain stands as it stood when the daemon refused: not once a chain that no press of this window started has run and rests in another state, or in the same state since a later time", () => {
-    const waits = "The work item waits for the answers to its open questions. Answer them first.";
-    const atParked = refusedSeal(PARKED, waits);
-    expect(atParked).toEqual({ says: waits, state: "parked", since: NOW - 4 * MINUTE });
-    expect(sealButton(PARKED, false, atParked).refusal).toBe(waits);
-    // The person answered, the chain ran by itself and rests: no question is open any more.
-    for (const rests of [STOPPED, RESTED]) expect(sealButton(rests, false, atParked).refusal).toBe("");
-    // A chain another window started stopped again: the same state, since a later time.
-    const loose = "The worktree holds a change no commit holds, at notes.txt. A round reads a committed tree: commit the change or remove it first.";
-    const atStopped = refusedSeal(STOPPED, loose);
-    expect(sealButton(STOPPED, false, atStopped).refusal).toBe(loose);
-    expect(sealButton({ ...STOPPED, chain: chain("stopped", { stages: [ROUND, FIX], since: NOW - MINUTE }) }, false, atStopped).refusal).toBe("");
-    // A refusal for a work item no chain ran for holds until one runs, and one for a work item the window no longer lists is kept as for none.
-    const atNone = refusedSeal(LOGIN, loose);
-    expect(atNone).toEqual({ says: loose, state: null, since: null });
-    expect(refusedSeal(undefined, loose)).toEqual(atNone);
-    expect(sealButton(LOGIN, false, atNone).refusal).toBe(loose);
-    expect(sealButton(STOPPED, false, atNone).refusal).toBe("");
-  });
-
-  it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line, and offers no "Get a seal" for it', () => {
+  it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line and at its view\'s foot', () => {
     for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(EARLIER, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
     expect(lineText(EARLIER, finished, false)).toEqual(lineText(LOGIN, finished, false));
     expect(lineSince(EARLIER, finished)).toBe(NOW - 50 * MINUTE);
     expect(chainNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
     expect(chainNotifications([EARLIER], [STOPPED], undefined)).toHaveLength(1);
-    expect(sealButton(EARLIER, false, null)).toEqual({ words: "Get a seal", offered: false, enabled: false, title: "", says: "", refusal: "" });
-    expect(sealButton(EARLIER, false, refusedSeal(EARLIER, "refused")).offered).toBe(false);
+    expect(chainSays(EARLIER)).toBe("");
   });
 });
 

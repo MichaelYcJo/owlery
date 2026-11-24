@@ -1,26 +1,23 @@
 // The approval line in the built app. It starts the app once, in the
 // background, on a temporary repository that holds the place for work
 // records. The login shell is a script that names a script CLI, so no real
-// `claude` runs: the stand-in writes its process id and sleeps, so a round
-// it is launched for runs until a second client of the daemon stops its
-// session. That client makes two work items, each with a shell's pane. In
-// the first one's worktree the file commits a file and writes the records a
-// stage would write there: the routing that names the branch, and two round
-// records. The daemon reads them at its next pass, and the view's right
-// column and the inbox's preview draw the line. In the second one's
-// worktree a case commits a file and asks for a seal, so the chain runs
-// round 1, which the stand-in holds, and a later case stops that round's
-// session. A third work item, made by a later case, has the records of a
-// seal committed on its branch as a chain commits them, and then one more
-// commit, which breaks that seal. The page's `Notification` is replaced by a
-// recorder, so nothing reaches the system's notifications.
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// `claude` runs, and no session of the CLI is started: nothing in the window
+// starts a chain. A second client of the daemon makes a work item with a
+// shell's pane. In its worktree the file commits a file and writes the
+// records a stage would write there: the routing that names the branch, and
+// two round records. The daemon reads them at its next pass, and the view's
+// right column and the inbox's preview draw the line. A second work item,
+// made by a later case, has the records of a seal committed on its branch as
+// a chain commits them, and then one more commit, which breaks that seal.
+// The page's `Notification` is replaced by a recorder, so nothing reaches
+// the system's notifications.
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MARKER } from "../src/daemon/records-place";
 import { APPEARANCES, THEMES } from "../src/shared/appearance";
 import type { ClientMessage, ServerMessage, WorkItem } from "../src/shared/protocol";
-import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
+import { BuiltApp, buildApp } from "./built-app";
 import { commitSeal } from "./chain-run";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
@@ -50,8 +47,6 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   let made: ReturnType<typeof temporaryRepository>;
   /** The work item whose line the records fill. */
   let workItem: WorkItem;
-  /** The work item whose chain runs a round. */
-  let beta: WorkItem;
   /** The second client of the daemon: a work item of a title as the daemon last listed it, and a message it sends. */
   let second: { item(title: string): WorkItem | undefined; send(message: ClientMessage): void; close(): void };
 
@@ -105,19 +100,26 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     // The place for work records stands on the branch the work items are cut from.
     mkdirSync(join(made.repo, "seal"));
     writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
-    // A chain starts only where the records name a broad gate command. No round of this file settles, so the command never runs.
     writeFileSync(join(made.repo, "seal", "config.json"), '{ "Broad gate": "true" }\n');
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
-    // The daemon also runs the CLI at its start, to read its version: that run prints one and is no session. A session of it writes its process id and holds its prompt.
-    const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\necho $$ > '${join(made.base, "cli-pid")}'\nexec sleep 600`);
+    // The daemon runs the CLI at its start, to read its version: that run prints one and is no session, and no case of this file starts one.
+    const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nexit 1`);
     // The login shell: it names the stand-in, and a pane it starts ends at once.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
-    await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
+    await app.evaluate(`(() => {
+      window.__notifications = [];
+      window.Notification = class {
+        static permission = "granted";
+        constructor(title, options) {
+          window.__notifications.push({ title, body: options?.body });
+        }
+      };
+    })()`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
 
-    // A second client of the daemon makes the two work items, one after the other.
+    // A second client of the daemon makes the work item.
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);
     const messages: ServerMessage[] = [];
@@ -127,19 +129,15 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
       send: (message) => socket.send(JSON.stringify(message)),
       close: () => socket.close(),
     };
-    [workItem, beta] = await new Promise<WorkItem[]>((resolve) => {
-      const created: WorkItem[] = [];
+    workItem = await new Promise<WorkItem>((resolve) => {
       socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })));
       socket.addEventListener("message", (event) => {
         const message = JSON.parse(String(event.data)) as ServerMessage;
         messages.push(message);
         if (message.type === "ready") create(1, "Alpha");
-        if (message.type !== "workItemCreated") return;
-        created.push(message.workItem);
-        if (created.length === 1) create(2, "Beta");
-        else resolve(created);
+        if (message.type === "workItemCreated") resolve(message.workItem);
       });
-    }) as [WorkItem, WorkItem];
+    });
 
     // One commit after the base, and the records a stage writes: the routing that names the branch, and two rounds.
     commitFile(workItem.worktree, "login.ts");
@@ -192,73 +190,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     expect(found).toEqual([]);
   });
 
-  const BETA_LINE = () => `#inbox-lines button[data-work-item="${beta.id}"]`;
-  const PROOFER = `#view-detail section.approval .place[data-role="proofer"]`;
-  /** How an age reads within the first two minutes of what it counts from. */
-  const YOUNG = "(less than a minute|1 min)";
-
-  it("marks the proofer's place working with the round's note while the work item's chain runs a round, with the role, the note and the age in the mark's words, and names the stage in the second row of the work item's line of the inbox, with an age in its first", async () => {
-    // The view is opened before the chain starts: what the chain's start tells the window draws the sidebar again, and a draw during the click would take it.
-    await openView(beta);
-    commitFile(beta.worktree, "feature.ts");
-    second.send({ type: "getSeal", requestId: 3, workItemId: beta.id });
-    // The chain's first commit declares the work item's routing, so the branch holds two commits once the round runs.
-    await app.until(`document.querySelector('${PROOFER} .note')?.textContent === "Round 1" && document.querySelector('#view-detail section.approval .place[data-role="crafter"] .note')?.textContent === "2 commits"`, "the line with the round that runs", 20_000);
-    const [line] = await sections("#view-detail");
-    expect(line?.places.map(({ role, mark, note }) => [role, mark, note])).toEqual([
-      ["framer", ["no-agent"], "Not started"],
-      ["crafter", ["finished"], "2 commits"],
-      ["proofer", ["working"], "Round 1"],
-      ["sealer", ["no-agent"], "Not started"],
-    ]);
-    expect(line?.places[2]?.label).toMatch(new RegExp(`^Proofer: Round 1, ${YOUNG}$`));
-    expect(await app.evaluate(`document.querySelectorAll("#view-detail section.approval .under").length`)).toBe(0);
-
-    await app.click("#nav-inbox");
-    await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('${BETA_LINE()} .says')?.textContent === "Proofer, round 1"`, "the stage in the second row of the line of Beta");
-    expect(await app.evaluate(`(() => { const line = document.querySelector('${BETA_LINE()}'); return [line.querySelector(".second .says").textContent, line.querySelector(".state-icon").classList.contains("working")]; })()`)).toEqual(["Proofer, round 1", true]);
-    expect(await app.evaluate<string>(`document.querySelector('${BETA_LINE()} .first .age').textContent`)).toMatch(new RegExp(`^${YOUNG}$`));
-    // The line of the work item no chain ran for says what it said: its newest commit, and no age.
-    expect(await app.evaluate(`(() => { const line = document.querySelector('#inbox-lines button[data-work-item="${workItem.id}"]'); return [line.querySelector(".second .says").textContent, line.querySelector(".first .age").textContent]; })()`)).toEqual(["add login.ts", ""]);
-  });
-
-  it("marks the proofer's place failed once the round's session is stopped, with the round in the mark's words and the stage's failure under the line in the colour of a failure", async () => {
-    const stage = second.item("Beta")?.chain?.stages.at(-1);
-    expect([stage?.kind, stage?.round, stage?.state]).toEqual(["round", 1, "working"]);
-    const pidFile = join(made.base, "cli-pid");
-    for (const deadline = Date.now() + 10_000; !existsSync(pidFile) && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
-    const pid = Number(readFileSync(pidFile, "utf8").trim());
-    expect(alive(pid)).toBe(true);
-    // The view is opened before the stop, for the same reason as before the chain's start, so the open view is what shows the failure.
-    await openView(beta);
-    second.send({ type: "stopHeadless", requestId: 4, id: stage!.headlessId! });
-    await app.until(`document.querySelector('${PROOFER} .state-icon.failed')`, "the proofer's place as failed", 20_000);
-    expect(await untilGone([pid], 5_000)).toEqual([]);
-    const [line] = await sections("#view-detail");
-    expect(line?.places.map(({ role, mark, note, label }) => [role, mark, note, label])).toEqual([
-      ["framer", ["no-agent"], "Not started", "Framer: Not started"],
-      ["crafter", ["finished"], "2 commits", "Crafter: 2 commits"],
-      ["proofer", ["failed"], "Failed", "Proofer: Round 1 failed"],
-      ["sealer", ["no-agent"], "Not started", "Sealer: Not started"],
-    ]);
-    const why = "the session was stopped at a request before it finished";
-    expect(second.item("Beta")?.chain?.stages.at(-1)?.failure).toBe(why);
-    expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under failed", "Proofer: The session was stopped at a request before it finished."]]);
-    // The line takes the colour of a failure as the theme resolves `--state-failed`, and not the muted ink of a place's note.
-    expect(
-      await app.evaluate(`(() => {
-        const under = document.querySelector("#view-detail section.approval .under");
-        const probe = document.createElement("span");
-        probe.style.color = "var(--state-failed)";
-        under.parentElement.append(probe);
-        const failed = getComputedStyle(probe).color;
-        probe.remove();
-        return [getComputedStyle(under).color === failed, failed !== getComputedStyle(document.querySelector("#view-detail section.approval .note")).color];
-      })()`),
-    ).toEqual([true, true]);
-  });
-
-  /** The seal's place where the window shows the work item's seal, each as its form and its words, or null where it is not drawn: the line of the inbox, the preview and the words beside it, the view's foot with the words at its head and its button, and the sealer's place of the view's approval line with its note. */
+  /** The seal's place where the window shows the work item's seal, each as its form and its words, or null where it is not drawn: the line of the inbox, the preview and the words beside it, the view's foot with the words at its head, the chain's sentence and how many buttons it holds, and the sealer's place of the view's approval line with its note. */
   const sealsOf = (id: number): Promise<Record<string, unknown>> =>
     app.evaluate(`(() => {
       const shown = (place) => (place ? [place.dataset.seal, place.getAttribute("aria-label")] : null);
@@ -269,7 +201,8 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
         previewWords: document.getElementById("inbox-preview-seal-words").textContent,
         view: shown(document.querySelector("#view-seal .seal")),
         viewHead: document.getElementById("view-seal-head").textContent,
-        button: document.getElementById("get-seal").textContent,
+        says: document.getElementById("seal-says").textContent,
+        buttons: document.querySelectorAll("#view-seal button").length,
         sealer: sealer ? [shown(sealer.querySelector(".seal")), sealer.querySelector(".note").textContent, [...sealer.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
       };
     })()`);
@@ -282,12 +215,12 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.querySelector('#inbox-screen [data-part="preview-title"]')?.textContent === ${JSON.stringify(title)}`, `the preview of ${title}`);
   };
 
-  /** The third work item, whose branch the next case seals and the one after it breaks, and the commit its seal names. */
+  /** The second work item, whose branch the next case seals and the one after it breaks, and the commit its seal names. */
   let gamma: WorkItem;
   let sealedAt: string;
 
-  it("lights the seal where the seal holds at the branch's head, on the work item's line, in the preview and at the view's foot, each with the words Sealed at and the sealed commit, and marks the sealer's place finished", async () => {
-    second.send({ type: "createWorkItem", requestId: 5, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
+  it("lights the seal where the seal holds at the branch's head, on the work item's line, in the preview and at the view's foot, each with the words Sealed at and the sealed commit, with no sentence of a chain and nothing to press at the foot, and marks the sealer's place finished", async () => {
+    second.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
     for (const deadline = Date.now() + 15_000; !second.item("Gamma") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
     gamma = second.item("Gamma")!;
     sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: gamma.branch, base: gamma.baseCommit! });
@@ -304,21 +237,29 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
       previewWords: words,
       view: ["sealed", words],
       viewHead: words,
-      button: "Get a seal",
+      says: "",
+      buttons: 0,
       sealer: [["sealed", words], "Sealed", ["finished"]],
     });
   });
 
-  it("parts the seal in two once a commit lands after it, on the line, in the preview and at the view's foot, with the words Seal broken and the sealed commit, turns the button to Get a new seal, and marks the sealer's place waiting with the seal's sentence under the line", async () => {
-    // The view is in front, so the inbox the daemon sends after its read draws it again.
-    await openView(gamma);
+  it("parts the seal in two once a commit lands after it, on the line, in the preview and at the view's foot, with the words Seal broken and the sealed commit: the line waits and says Seal broken in its second row, the window notifies of the broken seal, the foot says the seal's sentence under its head and holds nothing to press, and the sealer's place waits with the seal's sentence under the line", async () => {
+    // The inbox is in front, so the person is not looking at the work item, and the window tells of the seal that broke.
+    await preview(gamma);
+    const line = `#inbox-lines button[data-work-item="${String(gamma.id)}"]`;
     commitFile(gamma.worktree, "after-the-seal.ts");
+    await app.until(`document.querySelector('${line} .says')?.textContent === "Seal broken"`, "the broken seal in the line's second row", 20_000);
+    expect(await app.evaluate(`document.querySelector('${line} .state-icon').classList.contains("waiting")`)).toBe(true);
+    expect(await app.evaluate(`window.__notifications.filter((told) => told.body === "Seal broken").map((told) => told.title)`)).toEqual(["Gamma"]);
     const words = `Seal broken, sealed at ${sealedAt.slice(0, 7)}`;
+    await openView(gamma);
     await app.until(`document.getElementById("view-seal-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the broken seal", 20_000);
     const why = second.item("Gamma")?.seal?.why;
     expect(why).toBe(`\`after-the-seal.ts\` changed after the sealed commit \`${sealedAt.slice(0, 7)}\`.`);
     const inView = await sealsOf(gamma.id);
-    expect([inView.view, inView.viewHead, inView.button, inView.sealer]).toEqual([["broken", words], words, "Get a new seal", [["broken", words], "Seal broken", ["waiting"]]]);
+    expect([inView.view, inView.viewHead, inView.says, inView.buttons, inView.sealer]).toEqual([["broken", words], words, "", 0, [["broken", words], "Seal broken", ["waiting"]]]);
+    // The seal's sentence stands under the head, in the foot.
+    expect(await app.evaluate(`[document.getElementById("view-seal-head").nextElementSibling.id, document.getElementById("view-seal-why").textContent]`)).toEqual(["view-seal-why", why]);
     expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under", `Sealer: ${why}`]]);
     // The drawing is the seal's, parted by the page's two clips, under the theme's light that takes the red out.
     expect(

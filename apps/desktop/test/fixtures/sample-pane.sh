@@ -6,10 +6,11 @@
 
 # The daemon also runs $SHELL with no terminal, to look for `claude` and for
 # the PATH a broad gate and `gh` run with, and is told of the stand-in beside
-# this file and of a PATH whose first folder holds the stand-in for `gh`
-# (sample-gh/gh), so no CLI of the person's is run and nothing reaches GitHub.
+# this file and of a PATH that holds the system's folders alone, so no CLI
+# of the person's is run. No chain runs in the screenshot run, so nothing
+# calls `gh`.
 if [ ! -t 0 ]; then
-  printf '\n__owlery_cli=%s\n__owlery_path=%s\n' "${0%/*}/sample-cli.sh" "${0%/*}/sample-gh:/usr/bin:/bin"
+  printf '\n__owlery_cli=%s\n__owlery_path=%s\n' "${0%/*}/sample-cli.sh" "/usr/bin:/bin"
   exit 0
 fi
 # A setup pane runs `$SHELL -l -i -c <the command .worktreesetup holds>`, and

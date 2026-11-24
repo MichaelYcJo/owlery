@@ -226,7 +226,7 @@ describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["First work", "Second work"], { commitPollMs: 50, roleAdapter: roles({ proofer: clean }) });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
     // The first is sealed by its chain, whose routing sends the work to a pull request, so the chain the store keeps rests with the pull request's sentence.
-    expect(await stood.c.getSeal(a.id, 1)).toBe("done");
+    expect(await stood.c.startChain(a.id)).toBe("done");
     // The wait reads no state of the chain, so the read of the run folder below is what tells a state the store keeps.
     const rests = await stood.c.until(() => {
       const chain = stood.c.workItem(a.id)?.chain;
@@ -252,7 +252,7 @@ describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
     expect(files.map((file) => relative(stood.runDir, file))).toContain("repositories.json");
     expect(files.flatMap((file) => (/\b(?:sealed|broken)\b/iu.test(readFileSync(file, "utf8")) ? [relative(stood.runDir, file)] : []))).toEqual([]);
 
-    const c = await client((await stood.start()).url, cleanups);
+    const c = await client(await stood.start(), cleanups);
     await c.message("ready");
     expect(await c.until(seals(c))).toEqual(before);
   });

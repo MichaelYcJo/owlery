@@ -4325,7 +4325,7 @@ describe("the commit of a person's word", () => {
 
   it("refuses a rename of the branch while the work item's chain is running, with the branch, the routing and the name as they were, takes a rename of the name alone meanwhile, and renames the branch once the chain rests", async () => {
     // The fake proofer's answer holds no round record, so the chain stops when round 1's session ends.
-    const { c, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
+    const { c, d, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
     const a = workItems[0]!;
     const directory = withDirectory(a, "1795388700-renamed");
     // A chain starts only on a branch whose records name a broad gate command.
@@ -4335,8 +4335,7 @@ describe("the commit of a person's word", () => {
     const stood = readFileSync(join(directory, "routing.md"), "utf8");
     const chainOf = (): WorkItem["chain"] | undefined => c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems : [])).at(-1)?.chain;
 
-    c.send({ type: "getSeal", requestId: 1, workItemId: a.id });
-    await c.message("done", (m) => m.requestId === 1);
+    await d.startChain(a.id, true);
     c.send({ type: "renameWorkItem", requestId: 2, id: a.id, title: "Second name", branch: true });
     expect((await c.message("error", (m) => m.requestId === 2)).message).toBe("The work item's chain is running, and it finds the work item's records by the branch's name. Rename the branch once the chain rests.");
     expect(chainOf()?.state).toBe("running");

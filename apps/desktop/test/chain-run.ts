@@ -19,7 +19,7 @@ import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { MARKER } from "../src/daemon/records-place";
 import { gateText, guaranteeText } from "../src/daemon/seal-records";
 import { createWorktree } from "../src/daemon/worktrees";
-import type { Chain, ClientMessage, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
+import type { Chain, ClientMessage, LedgerEntry, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
 /** The token the cases' daemons take. */
@@ -39,8 +39,9 @@ const WAIT_MS = 20_000;
 
 export type Cleanups = (() => Promise<void> | void)[];
 
-/** A client that keeps every message it receives. */
-export async function client(url: string, cleanups: Cleanups) {
+/** A client that keeps every message it receives. `at` is the daemon's address, or the address with the daemon itself, which a case that starts a chain through the client gives. */
+export async function client(at: string | { url: string; d: Daemon }, cleanups: Cleanups) {
+  const { url, d } = typeof at === "string" ? { url: at, d: undefined } : at;
   const socket = new WebSocket(url);
   const messages: ServerMessage[] = [];
   socket.on("message", (raw) => messages.push(JSON.parse(String(raw)) as ServerMessage));
@@ -86,11 +87,17 @@ export async function client(url: string, cleanups: Cleanups) {
       socket.send(JSON.stringify(message));
       return until(() => messages.find((m): m is Extract<ServerMessage, { requestId: number }> => "requestId" in m && m.requestId === message.requestId));
     },
-    /** The answer to a `getSeal` of the work item: `done`, or the error's sentence. */
-    getSeal: async (id: number, requestId: number): Promise<string> => {
-      socket.send(JSON.stringify({ type: "getSeal", requestId, workItemId: id }));
-      const answer = await until(() => messages.find((m) => (m.type === "done" || m.type === "error") && m.requestId === requestId));
-      return answer.type === "error" ? answer.message : "done";
+    /** Starts the work item's chain at the daemon, as a person's word does (`Daemon#startChain`): `done` once it has started and this client holds the lists the start sent, which carry the chain as running, or the sentence the daemon refused the start with. No client message starts a chain, so the case holds the daemon. The call returns in the case's own process before the socket delivers those lists, and a list sent before the start may still arrive after it, so the client waits for the start's own. */
+    startChain: async (id: number): Promise<string> => {
+      if (d === undefined) throw new Error("this client was given no daemon to start a chain at");
+      const from = messages.length;
+      try {
+        await d.startChain(id, true);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+      await until(() => (messages.slice(Math.min(from, messages.length)).some((m) => m.type === "inbox" && [...m.workItems, ...m.archived].find((item) => item.id === id)?.chain?.state === "running") ? true : undefined));
+      return "done";
     },
   };
 }
@@ -310,7 +317,7 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
     return { d, url: `ws://127.0.0.1:${port}` };
   };
   const { d, url } = await start();
-  const c = await client(url, cleanups);
+  const c = await client({ url, d }, cleanups);
   await c.message("ready");
   return { made, runDir, d, url, c, workItems, start, remote, gh };
 }
@@ -437,6 +444,56 @@ export function commitSeal(folder: string, given: { workItem: string; branch: st
     commitAll(folder, "chore: record the sealer's verdict");
   }
   return gate;
+}
+
+/**
+ * Commits in a worktree on the work item's branch the records of a chain
+ * that sealed it after one fix, each in a commit of its own as a chain
+ * commits them: the routing, round 1 on the routing's commit with finding 1
+ * at `feature.txt:1`, with the symptom given where one is, the commit that
+ * fixes it, the fix pass's close of the finding with that commit, round 2 on the commits after round 1's target,
+ * which confirms the fix, the broad gate's run on round 2's commit against
+ * `base`, and a seal of that commit. Gives the commit that fixed the
+ * finding.
+ */
+export function commitSealedAfterAFix(folder: string, given: { workItem: string; branch: string; base: string; symptom?: string }): string {
+  const directory = `seal/threads/${given.workItem}`;
+  const record = `${directory}/trail/rounds/round-1.md`;
+  write(folder, `${directory}/routing.md`, routingText(given.workItem, given.branch, TODAY));
+  const routed = commitAll(folder, "chore: declare the work item's routing");
+  const round1 = roundRecord(`# Review round 1: ${given.workItem}`, `${routed} against main`, [1]);
+  const heading = "### 1. The greeting of line 1 misses its full stop\n";
+  if (!round1.includes(heading)) throw new Error("round 1's record holds no finding 1 to give the symptom");
+  write(folder, record, given.symptom === undefined ? round1 : round1.replace(heading, `### 1. ${given.symptom}\n`));
+  commitAll(folder, "chore: record review round 1");
+  write(folder, "feature.txt", "A greeting.\n");
+  const fix = commitAll(folder, "fix: end the greeting");
+  closeFinding(folder, record, 1, `fixed ${fix}`);
+  const passed = commitAll(folder, "chore: record the fix pass of round 1");
+  write(folder, `${directory}/trail/rounds/round-2.md`, roundRecord(`# Review round 2: ${given.workItem}`, `${passed}, fixes ${routed}..${passed}`, [], ["round-1#1"]));
+  const gate = commitAll(folder, "chore: record review round 2");
+  write(folder, `${directory}/trail/gate.md`, gateText(null, given.workItem, { head: gate, base: given.base }));
+  commitAll(folder, "chore: record the broad gate's run");
+  write(folder, `${directory}/guarantee.md`, guaranteeWith(null, given.workItem, 1, `${gate} against main`));
+  commitAll(folder, "chore: record the sealer's verdict");
+  return fix;
+}
+
+/** One entry of the daemon's ledger for a stage of a work item's chain, which reported a converted cost of $0.28 where it is an agent's turn. A built-app case appends such lines to `ledger.jsonl` of the run folder, which the daemon reads at each `readLedger`. */
+export function chainEntry(workItem: WorkItem, kind: NonNullable<LedgerEntry["chain"]>["kind"], round: number, at: number): LedgerEntry {
+  const turn = kind !== "gate";
+  return {
+    workItemId: workItem.id,
+    repo: workItem.repo,
+    branch: workItem.branch,
+    stage: kind === "gate" ? { role: null, stage: "gate" } : kind === "fix-pass" ? { role: "crafter", stage: "fix-pass" } : kind === "seal" ? { role: "sealer", stage: "seal" } : { role: "proofer", stage: "round" },
+    chain: { kind, round },
+    startedAt: at,
+    endedAt: at + 4 * 60_000,
+    state: "finished",
+    stopped: null,
+    usage: turn ? { costUsd: 0.28, converted: true, models: [{ model: "stand-in", inputTokens: 12_300, outputTokens: 2_100, cacheReadTokens: 48_000, cacheWriteTokens: 9_200, costUsd: 0.28 }] } : null,
+  };
 }
 
 /** A close block as a fix pass appends one. */

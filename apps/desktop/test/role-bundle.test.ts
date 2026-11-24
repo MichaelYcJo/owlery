@@ -154,7 +154,7 @@ describe("the role bundle", () => {
       "**The session that judges built none of the work.**",
     ]) expect(definition, named).toContain(named);
     const form = read("docs/forms/the-guarantee.md");
-    for (const named of ["`### Claims checked by reading` or `### The parties`", "The daemon writes four lines more into the block, before its closing fence: `built-by:`", "starts \"Get a seal\" again", "the closing records follow", "The closing records are `trail/gate.md`, `guarantee.md` and `trail/refusals.md`"]) expect(form, named).toContain(named);
+    for (const named of ["`### Claims checked by reading` or `### The parties`", "The daemon writes four lines more into the block, before its closing fence: `built-by:`", "the person fixes what the reason names and starts", "the closing records follow", "The closing records are `trail/gate.md`, `guarantee.md` and `trail/refusals.md`"]) expect(form, named).toContain(named);
     for (const gone of ["pull request body", "seal mark", "the orchestrator's broad run"]) expect(form, gone).not.toContain(gone);
     expect(read("README.md")).toContain("a sealer reads the commit the daemon's broad gate passed on and answers with its run's section of the guarantee, which the daemon completes with who built the work and who judged it, writes and commits");
   });

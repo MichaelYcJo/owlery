@@ -473,12 +473,9 @@
       /* Where the seal is broken, the seal's sentence, which says why, stands under the head in the ink of the text, and takes no room otherwise. */
       #view-seal .why { font-size: var(--size-second); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
       #view-seal .why:empty { display: none; }
-      /* The chain's sentence stands above the button that starts the chain, and the daemon's refusal of a start under it. */
-      #view-seal .says, #view-seal .refusal { font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; }
-      #view-seal .says { margin-top: var(--space-3); color: var(--ink); }
-      #view-seal .refusal { color: var(--state-failed); }
-      #view-seal .says:empty, #view-seal .refusal:empty { display: none; }
-      #get-seal { align-self: flex-start; margin-top: var(--space-3); }
+      /* The sentence of the work item's chain stands under the seal's words, and takes no room where no chain ran. */
+      #view-seal .says { margin-top: var(--space-3); font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; color: var(--ink); }
+      #view-seal .says:empty { display: none; }
       /* The work item's pull request, under the seal's place, as GitHub last answered: rows of a list of records. The first row is its number and its state, and opens it; then the result of its checks, then one row for each check with its mark, its name and its state's word, which opens the check where GitHub gave it an address. How many more checks GitHub listed, and why the last read failed, stand under the rows. A long list scrolls inside the section. */
       #view-pull-request { flex: none; display: flex; flex-direction: column; box-sizing: border-box; max-height: 30%; overflow: auto; padding: var(--space-3) var(--space-6) var(--space-5); border-top: 1px solid var(--rule); font-size: var(--size-second); }
       #view-pull-request .row { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; width: 100%; min-height: var(--detail-line); padding: var(--space-1) var(--space-2); border-radius: var(--radius-line); box-shadow: var(--line-edge); text-align: left; }
@@ -757,8 +754,6 @@
             <span id="view-seal-why" class="why"></span>
             <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
             <span id="seal-says" class="says"></span>
-            <button type="button" id="get-seal" class="primary" hidden>Get a seal</button>
-            <span id="seal-refusal" class="refusal" role="alert"></span>
           </span>
         </section>
         <section id="view-pull-request" aria-label="Pull request" hidden>

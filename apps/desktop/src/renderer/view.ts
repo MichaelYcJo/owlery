@@ -125,7 +125,7 @@ function permissionsOf(workItem: WorkItem): readonly PermissionAsk[] {
   return (workItem.permissions as PermissionAsk[] | undefined) ?? [];
 }
 
-/** A work item's chain: the one the daemon sends, null where no chain ran for the work item, and undefined for a daemon of an earlier build, which sends no such field and offers no "Get a seal". */
+/** A work item's chain: the one the daemon sends, null where no chain ran for the work item, and undefined for a daemon of an earlier build, which sends no such field. */
 function chainOf(workItem: WorkItem): Chain | null | undefined {
   return workItem.chain as Chain | null | undefined;
 }
@@ -2770,51 +2770,15 @@ export function askButton(prompt: string, workItem: WorkItem): { enabled: boolea
   return { enabled: true, title: `Ask in ${workItem.title}` };
 }
 
-/** The daemon's refusal of a press of "Get a seal": its sentence, with the state of the work item's chain and the time the chain took it as the window held them at the refusal, each null where no chain ran for the work item. */
-export interface SealRefusal {
-  says: string;
-  state: Chain["state"] | null;
-  since: number | null;
-}
-
-/** The refusal the daemon answered a press of "Get a seal" with, for the work item as the window holds it at the answer, or for none where the window no longer lists it. */
-export function refusedSeal(workItem: WorkItem | undefined, says: string): SealRefusal {
-  const chain = workItem && chainOf(workItem);
-  return { says, state: chain?.state ?? null, since: chain?.since ?? null };
-}
-
 /**
- * The "Get a seal" button of a work item's view, which starts the work
- * item's chain: its words, whether it is drawn, whether it can be pressed,
- * its title, the chain's sentence that stands above it, and the refusal
- * under it. Its words are "Get a new seal" where the seal the branch's head
- * holds is broken, and "Get a seal" otherwise: it sends the same request
- * either way, and the daemon runs the step the order owes. It
- * is drawn where the daemon sent the work item's chain, a chain or none,
- * and not for a daemon of an earlier build, which sends no such field and
- * starts no chain. It cannot be pressed while the chain is running, nor
- * while `asked`, the window's own request to start it, waits for the
- * daemon's answer. `refused` is the daemon's refusal of the window's last
- * request for the work item (`refusedSeal`), or null. Its sentence is said
- * while the chain stands as it stood when the daemon refused, in that state
- * since that time, and not while the chain runs: a chain that took a state
- * since then ran, whoever started it, and what refused the press may no
- * longer hold.
+ * The sentence of a work item's chain, which stands at its view's foot under
+ * the seal's words: where the chain of the daemon stands. It is empty where
+ * no chain ran for the work item, and for a daemon of an earlier build,
+ * which sends no chain. Nothing in the window starts a chain, so the foot
+ * holds nothing to press.
  */
-export function sealButton(workItem: WorkItem, asked: boolean, refused: SealRefusal | null): { words: string; offered: boolean; enabled: boolean; title: string; says: string; refusal: string } {
-  const chain = chainOf(workItem);
-  const words = workItem.seal?.state === "broken" ? "Get a new seal" : "Get a seal";
-  if (chain === undefined) return { words, offered: false, enabled: false, title: "", says: "", refusal: "" };
-  const running = chain?.state === "running";
-  const stands = refused !== null && refused.state === (chain?.state ?? null) && refused.since === (chain?.since ?? null);
-  return {
-    words,
-    offered: true,
-    enabled: !running && !asked,
-    title: running ? "The chain is running." : asked ? "The chain is starting." : `Start the review rounds on ${workItem.title}`,
-    says: chain?.says ?? "",
-    refusal: running || !stands ? "" : refused.says,
-  };
+export function chainSays(workItem: WorkItem): string {
+  return chainOf(workItem)?.says ?? "";
 }
 
 /** The headless sessions the window holds, with one the daemon just sent: in place of the one of the same id, or after the others. */

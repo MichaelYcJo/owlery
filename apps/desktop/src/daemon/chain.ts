@@ -1,4 +1,4 @@
-// A work item's chain: what the daemon runs after "Get a seal". This module
+// A work item's chain: what the daemon runs from `Daemon#startChain`. This module
 // holds what the run decides and says and none of its sessions: the step the
 // records owe, each stage's prompt, the reading of each stage's answer, and
 // the chain as the store keeps it. `Daemon#runChain` starts the sessions and
@@ -167,12 +167,12 @@ export function gateNotRunSays(why: string): string {
 
 /** The sentence of a chain the orchestrator's judgment stopped. */
 export function notConvergingSays(round: number): string {
-  return `The orchestrator judged after round ${String(round)} that the review rounds are not converging. "Get a seal" runs the fix pass of round ${String(round)} all the same.`;
+  return `The orchestrator judged after round ${String(round)} that the review rounds are not converging. The next start runs the fix pass of round ${String(round)} all the same.`;
 }
 
 /** The sentence of a chain that stopped at the ceiling of its rounds. */
 export function ceilingSays(round: number, ceiling: number): string {
-  return `Review round ${String(round)} left a finding open, and a chain stops for the person from round ${String(ceiling)} on. "Get a seal" runs the fix pass of round ${String(round)} and one more round.`;
+  return `Review round ${String(round)} left a finding open, and a chain stops for the person from round ${String(ceiling)} on. The next start runs the fix pass of round ${String(round)} and one more round.`;
 }
 
 /** The sentence of a parked chain that did not go on once its questions were answered: what refused the start, as a sentence of its own. */
@@ -339,12 +339,12 @@ export function passedBefore(stages: readonly ChainStage[], round: number): bool
  * - A fix pass on that record already finished: nothing. The gate was passed
  *   before that pass.
  * - The round is the ceiling or a later one: the chain stops and asks no
- *   judgment, but at the first step of a start a person's `getSeal` made,
+ *   judgment, but at the first step of a start a person's word made,
  *   whose start is the answer.
  * - The round is round 1: nothing. No record yet shows whether a fix held.
  * - This run asked the orchestrator after that round and was answered yes:
  *   nothing.
- * - The step is the first of a start a person's `getSeal` made, and the
+ * - The step is the first of a start a person's word made, and the
  *   chain's last stored stage is a judgment after that round that finished:
  *   nothing. The person read its answer and started the chain again.
  * - Otherwise the orchestrator's judgment.
@@ -449,8 +449,8 @@ export async function standingOf(worktree: string, directory: string, head: stri
 // The routing a first start writes.
 
 /**
- * The `routing.md` of a directory the daemon makes at a work item's first
- * "Get a seal": the branch was built in the person's own session, so the
+ * The `routing.md` of a directory the daemon makes at the first start of a
+ * work item's chain: the branch was built in the person's own session, so the
  * planner and the implementer are `the session`, and the work goes through
  * the review chain to a pull request. It holds no `Automation` row: nothing
  * the daemon reads says whether the branch's tests are automated, and the
@@ -468,11 +468,11 @@ export function routingText(workItem: string, branch: string, date: string): str
     "| Implementation | the session |",
     `| Branch | ${branch} |`,
     "",
-    `Answered ${date} by Owlery, when the person pressed "Get a seal".`,
+    `Answered ${date} by Owlery, at the first start of the work item's chain.`,
     "",
     "## Why this way",
     "",
-    "The branch was built in the person's own session, and the person asked for a seal on it.",
+    "The branch was built in the person's own session, and its chain was started for a seal on it.",
     "",
   ].join("\n");
 }
@@ -1074,7 +1074,7 @@ export function isChain(value: unknown): value is WrittenChain {
  * `reviewed` said that nothing was owed, and a seal now is. `sealed` said
  * that the branch was sealed, and stayed so after a later commit broke the
  * seal, which `WorkItem.seal` now says from the branch's head. The next
- * `getSeal` reads the step owed from the records.
+ * start reads the step owed from the records.
  */
 export function chainOf(chain: WrittenChain): Chain | null {
   if (chain.state === "reviewed" || chain.state === "sealed") return null;
@@ -1096,7 +1096,7 @@ export const DAEMON_ENDED = "the daemon ended while the stage ran";
  * that session's id to another. A chain an earlier build stored `reviewed`
  * or `sealed` is read as none (`chainOf`). A chain stored `running` is read as
  * `stopped`: its stage's session ended with the daemon that started it, and
- * nothing starts a stage but a `getSeal`. Its sentence says that the daemon
+ * nothing starts a stage but a start of the chain. Its sentence says that the daemon
  * ended while the stage ran, the stage that was working is `failed`, and
  * the chain is stopped since `now`, the clock of the daemon that reads it:
  * nothing holds when the daemon before it ended.
