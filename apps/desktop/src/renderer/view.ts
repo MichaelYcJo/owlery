@@ -2914,7 +2914,8 @@ export function accountChoices(held: HeldAccounts, first: string, gives: number)
 export function paneAccountChange(session: SessionInfo, label: string, paneKinds: readonly PaneKindInfo[], held: HeldAccounts | null): { heading: string; says: string; choices: { value: string; label: string }[] } | null {
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   if (held === null || !offersAccounts(held) || kind?.continues !== true || kind.accounts !== true) return null;
-  if (!session.alive || (session.signsIn ?? null) !== null || session.accountId === null || session.accountId === undefined) return null;
+  // A sign-in pane is a shell, so its kind offers it nothing.
+  if (!session.alive || session.accountId === null || session.accountId === undefined) return null;
   return {
     heading: `Change the account of ${label}`,
     says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",

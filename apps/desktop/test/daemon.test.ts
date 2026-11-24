@@ -7450,8 +7450,10 @@ describe("a Claude Code pane and the owl chain", () => {
     c.send({ type: "changeAccount", requestId: 5, id: pane.id, accountId: 0 });
     expect(await answer(5)).toEqual({ type: "done", requestId: 5 });
     // The new process's tool end leaves it working, as no interruption of its own began its state.
+    const changed = c.messages.length;
     d.agentEvent(pane.id, "PostToolUse", { tool_name: "Bash" });
-    await c.message("inbox", (m) => m.sessions.some((listed) => listed.id === pane.id && listed.state === "working"));
+    const after = await c.until(() => c.messages.slice(changed).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && (m.sessions.find((listed) => listed.id === pane.id)?.state ?? null) !== null));
+    expect(after.sessions.find((listed) => listed.id === pane.id)?.state).toBe("working");
     const again = sessionLog(cleanups);
     d.agentEvent(pane.id, "UserPromptSubmit", { transcript_path: again });
     await c.until(() => (unread(again).length === 1 ? true : undefined));
