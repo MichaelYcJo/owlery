@@ -29,7 +29,7 @@ The tree as read at `92f94607`.
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1 to 9, and the rows of *Removes*. | Scenarios 3 and 4 seen red, each with its one edit and then reverted. Scenarios 1 and 2: `pnpm run role:refusal` three times in a row, then `pnpm run role:refusal:sealer` three times in a row, at the phase's tree, each exit code read directly. Scenario 7: `git grep -n 'REFUSAL_PROMPT' -- apps/desktop` prints nothing; at `92f94607` it prints the two lines *Removes* row 1 names. Scenarios 5 and 6 read in the diff. The suite, the lint and the typecheck are `unverified`, and the orchestrator's broad gate answers them. | |
+| 1 | *Scope* items 1 to 9, and the rows of *Removes*. | Scenarios 3 and 4 seen red, each with its one edit and then reverted. Scenarios 1 and 2: `pnpm run role:refusal` three times in a row, then `pnpm run role:refusal:sealer` three times in a row, at the phase's tree, each exit code read directly. Scenario 7: `git grep -n 'REFUSAL_PROMPT' -- apps/desktop` prints nothing; at `92f94607` it prints the two lines *Removes* row 1 names. Scenarios 5 and 6 read in the diff. The suite, the lint and the typecheck are `unverified`, and the orchestrator's broad gate answers them. | built `c8dc3fa`; `trail/phases/phase-1.md` |
 
 Each run of the file waits first with `while pgrep -f 'vites[t]' >/dev/null; do sleep 20; done`, because other worktrees run suites on the same machine. Where a fix pass changes `model-stand-in.ts` or the hand check, the runs of scenarios 1 and 2 are owed again at the fix's commit.
 
