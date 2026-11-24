@@ -85,7 +85,10 @@ function realOf(folder: string): string {
  * default until another is named. An id is never given twice, and a file
  * whose next id stands at or below an id it holds is read as one past the
  * highest. A default that names no account the file holds is read as System
- * default, and a file that is no store as no account. The store reads no file
+ * default, and a file that is no store as no account. An account the file
+ * calls made is read as one handed over where its folder is not the one the
+ * store makes for its id, `accounts/<id>` of the run directory, so a removal
+ * deletes no folder the store did not make. The store reads no file
  * inside a folder and writes none there: it makes an empty folder for an
  * account added with none, and removes that folder with its account. Given
  * no run directory, the store is kept in memory alone and makes no folder.
@@ -106,7 +109,11 @@ export class AccountStore {
     if (!isStored(value)) return;
     // A file of a build before sign-in holds no word on a login, and reads as one the agent has said nothing of.
     // A file of a build before usage holds no limit value, and reads as one no session handed any over to.
-    const accounts = value.accounts.map(({ id, name, adapter, folder, made, signedIn, loginEndsAt, limits }) => ({ id, name, adapter, folder, made, signedIn: typeof signedIn === "boolean" ? signedIn : null, loginEndsAt: typeof loginEndsAt === "number" && Number.isFinite(loginEndsAt) ? loginEndsAt : null, limits: limitsOf(limits) }));
+    // A folder is read as made only where it is the one `addMade` makes for its id, so an edited file never has a removal sign out
+    // and delete a folder Owlery did not make. A run folder moved elsewhere reads its made folders as handed over, which are never removed.
+    const holder = join(dirname(this.file), MADE_FOLDERS);
+    const madeAt = (id: number): string => join(holder, String(id));
+    const accounts = value.accounts.map(({ id, name, adapter, folder, made, signedIn, loginEndsAt, limits }) => ({ id, name, adapter, folder, made: made && folder === madeAt(id), signedIn: typeof signedIn === "boolean" ? signedIn : null, loginEndsAt: typeof loginEndsAt === "number" && Number.isFinite(loginEndsAt) ? loginEndsAt : null, limits: limitsOf(limits) }));
     const highest = accounts.reduce((most, account) => Math.max(most, account.id), SYSTEM_DEFAULT_ID);
     this.stored = {
       nextId: Math.max(value.nextId, highest + 1),

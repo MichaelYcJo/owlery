@@ -207,6 +207,20 @@ describe("AccountStore", () => {
     }
   });
 
+  it("reads an account as made only where its folder is the one the store makes for its id, so a removal of an account the file calls made with another folder leaves that folder", () => {
+    const runDir = folder();
+    const handed = handedFolder();
+    writeFileSync(join(handed, "settings.json"), "{}\n");
+    const made = join(runDir, "accounts", "2");
+    mkdirSync(made, { recursive: true });
+    writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 3, defaultId: 0, accounts: [{ id: 1, name: "Edited", adapter: "claude", folder: handed, made: true }, { id: 2, name: "Made", adapter: "claude", folder: made, made: true }] }));
+    const store = new AccountStore(runDir);
+    expect(store.accounts().map((account) => account.made)).toEqual([false, true]);
+    store.remove(1);
+    store.remove(2);
+    expect([existsSync(join(handed, "settings.json")), existsSync(made)]).toEqual([true, false]);
+  });
+
   it("keeps the accounts in memory alone where it is given no run folder", () => {
     const store = new AccountStore(undefined);
     store.addHanded("Work", handedFolder(), "claude");
