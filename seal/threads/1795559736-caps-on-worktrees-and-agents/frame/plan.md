@@ -77,4 +77,4 @@ The spawn names #134, #168, #154, #149 and #191. Each was read as its issue. Non
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | The seam with #134 is #32's: #32 builds `src/daemon/machine.ts`, `src/shared/machine.ts` and the Machine dialog, and its pull request merges into `release/v0.0.4` before #134's phase 5 is built on them. | Two frames named the same modules, and one owner keeps one shape of `MachineReading` and of the dialog; #32 holds the reader and the dialog its issue asks for, and #134 only reads the load and adds a line, so #134 waits on #32 and not the other way. #134's `frame/plan.md` *Overlap with the release* states the same order. | `skills/implement/orchestration.md` *Orchestrator: the order inside a ticket* |
